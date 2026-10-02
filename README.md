@@ -17,6 +17,10 @@
 
 Java (Spring Boot), PostgreSQL + Flyway, Kafka, Redis, Keycloak (OAuth2, JWT), API Gateway, MinIO, React, Docker Compose, GitHub Actions. По плану также k3s + Helm, Prometheus, Grafana, Loki, OpenTelemetry, OpenSearch, gRPC.
 
+## Статус
+
+Фаза Ф1 «Аналитика» завершена (веха M1): процессы, статусные модели, user stories, use cases, доменная модель, методика проверки NFR и матрица трассировки для релиза R1. Следующая фаза Ф2: архитектура и контракты. Код появится после Ф2.
+
 ## Документация
 
 | Документ | Что внутри |
@@ -24,6 +28,10 @@ Java (Spring Boot), PostgreSQL + Flyway, Kafka, Redis, Keycloak (OAuth2, JWT), A
 | [Навигатор по документации](docs/README.md) | Карта всех разделов |
 | [План проекта](docs/00-project-plan.md) | Этапы, шаги, технологическая карта, план ADR |
 | [Требования v1.5](docs/02-requirements/requirements_v1.5.md) | Цели, функциональные и нефункциональные требования, модель данных |
+| [Итоговый отчёт по Ф1](docs/00-phase1-report.md) | Принятые решения, найденные расхождения, проверка вехи M1 |
+| [Бизнес-процессы и статусные модели](docs/03-processes/README.md) | 7 процессов BPMN, 11 статусных моделей |
+| [Домен и данные](docs/04-domain/README.md) | Контексты, доменная модель, логическая ER-диаграмма |
+| [Матрица трассировки](docs/08-testing/traceability.md) | Цель, требование, история, процесс |
 
 ## Быстрый запуск
 
