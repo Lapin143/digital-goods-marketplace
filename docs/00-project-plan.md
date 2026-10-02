@@ -291,6 +291,7 @@ SOAP-мок, RabbitMQ, Camunda и Temporal в реализацию не вход
 | Use case | UC-01 | `02-requirements/` |
 | Процесс BPMN | BPMN-01 | `03-processes/` |
 | Статусная модель | SM-01 | `03-processes/` |
+| Инвариант домена | INV-01 | `04-domain/domain-model.md` |
 | Решение | ADR-005 | `05-architecture/adr/` |
 | Операция API | `operationId` в OpenAPI | `06-api/` |
 | Событие | Имя в AsyncAPI | `06-api/` |
