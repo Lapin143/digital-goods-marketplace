@@ -1,0 +1,515 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="P_app" name="Заявитель" processRef="Process_applicant" />
+    <bpmn:participant id="P_platform" name="Платформа" processRef="Process_platform" />
+    <bpmn:participant id="P_mail" name="E-mail-провайдер" />
+    <bpmn:messageFlow id="Msg_a_send_s_app" name="Заявка с анкетой и документами" sourceRef="a_send" targetRef="s_app" />
+    <bpmn:messageFlow id="Msg_t_mail_P_mail" name="Письмо с решением" sourceRef="t_mail" targetRef="P_mail" />
+    <bpmn:messageFlow id="Msg_P_mail_a_wait" name="Письмо в почтовом ящике" sourceRef="P_mail" targetRef="a_wait" />
+    <bpmn:messageFlow id="Msg_a_2fa_s_2fa" name="Код из приложения-аутентификатора" sourceRef="a_2fa" targetRef="s_2fa" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_applicant" isExecutable="false">
+    <bpmn:startEvent id="a_start" name="Пользователь решил стать продавцом">
+      <bpmn:outgoing>Flow_a_start_a_fill</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:userTask id="a_fill" name="Заполнить анкету и загрузить документы">
+      <bpmn:documentation>FT-2.0: анкета, тип (ИП, самозанятый, юрлицо), документы, описание ассортимента. SM-05: профиль в статусе «черновик».</bpmn:documentation>
+      <bpmn:incoming>Flow_a_start_a_fill</bpmn:incoming>
+      <bpmn:incoming>Flow_lc_new_a_fill</bpmn:incoming>
+      <bpmn:outgoing>Flow_a_fill_a_send</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="a_send" name="Отправить заявку на проверку">
+      <bpmn:documentation>SM-05: черновик (или на доработке) -&gt; на проверке.</bpmn:documentation>
+      <bpmn:incoming>Flow_a_fill_a_send</bpmn:incoming>
+      <bpmn:incoming>Flow_a_rework_a_send</bpmn:incoming>
+      <bpmn:outgoing>Flow_a_send_a_wait</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:intermediateCatchEvent id="a_wait" name="Письмо с решением получено">
+      <bpmn:incoming>Flow_a_send_a_wait</bpmn:incoming>
+      <bpmn:outgoing>Flow_a_wait_a_gw</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="a_wait_def" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:exclusiveGateway id="a_gw" name="Какое решение?">
+      <bpmn:incoming>Flow_a_wait_a_gw</bpmn:incoming>
+      <bpmn:outgoing>Flow_a_gw_a_2fa</bpmn:outgoing>
+      <bpmn:outgoing>Flow_a_gw_a_rework</bpmn:outgoing>
+      <bpmn:outgoing>Flow_a_gw_a_new</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="a_rework" name="Доработать заявку по комментарию">
+      <bpmn:documentation>Заявитель исправляет замечания модератора и подаёт заявку повторно.</bpmn:documentation>
+      <bpmn:incoming>Flow_a_gw_a_rework</bpmn:incoming>
+      <bpmn:outgoing>Flow_a_rework_a_send</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="a_2fa" name="Войти и настроить 2FA">
+      <bpmn:documentation>FT-1.3, NFT-3.0: для продавца вторая ступень входа обязательна.</bpmn:documentation>
+      <bpmn:incoming>Flow_a_gw_a_2fa</bpmn:incoming>
+      <bpmn:outgoing>Flow_a_2fa_a_end</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:endEvent id="a_end" name="Кабинет продавца открыт">
+      <bpmn:incoming>Flow_a_2fa_a_end</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="a_new" name="Исправить анкету и подать новую заявку">
+      <bpmn:documentation>FT-2.4: после отказа можно подать новую заявку не раньше чем через 24 часа. SM-05: отклонён -&gt; черновик.</bpmn:documentation>
+      <bpmn:incoming>Flow_a_gw_a_new</bpmn:incoming>
+      <bpmn:outgoing>Flow_a_new_lt_new</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:intermediateThrowEvent id="lt_new" name="Новая заявка">
+      <bpmn:incoming>Flow_a_new_lt_new</bpmn:incoming>
+      <bpmn:linkEventDefinition id="lt_new_def" name="Новая заявка" />
+    </bpmn:intermediateThrowEvent>
+    <bpmn:intermediateCatchEvent id="lc_new" name="Новая заявка">
+      <bpmn:outgoing>Flow_lc_new_a_fill</bpmn:outgoing>
+      <bpmn:linkEventDefinition id="lc_new_def" name="Новая заявка" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:sequenceFlow id="Flow_a_start_a_fill" sourceRef="a_start" targetRef="a_fill" />
+    <bpmn:sequenceFlow id="Flow_a_fill_a_send" sourceRef="a_fill" targetRef="a_send" />
+    <bpmn:sequenceFlow id="Flow_a_send_a_wait" sourceRef="a_send" targetRef="a_wait" />
+    <bpmn:sequenceFlow id="Flow_a_wait_a_gw" sourceRef="a_wait" targetRef="a_gw" />
+    <bpmn:sequenceFlow id="Flow_a_gw_a_2fa" name="одобрено" sourceRef="a_gw" targetRef="a_2fa" />
+    <bpmn:sequenceFlow id="Flow_a_gw_a_rework" name="на доработку" sourceRef="a_gw" targetRef="a_rework" />
+    <bpmn:sequenceFlow id="Flow_a_rework_a_send" sourceRef="a_rework" targetRef="a_send" />
+    <bpmn:sequenceFlow id="Flow_a_2fa_a_end" sourceRef="a_2fa" targetRef="a_end" />
+    <bpmn:sequenceFlow id="Flow_a_gw_a_new" name="отклонено" sourceRef="a_gw" targetRef="a_new" />
+    <bpmn:sequenceFlow id="Flow_a_new_lt_new" sourceRef="a_new" targetRef="lt_new" />
+    <bpmn:sequenceFlow id="Flow_lc_new_a_fill" sourceRef="lc_new" targetRef="a_fill" />
+    <bpmn:textAnnotation id="Note_3d"><bpmn:text>Срок рассмотрения не более 3 суток (FT-2.1). Он считается заново с каждой подачи, в том числе после доработки</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Assoc_Note_3d" sourceRef="Note_3d" targetRef="a_send" />
+  </bpmn:process>
+  <bpmn:process id="Process_platform" isExecutable="false">
+    <bpmn:laneSet id="LaneSet_Process_platform">
+      <bpmn:lane id="Lane_moderator" name="Модератор">
+        <bpmn:flowNodeRef>u_review</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>b_3d</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>e_alert</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_sellers" name="Подключение продавцов">
+        <bpmn:flowNodeRef>s_app</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_save</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_queue</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>g_dec</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_reject</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_rework</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_approve</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>j_dec</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_audit</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>g_cool</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_cool</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>e_cool</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_identity" name="Идентификация">
+        <bpmn:flowNodeRef>t_role</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>s_2fa</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_2fa</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>e_2fa</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_notify" name="Уведомления">
+        <bpmn:flowNodeRef>t_mail</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>e_notified</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="s_app" name="Заявка подана">
+      <bpmn:outgoing>Flow_s_app_g_cool</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="s_app_def" />
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="t_save" name="Сохранить документы, профиль «на проверке»">
+      <bpmn:documentation>SM-05: -&gt; на проверке. Документы лежат в S3-совместимом хранилище в РФ.</bpmn:documentation>
+      <bpmn:incoming>Flow_g_cool_t_save</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_save_t_queue</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="t_queue" name="Поставить заявку в очередь модератора">
+      <bpmn:documentation>Срок рассмотрения не более 3 суток отсчитывается с момента подачи.</bpmn:documentation>
+      <bpmn:incoming>Flow_t_save_t_queue</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_queue_u_review</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="g_dec" name="Решение
+модератора">
+      <bpmn:incoming>Flow_u_review_g_dec</bpmn:incoming>
+      <bpmn:outgoing>Flow_g_dec_t_reject</bpmn:outgoing>
+      <bpmn:outgoing>Flow_g_dec_t_rework</bpmn:outgoing>
+      <bpmn:outgoing>Flow_g_dec_t_approve</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="t_reject" name="Профиль «отклонён», сохранить причину">
+      <bpmn:documentation>SM-05: на проверке -&gt; отклонён. Причина обязательна (FT-2.1).</bpmn:documentation>
+      <bpmn:incoming>Flow_g_dec_t_reject</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_reject_j_dec</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="t_rework" name="Профиль «на доработке», сохранить комментарий">
+      <bpmn:documentation>SM-05: на проверке -&gt; на доработке.</bpmn:documentation>
+      <bpmn:incoming>Flow_g_dec_t_rework</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_rework_j_dec</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="t_approve" name="Профиль «одобрен»">
+      <bpmn:documentation>SM-05: на проверке -&gt; одобрен.</bpmn:documentation>
+      <bpmn:incoming>Flow_g_dec_t_approve</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_approve_t_role</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="j_dec">
+      <bpmn:incoming>Flow_t_reject_j_dec</bpmn:incoming>
+      <bpmn:incoming>Flow_t_rework_j_dec</bpmn:incoming>
+      <bpmn:incoming>Flow_t_role_j_dec</bpmn:incoming>
+      <bpmn:outgoing>Flow_j_dec_t_audit</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="t_audit" name="Записать решение в журнал аудита">
+      <bpmn:documentation>FT-11.2: действие модератора фиксируется в неизменяемом журнале. Персональные данные в журнал не попадают (NFT-5.3).</bpmn:documentation>
+      <bpmn:incoming>Flow_j_dec_t_audit</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_audit_t_mail</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="u_review" name="Принять решение по заявке">
+      <bpmn:documentation>FT-2.1: одобрить, отклонить с указанием причины, вернуть на доработку. Срок не более 3 суток.</bpmn:documentation>
+      <bpmn:incoming>Flow_t_queue_u_review</bpmn:incoming>
+      <bpmn:outgoing>Flow_u_review_g_dec</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:boundaryEvent id="b_3d" attachedToRef="u_review" cancelActivity="false">
+      <bpmn:outgoing>Flow_b_3d_e_alert</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="b_3d_def"><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">P3D</bpmn:timeDuration></bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:endEvent id="e_alert" name="Администратор оповещён о просрочке">
+      <bpmn:documentation>NFT-6.1: метрика сроков модерации и оповещение. Заявка остаётся в очереди.</bpmn:documentation>
+      <bpmn:incoming>Flow_b_3d_e_alert</bpmn:incoming>
+      <bpmn:messageEventDefinition id="e_alert_def" />
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="t_role" name="Назначить роль «Продавец», потребовать 2FA">
+      <bpmn:documentation>Роль в Keycloak. При первом входе продавец обязан настроить второй фактор.</bpmn:documentation>
+      <bpmn:incoming>Flow_t_approve_t_role</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_role_j_dec</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:startEvent id="s_2fa" name="Настройка 2FA при первом входе">
+      <bpmn:outgoing>Flow_s_2fa_t_2fa</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="s_2fa_def" />
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="t_2fa" name="Проверить код и включить 2FA">
+      <bpmn:documentation>FT-1.3, NFT-3.0.</bpmn:documentation>
+      <bpmn:incoming>Flow_s_2fa_t_2fa</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_2fa_e_2fa</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="e_2fa" name="Продавец подключён">
+      <bpmn:incoming>Flow_t_2fa_e_2fa</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="t_mail" name="Отправить письмо с решением и причиной">
+      <bpmn:documentation>FT-2.2: решение, причина отказа или комментарий для доработки.</bpmn:documentation>
+      <bpmn:incoming>Flow_t_audit_t_mail</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_mail_e_notified</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="e_notified" name="Заявитель уведомлён">
+      <bpmn:incoming>Flow_t_mail_e_notified</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:exclusiveGateway id="g_cool" name="Подача после отказа раньше чем через 24 часа?">
+      <bpmn:incoming>Flow_s_app_g_cool</bpmn:incoming>
+      <bpmn:outgoing>Flow_g_cool_t_save</bpmn:outgoing>
+      <bpmn:outgoing>Flow_g_cool_t_cool</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="t_cool" name="Не принять заявку: новая подача возможна через 24 часа">
+      <bpmn:documentation>FT-2.4: ограничение защищает очередь модератора от повторов. Значение 24 часа, параметр платформы (FT-11.1).</bpmn:documentation>
+      <bpmn:incoming>Flow_g_cool_t_cool</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_cool_e_cool</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="e_cool" name="Заявка не принята">
+      <bpmn:incoming>Flow_t_cool_e_cool</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_t_save_t_queue" sourceRef="t_save" targetRef="t_queue" />
+    <bpmn:sequenceFlow id="Flow_t_queue_u_review" sourceRef="t_queue" targetRef="u_review" />
+    <bpmn:sequenceFlow id="Flow_u_review_g_dec" sourceRef="u_review" targetRef="g_dec" />
+    <bpmn:sequenceFlow id="Flow_g_dec_t_reject" name="отклонить с причиной" sourceRef="g_dec" targetRef="t_reject" />
+    <bpmn:sequenceFlow id="Flow_g_dec_t_rework" name="вернуть на доработку" sourceRef="g_dec" targetRef="t_rework" />
+    <bpmn:sequenceFlow id="Flow_g_dec_t_approve" name="одобрить" sourceRef="g_dec" targetRef="t_approve" />
+    <bpmn:sequenceFlow id="Flow_t_reject_j_dec" sourceRef="t_reject" targetRef="j_dec" />
+    <bpmn:sequenceFlow id="Flow_t_rework_j_dec" sourceRef="t_rework" targetRef="j_dec" />
+    <bpmn:sequenceFlow id="Flow_t_approve_t_role" sourceRef="t_approve" targetRef="t_role" />
+    <bpmn:sequenceFlow id="Flow_t_role_j_dec" sourceRef="t_role" targetRef="j_dec" />
+    <bpmn:sequenceFlow id="Flow_j_dec_t_audit" sourceRef="j_dec" targetRef="t_audit" />
+    <bpmn:sequenceFlow id="Flow_t_audit_t_mail" sourceRef="t_audit" targetRef="t_mail" />
+    <bpmn:sequenceFlow id="Flow_t_mail_e_notified" sourceRef="t_mail" targetRef="e_notified" />
+    <bpmn:sequenceFlow id="Flow_b_3d_e_alert" sourceRef="b_3d" targetRef="e_alert" />
+    <bpmn:sequenceFlow id="Flow_s_2fa_t_2fa" sourceRef="s_2fa" targetRef="t_2fa" />
+    <bpmn:sequenceFlow id="Flow_t_2fa_e_2fa" sourceRef="t_2fa" targetRef="e_2fa" />
+    <bpmn:sequenceFlow id="Flow_s_app_g_cool" sourceRef="s_app" targetRef="g_cool" />
+    <bpmn:sequenceFlow id="Flow_g_cool_t_save" name="нет" sourceRef="g_cool" targetRef="t_save" />
+    <bpmn:sequenceFlow id="Flow_g_cool_t_cool" name="да" sourceRef="g_cool" targetRef="t_cool" />
+    <bpmn:sequenceFlow id="Flow_t_cool_e_cool" sourceRef="t_cool" targetRef="e_cool" />
+    <bpmn:textAnnotation id="Note_late"><bpmn:text>Что делать при просрочке, требования не определяют. Принято: оповещение и метрика (NFT-6.1), заявка остаётся в очереди</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Assoc_Note_late" sourceRef="Note_late" targetRef="e_alert" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="P_app_di" bpmnElement="P_app" isHorizontal="true"><dc:Bounds x="40" y="20" width="2400" height="290" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="P_platform_di" bpmnElement="P_platform" isHorizontal="true"><dc:Bounds x="40" y="370" width="2400" height="810" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_moderator_di" bpmnElement="Lane_moderator" isHorizontal="true"><dc:Bounds x="70" y="370" width="2370" height="210" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_sellers_di" bpmnElement="Lane_sellers" isHorizontal="true"><dc:Bounds x="70" y="580" width="2370" height="340" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_identity_di" bpmnElement="Lane_identity" isHorizontal="true"><dc:Bounds x="70" y="920" width="2370" height="130" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_notify_di" bpmnElement="Lane_notify" isHorizontal="true"><dc:Bounds x="70" y="1050" width="2370" height="130" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="P_mail_di" bpmnElement="P_mail" isHorizontal="true"><dc:Bounds x="40" y="1240" width="2400" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="a_start_di" bpmnElement="a_start">
+        <dc:Bounds x="92" y="152" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="67" y="192" width="85" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="a_fill_di" bpmnElement="a_fill">
+        <dc:Bounds x="180" y="130" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="a_send_di" bpmnElement="a_send">
+        <dc:Bounds x="310" y="130" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="a_wait_di" bpmnElement="a_wait">
+        <dc:Bounds x="1732" y="152" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1718" y="106" width="63" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="a_gw_di" bpmnElement="a_gw" isMarkerVisible="true">
+        <dc:Bounds x="1855" y="145" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1785" y="127" width="61" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="a_rework_di" bpmnElement="a_rework">
+        <dc:Bounds x="1820" y="25" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="a_2fa_di" bpmnElement="a_2fa">
+        <dc:Bounds x="1990" y="130" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="a_end_di" bpmnElement="a_end">
+        <dc:Bounds x="2162" y="152" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2150" y="192" width="59" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_app_di" bpmnElement="s_app">
+        <dc:Bounds x="352" y="732" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="346" y="772" width="46" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_save_di" bpmnElement="t_save">
+        <dc:Bounds x="550" y="710" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_queue_di" bpmnElement="t_queue">
+        <dc:Bounds x="690" y="710" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="g_dec_di" bpmnElement="g_dec" isMarkerVisible="true">
+        <dc:Bounds x="1035" y="725" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="968" y="698" width="70" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_reject_di" bpmnElement="t_reject">
+        <dc:Bounds x="1000" y="600" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_rework_di" bpmnElement="t_rework">
+        <dc:Bounds x="1180" y="710" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_approve_di" bpmnElement="t_approve">
+        <dc:Bounds x="1000" y="820" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="j_dec_di" bpmnElement="j_dec" isMarkerVisible="true">
+        <dc:Bounds x="1365" y="725" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_audit_di" bpmnElement="t_audit">
+        <dc:Bounds x="1470" y="710" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="u_review_di" bpmnElement="u_review">
+        <dc:Bounds x="840" y="390" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="b_3d_di" bpmnElement="b_3d">
+        <dc:Bounds x="940" y="452" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="e_alert_di" bpmnElement="e_alert">
+        <dc:Bounds x="940" y="517" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="980" y="514" width="95" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_role_di" bpmnElement="t_role">
+        <dc:Bounds x="985" y="945" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_2fa_di" bpmnElement="s_2fa">
+        <dc:Bounds x="2032" y="967" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1995" y="1007" width="110" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_2fa_di" bpmnElement="t_2fa">
+        <dc:Bounds x="2120" y="945" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="e_2fa_di" bpmnElement="e_2fa">
+        <dc:Bounds x="2282" y="967" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2265" y="1007" width="68" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_mail_di" bpmnElement="t_mail">
+        <dc:Bounds x="1455" y="1075" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="e_notified_di" bpmnElement="e_notified">
+        <dc:Bounds x="1622" y="1097" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1606" y="1137" width="67" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="a_new_di" bpmnElement="a_new">
+        <dc:Bounds x="1795" y="230" width="170" height="64" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="lt_new_di" bpmnElement="lt_new">
+        <dc:Bounds x="1992" y="244" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1969" y="284" width="81" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="lc_new_di" bpmnElement="lc_new">
+        <dc:Bounds x="222" y="244" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="199" y="284" width="81" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="g_cool_di" bpmnElement="g_cool" isMarkerVisible="true">
+        <dc:Bounds x="455" y="725" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="416" y="779" width="127" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_cool_di" bpmnElement="t_cool">
+        <dc:Bounds x="395" y="600" width="170" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="e_cool_di" bpmnElement="e_cool">
+        <dc:Bounds x="622" y="622" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="609" y="662" width="61" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Note_3d_di" bpmnElement="Note_3d"><dc:Bounds x="530" y="209" width="260" height="62" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Assoc_Note_3d_di" bpmnElement="Assoc_Note_3d"><di:waypoint x="530" y="240" /><di:waypoint x="430" y="196" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Note_late_di" bpmnElement="Note_late"><dc:Bounds x="1065" y="431" width="250" height="78" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Assoc_Note_late_di" bpmnElement="Assoc_Note_late"><di:waypoint x="1065" y="470" /><di:waypoint x="973" y="525" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_a_start_a_fill_di" bpmnElement="Flow_a_start_a_fill">
+        <di:waypoint x="128" y="170" />
+        <di:waypoint x="180" y="170" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_a_fill_a_send_di" bpmnElement="Flow_a_fill_a_send">
+        <di:waypoint x="300" y="170" />
+        <di:waypoint x="310" y="170" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_a_send_a_wait_di" bpmnElement="Flow_a_send_a_wait">
+        <di:waypoint x="430" y="170" />
+        <di:waypoint x="1732" y="170" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_a_wait_a_gw_di" bpmnElement="Flow_a_wait_a_gw">
+        <di:waypoint x="1768" y="170" />
+        <di:waypoint x="1855" y="170" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_a_gw_a_2fa_di" bpmnElement="Flow_a_gw_a_2fa">
+        <di:waypoint x="1905" y="170" />
+        <di:waypoint x="1990" y="170" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1917" y="153" width="59" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_a_gw_a_rework_di" bpmnElement="Flow_a_gw_a_rework">
+        <di:waypoint x="1880" y="145" />
+        <di:waypoint x="1880" y="105" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1884" y="128" width="82" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_a_rework_a_send_di" bpmnElement="Flow_a_rework_a_send">
+        <di:waypoint x="1820" y="65" />
+        <di:waypoint x="370" y="65" />
+        <di:waypoint x="370" y="130" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_a_2fa_a_end_di" bpmnElement="Flow_a_2fa_a_end">
+        <di:waypoint x="2110" y="170" />
+        <di:waypoint x="2162" y="170" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_save_t_queue_di" bpmnElement="Flow_t_save_t_queue">
+        <di:waypoint x="670" y="750" />
+        <di:waypoint x="690" y="750" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_queue_u_review_di" bpmnElement="Flow_t_queue_u_review">
+        <di:waypoint x="750" y="710" />
+        <di:waypoint x="750" y="430" />
+        <di:waypoint x="840" y="430" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_u_review_g_dec_di" bpmnElement="Flow_u_review_g_dec">
+        <di:waypoint x="910" y="470" />
+        <di:waypoint x="910" y="750" />
+        <di:waypoint x="1035" y="750" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_dec_t_reject_di" bpmnElement="Flow_g_dec_t_reject">
+        <di:waypoint x="1060" y="725" />
+        <di:waypoint x="1060" y="680" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1066" y="688" width="74" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_dec_t_rework_di" bpmnElement="Flow_g_dec_t_rework">
+        <di:waypoint x="1085" y="750" />
+        <di:waypoint x="1180" y="750" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1090" y="718" width="68" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_dec_t_approve_di" bpmnElement="Flow_g_dec_t_approve">
+        <di:waypoint x="1060" y="775" />
+        <di:waypoint x="1060" y="820" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1064" y="790" width="58" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_reject_j_dec_di" bpmnElement="Flow_t_reject_j_dec">
+        <di:waypoint x="1120" y="640" />
+        <di:waypoint x="1390" y="640" />
+        <di:waypoint x="1390" y="725" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_rework_j_dec_di" bpmnElement="Flow_t_rework_j_dec">
+        <di:waypoint x="1300" y="750" />
+        <di:waypoint x="1365" y="750" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_approve_t_role_di" bpmnElement="Flow_t_approve_t_role">
+        <di:waypoint x="1060" y="900" />
+        <di:waypoint x="1060" y="945" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_role_j_dec_di" bpmnElement="Flow_t_role_j_dec">
+        <di:waypoint x="1135" y="985" />
+        <di:waypoint x="1390" y="985" />
+        <di:waypoint x="1390" y="775" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_j_dec_t_audit_di" bpmnElement="Flow_j_dec_t_audit">
+        <di:waypoint x="1415" y="750" />
+        <di:waypoint x="1470" y="750" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_audit_t_mail_di" bpmnElement="Flow_t_audit_t_mail">
+        <di:waypoint x="1530" y="790" />
+        <di:waypoint x="1530" y="1075" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_mail_e_notified_di" bpmnElement="Flow_t_mail_e_notified">
+        <di:waypoint x="1605" y="1115" />
+        <di:waypoint x="1622" y="1115" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_b_3d_e_alert_di" bpmnElement="Flow_b_3d_e_alert">
+        <di:waypoint x="958" y="488" />
+        <di:waypoint x="958" y="517" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_s_2fa_t_2fa_di" bpmnElement="Flow_s_2fa_t_2fa">
+        <di:waypoint x="2068" y="985" />
+        <di:waypoint x="2120" y="985" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_2fa_e_2fa_di" bpmnElement="Flow_t_2fa_e_2fa">
+        <di:waypoint x="2240" y="985" />
+        <di:waypoint x="2282" y="985" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_a_send_s_app_di" bpmnElement="Msg_a_send_s_app">
+        <di:waypoint x="370" y="210" />
+        <di:waypoint x="370" y="732" />
+        <bpmndi:BPMNLabel><dc:Bounds x="376" y="322" width="115" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_t_mail_P_mail_di" bpmnElement="Msg_t_mail_P_mail">
+        <di:waypoint x="1530" y="1155" />
+        <di:waypoint x="1530" y="1240" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1536" y="1198" width="120" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_P_mail_a_wait_di" bpmnElement="Msg_P_mail_a_wait">
+        <di:waypoint x="1750" y="1240" />
+        <di:waypoint x="1750" y="188" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1756" y="1198" width="115" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_a_2fa_s_2fa_di" bpmnElement="Msg_a_2fa_s_2fa">
+        <di:waypoint x="2050" y="210" />
+        <di:waypoint x="2050" y="967" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2056" y="322" width="184" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_a_gw_a_new_di" bpmnElement="Flow_a_gw_a_new">
+        <di:waypoint x="1880" y="195" />
+        <di:waypoint x="1880" y="230" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1884" y="198" width="65" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_a_new_lt_new_di" bpmnElement="Flow_a_new_lt_new">
+        <di:waypoint x="1965" y="262" />
+        <di:waypoint x="1992" y="262" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_lc_new_a_fill_di" bpmnElement="Flow_lc_new_a_fill">
+        <di:waypoint x="240" y="244" />
+        <di:waypoint x="240" y="210" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_s_app_g_cool_di" bpmnElement="Flow_s_app_g_cool">
+        <di:waypoint x="388" y="750" />
+        <di:waypoint x="455" y="750" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_cool_t_save_di" bpmnElement="Flow_g_cool_t_save">
+        <di:waypoint x="505" y="750" />
+        <di:waypoint x="550" y="750" />
+        <bpmndi:BPMNLabel><dc:Bounds x="515" y="733" width="24" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_cool_t_cool_di" bpmnElement="Flow_g_cool_t_cool">
+        <di:waypoint x="480" y="725" />
+        <di:waypoint x="480" y="680" />
+        <bpmndi:BPMNLabel><dc:Bounds x="484" y="695" width="18" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_cool_e_cool_di" bpmnElement="Flow_t_cool_e_cool">
+        <di:waypoint x="565" y="640" />
+        <di:waypoint x="622" y="640" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
