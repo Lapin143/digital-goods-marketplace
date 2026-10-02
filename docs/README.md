@@ -8,6 +8,7 @@
 | --- | --- | --- |
 | [00-project-plan.md](00-project-plan.md) | План проекта: этапы, шаги, технологическая карта, ADR | |
 | [00-phase0-guide.md](00-phase0-guide.md) | Подготовка окружения: GitHub, WSL2, Docker, VS Code | Ф0 |
+| [00-phase1-guide.md](00-phase1-guide.md) | Аналитика: процессы, статусные модели, истории, use cases, домен, трассировка | Ф1 |
 | [01-vision](01-vision/) | Видение и границы, стейкхолдеры, глоссарий | Ф1 |
 | [02-requirements](02-requirements/) | Требования, user stories, use cases | Ф1 |
 | [03-processes](03-processes/) | BPMN-процессы, статусные модели | Ф1 |
@@ -20,7 +21,7 @@
 
 ## С чего начать читать
 
-1. [Требования v1.4](02-requirements/requirements_v1.4.md): что и зачем строим.
+1. [Требования v1.5](02-requirements/requirements_v1.5.md): что и зачем строим.
 2. [План проекта](00-project-plan.md): в каком порядке и какими средствами.
 3. Процессы и статусные модели в `03-processes/`: как работает бизнес.
 4. Архитектура и ADR в `05-architecture/`: как устроена система и почему именно так.

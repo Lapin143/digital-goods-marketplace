@@ -23,7 +23,7 @@ Java (Spring Boot), PostgreSQL + Flyway, Kafka, Redis, Keycloak (OAuth2, JWT), A
 | --- | --- |
 | [Навигатор по документации](docs/README.md) | Карта всех разделов |
 | [План проекта](docs/00-project-plan.md) | Этапы, шаги, технологическая карта, план ADR |
-| [Требования v1.4](docs/02-requirements/requirements_v1.4.md) | Цели, функциональные и нефункциональные требования, модель данных |
+| [Требования v1.5](docs/02-requirements/requirements_v1.5.md) | Цели, функциональные и нефункциональные требования, модель данных |
 
 ## Быстрый запуск
 
