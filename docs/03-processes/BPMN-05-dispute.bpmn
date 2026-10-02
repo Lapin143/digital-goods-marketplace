@@ -1,0 +1,662 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="P_buyer" name="Покупатель" processRef="Process_buyer" />
+    <bpmn:participant id="P_seller" name="Продавец" processRef="Process_seller" />
+    <bpmn:participant id="P_moder" name="Модератор" processRef="Process_moderator" />
+    <bpmn:participant id="P_platform" name="Платформа" processRef="Process_platform" />
+    <bpmn:participant id="P_gateway" name="Платёжный шлюз" />
+    <bpmn:participant id="P_adm" name="Администратор" />
+    <bpmn:messageFlow id="Msg_u_open_s_disp" name="Спор по заказу" sourceRef="u_open" targetRef="s_disp" />
+    <bpmn:messageFlow id="Msg_t_open_ss_notice" name="Уведомление о споре" sourceRef="t_open" targetRef="ss_notice" />
+    <bpmn:messageFlow id="Msg_u_reply_s_reply" name="Ответ продавца" sourceRef="u_reply" targetRef="s_reply" />
+    <bpmn:messageFlow id="Msg_t_ready_s_mod" name="Спор модератору" sourceRef="t_ready" targetRef="s_mod" />
+    <bpmn:messageFlow id="Msg_e_mod_ic_dec" name="Решение" sourceRef="e_mod" targetRef="ic_dec" />
+    <bpmn:messageFlow id="Msg_t_close_bs_res" name="Решение по спору" sourceRef="t_close" targetRef="bs_res" />
+    <bpmn:messageFlow id="Msg_t_close_ss_res" name="Решение по спору" sourceRef="t_close" targetRef="ss_res" />
+    <bpmn:messageFlow id="Msg_t_refund_P_gateway" name="Запрос возврата" sourceRef="t_refund" targetRef="P_gateway" />
+    <bpmn:messageFlow id="Msg_P_gateway_im_ref" name="Возврат выполнен" sourceRef="P_gateway" targetRef="im_ref" />
+    <bpmn:messageFlow id="Msg_e_ref_fail_P_adm" name="Возврат в очередь" sourceRef="e_ref_fail" targetRef="P_adm" />
+    <bpmn:messageFlow id="Msg_P_adm_ms_adm" name="Возврат вручную" sourceRef="P_adm" targetRef="ms_adm" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_buyer" isExecutable="false">
+    <bpmn:startEvent id="b_start" name="Покупатель недоволен выданным ключом">
+      <bpmn:outgoing>Flow_b_start_u_open</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:userTask id="u_open" name="Открыть спор и указать причину">
+      <bpmn:documentation>FT-8.0: в течение 72 часов после выдачи, причина обязательна.</bpmn:documentation>
+      <bpmn:incoming>Flow_b_start_u_open</bpmn:incoming>
+      <bpmn:outgoing>Flow_u_open_e_sent</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:endEvent id="e_sent" name="Спор отправлен">
+      <bpmn:incoming>Flow_u_open_e_sent</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:startEvent id="bs_res" name="Решение по спору получено">
+      <bpmn:documentation>FT-11.0: покупатель получает письмо о статусе спора.</bpmn:documentation>
+      <bpmn:outgoing>Flow_bs_res_be_res</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="bs_res_def" />
+    </bpmn:startEvent>
+    <bpmn:endEvent id="be_res" name="Покупатель проинформирован">
+      <bpmn:incoming>Flow_bs_res_be_res</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_b_start_u_open" sourceRef="b_start" targetRef="u_open" />
+    <bpmn:sequenceFlow id="Flow_u_open_e_sent" sourceRef="u_open" targetRef="e_sent" />
+    <bpmn:sequenceFlow id="Flow_bs_res_be_res" sourceRef="bs_res" targetRef="be_res" />
+  </bpmn:process>
+  <bpmn:process id="Process_seller" isExecutable="false">
+    <bpmn:startEvent id="ss_notice" name="Уведомление о споре получено">
+      <bpmn:outgoing>Flow_ss_notice_u_reply</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="ss_notice_def" />
+    </bpmn:startEvent>
+    <bpmn:userTask id="u_reply" name="Ответить на спор">
+      <bpmn:documentation>FT-8.1: продавец может ответить, ответ виден модератору.</bpmn:documentation>
+      <bpmn:incoming>Flow_ss_notice_u_reply</bpmn:incoming>
+      <bpmn:outgoing>Flow_u_reply_e_reply</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:endEvent id="e_reply" name="Ответ отправлен">
+      <bpmn:incoming>Flow_u_reply_e_reply</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:startEvent id="ss_res" name="Решение по спору получено">
+      <bpmn:outgoing>Flow_ss_res_se_res</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="ss_res_def" />
+    </bpmn:startEvent>
+    <bpmn:endEvent id="se_res" name="Продавец проинформирован">
+      <bpmn:incoming>Flow_ss_res_se_res</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_ss_notice_u_reply" sourceRef="ss_notice" targetRef="u_reply" />
+    <bpmn:sequenceFlow id="Flow_u_reply_e_reply" sourceRef="u_reply" targetRef="e_reply" />
+    <bpmn:sequenceFlow id="Flow_ss_res_se_res" sourceRef="ss_res" targetRef="se_res" />
+  </bpmn:process>
+  <bpmn:process id="Process_moderator" isExecutable="false">
+    <bpmn:startEvent id="s_mod" name="Спор ожидает решения">
+      <bpmn:outgoing>Flow_s_mod_u_decide</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="s_mod_def" />
+    </bpmn:startEvent>
+    <bpmn:userTask id="u_decide" name="Принять решение по спору">
+      <bpmn:documentation>FT-8.2: возврат, отказ в возврате или замена ключа. Срок 24 часа с открытия спора.</bpmn:documentation>
+      <bpmn:incoming>Flow_s_mod_u_decide</bpmn:incoming>
+      <bpmn:outgoing>Flow_u_decide_e_mod</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:boundaryEvent id="b_24h" attachedToRef="u_decide" cancelActivity="false">
+      <bpmn:outgoing>Flow_b_24h_e_alert</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="b_24h_def"><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT24H</bpmn:timeDuration></bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:endEvent id="e_alert" name="Администратор оповещён о просрочке">
+      <bpmn:documentation>NFT-6.1: метрика сроков и оповещение. Спор остаётся в очереди.</bpmn:documentation>
+      <bpmn:incoming>Flow_b_24h_e_alert</bpmn:incoming>
+      <bpmn:messageEventDefinition id="e_alert_def" />
+    </bpmn:endEvent>
+    <bpmn:endEvent id="e_mod" name="Решение принято">
+      <bpmn:incoming>Flow_u_decide_e_mod</bpmn:incoming>
+      <bpmn:messageEventDefinition id="e_mod_def" />
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_s_mod_u_decide" sourceRef="s_mod" targetRef="u_decide" />
+    <bpmn:sequenceFlow id="Flow_u_decide_e_mod" sourceRef="u_decide" targetRef="e_mod" />
+    <bpmn:sequenceFlow id="Flow_b_24h_e_alert" sourceRef="b_24h" targetRef="e_alert" />
+    <bpmn:textAnnotation id="Note_24h"><bpmn:text>Срок решения 24 часа считается с открытия спора, ответ продавца решение не задерживает. При просрочке администратор получает оповещение, спор остаётся в очереди, деньги заморожены (NFT-6.1). Если спор возвращён модератору, срок начинается заново</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Assoc_Note_24h" sourceRef="Note_24h" targetRef="e_alert" />
+  </bpmn:process>
+  <bpmn:process id="Process_platform" isExecutable="false">
+    <bpmn:laneSet id="LaneSet_Process_platform">
+      <bpmn:lane id="Lane_disputes" name="Споры">
+        <bpmn:flowNodeRef>s_disp</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>g_win</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_deny</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>e_deny</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_open</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_ready</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>lc_back</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>ic_dec</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_audit</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>g_ref</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>g_rep</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_close</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>e_closed</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>s_reply</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_save</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>e_saved</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_balance" name="Баланс продавцов">
+        <bpmn:flowNodeRef>t_freeze</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_release</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_delivery" name="Выдача">
+        <bpmn:flowNodeRef>t_replace</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>be_rep</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>lt_back</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_payments" name="Платежи">
+        <bpmn:flowNodeRef>t_refund</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>be_ref</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>e_ref_fail</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>ms_adm</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>im_ref</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_refunded</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="s_disp" name="Спор от покупателя">
+      <bpmn:outgoing>Flow_s_disp_g_win</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="s_disp_def" />
+    </bpmn:startEvent>
+    <bpmn:exclusiveGateway id="g_win" name="Окно открыто, спор первый?">
+      <bpmn:documentation>FT-8.0: не больше 72 часов после первичного перехода заказа в «выдан». FT-8.5: на заказ открывается один спор.</bpmn:documentation>
+      <bpmn:incoming>Flow_s_disp_g_win</bpmn:incoming>
+      <bpmn:outgoing>Flow_g_win_t_open</bpmn:outgoing>
+      <bpmn:outgoing>Flow_g_win_t_deny</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="t_deny" name="Отклонить спор: срок истёк или спор уже был">
+      <bpmn:documentation>FT-8.0: окно 72 часа после первичного перехода заказа в «выдан». FT-8.5: повторный спор по заказу не открывается.</bpmn:documentation>
+      <bpmn:incoming>Flow_g_win_t_deny</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_deny_e_deny</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="e_deny" name="Спор отклонён">
+      <bpmn:incoming>Flow_t_deny_e_deny</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="t_open" name="Создать спор «открыт», уведомить продавца">
+      <bpmn:documentation>SM-09: -&gt; открыт. FT-8.1: продавцу уходит уведомление (и webhook, FT-10.3).</bpmn:documentation>
+      <bpmn:incoming>Flow_g_win_t_open</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_open_t_freeze</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="t_ready" name="Спор «ожидает решения», передать модератору">
+      <bpmn:documentation>SM-09: открыт -&gt; ожидает решения. Срок решения 24 часа с открытия спора. При возврате спора модератору (нет ключа для замены) срок 24 часа начинается заново.</bpmn:documentation>
+      <bpmn:incoming>Flow_t_freeze_t_ready</bpmn:incoming>
+      <bpmn:incoming>Flow_lc_back_t_ready</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_ready_ic_dec</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:intermediateCatchEvent id="lc_back" name="Спор возвращён модератору">
+      <bpmn:outgoing>Flow_lc_back_t_ready</bpmn:outgoing>
+      <bpmn:linkEventDefinition id="lc_back_def" name="Повторное решение" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:intermediateCatchEvent id="ic_dec" name="Решение модератора получено">
+      <bpmn:incoming>Flow_t_ready_ic_dec</bpmn:incoming>
+      <bpmn:outgoing>Flow_ic_dec_t_audit</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="ic_dec_def" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:serviceTask id="t_audit" name="Записать решение в журнал аудита">
+      <bpmn:documentation>FT-11.2, NFT-5.3.</bpmn:documentation>
+      <bpmn:incoming>Flow_ic_dec_t_audit</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_audit_g_ref</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="g_ref" name="Возврат?">
+      <bpmn:incoming>Flow_t_audit_g_ref</bpmn:incoming>
+      <bpmn:outgoing>Flow_g_ref_g_rep</bpmn:outgoing>
+      <bpmn:outgoing>Flow_g_ref_t_refund</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:exclusiveGateway id="g_rep" name="Замена ключа?">
+      <bpmn:incoming>Flow_g_ref_g_rep</bpmn:incoming>
+      <bpmn:outgoing>Flow_g_rep_t_replace</bpmn:outgoing>
+      <bpmn:outgoing>Flow_g_rep_t_release</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="t_close" name="Спор «решён», уведомить участников">
+      <bpmn:documentation>SM-09: -&gt; решён. FT-11.0: покупателю письмо о статусе спора. FT-10.3: продавцу уведомление.</bpmn:documentation>
+      <bpmn:incoming>Flow_t_release_t_close</bpmn:incoming>
+      <bpmn:incoming>Flow_t_replace_t_close</bpmn:incoming>
+      <bpmn:incoming>Flow_t_refunded_t_close</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_close_e_closed</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="e_closed" name="Спор решён">
+      <bpmn:incoming>Flow_t_close_e_closed</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:startEvent id="s_reply" name="Ответ продавца получен">
+      <bpmn:outgoing>Flow_s_reply_t_save</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="s_reply_def" />
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="t_save" name="Сохранить ответ продавца к спору">
+      <bpmn:incoming>Flow_s_reply_t_save</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_save_e_saved</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="e_saved" name="Ответ сохранён">
+      <bpmn:incoming>Flow_t_save_e_saved</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="t_freeze" name="Заморозить деньги по заказу">
+      <bpmn:documentation>FT-8.3, SM-11: пока спор открыт, деньги не становятся доступными к выводу. Операция по балансу «заморожена», причина «спор».</bpmn:documentation>
+      <bpmn:incoming>Flow_t_open_t_freeze</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_freeze_t_ready</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="t_release" name="Снять заморозку, деньги доступны по сроку удержания">
+      <bpmn:documentation>FT-9.2, SM-11: заморожена (спор) -&gt; доступна, если 7 дней после первичной выдачи уже прошли, иначе -&gt; заморожена (удержание) до срока, дальше по таймеру BPMN-06.</bpmn:documentation>
+      <bpmn:incoming>Flow_g_rep_t_release</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_release_t_close</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="t_replace" name="Выдать новый ключ (пул или API), аннулировать прежний">
+      <bpmn:documentation>FT-8.6: для товара с пулом ключ берётся из пула, для товара с выдачей по API запрашивается у продавца (механизм FT-7.4, ответ ждём 10 минут). SM-03: прежний ключ -&gt; аннулирован, новый -&gt; выдан. SM-06: выдача типа «повторная». Окна поддержки, спора и удержания не сдвигаются.</bpmn:documentation>
+      <bpmn:incoming>Flow_g_rep_t_replace</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_replace_t_close</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:boundaryEvent id="be_rep" attachedToRef="t_replace">
+      <bpmn:outgoing>Flow_be_rep_lt_back</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="be_rep_def" />
+    </bpmn:boundaryEvent>
+    <bpmn:intermediateThrowEvent id="lt_back" name="Ключа нет: спор возвращается модератору">
+      <bpmn:documentation>FT-8.6: нет свободного ключа или продавец не ответил за 10 минут. Спор снова «ожидает решения», модератор принимает новое решение (например, возврат), срок 24 часа начинается заново.</bpmn:documentation>
+      <bpmn:incoming>Flow_be_rep_lt_back</bpmn:incoming>
+      <bpmn:linkEventDefinition id="lt_back_def" name="Повторное решение" />
+    </bpmn:intermediateThrowEvent>
+    <bpmn:serviceTask id="t_refund" name="Запросить возврат у шлюза">
+      <bpmn:documentation>FT-8.4, FT-6.4: тот же механизм, что автовозврат: идемпотентно, при сбое повтор, при исчерпании попыток очередь администратора.</bpmn:documentation>
+      <bpmn:incoming>Flow_g_ref_t_refund</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_refund_im_ref</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:boundaryEvent id="be_ref" attachedToRef="t_refund">
+      <bpmn:outgoing>Flow_be_ref_e_ref_fail</bpmn:outgoing>
+      <bpmn:errorEventDefinition id="be_ref_def" />
+    </bpmn:boundaryEvent>
+    <bpmn:endEvent id="e_ref_fail" name="Возврат передан в очередь администратора">
+      <bpmn:documentation>FT-6.4: попытки исчерпаны. Решение модератора обязательно к исполнению: администратор возвращает деньги вручную в кабинете шлюза и отмечает возврат в платформе.</bpmn:documentation>
+      <bpmn:incoming>Flow_be_ref_e_ref_fail</bpmn:incoming>
+      <bpmn:messageEventDefinition id="e_ref_fail_def" />
+    </bpmn:endEvent>
+    <bpmn:startEvent id="ms_adm" name="Администратор отметил возврат выполненным">
+      <bpmn:documentation>FT-6.4: ручной возврат подтверждён. Дальше как при возврате через шлюз: платёж и заказ «возвращены», сторно в балансе.</bpmn:documentation>
+      <bpmn:outgoing>Flow_ms_adm_t_refunded</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="ms_adm_def" />
+    </bpmn:startEvent>
+    <bpmn:intermediateCatchEvent id="im_ref" name="Возврат выполнен">
+      <bpmn:incoming>Flow_t_refund_im_ref</bpmn:incoming>
+      <bpmn:outgoing>Flow_im_ref_t_refunded</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="im_ref_def" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:serviceTask id="t_refunded" name="Платёж и заказ «возвращён», начисление и комиссия сторнированы">
+      <bpmn:documentation>SM-02: подтверждён -&gt; возвращён. SM-01: выдан -&gt; возвращён. FT-9.5: при возврате комиссия платформы не взимается, начисление продавцу и комиссия сторнируются целиком. FT-9.4: движение по балансу пишется в неизменяемый журнал.</bpmn:documentation>
+      <bpmn:incoming>Flow_im_ref_t_refunded</bpmn:incoming>
+      <bpmn:incoming>Flow_ms_adm_t_refunded</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_refunded_t_close</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:sequenceFlow id="Flow_s_disp_g_win" sourceRef="s_disp" targetRef="g_win" />
+    <bpmn:sequenceFlow id="Flow_g_win_t_open" name="да" sourceRef="g_win" targetRef="t_open" />
+    <bpmn:sequenceFlow id="Flow_g_win_t_deny" name="нет" sourceRef="g_win" targetRef="t_deny" />
+    <bpmn:sequenceFlow id="Flow_t_deny_e_deny" sourceRef="t_deny" targetRef="e_deny" />
+    <bpmn:sequenceFlow id="Flow_t_open_t_freeze" sourceRef="t_open" targetRef="t_freeze" />
+    <bpmn:sequenceFlow id="Flow_t_freeze_t_ready" sourceRef="t_freeze" targetRef="t_ready" />
+    <bpmn:sequenceFlow id="Flow_t_ready_ic_dec" sourceRef="t_ready" targetRef="ic_dec" />
+    <bpmn:sequenceFlow id="Flow_ic_dec_t_audit" sourceRef="ic_dec" targetRef="t_audit" />
+    <bpmn:sequenceFlow id="Flow_t_audit_g_ref" sourceRef="t_audit" targetRef="g_ref" />
+    <bpmn:sequenceFlow id="Flow_g_ref_g_rep" name="нет" sourceRef="g_ref" targetRef="g_rep" />
+    <bpmn:sequenceFlow id="Flow_g_ref_t_refund" name="да" sourceRef="g_ref" targetRef="t_refund" />
+    <bpmn:sequenceFlow id="Flow_g_rep_t_replace" name="да" sourceRef="g_rep" targetRef="t_replace" />
+    <bpmn:sequenceFlow id="Flow_g_rep_t_release" name="нет (отказ)" sourceRef="g_rep" targetRef="t_release" />
+    <bpmn:sequenceFlow id="Flow_s_reply_t_save" sourceRef="s_reply" targetRef="t_save" />
+    <bpmn:sequenceFlow id="Flow_t_save_e_saved" sourceRef="t_save" targetRef="e_saved" />
+    <bpmn:sequenceFlow id="Flow_t_refund_im_ref" sourceRef="t_refund" targetRef="im_ref" />
+    <bpmn:sequenceFlow id="Flow_im_ref_t_refunded" sourceRef="im_ref" targetRef="t_refunded" />
+    <bpmn:sequenceFlow id="Flow_be_ref_e_ref_fail" sourceRef="be_ref" targetRef="e_ref_fail" />
+    <bpmn:sequenceFlow id="Flow_be_rep_lt_back" sourceRef="be_rep" targetRef="lt_back" />
+    <bpmn:sequenceFlow id="Flow_lc_back_t_ready" sourceRef="lc_back" targetRef="t_ready" />
+    <bpmn:sequenceFlow id="Flow_ms_adm_t_refunded" sourceRef="ms_adm" targetRef="t_refunded" />
+    <bpmn:sequenceFlow id="Flow_t_release_t_close" sourceRef="t_release" targetRef="t_close" />
+    <bpmn:sequenceFlow id="Flow_t_replace_t_close" sourceRef="t_replace" targetRef="t_close" />
+    <bpmn:sequenceFlow id="Flow_t_refunded_t_close" sourceRef="t_refunded" targetRef="t_close" />
+    <bpmn:sequenceFlow id="Flow_t_close_e_closed" sourceRef="t_close" targetRef="e_closed" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="P_buyer_di" bpmnElement="P_buyer" isHorizontal="true"><dc:Bounds x="40" y="20" width="2100" height="170" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="P_seller_di" bpmnElement="P_seller" isHorizontal="true"><dc:Bounds x="40" y="230" width="2100" height="170" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="P_moder_di" bpmnElement="P_moder" isHorizontal="true"><dc:Bounds x="40" y="440" width="2100" height="230" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="P_platform_di" bpmnElement="P_platform" isHorizontal="true"><dc:Bounds x="40" y="730" width="2100" height="820" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_disputes_di" bpmnElement="Lane_disputes" isHorizontal="true"><dc:Bounds x="70" y="730" width="2070" height="230" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_balance_di" bpmnElement="Lane_balance" isHorizontal="true"><dc:Bounds x="70" y="960" width="2070" height="130" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_delivery_di" bpmnElement="Lane_delivery" isHorizontal="true"><dc:Bounds x="70" y="1090" width="2070" height="230" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_payments_di" bpmnElement="Lane_payments" isHorizontal="true"><dc:Bounds x="70" y="1320" width="2070" height="230" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="P_gateway_di" bpmnElement="P_gateway" isHorizontal="true"><dc:Bounds x="40" y="1610" width="2100" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="P_adm_di" bpmnElement="P_adm" isHorizontal="true"><dc:Bounds x="40" y="1720" width="2100" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="b_start_di" bpmnElement="b_start">
+        <dc:Bounds x="102" y="87" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="65" y="127" width="110" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="u_open_di" bpmnElement="u_open">
+        <dc:Bounds x="190" y="65" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="e_sent_di" bpmnElement="e_sent">
+        <dc:Bounds x="362" y="87" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="347" y="127" width="65" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="bs_res_di" bpmnElement="bs_res">
+        <dc:Bounds x="1772" y="87" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1742" y="55" width="95" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="be_res_di" bpmnElement="be_res">
+        <dc:Bounds x="1882" y="87" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1850" y="127" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ss_notice_di" bpmnElement="ss_notice">
+        <dc:Bounds x="542" y="282" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="442" y="286" width="95" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="u_reply_di" bpmnElement="u_reply">
+        <dc:Bounds x="660" y="260" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="e_reply_di" bpmnElement="e_reply">
+        <dc:Bounds x="832" y="282" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="817" y="322" width="65" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ss_res_di" bpmnElement="ss_res">
+        <dc:Bounds x="1832" y="282" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1813" y="236" width="72" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="se_res_di" bpmnElement="se_res">
+        <dc:Bounds x="1942" y="282" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1910" y="322" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_mod_di" bpmnElement="s_mod">
+        <dc:Bounds x="962" y="482" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="870" y="486" width="87" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="u_decide_di" bpmnElement="u_decide">
+        <dc:Bounds x="1060" y="460" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="b_24h_di" bpmnElement="b_24h">
+        <dc:Bounds x="1182" y="482" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="e_alert_di" bpmnElement="e_alert">
+        <dc:Bounds x="1282" y="482" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1252" y="436" width="95" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="e_mod_di" bpmnElement="e_mod">
+        <dc:Bounds x="1112" y="592" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1052" y="596" width="55" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_disp_di" bpmnElement="s_disp">
+        <dc:Bounds x="232" y="772" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="214" y="812" width="71" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="g_win_di" bpmnElement="g_win" isMarkerVisible="true">
+        <dc:Bounds x="355" y="765" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="335" y="733" width="88" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_deny_di" bpmnElement="t_deny">
+        <dc:Bounds x="310" y="860" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="e_deny_di" bpmnElement="e_deny">
+        <dc:Bounds x="482" y="882" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="470" y="922" width="58" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_open_di" bpmnElement="t_open">
+        <dc:Bounds x="490" y="750" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_ready_di" bpmnElement="t_ready">
+        <dc:Bounds x="910" y="750" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="lc_back_di" bpmnElement="lc_back">
+        <dc:Bounds x="812" y="772" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="780" y="812" width="99" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ic_dec_di" bpmnElement="ic_dec">
+        <dc:Bounds x="1112" y="772" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1093" y="812" width="73" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_audit_di" bpmnElement="t_audit">
+        <dc:Bounds x="1190" y="750" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="g_ref_di" bpmnElement="g_ref" isMarkerVisible="true">
+        <dc:Bounds x="1375" y="765" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1371" y="747" width="56" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="g_rep_di" bpmnElement="g_rep" isMarkerVisible="true">
+        <dc:Bounds x="1545" y="765" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1546" y="733" width="46" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_close_di" bpmnElement="t_close">
+        <dc:Bounds x="1750" y="750" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="e_closed_di" bpmnElement="e_closed">
+        <dc:Bounds x="1932" y="772" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1913" y="812" width="73" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_reply_di" bpmnElement="s_reply">
+        <dc:Bounds x="702" y="882" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="672" y="922" width="96" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_save_di" bpmnElement="t_save">
+        <dc:Bounds x="770" y="860" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="e_saved_di" bpmnElement="e_saved">
+        <dc:Bounds x="912" y="882" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="900" y="922" width="58" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_freeze_di" bpmnElement="t_freeze">
+        <dc:Bounds x="490" y="985" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_release_di" bpmnElement="t_release">
+        <dc:Bounds x="1615" y="985" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_replace_di" bpmnElement="t_replace">
+        <dc:Bounds x="1490" y="1113" width="160" height="84" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="be_rep_di" bpmnElement="be_rep">
+        <dc:Bounds x="1512" y="1177" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="lt_back_di" bpmnElement="lt_back">
+        <dc:Bounds x="1512" y="1252" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1552" y="1249" width="99" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_refund_di" bpmnElement="t_refund">
+        <dc:Bounds x="1325" y="1345" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="be_ref_di" bpmnElement="be_ref">
+        <dc:Bounds x="1342" y="1407" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="e_ref_fail_di" bpmnElement="e_ref_fail">
+        <dc:Bounds x="1342" y="1482" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1228" y="1479" width="110" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ms_adm_di" bpmnElement="ms_adm">
+        <dc:Bounds x="1662" y="1482" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1702" y="1479" width="100" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="im_ref_di" bpmnElement="im_ref">
+        <dc:Bounds x="1522" y="1367" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1509" y="1335" width="61" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_refunded_di" bpmnElement="t_refunded">
+        <dc:Bounds x="1595" y="1345" width="170" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Note_24h_di" bpmnElement="Note_24h"><dc:Bounds x="1470" y="497" width="260" height="125" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Assoc_Note_24h_di" bpmnElement="Assoc_Note_24h"><di:waypoint x="1470" y="560" /><di:waypoint x="1316" y="505" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_b_start_u_open_di" bpmnElement="Flow_b_start_u_open">
+        <di:waypoint x="138" y="105" />
+        <di:waypoint x="190" y="105" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_u_open_e_sent_di" bpmnElement="Flow_u_open_e_sent">
+        <di:waypoint x="310" y="105" />
+        <di:waypoint x="362" y="105" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_bs_res_be_res_di" bpmnElement="Flow_bs_res_be_res">
+        <di:waypoint x="1808" y="105" />
+        <di:waypoint x="1882" y="105" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ss_notice_u_reply_di" bpmnElement="Flow_ss_notice_u_reply">
+        <di:waypoint x="578" y="300" />
+        <di:waypoint x="660" y="300" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_u_reply_e_reply_di" bpmnElement="Flow_u_reply_e_reply">
+        <di:waypoint x="780" y="300" />
+        <di:waypoint x="832" y="300" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ss_res_se_res_di" bpmnElement="Flow_ss_res_se_res">
+        <di:waypoint x="1868" y="300" />
+        <di:waypoint x="1942" y="300" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_s_mod_u_decide_di" bpmnElement="Flow_s_mod_u_decide">
+        <di:waypoint x="998" y="500" />
+        <di:waypoint x="1060" y="500" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_u_decide_e_mod_di" bpmnElement="Flow_u_decide_e_mod">
+        <di:waypoint x="1130" y="540" />
+        <di:waypoint x="1130" y="592" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_b_24h_e_alert_di" bpmnElement="Flow_b_24h_e_alert">
+        <di:waypoint x="1218" y="500" />
+        <di:waypoint x="1282" y="500" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_s_disp_g_win_di" bpmnElement="Flow_s_disp_g_win">
+        <di:waypoint x="268" y="790" />
+        <di:waypoint x="355" y="790" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_win_t_open_di" bpmnElement="Flow_g_win_t_open">
+        <di:waypoint x="405" y="790" />
+        <di:waypoint x="490" y="790" />
+        <bpmndi:BPMNLabel><dc:Bounds x="438" y="773" width="18" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_win_t_deny_di" bpmnElement="Flow_g_win_t_deny">
+        <di:waypoint x="380" y="815" />
+        <di:waypoint x="380" y="860" />
+        <bpmndi:BPMNLabel><dc:Bounds x="384" y="830" width="24" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_deny_e_deny_di" bpmnElement="Flow_t_deny_e_deny">
+        <di:waypoint x="450" y="900" />
+        <di:waypoint x="482" y="900" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_open_t_freeze_di" bpmnElement="Flow_t_open_t_freeze">
+        <di:waypoint x="560" y="830" />
+        <di:waypoint x="560" y="985" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_freeze_t_ready_di" bpmnElement="Flow_t_freeze_t_ready">
+        <di:waypoint x="630" y="1025" />
+        <di:waypoint x="980" y="1025" />
+        <di:waypoint x="980" y="830" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_ready_ic_dec_di" bpmnElement="Flow_t_ready_ic_dec">
+        <di:waypoint x="1050" y="790" />
+        <di:waypoint x="1112" y="790" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ic_dec_t_audit_di" bpmnElement="Flow_ic_dec_t_audit">
+        <di:waypoint x="1148" y="790" />
+        <di:waypoint x="1190" y="790" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_audit_g_ref_di" bpmnElement="Flow_t_audit_g_ref">
+        <di:waypoint x="1330" y="790" />
+        <di:waypoint x="1375" y="790" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_ref_g_rep_di" bpmnElement="Flow_g_ref_g_rep">
+        <di:waypoint x="1425" y="790" />
+        <di:waypoint x="1545" y="790" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1472" y="773" width="24" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_ref_t_refund_di" bpmnElement="Flow_g_ref_t_refund">
+        <di:waypoint x="1400" y="815" />
+        <di:waypoint x="1400" y="1385" />
+        <di:waypoint x="1400" y="1385" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1404" y="1093" width="18" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_rep_t_replace_di" bpmnElement="Flow_g_rep_t_replace">
+        <di:waypoint x="1570" y="815" />
+        <di:waypoint x="1570" y="1155" />
+        <di:waypoint x="1570" y="1155" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1574" y="978" width="18" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_rep_t_release_di" bpmnElement="Flow_g_rep_t_release">
+        <di:waypoint x="1595" y="790" />
+        <di:waypoint x="1690" y="790" />
+        <di:waypoint x="1690" y="985" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1608" y="773" width="68" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_s_reply_t_save_di" bpmnElement="Flow_s_reply_t_save">
+        <di:waypoint x="738" y="900" />
+        <di:waypoint x="770" y="900" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_save_e_saved_di" bpmnElement="Flow_t_save_e_saved">
+        <di:waypoint x="890" y="900" />
+        <di:waypoint x="912" y="900" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_refund_im_ref_di" bpmnElement="Flow_t_refund_im_ref">
+        <di:waypoint x="1475" y="1385" />
+        <di:waypoint x="1522" y="1385" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_im_ref_t_refunded_di" bpmnElement="Flow_im_ref_t_refunded">
+        <di:waypoint x="1558" y="1385" />
+        <di:waypoint x="1595" y="1385" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_be_ref_e_ref_fail_di" bpmnElement="Flow_be_ref_e_ref_fail">
+        <di:waypoint x="1360" y="1443" />
+        <di:waypoint x="1360" y="1482" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_be_rep_lt_back_di" bpmnElement="Flow_be_rep_lt_back">
+        <di:waypoint x="1530" y="1213" />
+        <di:waypoint x="1530" y="1252" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_lc_back_t_ready_di" bpmnElement="Flow_lc_back_t_ready">
+        <di:waypoint x="848" y="790" />
+        <di:waypoint x="910" y="790" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ms_adm_t_refunded_di" bpmnElement="Flow_ms_adm_t_refunded">
+        <di:waypoint x="1680" y="1482" />
+        <di:waypoint x="1680" y="1425" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_release_t_close_di" bpmnElement="Flow_t_release_t_close">
+        <di:waypoint x="1765" y="1025" />
+        <di:waypoint x="1785" y="1025" />
+        <di:waypoint x="1785" y="830" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_replace_t_close_di" bpmnElement="Flow_t_replace_t_close">
+        <di:waypoint x="1650" y="1155" />
+        <di:waypoint x="1820" y="1155" />
+        <di:waypoint x="1820" y="830" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_refunded_t_close_di" bpmnElement="Flow_t_refunded_t_close">
+        <di:waypoint x="1765" y="1385" />
+        <di:waypoint x="1855" y="1385" />
+        <di:waypoint x="1855" y="830" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_close_e_closed_di" bpmnElement="Flow_t_close_e_closed">
+        <di:waypoint x="1890" y="790" />
+        <di:waypoint x="1932" y="790" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_u_open_s_disp_di" bpmnElement="Msg_u_open_s_disp">
+        <di:waypoint x="250" y="145" />
+        <di:waypoint x="250" y="772" />
+        <bpmndi:BPMNLabel><dc:Bounds x="256" y="200" width="91" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_t_open_ss_notice_di" bpmnElement="Msg_t_open_ss_notice">
+        <di:waypoint x="560" y="750" />
+        <di:waypoint x="560" y="318" />
+        <bpmndi:BPMNLabel><dc:Bounds x="566" y="705" width="128" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_u_reply_s_reply_di" bpmnElement="Msg_u_reply_s_reply">
+        <di:waypoint x="720" y="340" />
+        <di:waypoint x="720" y="882" />
+        <bpmndi:BPMNLabel><dc:Bounds x="726" y="705" width="98" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_t_ready_s_mod_di" bpmnElement="Msg_t_ready_s_mod">
+        <di:waypoint x="980" y="750" />
+        <di:waypoint x="980" y="518" />
+        <bpmndi:BPMNLabel><dc:Bounds x="986" y="705" width="105" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_e_mod_ic_dec_di" bpmnElement="Msg_e_mod_ic_dec">
+        <di:waypoint x="1130" y="628" />
+        <di:waypoint x="1130" y="772" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1136" y="705" width="55" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_t_close_bs_res_di" bpmnElement="Msg_t_close_bs_res">
+        <di:waypoint x="1790" y="750" />
+        <di:waypoint x="1790" y="123" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1796" y="200" width="109" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_t_close_ss_res_di" bpmnElement="Msg_t_close_ss_res">
+        <di:waypoint x="1850" y="750" />
+        <di:waypoint x="1850" y="318" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1856" y="405" width="109" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_t_refund_P_gateway_di" bpmnElement="Msg_t_refund_P_gateway">
+        <di:waypoint x="1430" y="1425" />
+        <di:waypoint x="1430" y="1610" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1436" y="1585" width="100" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_P_gateway_im_ref_di" bpmnElement="Msg_P_gateway_im_ref">
+        <di:waypoint x="1540" y="1610" />
+        <di:waypoint x="1540" y="1403" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1546" y="1585" width="111" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_e_ref_fail_P_adm_di" bpmnElement="Msg_e_ref_fail_P_adm">
+        <di:waypoint x="1360" y="1518" />
+        <di:waypoint x="1360" y="1720" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1366" y="1692" width="112" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_P_adm_ms_adm_di" bpmnElement="Msg_P_adm_ms_adm">
+        <di:waypoint x="1680" y="1720" />
+        <di:waypoint x="1680" y="1518" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1686" y="1692" width="103" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
