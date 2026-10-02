@@ -1,0 +1,581 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="P_seller" name="Продавец" processRef="Process_seller" />
+    <bpmn:participant id="P_admin" name="Администратор" processRef="Process_admin" />
+    <bpmn:participant id="P_platform" name="Платформа" processRef="Process_platform" />
+    <bpmn:participant id="P_email" name="E-mail-провайдер" />
+    <bpmn:messageFlow id="Msg_u_req_s_req" name="Заявка на вывод" sourceRef="u_req" targetRef="s_req" />
+    <bpmn:messageFlow id="Msg_t_create_s_adm" name="Новая заявка" sourceRef="t_create" targetRef="s_adm" />
+    <bpmn:messageFlow id="Msg_e_adm_ic_adm" name="Решение по заявке" sourceRef="e_adm" targetRef="ic_adm" />
+    <bpmn:messageFlow id="Msg_t_notify_ss_res" name="Статус заявки" sourceRef="t_notify" targetRef="ss_res" />
+    <bpmn:messageFlow id="Msg_t_mail_P_email" name="Письмо с результатом" sourceRef="t_mail" targetRef="P_email" />
+    <bpmn:messageFlow id="Msg_P_email_bs_mail" name="Письмо в почтовом ящике" sourceRef="P_email" targetRef="bs_mail" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_seller" isExecutable="false">
+    <bpmn:startEvent id="b_start" name="Продавцу нужны деньги">
+      <bpmn:outgoing>Flow_b_start_u_req</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:userTask id="u_req" name="Подать заявку на вывод, указать сумму">
+      <bpmn:documentation>FT-9.3: заявка от 1 000 ₽. Реквизиты берутся из профиля продавца.</bpmn:documentation>
+      <bpmn:incoming>Flow_b_start_u_req</bpmn:incoming>
+      <bpmn:outgoing>Flow_u_req_e_sent</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:endEvent id="e_sent" name="Заявка отправлена">
+      <bpmn:incoming>Flow_u_req_e_sent</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:startEvent id="ss_res" name="Статус заявки в кабинете получен">
+      <bpmn:outgoing>Flow_ss_res_se_res</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="ss_res_def" />
+    </bpmn:startEvent>
+    <bpmn:endEvent id="se_res" name="Продавец проинформирован">
+      <bpmn:incoming>Flow_ss_res_se_res</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:startEvent id="bs_mail" name="Письмо о результате получено">
+      <bpmn:documentation>FT-11.4: продавец получает письмо о результате заявки, при отказе с причиной.</bpmn:documentation>
+      <bpmn:outgoing>Flow_bs_mail_be_mail</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="bs_mail_def" />
+    </bpmn:startEvent>
+    <bpmn:endEvent id="be_mail" name="Продавец уведомлён по e-mail">
+      <bpmn:incoming>Flow_bs_mail_be_mail</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_b_start_u_req" sourceRef="b_start" targetRef="u_req" />
+    <bpmn:sequenceFlow id="Flow_u_req_e_sent" sourceRef="u_req" targetRef="e_sent" />
+    <bpmn:sequenceFlow id="Flow_ss_res_se_res" sourceRef="ss_res" targetRef="se_res" />
+    <bpmn:sequenceFlow id="Flow_bs_mail_be_mail" sourceRef="bs_mail" targetRef="be_mail" />
+  </bpmn:process>
+  <bpmn:process id="Process_admin" isExecutable="false">
+    <bpmn:startEvent id="s_adm" name="Новая заявка на вывод">
+      <bpmn:outgoing>Flow_s_adm_u_check</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="s_adm_def" />
+    </bpmn:startEvent>
+    <bpmn:userTask id="u_check" name="Проверить заявку и реквизиты">
+      <bpmn:documentation>SM-10: создана -&gt; на проверке, когда администратор берёт заявку. Заявки обрабатываются вручную (FT-9.3). Срок обработки не более 3 суток.</bpmn:documentation>
+      <bpmn:incoming>Flow_s_adm_u_check</bpmn:incoming>
+      <bpmn:outgoing>Flow_u_check_g_ok</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:boundaryEvent id="b_3d" attachedToRef="u_check" cancelActivity="false">
+      <bpmn:outgoing>Flow_b_3d_e_alert</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="b_3d_def"><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">P3D</bpmn:timeDuration></bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:endEvent id="e_alert" name="Оповещение о просрочке заявки">
+      <bpmn:documentation>FT-9.3, NFT-6.1: заявка не обработана за 3 суток. Администраторы получают оповещение, заявка остаётся в очереди, резерв сохраняется.</bpmn:documentation>
+      <bpmn:incoming>Flow_b_3d_e_alert</bpmn:incoming>
+      <bpmn:messageEventDefinition id="e_alert_def" />
+    </bpmn:endEvent>
+    <bpmn:exclusiveGateway id="g_ok" name="Заявку можно выплатить?">
+      <bpmn:incoming>Flow_u_check_g_ok</bpmn:incoming>
+      <bpmn:outgoing>Flow_g_ok_u_pay</bpmn:outgoing>
+      <bpmn:outgoing>Flow_g_ok_u_rej</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="u_pay" name="Перевести деньги вручную вне платформы">
+      <bpmn:documentation>FT-9.3: платформа деньги не переводит. Администратор переводит сумму по сохранённым в заявке реквизитам. Повторные попытки перевода он делает внутри этой задачи.</bpmn:documentation>
+      <bpmn:incoming>Flow_g_ok_u_pay</bpmn:incoming>
+      <bpmn:outgoing>Flow_u_pay_g_bank</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="g_bank" name="Перевод принят банком?">
+      <bpmn:incoming>Flow_u_pay_g_bank</bpmn:incoming>
+      <bpmn:outgoing>Flow_g_bank_u_mark</bpmn:outgoing>
+      <bpmn:outgoing>Flow_g_bank_u_rej</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="u_mark" name="Отметить заявку выплаченной">
+      <bpmn:documentation>FT-9.3: администратор подтверждает выплату в кабинете.</bpmn:documentation>
+      <bpmn:incoming>Flow_g_bank_u_mark</bpmn:incoming>
+      <bpmn:outgoing>Flow_u_mark_e_adm</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="u_rej" name="Отклонить заявку и указать причину">
+      <bpmn:documentation>FT-9.3: причина отказа обязательна (неверные реквизиты, перевод не принят банком, иная причина), продавец её видит.</bpmn:documentation>
+      <bpmn:incoming>Flow_g_ok_u_rej</bpmn:incoming>
+      <bpmn:incoming>Flow_g_bank_u_rej</bpmn:incoming>
+      <bpmn:outgoing>Flow_u_rej_e_adm</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:endEvent id="e_adm" name="Решение принято">
+      <bpmn:incoming>Flow_u_mark_e_adm</bpmn:incoming>
+      <bpmn:incoming>Flow_u_rej_e_adm</bpmn:incoming>
+      <bpmn:messageEventDefinition id="e_adm_def" />
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_s_adm_u_check" sourceRef="s_adm" targetRef="u_check" />
+    <bpmn:sequenceFlow id="Flow_u_check_g_ok" sourceRef="u_check" targetRef="g_ok" />
+    <bpmn:sequenceFlow id="Flow_g_ok_u_pay" name="да" sourceRef="g_ok" targetRef="u_pay" />
+    <bpmn:sequenceFlow id="Flow_g_ok_u_rej" name="нет" sourceRef="g_ok" targetRef="u_rej" />
+    <bpmn:sequenceFlow id="Flow_u_pay_g_bank" sourceRef="u_pay" targetRef="g_bank" />
+    <bpmn:sequenceFlow id="Flow_g_bank_u_mark" name="да" sourceRef="g_bank" targetRef="u_mark" />
+    <bpmn:sequenceFlow id="Flow_g_bank_u_rej" name="нет" sourceRef="g_bank" targetRef="u_rej" />
+    <bpmn:sequenceFlow id="Flow_b_3d_e_alert" sourceRef="b_3d" targetRef="e_alert" />
+    <bpmn:sequenceFlow id="Flow_u_mark_e_adm" sourceRef="u_mark" targetRef="e_adm" />
+    <bpmn:sequenceFlow id="Flow_u_rej_e_adm" sourceRef="u_rej" targetRef="e_adm" />
+    <bpmn:textAnnotation id="Note_3d"><bpmn:text>Срок обработки заявки не более 3 суток (FT-9.3). При просрочке администраторы получают оповещение, заявка остаётся в очереди (NFT-6.1)</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Assoc_Note_3d" sourceRef="Note_3d" targetRef="e_alert" />
+  </bpmn:process>
+  <bpmn:process id="Process_platform" isExecutable="false">
+    <bpmn:laneSet id="LaneSet_Process_platform">
+      <bpmn:lane id="Lane_notify" name="Уведомления">
+        <bpmn:flowNodeRef>t_notify</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_mail</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>e_ntf</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_balance" name="Баланс продавцов">
+        <bpmn:flowNodeRef>s_req</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>g_amt</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_inv</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>e_inv</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_create</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>ic_adm</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>g_dec</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_paid</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_back</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>s_acc</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_accrue</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>ic_hold</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>g_dsp</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>t_avail</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>e_avail</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>e_frozen</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_audit" name="Аудит и администрирование">
+        <bpmn:flowNodeRef>t_audit</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:sendTask id="t_notify" name="Показать статус заявки в кабинете">
+      <bpmn:documentation>FT-9.3: продавец видит статус заявки и причину отказа в кабинете.</bpmn:documentation>
+      <bpmn:incoming>Flow_t_paid_t_notify</bpmn:incoming>
+      <bpmn:incoming>Flow_t_back_t_notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_notify_t_mail</bpmn:outgoing>
+    </bpmn:sendTask>
+    <bpmn:sendTask id="t_mail" name="Отправить продавцу письмо с результатом">
+      <bpmn:documentation>FT-11.4: продавец получает письмо о результате заявки, при отказе с причиной.</bpmn:documentation>
+      <bpmn:incoming>Flow_t_notify_t_mail</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_mail_e_ntf</bpmn:outgoing>
+    </bpmn:sendTask>
+    <bpmn:endEvent id="e_ntf" name="Продавец уведомлён">
+      <bpmn:incoming>Flow_t_mail_e_ntf</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:startEvent id="s_req" name="Заявка на вывод">
+      <bpmn:outgoing>Flow_s_req_g_amt</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="s_req_def" />
+    </bpmn:startEvent>
+    <bpmn:exclusiveGateway id="g_amt" name="Сумма от 1 000 ₽, не больше доступной, продавец не заблокирован?">
+      <bpmn:documentation>FT-9.3: минимум 1 000 ₽, не больше доступного остатка. FT-2.3, FT-9.3: заблокированный продавец заявку подать не может.</bpmn:documentation>
+      <bpmn:incoming>Flow_s_req_g_amt</bpmn:incoming>
+      <bpmn:outgoing>Flow_g_amt_t_create</bpmn:outgoing>
+      <bpmn:outgoing>Flow_g_amt_t_inv</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="t_inv" name="Отклонить заявку, показать причину на форме">
+      <bpmn:documentation>FT-9.3: сумма вне пределов или продавец заблокирован. Продавец видит причину сразу, заявка не создаётся.</bpmn:documentation>
+      <bpmn:incoming>Flow_g_amt_t_inv</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_inv_e_inv</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="e_inv" name="Заявка не создана">
+      <bpmn:incoming>Flow_t_inv_e_inv</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="t_create" name="Создать заявку «создана», сохранить реквизиты, зарезервировать сумму, записать в журнал">
+      <bpmn:documentation>SM-10: -&gt; создана. В заявке сохраняется снимок реквизитов (правка профиля позже их не меняет). Сумма резервируется: операция «вывод» «заморожена» (причина «резерв под вывод»), доступный остаток уменьшается (SM-11, FT-9.4).</bpmn:documentation>
+      <bpmn:incoming>Flow_g_amt_t_create</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_create_ic_adm</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:intermediateCatchEvent id="ic_adm" name="Решение администратора получено">
+      <bpmn:incoming>Flow_t_create_ic_adm</bpmn:incoming>
+      <bpmn:outgoing>Flow_ic_adm_t_audit</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="ic_adm_def" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:serviceTask id="t_audit" name="Записать действие администратора в журнал аудита">
+      <bpmn:documentation>FT-11.2, NFT-5.3: журнал без персональных данных в открытом виде.</bpmn:documentation>
+      <bpmn:incoming>Flow_ic_adm_t_audit</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_audit_g_dec</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="g_dec" name="Выплачена?">
+      <bpmn:incoming>Flow_t_audit_g_dec</bpmn:incoming>
+      <bpmn:outgoing>Flow_g_dec_t_paid</bpmn:outgoing>
+      <bpmn:outgoing>Flow_g_dec_t_back</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="t_paid" name="Заявка «выплачена», операция «вывод» «выплачена», записать в журнал">
+      <bpmn:documentation>SM-10: на проверке -&gt; выплачена. SM-11: вывод заморожена -&gt; выплачена. FT-9.4.</bpmn:documentation>
+      <bpmn:incoming>Flow_g_dec_t_paid</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_paid_t_notify</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="t_back" name="Заявка «отклонена», резерв снят, сумма снова доступна, записать в журнал">
+      <bpmn:documentation>SM-10: на проверке -&gt; отклонена, причина сохраняется. SM-11: вывод заморожена -&gt; сторнирована. Резерв снимается, в журнале новая запись, прежняя не меняется (FT-9.4).</bpmn:documentation>
+      <bpmn:incoming>Flow_g_dec_t_back</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_back_t_notify</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:startEvent id="s_acc" name="Заказ впервые выдан">
+      <bpmn:outgoing>Flow_s_acc_t_accrue</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="s_acc_def" />
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="t_accrue" name="Начислить сумму заказа за вычетом комиссии, записать в журнал">
+      <bpmn:documentation>FT-9.0, FT-9.2: операции «начисление» и «комиссия» «заморожена» (причина «удержание»), «доступна с» = дата первичной выдачи + 7 дней. SM-11, FT-9.4.</bpmn:documentation>
+      <bpmn:incoming>Flow_s_acc_t_accrue</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_accrue_ic_hold</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:intermediateCatchEvent id="ic_hold" name="7 дней с первичной выдачи">
+      <bpmn:incoming>Flow_t_accrue_ic_hold</bpmn:incoming>
+      <bpmn:outgoing>Flow_ic_hold_g_dsp</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="ic_hold_def"><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">P7D</bpmn:timeDuration></bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:exclusiveGateway id="g_dsp" name="Открыт спор по заказу?">
+      <bpmn:incoming>Flow_ic_hold_g_dsp</bpmn:incoming>
+      <bpmn:outgoing>Flow_g_dsp_t_avail</bpmn:outgoing>
+      <bpmn:outgoing>Flow_g_dsp_e_frozen</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="t_avail" name="Перевести деньги в «доступна», записать в журнал">
+      <bpmn:documentation>FT-9.2: деньги доступны к выводу. SM-11: заморожена -&gt; доступна.</bpmn:documentation>
+      <bpmn:incoming>Flow_g_dsp_t_avail</bpmn:incoming>
+      <bpmn:outgoing>Flow_t_avail_e_avail</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="e_avail" name="Деньги доступны к выводу">
+      <bpmn:incoming>Flow_t_avail_e_avail</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="e_frozen" name="Деньги заморожены до решения спора (BPMN-05)">
+      <bpmn:documentation>FT-8.3: пока спор открыт, деньги по заказу недоступны. После решения спора процесс BPMN-05 переводит деньги в «доступна» (если 7 дней уже прошли) или возвращает их покупателю.</bpmn:documentation>
+      <bpmn:incoming>Flow_g_dsp_e_frozen</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_s_req_g_amt" sourceRef="s_req" targetRef="g_amt" />
+    <bpmn:sequenceFlow id="Flow_g_amt_t_create" name="да" sourceRef="g_amt" targetRef="t_create" />
+    <bpmn:sequenceFlow id="Flow_g_amt_t_inv" name="нет" sourceRef="g_amt" targetRef="t_inv" />
+    <bpmn:sequenceFlow id="Flow_t_inv_e_inv" sourceRef="t_inv" targetRef="e_inv" />
+    <bpmn:sequenceFlow id="Flow_t_create_ic_adm" sourceRef="t_create" targetRef="ic_adm" />
+    <bpmn:sequenceFlow id="Flow_ic_adm_t_audit" sourceRef="ic_adm" targetRef="t_audit" />
+    <bpmn:sequenceFlow id="Flow_t_audit_g_dec" sourceRef="t_audit" targetRef="g_dec" />
+    <bpmn:sequenceFlow id="Flow_g_dec_t_paid" name="да" sourceRef="g_dec" targetRef="t_paid" />
+    <bpmn:sequenceFlow id="Flow_g_dec_t_back" name="нет" sourceRef="g_dec" targetRef="t_back" />
+    <bpmn:sequenceFlow id="Flow_t_paid_t_notify" sourceRef="t_paid" targetRef="t_notify" />
+    <bpmn:sequenceFlow id="Flow_t_back_t_notify" sourceRef="t_back" targetRef="t_notify" />
+    <bpmn:sequenceFlow id="Flow_t_notify_t_mail" sourceRef="t_notify" targetRef="t_mail" />
+    <bpmn:sequenceFlow id="Flow_t_mail_e_ntf" sourceRef="t_mail" targetRef="e_ntf" />
+    <bpmn:sequenceFlow id="Flow_s_acc_t_accrue" sourceRef="s_acc" targetRef="t_accrue" />
+    <bpmn:sequenceFlow id="Flow_t_accrue_ic_hold" sourceRef="t_accrue" targetRef="ic_hold" />
+    <bpmn:sequenceFlow id="Flow_ic_hold_g_dsp" sourceRef="ic_hold" targetRef="g_dsp" />
+    <bpmn:sequenceFlow id="Flow_g_dsp_t_avail" name="нет" sourceRef="g_dsp" targetRef="t_avail" />
+    <bpmn:sequenceFlow id="Flow_t_avail_e_avail" sourceRef="t_avail" targetRef="e_avail" />
+    <bpmn:sequenceFlow id="Flow_g_dsp_e_frozen" name="да" sourceRef="g_dsp" targetRef="e_frozen" />
+    <bpmn:textAnnotation id="Note_acc"><bpmn:text>Начисление и удержание запускаются выдачей заказа (BPMN-01). Заявки на вывод от этого потока не зависят</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Assoc_Note_acc" sourceRef="Note_acc" targetRef="s_acc" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="P_seller_di" bpmnElement="P_seller" isHorizontal="true"><dc:Bounds x="40" y="20" width="2480" height="170" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="P_admin_di" bpmnElement="P_admin" isHorizontal="true"><dc:Bounds x="40" y="230" width="2480" height="210" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="P_platform_di" bpmnElement="P_platform" isHorizontal="true"><dc:Bounds x="40" y="480" width="2480" height="840" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_notify_di" bpmnElement="Lane_notify" isHorizontal="true"><dc:Bounds x="70" y="480" width="2450" height="110" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_balance_di" bpmnElement="Lane_balance" isHorizontal="true"><dc:Bounds x="70" y="590" width="2450" height="520" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_audit_di" bpmnElement="Lane_audit" isHorizontal="true"><dc:Bounds x="70" y="1110" width="2450" height="210" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="P_email_di" bpmnElement="P_email" isHorizontal="true"><dc:Bounds x="40" y="1380" width="2480" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="b_start_di" bpmnElement="b_start">
+        <dc:Bounds x="102" y="87" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="76" y="127" width="87" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="u_req_di" bpmnElement="u_req">
+        <dc:Bounds x="185" y="65" width="130" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="e_sent_di" bpmnElement="e_sent">
+        <dc:Bounds x="372" y="87" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="353" y="127" width="72" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ss_res_di" bpmnElement="ss_res">
+        <dc:Bounds x="1982" y="87" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1951" y="41" width="96" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="se_res_di" bpmnElement="se_res">
+        <dc:Bounds x="2092" y="87" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2060" y="127" width="100" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="bs_mail_di" bpmnElement="bs_mail">
+        <dc:Bounds x="2327" y="87" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2310" y="41" width="69" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="be_mail_di" bpmnElement="be_mail">
+        <dc:Bounds x="2417" y="87" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2392" y="127" width="84" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_adm_di" bpmnElement="s_adm">
+        <dc:Bounds x="522" y="267" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="436" y="271" width="81" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="u_check_di" bpmnElement="u_check">
+        <dc:Bounds x="605" y="245" width="130" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="b_3d_di" bpmnElement="b_3d">
+        <dc:Bounds x="697" y="297" width="36" height="36" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="e_alert_di" bpmnElement="e_alert">
+        <dc:Bounds x="697" y="367" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="640" y="407" width="150" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="g_ok_di" bpmnElement="g_ok" isMarkerVisible="true">
+        <dc:Bounds x="785" y="260" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="766" y="228" width="86" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="u_pay_di" bpmnElement="u_pay">
+        <dc:Bounds x="875" y="245" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="g_bank_di" bpmnElement="g_bank" isMarkerVisible="true">
+        <dc:Bounds x="1055" y="260" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1030" y="228" width="98" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="u_mark_di" bpmnElement="u_mark">
+        <dc:Bounds x="1145" y="245" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="u_rej_di" bpmnElement="u_rej">
+        <dc:Bounds x="1005" y="345" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="e_adm_di" bpmnElement="e_adm">
+        <dc:Bounds x="1362" y="367" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1402" y="371" width="55" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_notify_di" bpmnElement="t_notify">
+        <dc:Bounds x="1925" y="495" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_mail_di" bpmnElement="t_mail">
+        <dc:Bounds x="2085" y="495" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="e_ntf_di" bpmnElement="e_ntf">
+        <dc:Bounds x="2277" y="517" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2261" y="557" width="67" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_req_di" bpmnElement="s_req">
+        <dc:Bounds x="232" y="662" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="219" y="702" width="61" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="g_amt_di" bpmnElement="g_amt" isMarkerVisible="true">
+        <dc:Bounds x="340" y="655" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="302" y="595" width="124" height="56" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_inv_di" bpmnElement="t_inv">
+        <dc:Bounds x="290" y="760" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="e_inv_di" bpmnElement="e_inv">
+        <dc:Bounds x="487" y="782" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="474" y="822" width="61" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_create_di" bpmnElement="t_create">
+        <dc:Bounds x="445" y="630" width="190" height="100" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ic_adm_di" bpmnElement="ic_adm">
+        <dc:Bounds x="1362" y="662" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1402" y="659" width="100" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_audit_di" bpmnElement="t_audit">
+        <dc:Bounds x="1295" y="1175" width="170" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="g_dec_di" bpmnElement="g_dec" isMarkerVisible="true">
+        <dc:Bounds x="1575" y="655" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1565" y="637" width="70" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_paid_di" bpmnElement="t_paid">
+        <dc:Bounds x="1670" y="644" width="180" height="72" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_back_di" bpmnElement="t_back">
+        <dc:Bounds x="1670" y="764" width="180" height="72" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="s_acc_di" bpmnElement="s_acc">
+        <dc:Bounds x="132" y="922" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="105" y="890" width="89" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_accrue_di" bpmnElement="t_accrue">
+        <dc:Bounds x="220" y="900" width="160" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ic_hold_di" bpmnElement="ic_hold">
+        <dc:Bounds x="432" y="922" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="416" y="876" width="66" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="g_dsp_di" bpmnElement="g_dsp" isMarkerVisible="true">
+        <dc:Bounds x="545" y="915" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="522" y="883" width="95" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="t_avail_di" bpmnElement="t_avail">
+        <dc:Bounds x="635" y="900" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="e_avail_di" bpmnElement="e_avail">
+        <dc:Bounds x="832" y="922" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="814" y="962" width="70" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="e_frozen_di" bpmnElement="e_frozen">
+        <dc:Bounds x="552" y="1022" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="592" y="1019" width="123" height="42" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Note_acc_di" bpmnElement="Note_acc"><dc:Bounds x="110" y="1020" width="280" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Assoc_Note_acc_di" bpmnElement="Assoc_Note_acc"><di:waypoint x="150" y="1020" /><di:waypoint x="150" y="958" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Note_3d_di" bpmnElement="Note_3d"><dc:Bounds x="275" y="350" width="250" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Assoc_Note_3d_di" bpmnElement="Assoc_Note_3d"><di:waypoint x="525" y="385" /><di:waypoint x="697" y="385" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_b_start_u_req_di" bpmnElement="Flow_b_start_u_req">
+        <di:waypoint x="138" y="105" />
+        <di:waypoint x="185" y="105" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_u_req_e_sent_di" bpmnElement="Flow_u_req_e_sent">
+        <di:waypoint x="315" y="105" />
+        <di:waypoint x="372" y="105" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ss_res_se_res_di" bpmnElement="Flow_ss_res_se_res">
+        <di:waypoint x="2018" y="105" />
+        <di:waypoint x="2092" y="105" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_bs_mail_be_mail_di" bpmnElement="Flow_bs_mail_be_mail">
+        <di:waypoint x="2363" y="105" />
+        <di:waypoint x="2417" y="105" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_s_adm_u_check_di" bpmnElement="Flow_s_adm_u_check">
+        <di:waypoint x="558" y="285" />
+        <di:waypoint x="605" y="285" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_u_check_g_ok_di" bpmnElement="Flow_u_check_g_ok">
+        <di:waypoint x="735" y="285" />
+        <di:waypoint x="785" y="285" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_ok_u_pay_di" bpmnElement="Flow_g_ok_u_pay">
+        <di:waypoint x="835" y="285" />
+        <di:waypoint x="875" y="285" />
+        <bpmndi:BPMNLabel><dc:Bounds x="845" y="268" width="18" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_ok_u_rej_di" bpmnElement="Flow_g_ok_u_rej">
+        <di:waypoint x="810" y="310" />
+        <di:waypoint x="810" y="385" />
+        <di:waypoint x="1005" y="385" />
+        <bpmndi:BPMNLabel><dc:Bounds x="814" y="340" width="24" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_u_pay_g_bank_di" bpmnElement="Flow_u_pay_g_bank">
+        <di:waypoint x="1025" y="285" />
+        <di:waypoint x="1055" y="285" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_bank_u_mark_di" bpmnElement="Flow_g_bank_u_mark">
+        <di:waypoint x="1105" y="285" />
+        <di:waypoint x="1145" y="285" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1115" y="268" width="18" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_bank_u_rej_di" bpmnElement="Flow_g_bank_u_rej">
+        <di:waypoint x="1080" y="310" />
+        <di:waypoint x="1080" y="345" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1084" y="313" width="24" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_b_3d_e_alert_di" bpmnElement="Flow_b_3d_e_alert">
+        <di:waypoint x="715" y="333" />
+        <di:waypoint x="715" y="367" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_u_mark_e_adm_di" bpmnElement="Flow_u_mark_e_adm">
+        <di:waypoint x="1295" y="285" />
+        <di:waypoint x="1380" y="285" />
+        <di:waypoint x="1380" y="367" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_u_rej_e_adm_di" bpmnElement="Flow_u_rej_e_adm">
+        <di:waypoint x="1155" y="385" />
+        <di:waypoint x="1362" y="385" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_s_req_g_amt_di" bpmnElement="Flow_s_req_g_amt">
+        <di:waypoint x="268" y="680" />
+        <di:waypoint x="340" y="680" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_amt_t_create_di" bpmnElement="Flow_g_amt_t_create">
+        <di:waypoint x="390" y="680" />
+        <di:waypoint x="445" y="680" />
+        <bpmndi:BPMNLabel><dc:Bounds x="408" y="663" width="18" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_amt_t_inv_di" bpmnElement="Flow_g_amt_t_inv">
+        <di:waypoint x="365" y="705" />
+        <di:waypoint x="365" y="760" />
+        <bpmndi:BPMNLabel><dc:Bounds x="369" y="725" width="24" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_inv_e_inv_di" bpmnElement="Flow_t_inv_e_inv">
+        <di:waypoint x="440" y="800" />
+        <di:waypoint x="487" y="800" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_create_ic_adm_di" bpmnElement="Flow_t_create_ic_adm">
+        <di:waypoint x="635" y="680" />
+        <di:waypoint x="1362" y="680" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ic_adm_t_audit_di" bpmnElement="Flow_ic_adm_t_audit">
+        <di:waypoint x="1380" y="698" />
+        <di:waypoint x="1380" y="1175" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_audit_g_dec_di" bpmnElement="Flow_t_audit_g_dec">
+        <di:waypoint x="1465" y="1215" />
+        <di:waypoint x="1530" y="1215" />
+        <di:waypoint x="1530" y="680" />
+        <di:waypoint x="1575" y="680" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_dec_t_paid_di" bpmnElement="Flow_g_dec_t_paid">
+        <di:waypoint x="1625" y="680" />
+        <di:waypoint x="1670" y="680" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1638" y="663" width="18" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_dec_t_back_di" bpmnElement="Flow_g_dec_t_back">
+        <di:waypoint x="1600" y="705" />
+        <di:waypoint x="1600" y="800" />
+        <di:waypoint x="1670" y="800" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1604" y="745" width="24" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_paid_t_notify_di" bpmnElement="Flow_t_paid_t_notify">
+        <di:waypoint x="1850" y="680" />
+        <di:waypoint x="1965" y="680" />
+        <di:waypoint x="1965" y="575" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_back_t_notify_di" bpmnElement="Flow_t_back_t_notify">
+        <di:waypoint x="1850" y="800" />
+        <di:waypoint x="2035" y="800" />
+        <di:waypoint x="2035" y="575" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_notify_t_mail_di" bpmnElement="Flow_t_notify_t_mail">
+        <di:waypoint x="2075" y="535" />
+        <di:waypoint x="2085" y="535" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_mail_e_ntf_di" bpmnElement="Flow_t_mail_e_ntf">
+        <di:waypoint x="2235" y="535" />
+        <di:waypoint x="2277" y="535" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_s_acc_t_accrue_di" bpmnElement="Flow_s_acc_t_accrue">
+        <di:waypoint x="168" y="940" />
+        <di:waypoint x="220" y="940" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_accrue_ic_hold_di" bpmnElement="Flow_t_accrue_ic_hold">
+        <di:waypoint x="380" y="940" />
+        <di:waypoint x="432" y="940" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_ic_hold_g_dsp_di" bpmnElement="Flow_ic_hold_g_dsp">
+        <di:waypoint x="468" y="940" />
+        <di:waypoint x="545" y="940" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_dsp_t_avail_di" bpmnElement="Flow_g_dsp_t_avail">
+        <di:waypoint x="595" y="940" />
+        <di:waypoint x="635" y="940" />
+        <bpmndi:BPMNLabel><dc:Bounds x="602" y="923" width="24" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_t_avail_e_avail_di" bpmnElement="Flow_t_avail_e_avail">
+        <di:waypoint x="785" y="940" />
+        <di:waypoint x="832" y="940" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_g_dsp_e_frozen_di" bpmnElement="Flow_g_dsp_e_frozen">
+        <di:waypoint x="570" y="965" />
+        <di:waypoint x="570" y="1022" />
+        <bpmndi:BPMNLabel><dc:Bounds x="574" y="986" width="18" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_u_req_s_req_di" bpmnElement="Msg_u_req_s_req">
+        <di:waypoint x="250" y="145" />
+        <di:waypoint x="250" y="662" />
+        <bpmndi:BPMNLabel><dc:Bounds x="256" y="200" width="101" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_t_create_s_adm_di" bpmnElement="Msg_t_create_s_adm">
+        <di:waypoint x="540" y="630" />
+        <di:waypoint x="540" y="303" />
+        <bpmndi:BPMNLabel><dc:Bounds x="546" y="452" width="81" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_e_adm_ic_adm_di" bpmnElement="Msg_e_adm_ic_adm">
+        <di:waypoint x="1380" y="403" />
+        <di:waypoint x="1380" y="662" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1386" y="452" width="115" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_t_notify_ss_res_di" bpmnElement="Msg_t_notify_ss_res">
+        <di:waypoint x="2000" y="495" />
+        <di:waypoint x="2000" y="123" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2006" y="200" width="86" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_t_mail_P_email_di" bpmnElement="Msg_t_mail_P_email">
+        <di:waypoint x="2160" y="575" />
+        <di:waypoint x="2160" y="1380" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2166" y="1355" width="134" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Msg_P_email_bs_mail_di" bpmnElement="Msg_P_email_bs_mail">
+        <di:waypoint x="2345" y="1380" />
+        <di:waypoint x="2345" y="123" />
+        <bpmndi:BPMNLabel><dc:Bounds x="2351" y="200" width="115" height="28" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
