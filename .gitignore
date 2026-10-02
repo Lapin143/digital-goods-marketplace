@@ -1,0 +1,25 @@
+# ОС и редакторы
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Сборка
+target/
+build/
+out/
+node_modules/
+dist/
+*.class
+*.log
+
+# Окружение и секреты
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
