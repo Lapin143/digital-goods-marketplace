@@ -1,0 +1,2657 @@
+openapi: 3.1.0
+info:
+  title: 'Digital Goods Marketplace: служебный сервис'
+  version: 1.0.0
+  description: |-
+    REST API служебного сервиса (модули `identity`, `support`, `notification`, `audit_admin`). Подтверждение телефона и коды для Keycloak, обращения покупателей и очередь оператора, смена e-mail по обращению, управление ролями и учётными записями, параметры платформы, чтение журнала аудита, вебхуки провайдеров писем и SMS.
+
+    Вход, пароли, второй фактор и токены обслуживает Keycloak, а не этот сервис (ADR-010). Сервис отвечает за коды подтверждения (хранятся в Redis хешем), их попытки и лимиты, этапы смены e-mail и номера.
+  license:
+    name: Учебный проект, лицензия не задана
+    identifier: NOASSERTION
+servers:
+- url: https://api.marketplace.example
+  description: Публичный адрес `api-gateway`. На демо-стенде адрес задаёт конфигурация развёртывания
+tags:
+- name: Телефон
+  description: Подтверждение телефона покупателя кодом из SMS (область `account.manage`, нет у сессий по SMS)
+- name: Обращения покупателя
+  description: Обращение «Не получил ключ» и ввод кодов смены e-mail (область `support.write`)
+- name: Обращения оператора
+  description: Очередь, взятие в работу, повторная отправка, смена e-mail (область `staff.support`, 2FA)
+- name: Пользователи
+  description: Роли, деактивация и анонимизация учётных записей (область `staff.admin`, 2FA)
+- name: Параметры
+  description: Параметры платформы без выпуска новой версии (область `staff.admin`, 2FA)
+- name: Журнал аудита
+  description: Чтение журнала аудита (область `staff.audit`, 2FA)
+- name: Коды для Keycloak
+  description: Внутренние вызовы расширения `sms-otp` по mTLS
+- name: Вебхуки провайдеров
+  description: Статусы писем и SMS от провайдеров без токена, подпись проверяет сервис
+security: []
+paths:
+  /api/v1/phone-confirmations:
+    post:
+      operationId: createPhoneConfirmation
+      summary: Запросить код подтверждения телефона
+      description: |-
+        Проверяет номер на уникальность и отправляет SMS с кодом. Номер уже привязан к другой учётной записи: SMS не уходит, ответ 409 `phone-not-allowed` без указания причины (FT-1.5, US-1.6). Лимиты запросов кода: 3 за 10 минут и 10 за сутки на учётную запись и на номер (параметры платформы), иначе 429 `otp-request-limited` с `Retry-After`. Если Redis недоступен, отправка запрещена (503). Нужна полная сессия: сессия по SMS эту область не получает.
+
+        Матрица прав: OP-06. Истории: US-1.6.
+      tags:
+      - Телефон
+      x-matrix-id: OP-06
+      x-stories:
+      - US-1.6
+      x-allowed-roles:
+      - buyer
+      x-conditions: []
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - account.manage
+      parameters:
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePhoneConfirmationRequest'
+            example:
+              phone: '+79001234567'
+      responses:
+        '201':
+          description: Код отправлен
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Location:
+              $ref: components.yaml#/components/headers/Location
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhoneConfirmation'
+              example:
+                confirmationId: 0199e0a0-0000-7000-8000-000000000a01
+                phoneMasked: +7900***4567
+                expiresAt: '2026-10-03T12:15:00.123Z'
+                attemptsLeft: 5
+                resendAvailableAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenFullLoginRequired
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressPhoneNotAllowed
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimitedOtpRequestLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+        '503':
+          $ref: components.yaml#/components/responses/E503DependencyUnavailable
+        '504':
+          $ref: components.yaml#/components/responses/E504GatewayTimeout
+  /api/v1/phone-confirmations/{confirmationId}/verify:
+    post:
+      operationId: verifyPhoneConfirmation
+      summary: Ввести код подтверждения телефона
+      description: |-
+        Проверяет код и гасит его атомарно (скрипт Lua). Неверный код даёт 422 `otp-invalid` с `attemptsLeft`, устаревший 422 `otp-expired`, после пятой неудачи 429 `otp-locked`. Успех записывает номер и признак подтверждения, уникальный индекс гасит гонку двух учётных записей (409 `phone-not-allowed`). Публикуется `user.phone-confirmed`.
+
+        Матрица прав: OP-06. Истории: US-1.6.
+      tags:
+      - Телефон
+      x-matrix-id: OP-06
+      x-stories:
+      - US-1.6
+      x-allowed-roles:
+      - buyer
+      x-conditions: []
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - account.manage
+      parameters:
+      - name: confirmationId
+        in: path
+        required: true
+        description: Идентификатор запроса подтверждения
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000a01
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyCodeRequest'
+            example:
+              code: '123456'
+      responses:
+        '200':
+          description: Телефон подтверждён
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhoneConfirmed'
+              example:
+                phoneConfirmed: true
+                phoneMasked: +7900***4567
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenFullLoginRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409RequestInProgressPhoneNotAllowed
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuseOtpInvalidOtpExpired
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimitedOtpLocked
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/support-tickets:
+    post:
+      operationId: createSupportTicket
+      summary: Создать обращение «Не получил ключ»
+      description: |-
+        Создаёт обращение в статусе `created` с источником `buyer` (SM-07, T1), оно встаёт в очередь поддержки. Условия: заказ принадлежит покупателю (U1, иначе 404), заказ в статусе `issued` (иначе 409 `state-conflict`), с первичной выдачи прошло не больше 72 часов (параметр `support.window-seconds`, U5, иначе 409 `ticket-window-closed`; повторная отправка окно не продлевает), по заказу нет открытого обращения (INV-21, иначе 409 `ticket-already-open`). Доступна и сессии по SMS: так покупатель, потерявший доступ к e-mail, обращается в поддержку (US-1.7).
+
+        Матрица прав: OP-70. Истории: US-7.1.
+      tags:
+      - Обращения покупателя
+      x-matrix-id: OP-70
+      x-stories:
+      - US-7.1
+      x-allowed-roles:
+      - buyer
+      - system
+      x-conditions:
+      - U1
+      - U5
+      - U18
+      x-sms-session: allowed
+      security:
+      - bearerJwt:
+        - support.write
+      parameters:
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSupportTicketRequest'
+            example:
+              orderId: 0199e0a0-0000-7000-8000-000000000301
+              reason: key_not_received
+      responses:
+        '201':
+          description: Обращение принято
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Location:
+              $ref: components.yaml#/components/headers/Location
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportTicket'
+              example:
+                ticketId: 0199e0a0-0000-7000-8000-000000000501
+                orderId: 0199e0a0-0000-7000-8000-000000000301
+                source: buyer
+                reason: key_not_received
+                status: created
+                createdAt: '2026-10-03T12:00:00.123Z'
+                resolvedAt: null
+                resolution: null
+                emailChange: null
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403Forbidden
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressTicketWindowClosedTicketAlreadyOpen
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+    get:
+      operationId: listSupportTickets
+      summary: Свои обращения
+      description: |-
+        Обращения текущего покупателя, новые выше. Фильтр `orderId` показывает обращение по заказу, `status` принимает несколько значений через запятую.
+
+        Матрица прав: OP-70. Истории: US-7.1.
+      tags:
+      - Обращения покупателя
+      x-matrix-id: OP-70
+      x-stories:
+      - US-7.1
+      x-allowed-roles:
+      - buyer
+      - system
+      x-conditions:
+      - U1
+      - U5
+      - U18
+      x-sms-session: allowed
+      security:
+      - bearerJwt:
+        - support.write
+      parameters:
+      - name: orderId
+        in: query
+        required: false
+        description: Заказ
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000301
+      - name: status
+        in: query
+        required: false
+        description: Статусы через запятую
+        schema:
+          type: string
+          pattern: ^[a-z_]+(,[a-z_]+)*$
+        example: created,in_progress
+      - $ref: components.yaml#/components/parameters/Limit
+      - $ref: components.yaml#/components/parameters/Cursor
+      responses:
+        '200':
+          description: Страница обращений
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportTicketPage'
+              example:
+                items:
+                - ticketId: 0199e0a0-0000-7000-8000-000000000501
+                  orderId: 0199e0a0-0000-7000-8000-000000000301
+                  source: buyer
+                  reason: key_not_received
+                  status: created
+                  createdAt: '2026-10-03T12:00:00.123Z'
+                  resolvedAt: null
+                  resolution: null
+                  emailChange: null
+                page:
+                  limit: 20
+                  nextCursor: null
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403Forbidden
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailed
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/support-tickets/{ticketId}:
+    get:
+      operationId: getSupportTicket
+      summary: Статус своего обращения
+      description: |-
+        Обращение со статусом и состоянием смены e-mail. Чужое обращение даёт 404 (U1).
+
+        Матрица прав: OP-70. Истории: US-7.1.
+      tags:
+      - Обращения покупателя
+      x-matrix-id: OP-70
+      x-stories:
+      - US-7.1
+      x-allowed-roles:
+      - buyer
+      - system
+      x-conditions:
+      - U1
+      - U5
+      - U18
+      x-sms-session: allowed
+      security:
+      - bearerJwt:
+        - support.write
+      parameters:
+      - name: ticketId
+        in: path
+        required: true
+        description: Идентификатор обращения
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000501
+      responses:
+        '200':
+          description: Обращение
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupportTicket'
+              example:
+                ticketId: 0199e0a0-0000-7000-8000-000000000501
+                orderId: 0199e0a0-0000-7000-8000-000000000301
+                source: buyer
+                reason: key_not_received
+                status: created
+                createdAt: '2026-10-03T12:00:00.123Z'
+                resolvedAt: null
+                resolution: null
+                emailChange: null
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403Forbidden
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/support-tickets/{ticketId}/email-change/codes:
+    post:
+      operationId: requestEmailChangeCode
+      summary: Запросить новый код смены e-mail
+      description: |-
+        Покупатель просит повторно отправить код на этапе смены e-mail: `phone` повторяет SMS на подтверждённый телефон, `new_email` повторяет письмо на новый адрес. Лимиты 3 за 10 минут и 10 за сутки, иначе 429 `otp-request-limited` (US-7.4, сценарий 3). Новый код гасит прежний.
+
+        Матрица прав: OP-74. Истории: US-7.4.
+      tags:
+      - Обращения покупателя
+      x-matrix-id: OP-74
+      x-stories:
+      - US-7.4
+      x-allowed-roles:
+      - buyer
+      x-conditions:
+      - U1
+      x-sms-session: allowed
+      security:
+      - bearerJwt:
+        - support.write
+      parameters:
+      - name: ticketId
+        in: path
+        required: true
+        description: Идентификатор обращения
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000501
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestEmailChangeCodeRequest'
+            example:
+              step: phone
+      responses:
+        '200':
+          description: Код отправлен
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailChangeState'
+              example:
+                status: awaiting_phone_code
+                phoneCheck: pending
+                newEmailCheck: not_started
+                newEmailMasked: n***@mail.example
+                startedAt: '2026-10-03T12:00:00.123Z'
+                updatedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403Forbidden
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimitedOtpRequestLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+        '503':
+          $ref: components.yaml#/components/responses/E503DependencyUnavailable
+        '504':
+          $ref: components.yaml#/components/responses/E504GatewayTimeout
+  /api/v1/support-tickets/{ticketId}/email-change/verifications:
+    post:
+      operationId: verifyEmailChangeCode
+      summary: Ввести код смены e-mail
+      description: |-
+        Покупатель сам вводит коды: сначала из SMS (`phone`), затем из письма на новый адрес (`new_email`). После второго успеха e-mail учётной записи меняется в Keycloak (Admin REST), публикуется `user.email-changed`, письма о смене уходят на новый и на прежний адрес, ключ отправляется повторно (US-7.4). Неверный код: 422 `otp-invalid` с `attemptsLeft`, устаревший 422 `otp-expired`, после пятой неудачи 429 `otp-locked`: e-mail не меняется, обращение остаётся в работе. Порядок этапов нарушен или смена не начата: 409. Нужен только `support.write`, поэтому доступно из сессии по SMS.
+
+        Матрица прав: OP-74. Истории: US-7.4.
+      tags:
+      - Обращения покупателя
+      x-matrix-id: OP-74
+      x-stories:
+      - US-7.4
+      x-allowed-roles:
+      - buyer
+      x-conditions:
+      - U1
+      x-sms-session: allowed
+      security:
+      - bearerJwt:
+        - support.write
+      parameters:
+      - name: ticketId
+        in: path
+        required: true
+        description: Идентификатор обращения
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000501
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyEmailChangeCodeRequest'
+            example:
+              step: phone
+              code: '123456'
+      responses:
+        '200':
+          description: Результат проверки
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailChangeState'
+              example:
+                status: awaiting_email_code
+                phoneCheck: passed
+                newEmailCheck: pending
+                newEmailMasked: n***@mail.example
+                startedAt: '2026-10-03T11:00:00.456Z'
+                updatedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403Forbidden
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressEmailNotAllowed
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuseOtpInvalidOtpExpired
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimitedOtpLocked
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+        '503':
+          $ref: components.yaml#/components/responses/E503DependencyUnavailable
+        '504':
+          $ref: components.yaml#/components/responses/E504GatewayTimeout
+  /api/v1/staff/support-tickets:
+    get:
+      operationId: listSupportTicketQueue
+      summary: Очередь обращений оператора
+      description: |-
+        Общая очередь двух источников (покупатель и система): обращения в статусе `created`, старые выше. Фильтр `status` принимает `created`, `in_progress` (свои обращения оператор находит по `operatorId`). Значений ключей в очереди нет. Число обращений в статусах `created` и `in_progress` совпадает с метрикой очереди (US-7.2, сценарий 5).
+
+        Матрица прав: OP-71. Истории: US-7.2.
+      tags:
+      - Обращения оператора
+      x-matrix-id: OP-71
+      x-stories:
+      - US-7.2
+      x-allowed-roles:
+      - support-operator
+      x-conditions:
+      - U4
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.support
+      parameters:
+      - name: status
+        in: query
+        required: false
+        description: Статусы через запятую
+        schema:
+          type: string
+          pattern: ^[a-z_]+(,[a-z_]+)*$
+          default: created
+        example: created
+      - name: operatorId
+        in: query
+        required: false
+        description: Обращения этого оператора
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+      - $ref: components.yaml#/components/parameters/Limit
+      - $ref: components.yaml#/components/parameters/Cursor
+      responses:
+        '200':
+          description: Страница очереди
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffSupportTicketPage'
+              example:
+                items:
+                - ticketId: 0199e0a0-0000-7000-8000-000000000501
+                  orderId: 0199e0a0-0000-7000-8000-000000000301
+                  buyerId: 7e1c3a95-2d4f-4b68-9a0c-8b6d4f2a1e53
+                  source: buyer
+                  reason: key_not_received
+                  status: created
+                  operatorId: null
+                  orderStatus: issued
+                  issuedAt: '2026-10-03T11:00:00.456Z'
+                  deliveryStatus: sent
+                  createdAt: '2026-10-03T12:00:00.123Z'
+                  takenAt: null
+                  resolvedAt: null
+                  emailChange: null
+                page:
+                  limit: 20
+                  nextCursor: null
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailed
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/support-tickets/{ticketId}:
+    get:
+      operationId: getStaffSupportTicket
+      summary: Карточка обращения для оператора
+      description: |-
+        Обращение, статус заказа и выдачи, результат проверок смены e-mail. Значения ключей и коды подтверждения не показываются.
+
+        Матрица прав: OP-71. Истории: US-7.2.
+      tags:
+      - Обращения оператора
+      x-matrix-id: OP-71
+      x-stories:
+      - US-7.2
+      x-allowed-roles:
+      - support-operator
+      x-conditions:
+      - U4
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.support
+      parameters:
+      - name: ticketId
+        in: path
+        required: true
+        description: Идентификатор обращения
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000501
+      responses:
+        '200':
+          description: Обращение
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffSupportTicket'
+              example:
+                ticketId: 0199e0a0-0000-7000-8000-000000000501
+                orderId: 0199e0a0-0000-7000-8000-000000000301
+                buyerId: 7e1c3a95-2d4f-4b68-9a0c-8b6d4f2a1e53
+                source: buyer
+                reason: key_not_received
+                status: created
+                operatorId: null
+                orderStatus: issued
+                issuedAt: '2026-10-03T11:00:00.456Z'
+                deliveryStatus: sent
+                createdAt: '2026-10-03T12:00:00.123Z'
+                takenAt: null
+                resolvedAt: null
+                emailChange: null
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/support-tickets/{ticketId}/take:
+    post:
+      operationId: takeSupportTicket
+      summary: Взять обращение в работу
+      description: |-
+        Переводит обращение из `created` в `in_progress` и записывает оператора (SM-07, T2). Два оператора одновременно: обращение получает первый, второй видит 409 (US-7.2, сценарий 3).
+
+        Матрица прав: OP-71. Истории: US-7.2.
+      tags:
+      - Обращения оператора
+      x-matrix-id: OP-71
+      x-stories:
+      - US-7.2
+      x-allowed-roles:
+      - support-operator
+      x-conditions:
+      - U4
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.support
+      parameters:
+      - name: ticketId
+        in: path
+        required: true
+        description: Идентификатор обращения
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000501
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: Обращение в работе
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffSupportTicket'
+              example:
+                ticketId: 0199e0a0-0000-7000-8000-000000000501
+                orderId: 0199e0a0-0000-7000-8000-000000000301
+                buyerId: 7e1c3a95-2d4f-4b68-9a0c-8b6d4f2a1e53
+                source: buyer
+                reason: key_not_received
+                status: in_progress
+                operatorId: 9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d
+                orderStatus: issued
+                issuedAt: '2026-10-03T11:00:00.456Z'
+                deliveryStatus: sent
+                createdAt: '2026-10-03T12:00:00.123Z'
+                takenAt: '2026-10-03T12:00:00.123Z'
+                resolvedAt: null
+                emailChange: null
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '422':
+          $ref: components.yaml#/components/responses/E422IdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/support-tickets/{ticketId}/release:
+    post:
+      operationId: releaseSupportTicket
+      summary: Вернуть обращение в очередь
+      description: |-
+        Переводит обращение из `in_progress` в `created`, оператор сбрасывается, дата создания не меняется (SM-07, T3). Вернуть может оператор, у которого обращение в работе.
+
+        Матрица прав: OP-71. Истории: US-7.2.
+      tags:
+      - Обращения оператора
+      x-matrix-id: OP-71
+      x-stories:
+      - US-7.2
+      x-allowed-roles:
+      - support-operator
+      x-conditions:
+      - U4
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.support
+      parameters:
+      - name: ticketId
+        in: path
+        required: true
+        description: Идентификатор обращения
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000501
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: Обращение в очереди
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffSupportTicket'
+              example:
+                ticketId: 0199e0a0-0000-7000-8000-000000000501
+                orderId: 0199e0a0-0000-7000-8000-000000000301
+                buyerId: 7e1c3a95-2d4f-4b68-9a0c-8b6d4f2a1e53
+                source: buyer
+                reason: key_not_received
+                status: created
+                operatorId: null
+                orderStatus: issued
+                issuedAt: '2026-10-03T11:00:00.456Z'
+                deliveryStatus: sent
+                createdAt: '2026-10-03T12:00:00.123Z'
+                takenAt: null
+                resolvedAt: null
+                emailChange: null
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '422':
+          $ref: components.yaml#/components/responses/E422IdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/support-tickets/{ticketId}/resend:
+    post:
+      operationId: resendKeyForTicket
+      summary: Повторно отправить ключ по обращению
+      description: |-
+        Обновляет снимок адреса доставки в заказе текущим e-mail учётной записи (синхронный вызов `order-service`, тайм-аут 2 секунды) и запускает повторную выдачу: создаётся выдача типа `repeat` в статусе `queued`, ключ формирует и отправляет сервис выдачи, оператор ключа не видит (INV-23). Окна 72 часа, спора и удержания 7 дней не сдвигаются. Условия: обращение в статусе `in_progress` у этого оператора (U4, U10), заказ `issued`, у заказа нет выдачи в очереди (иначе 409). Действие пишется в журнал аудита без e-mail в открытом виде. Ответ 202: результат виден в статусе выдачи обращения.
+
+        Матрица прав: OP-72. Истории: US-7.3.
+      tags:
+      - Обращения оператора
+      x-matrix-id: OP-72
+      x-stories:
+      - US-7.3
+      x-allowed-roles:
+      - support-operator
+      x-conditions:
+      - U4
+      - U10
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.support
+      parameters:
+      - name: ticketId
+        in: path
+        required: true
+        description: Идентификатор обращения
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000501
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '202':
+          description: Повторная отправка принята
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+            Location:
+              $ref: components.yaml#/components/headers/Location
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResendAccepted'
+              example:
+                ticketId: 0199e0a0-0000-7000-8000-000000000501
+                orderId: 0199e0a0-0000-7000-8000-000000000301
+                status: accepted
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '422':
+          $ref: components.yaml#/components/responses/E422IdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+        '503':
+          $ref: components.yaml#/components/responses/E503DependencyUnavailable
+        '504':
+          $ref: components.yaml#/components/responses/E504GatewayTimeout
+  /api/v1/staff/support-tickets/{ticketId}/email-change:
+    post:
+      operationId: startEmailChange
+      summary: Начать смену e-mail покупателя
+      description: |-
+        Оператор вводит новый адрес, который назвал покупатель. Сервис проверяет уникальность адреса и, если адрес нельзя использовать, отвечает нейтральным 409 `email-not-allowed` без причины и не отправляет код (US-7.4, сценарий 5). Иначе на подтверждённый телефон учётной записи уходит SMS с кодом, коды вводит сам покупатель в форме обращения. Обращение должно быть `in_progress` у этого оператора (U4, U10). Лимиты запросов кода 3 за 10 минут и 10 за сутки.
+
+        Матрица прав: OP-73. Истории: US-7.4.
+      tags:
+      - Обращения оператора
+      x-matrix-id: OP-73
+      x-stories:
+      - US-7.4
+      x-allowed-roles:
+      - support-operator
+      x-conditions:
+      - U4
+      - U10
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.support
+      parameters:
+      - name: ticketId
+        in: path
+        required: true
+        description: Идентификатор обращения
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000501
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartEmailChangeRequest'
+            example:
+              newEmail: new.address@mail.example
+      responses:
+        '201':
+          description: Смена начата, SMS отправлено
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Location:
+              $ref: components.yaml#/components/headers/Location
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailChangeState'
+              example:
+                status: awaiting_phone_code
+                phoneCheck: pending
+                newEmailCheck: not_started
+                newEmailMasked: n***@mail.example
+                startedAt: '2026-10-03T12:00:00.123Z'
+                updatedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressEmailNotAllowed
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimitedOtpRequestLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+        '503':
+          $ref: components.yaml#/components/responses/E503DependencyUnavailable
+        '504':
+          $ref: components.yaml#/components/responses/E504GatewayTimeout
+    get:
+      operationId: getEmailChangeState
+      summary: Результат проверок смены e-mail
+      description: |-
+        Оператор видит только «пройдена» или «не пройдена» по каждой проверке, коды не видны (FT-7.5).
+
+        Матрица прав: OP-73. Истории: US-7.4.
+      tags:
+      - Обращения оператора
+      x-matrix-id: OP-73
+      x-stories:
+      - US-7.4
+      x-allowed-roles:
+      - support-operator
+      x-conditions:
+      - U4
+      - U10
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.support
+      parameters:
+      - name: ticketId
+        in: path
+        required: true
+        description: Идентификатор обращения
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000501
+      responses:
+        '200':
+          description: Состояние смены
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailChangeState'
+              example:
+                status: awaiting_phone_code
+                phoneCheck: pending
+                newEmailCheck: not_started
+                newEmailMasked: n***@mail.example
+                startedAt: '2026-10-03T12:00:00.123Z'
+                updatedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/users:
+    get:
+      operationId: listStaffUsers
+      summary: Найти учётные записи
+      description: |-
+        Список учётных записей с фильтрами `role`, `status` и точным `email` (приводится к нижнему регистру). Нужен, чтобы выбрать пользователя для смены роли. Администратор не листает заказы покупателей (roles-permissions.md, решение 9).
+
+        Матрица прав: OP-80. Истории: US-8.1.
+      tags:
+      - Пользователи
+      x-matrix-id: OP-80
+      x-stories:
+      - US-8.1
+      x-allowed-roles:
+      - admin
+      x-conditions:
+      - U7
+      - U8
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.admin
+      parameters:
+      - name: role
+        in: query
+        required: false
+        description: Роль
+        schema:
+          $ref: components.yaml#/components/schemas/Role
+      - name: status
+        in: query
+        required: false
+        description: Статус
+        schema:
+          type: string
+          enum:
+          - active
+          - deactivated
+      - name: email
+        in: query
+        required: false
+        description: Точный адрес e-mail
+        schema:
+          $ref: components.yaml#/components/schemas/Email
+        example: moderator@mail.example
+      - $ref: components.yaml#/components/parameters/Limit
+      - $ref: components.yaml#/components/parameters/Cursor
+      responses:
+        '200':
+          description: Страница учётных записей
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffUserPage'
+              example:
+                items:
+                - userId: 7e1c3a95-2d4f-4b68-9a0c-8b6d4f2a1e53
+                  email: moderator@mail.example
+                  name: Мария
+                  role: moderator
+                  status: active
+                  phoneConfirmed: false
+                  anonymized: false
+                  createdAt: '2026-10-03T11:00:00.456Z'
+                  deactivatedAt: null
+                page:
+                  limit: 20
+                  nextCursor: null
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailed
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/users/{userId}/change-role:
+    post:
+      operationId: changeUserRole
+      summary: Назначить или снять роль сотрудника
+      description: |-
+        Меняет роль пользователя: `moderator`, `support-operator`, `admin` назначают, `buyer` возвращает обычную роль (снимает роль сотрудника). Роль и обязательное действие «настроить TOTP» назначаются одной операцией, при следующем входе пользователь обязан настроить второй фактор (INV-37). Роль меняется в Keycloak (Admin REST), публикуется `user.role-assigned`, запись «кто, кому, какая роль была и какая стала» пишется в журнал аудита. Правила: роль `seller` вручную не назначается и не снимается, ответ 409 `role-managed-by-system` (U8, INV-36); нельзя оставить систему без активного администратора, ответ 409 `last-admin-required` (U7, INV-38); деактивированной записи роль не меняют (409).
+
+        Матрица прав: OP-80. Истории: US-8.1.
+      tags:
+      - Пользователи
+      x-matrix-id: OP-80
+      x-stories:
+      - US-8.1
+      x-allowed-roles:
+      - admin
+      x-conditions:
+      - U7
+      - U8
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.admin
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        description: Идентификатор пользователя (`sub` Keycloak)
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 7e1c3a95-2d4f-4b68-9a0c-8b6d4f2a1e53
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeRoleRequest'
+            example:
+              role: moderator
+      responses:
+        '200':
+          description: Роль изменена
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffUser'
+              example:
+                userId: 7e1c3a95-2d4f-4b68-9a0c-8b6d4f2a1e53
+                email: moderator@mail.example
+                name: Мария
+                role: moderator
+                status: active
+                phoneConfirmed: false
+                anonymized: false
+                createdAt: '2026-10-03T11:00:00.456Z'
+                deactivatedAt: null
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressLastAdminRequiredRoleManagedBySystem
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+        '503':
+          $ref: components.yaml#/components/responses/E503DependencyUnavailable
+        '504':
+          $ref: components.yaml#/components/responses/E504GatewayTimeout
+  /api/v1/staff/users/{userId}/deactivate:
+    post:
+      operationId: deactivateUser
+      summary: Деактивировать учётную запись
+      description: |-
+        Переводит учётную запись в `deactivated`: вход невозможен, активные сессии завершаются (Keycloak Admin REST), заказы, платежи, финансовые записи и журнал сохраняются (US-8.2). Публикуется `user.deactivated`. Деактивация последнего активного администратора отклоняется: 409 `last-admin-required` (U7).
+
+        Матрица прав: OP-81. Истории: US-8.2.
+      tags:
+      - Пользователи
+      x-matrix-id: OP-81
+      x-stories:
+      - US-8.2
+      x-allowed-roles:
+      - admin
+      x-conditions:
+      - U7
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.admin
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        description: Идентификатор пользователя (`sub` Keycloak)
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 7e1c3a95-2d4f-4b68-9a0c-8b6d4f2a1e53
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: Учётная запись деактивирована
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffUser'
+              example:
+                userId: 7e1c3a95-2d4f-4b68-9a0c-8b6d4f2a1e53
+                email: moderator@mail.example
+                name: Мария
+                role: moderator
+                status: deactivated
+                phoneConfirmed: false
+                anonymized: false
+                createdAt: '2026-10-03T11:00:00.456Z'
+                deactivatedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressLastAdminRequired
+        '422':
+          $ref: components.yaml#/components/responses/E422IdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+        '503':
+          $ref: components.yaml#/components/responses/E503DependencyUnavailable
+        '504':
+          $ref: components.yaml#/components/responses/E504GatewayTimeout
+  /api/v1/staff/users/{userId}/anonymize:
+    post:
+      operationId: anonymizeUser
+      summary: Анонимизировать деактивированную учётную запись
+      description: |-
+        Заменяет e-mail, номер телефона и имя обезличенными значениями (U11: запись должна быть деактивирована, иначе 409). Публикуется `user.anonymized`: сервисы заказов и выдачи обезличивают снимки адреса доставки, это происходит после ответа, обычно за секунды (INV-44). Финансовые записи не удаляются, журнал аудита не меняется байт в байт (US-8.7). Снимок адреса в уже опубликованных событиях Kafka остаётся до конца хранения (находка F10-1).
+
+        Матрица прав: OP-82. Истории: US-8.2.
+      tags:
+      - Пользователи
+      x-matrix-id: OP-82
+      x-stories:
+      - US-8.2
+      x-allowed-roles:
+      - admin
+      x-conditions:
+      - U11
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.admin
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        description: Идентификатор пользователя (`sub` Keycloak)
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 7e1c3a95-2d4f-4b68-9a0c-8b6d4f2a1e53
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: Учётная запись анонимизирована
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffUser'
+              example:
+                userId: 7e1c3a95-2d4f-4b68-9a0c-8b6d4f2a1e53
+                email: anonymized-7e1c3a95@invalid.example
+                name: null
+                role: moderator
+                status: deactivated
+                phoneConfirmed: false
+                anonymized: true
+                createdAt: '2026-10-03T11:00:00.456Z'
+                deactivatedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '422':
+          $ref: components.yaml#/components/responses/E422IdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/parameters:
+    get:
+      operationId: listPlatformParameters
+      summary: Параметры платформы
+      description: |-
+        Текущие значения параметров R1 с границами, значением по умолчанию и версией. Версия служит ETag для `PUT /api/v1/staff/parameters/{key}`: `If-Match: "<version>"`. Параметры не содержат персональных данных. Остальные сроки (рассмотрение заявок и товаров 3 суток, контроль выдачи 30 минут, код 5 минут и 5 попыток) в R1 заданы константами.
+
+        Матрица прав: OP-83. Истории: US-8.3.
+      tags:
+      - Параметры
+      x-matrix-id: OP-83
+      x-stories:
+      - US-8.3
+      x-allowed-roles:
+      - admin
+      x-conditions:
+      - U13
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.admin
+      responses:
+        '200':
+          description: Параметры
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformParameterList'
+              example:
+                items:
+                - key: commission.default-rate-bp
+                  description: Комиссия по умолчанию, базисные пункты (200 это 2%). Фиксируется в заказе при создании
+                  unit: basis_points
+                  value: 200
+                  defaultValue: 200
+                  minValue: 1
+                  maxValue: 3000
+                  version: 3
+                  updatedAt: '2026-10-03T11:00:00.456Z'
+                  updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
+                - key: reservation.ttl-seconds
+                  description: Время резерва ключей
+                  unit: seconds
+                  value: 900
+                  defaultValue: 900
+                  minValue: 300
+                  maxValue: 3600
+                  version: 3
+                  updatedAt: '2026-10-03T11:00:00.456Z'
+                  updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
+                - key: payment-session.ttl-seconds
+                  description: Срок платёжной сессии, строго короче резерва (INV-07)
+                  unit: seconds
+                  value: 720
+                  defaultValue: 720
+                  minValue: 60
+                  maxValue: 3599
+                  version: 3
+                  updatedAt: '2026-10-03T11:00:00.456Z'
+                  updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
+                - key: support.window-seconds
+                  description: Окно обращения «Не получил ключ» от первичной выдачи (FT-7.2)
+                  unit: seconds
+                  value: 259200
+                  defaultValue: 259200
+                  minValue: 3600
+                  maxValue: 2592000
+                  version: 3
+                  updatedAt: '2026-10-03T11:00:00.456Z'
+                  updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
+                - key: seller.reapplication-pause-seconds
+                  description: Пауза после отказа продавцу перед новой заявкой (FT-2.4)
+                  unit: seconds
+                  value: 86400
+                  defaultValue: 86400
+                  minValue: 3600
+                  maxValue: 604800
+                  version: 3
+                  updatedAt: '2026-10-03T11:00:00.456Z'
+                  updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
+                - key: otp.requests-per-10-minutes
+                  description: Запросов кода на учётную запись и номер за 10 минут (NFT-3.5)
+                  unit: count
+                  value: 3
+                  defaultValue: 3
+                  minValue: 1
+                  maxValue: 20
+                  version: 3
+                  updatedAt: '2026-10-03T11:00:00.456Z'
+                  updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
+                - key: otp.requests-per-day
+                  description: Запросов кода на учётную запись и номер за сутки (NFT-3.5)
+                  unit: count
+                  value: 10
+                  defaultValue: 10
+                  minValue: 1
+                  maxValue: 100
+                  version: 3
+                  updatedAt: '2026-10-03T11:00:00.456Z'
+                  updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
+                - key: sms.daily-cap
+                  description: Общий потолок SMS в сутки, оповещение при 80% (ADR-010)
+                  unit: count
+                  value: 1000
+                  defaultValue: 1000
+                  minValue: 10
+                  maxValue: 100000
+                  version: 3
+                  updatedAt: '2026-10-03T11:00:00.456Z'
+                  updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/parameters/{key}:
+    put:
+      operationId: setPlatformParameter
+      summary: Изменить параметр платформы
+      description: |-
+        Сохраняет новое значение (`PUT`, нужен `If-Match`). Значение должно быть положительным целым в границах параметра, ноль, отрицательное и нечисловое отклоняются 422 с границами в `errors` (US-8.3, сценарий 3). Соотношения между параметрами проверяются при сохранении (U13): срок платёжной сессии строго короче резерва (INV-07), оба изменения отклоняются, если нарушают это, ответ 422 с указанием парного параметра. Публикуется `config.changed` (сжатая тема `platform.config`), запись «параметр, значение до и после» пишется в журнал аудита, значения хранятся как есть (NFT-5.3). Уже созданные заказы сохраняют прежние сроки. Неизвестный ключ даёт 404.
+
+        Матрица прав: OP-83. Истории: US-8.3, US-8.4.
+      tags:
+      - Параметры
+      x-matrix-id: OP-83
+      x-stories:
+      - US-8.3
+      - US-8.4
+      x-allowed-roles:
+      - admin
+      x-conditions:
+      - U13
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.admin
+      parameters:
+      - name: key
+        in: path
+        required: true
+        description: Ключ параметра R1 из списка `GET /api/v1/staff/parameters`
+        schema:
+          type: string
+          pattern: ^[a-z][a-z0-9.-]*$
+          maxLength: 128
+        example: reservation.ttl-seconds
+      - $ref: components.yaml#/components/parameters/IfMatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetParameterRequest'
+            example:
+              value: 1200
+      responses:
+        '200':
+          description: Параметр сохранён
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            ETag:
+              $ref: components.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformParameter'
+              example:
+                key: reservation.ttl-seconds
+                description: Время резерва ключей
+                unit: seconds
+                value: 1200
+                defaultValue: 900
+                minValue: 300
+                maxValue: 3600
+                version: 4
+                updatedAt: '2026-10-03T11:00:00.456Z'
+                updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '412':
+          $ref: components.yaml#/components/responses/E412VersionConflict
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailed
+        '428':
+          $ref: components.yaml#/components/responses/E428PreconditionRequired
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/audit-records:
+    get:
+      operationId: listAuditRecords
+      summary: Читать журнал аудита
+      description: |-
+        Просмотр и фильтрация журнала. Записи нельзя менять и удалять: ни одной операции записи в этом API нет, а роль приложения в базе имеет только `INSERT` и `SELECT` (OP-87, INV-42, ADR-014). Каждое открытие журнала даёт запись «просмотр журнала» без параметров поиска (roles-permissions.md, решение 4). Порядок: `occurredAt` по убыванию, затем `recordId`. Диапазон времени `occurredFrom` включительно, `occurredTo` не включая.
+
+        Матрица прав: OP-86. Истории: US-8.7.
+      tags:
+      - Журнал аудита
+      x-matrix-id: OP-86
+      x-stories:
+      - US-8.7
+      x-allowed-roles:
+      - admin
+      x-conditions: []
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.audit
+      parameters:
+      - name: actorId
+        in: query
+        required: false
+        description: Исполнитель
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+      - name: objectType
+        in: query
+        required: false
+        description: Тип объекта
+        schema:
+          type: string
+          maxLength: 64
+        example: parameter
+      - name: objectId
+        in: query
+        required: false
+        description: Идентификатор объекта
+        schema:
+          type: string
+          maxLength: 128
+      - name: action
+        in: query
+        required: false
+        description: Действие
+        schema:
+          type: string
+          maxLength: 128
+        example: parameter.changed
+      - name: occurredFrom
+        in: query
+        required: false
+        description: Не раньше, RFC 3339
+        schema:
+          type: string
+          format: date-time
+      - name: occurredTo
+        in: query
+        required: false
+        description: Раньше, RFC 3339
+        schema:
+          type: string
+          format: date-time
+      - $ref: components.yaml#/components/parameters/Limit
+      - $ref: components.yaml#/components/parameters/Cursor
+      responses:
+        '200':
+          description: Страница записей
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditRecordPage'
+              example:
+                items:
+                - recordId: 0199e0a0-0000-7000-8000-000000000b01
+                  occurredAt: '2026-10-03T12:00:00.123Z'
+                  actorId: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
+                  actorRole: admin
+                  action: parameter.changed
+                  objectType: parameter
+                  objectId: reservation.ttl-seconds
+                  changes:
+                  - field: value
+                    personal: false
+                    before: '900'
+                    after: '1200'
+                  actorIp: 203.0.113.7
+                  actorIpHashed: false
+                  correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                page:
+                  limit: 20
+                  nextCursor: null
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailed
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /internal/v1/otp-codes:
+    post:
+      operationId: issueOtpCode
+      summary: Отправить код входа по SMS (внутренний)
+      description: |-
+        Вызывается расширением Keycloak `sms-otp` на шаге ввода номера. Для номера, привязанного к учётной записи покупателя, отправляет SMS с кодом (6 цифр, 5 минут, 5 попыток). Для остальных номеров SMS не отправляется, ответ тот же (U12, FT-1.7). Лимиты: 3 за 10 минут и 10 за сутки на номер и 10 в час на IP, иначе 429 `otp-request-limited`. Если Redis недоступен, отправка запрещена: 503.
+
+        Матрица прав: OP-07. Истории: US-1.7.
+      tags:
+      - Коды для Keycloak
+      x-matrix-id: OP-07
+      x-stories:
+      - US-1.7
+      x-allowed-roles:
+      - system
+      x-conditions: []
+      x-allowed-callers:
+      - keycloak
+      x-internal: true
+      security:
+      - mutualTls: []
+      servers:
+      - url: https://platform-service:8443
+        description: Внутренний адрес сервиса, mTLS, не через шлюз
+      parameters:
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueOtpRequest'
+            example:
+              purpose: sms_login
+              phone: '+79001234567'
+              clientIp: 203.0.113.7
+      responses:
+        '202':
+          description: Запрос принят
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtpIssueAccepted'
+              example:
+                accepted: true
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '403':
+          $ref: components.yaml#/components/responses/E403Forbidden
+        '409':
+          $ref: components.yaml#/components/responses/E409RequestInProgress
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429OtpRequestLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+        '503':
+          $ref: components.yaml#/components/responses/E503DependencyUnavailable
+        '504':
+          $ref: components.yaml#/components/responses/E504GatewayTimeout
+  /internal/v1/otp-verifications:
+    post:
+      operationId: verifyOtpCode
+      summary: Проверить код входа по SMS (внутренний)
+      description: |-
+        Проверяет код и гасит его атомарно. Успех возвращает `userId`. Неверный код и код для неизвестного номера дают одинаковый 422 `otp-invalid`, устаревший 422 `otp-expired`, после пятой неудачи 429 `otp-locked`. Три погашенных из-за попыток кода подряд за час закрывают вход по SMS для номера на час.
+
+        Матрица прав: OP-07. Истории: US-1.7.
+      tags:
+      - Коды для Keycloak
+      x-matrix-id: OP-07
+      x-stories:
+      - US-1.7
+      x-allowed-roles:
+      - system
+      x-conditions: []
+      x-allowed-callers:
+      - keycloak
+      x-internal: true
+      security:
+      - mutualTls: []
+      servers:
+      - url: https://platform-service:8443
+        description: Внутренний адрес сервиса, mTLS, не через шлюз
+      parameters:
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyOtpRequest'
+            example:
+              purpose: sms_login
+              phone: '+79001234567'
+              code: '123456'
+      responses:
+        '200':
+          description: Код верен
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OtpVerified'
+              example:
+                userId: 7e1c3a95-2d4f-4b68-9a0c-8b6d4f2a1e53
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '403':
+          $ref: components.yaml#/components/responses/E403Forbidden
+        '409':
+          $ref: components.yaml#/components/responses/E409RequestInProgress
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuseOtpInvalidOtpExpired
+        '429':
+          $ref: components.yaml#/components/responses/E429OtpLocked
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/webhooks/email-provider:
+    post:
+      operationId: receiveMailStatus
+      summary: Принять статус письма (кроме писем с ключом)
+      description: |-
+        Публичный вход через `api-gateway`, без токена, тело до 64 КБ. Подпись секретом `platform_webhook_secret`, метка времени не старше 5 минут, повторный статус ничего не меняет. Отказ доставки письма публикует `notification.failed` после исчерпания повторов. Статусы писем с ключами принимает `delivery-service`.
+
+        Матрица прав: OP-84. Истории: US-8.5.
+      tags:
+      - Вебхуки провайдеров
+      x-matrix-id: OP-84
+      x-stories:
+      - US-8.5
+      x-allowed-roles:
+      - system
+      x-conditions: []
+      security:
+      - webhookSignature: []
+      parameters:
+      - name: X-Webhook-Timestamp
+        in: header
+        required: true
+        description: Метка времени отправки, RFC 3339 UTC. Входит в подписанную строку, не старше 5 минут
+        schema:
+          type: string
+          format: date-time
+        example: '2026-10-03T12:00:00.123Z'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MailProviderNotification'
+            example:
+              messageId: msg_44a1b9
+              status: delivered
+              occurredAt: '2026-10-03T12:00:00.123Z'
+      responses:
+        '200':
+          description: Принято, в том числе повтор. Тела нет
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401SignatureInvalidWebhookExpired
+        '413':
+          $ref: components.yaml#/components/responses/E413PayloadTooLarge
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/webhooks/sms-provider:
+    post:
+      operationId: receiveSmsStatus
+      summary: Принять статус SMS
+      description: |-
+        Публичный вход через `api-gateway`, без токена, тело до 64 КБ. Подпись секретом `platform_webhook_secret`, метка времени не старше 5 минут. Статус нужен для метрики доставляемости SMS и оповещения о сбое провайдера, на коды он не влияет.
+
+        Матрица прав: OP-06. Истории: US-1.6.
+      tags:
+      - Вебхуки провайдеров
+      x-matrix-id: OP-06
+      x-stories:
+      - US-1.6
+      x-allowed-roles:
+      - system
+      x-conditions: []
+      security:
+      - webhookSignature: []
+      parameters:
+      - name: X-Webhook-Timestamp
+        in: header
+        required: true
+        description: Метка времени отправки, RFC 3339 UTC. Входит в подписанную строку, не старше 5 минут
+        schema:
+          type: string
+          format: date-time
+        example: '2026-10-03T12:00:00.123Z'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SmsProviderNotification'
+            example:
+              messageId: sms_1c9e02
+              status: delivered
+              occurredAt: '2026-10-03T12:00:00.123Z'
+      responses:
+        '200':
+          description: Принято, в том числе повтор. Тела нет
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401SignatureInvalidWebhookExpired
+        '413':
+          $ref: components.yaml#/components/responses/E413PayloadTooLarge
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+components:
+  schemas:
+    PhoneConfirmation:
+      type: object
+      description: Запрос подтверждения телефона. Код 6 цифр живёт 5 минут, попыток ввода 5, новый запрос гасит
+        прежний код (ADR-010)
+      properties:
+        confirmationId:
+          $ref: components.yaml#/components/schemas/Id
+        phoneMasked:
+          type: string
+          description: Номер с маской, например `+7900***4567`
+        expiresAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        attemptsLeft:
+          type: integer
+          description: Сколько попыток ввода осталось
+          minimum: 0
+          maximum: 5
+        resendAvailableAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+      required:
+      - confirmationId
+      - phoneMasked
+      - expiresAt
+      - attemptsLeft
+      - resendAvailableAt
+    CreatePhoneConfirmationRequest:
+      type: object
+      description: Номер для подтверждения. Уникальность проверяется до отправки SMS (INV-34)
+      properties:
+        phone:
+          type: string
+          description: Номер телефона в формате E.164, в R1 только +7
+          pattern: ^\+7[0-9]{10}$
+      required:
+      - phone
+      additionalProperties: false
+    VerifyCodeRequest:
+      type: object
+      description: Введённый код
+      properties:
+        code:
+          type: string
+          description: Одноразовый код из 6 цифр
+          pattern: ^[0-9]{6}$
+      required:
+      - code
+      additionalProperties: false
+    PhoneConfirmed:
+      type: object
+      description: Телефон привязан и подтверждён. Признак `phone_verified` появится в токене после его обновления
+        (refresh), оформление заказа продолжается с тем же товаром и количеством
+      properties:
+        phoneConfirmed:
+          type: boolean
+          description: Телефон подтверждён
+        phoneMasked:
+          type: string
+          description: Номер с маской
+      required:
+      - phoneConfirmed
+      - phoneMasked
+    EmailChangeState:
+      type: object
+      description: Состояние смены e-mail по обращению. Оператор видит только результат каждой проверки, коды не
+        видит и от покупателя не принимает (FT-7.5, INV-23)
+      properties:
+        status:
+          type: string
+          description: Этап смены e-mail
+          enum:
+          - awaiting_phone_code
+          - awaiting_email_code
+          - completed
+          - failed
+        phoneCheck:
+          type: string
+          description: Проверка кода из SMS
+          enum:
+          - pending
+          - passed
+          - failed
+        newEmailCheck:
+          type: string
+          description: Проверка кода из письма на новый адрес
+          enum:
+          - not_started
+          - pending
+          - passed
+          - failed
+        newEmailMasked:
+          type: string
+          description: Новый адрес с маской, например `n***@mail.example`
+        startedAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        updatedAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+      required:
+      - status
+      - phoneCheck
+      - newEmailCheck
+      - newEmailMasked
+      - startedAt
+      - updatedAt
+    SupportTicket:
+      type: object
+      description: Обращение покупателя по заказу (SM-07). Значений ключей нет
+      properties:
+        ticketId:
+          $ref: components.yaml#/components/schemas/Id
+        orderId:
+          $ref: components.yaml#/components/schemas/Id
+        source:
+          type: string
+          description: Источник обращения
+          enum:
+          - buyer
+          - system
+        reason:
+          type: string
+          description: Причина. Перечисление открытое
+          enum:
+          - key_not_received
+          - not_delivered
+          - attempts_exhausted
+          - delivery_overdue
+        status:
+          $ref: components.yaml#/components/schemas/TicketStatus
+        createdAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        resolvedAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+        resolution:
+          oneOf:
+          - type: object
+            description: Итог обращения
+            properties:
+              resolvedBy:
+                type: string
+                description: Кто решил обращение
+                enum:
+                - operator
+                - system
+              action:
+                oneOf:
+                - type: string
+                  description: Какое действие выполнено, `null` если решено системой по факту доставки
+                  enum:
+                  - resend
+                  - email_change
+                - type: 'null'
+            required:
+            - resolvedBy
+            - action
+          - type: 'null'
+        emailChange:
+          oneOf:
+          - $ref: '#/components/schemas/EmailChangeState'
+          - type: 'null'
+      required:
+      - ticketId
+      - orderId
+      - source
+      - reason
+      - status
+      - createdAt
+      - resolvedAt
+      - resolution
+      - emailChange
+    SupportTicketPage:
+      type: object
+      description: Страница обращений покупателя, новые выше
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SupportTicket'
+        page:
+          $ref: components.yaml#/components/schemas/PageInfo
+      required:
+      - items
+      - page
+    StaffSupportTicket:
+      type: object
+      description: 'Обращение в очереди оператора: статус заказа и выдачи из модели чтения, оператор, состояние
+        смены e-mail. Значения ключей и коды подтверждения оператору не показываются'
+      properties:
+        ticketId:
+          $ref: components.yaml#/components/schemas/Id
+        orderId:
+          $ref: components.yaml#/components/schemas/Id
+        buyerId:
+          $ref: components.yaml#/components/schemas/Id
+        source:
+          type: string
+          description: Источник обращения
+          enum:
+          - buyer
+          - system
+        reason:
+          type: string
+          description: Причина. Перечисление открытое
+          enum:
+          - key_not_received
+          - not_delivered
+          - attempts_exhausted
+          - delivery_overdue
+        status:
+          $ref: components.yaml#/components/schemas/TicketStatus
+        operatorId:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Id
+          - type: 'null'
+        orderStatus:
+          $ref: components.yaml#/components/schemas/OrderStatus
+        issuedAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+        deliveryStatus:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/DeliveryStatus
+          - type: 'null'
+        createdAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        takenAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+        resolvedAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+        emailChange:
+          oneOf:
+          - $ref: '#/components/schemas/EmailChangeState'
+          - type: 'null'
+      required:
+      - ticketId
+      - orderId
+      - buyerId
+      - source
+      - reason
+      - status
+      - operatorId
+      - orderStatus
+      - issuedAt
+      - deliveryStatus
+      - createdAt
+      - takenAt
+      - resolvedAt
+      - emailChange
+    StaffSupportTicketPage:
+      type: object
+      description: Очередь обращений, старые выше
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/StaffSupportTicket'
+        page:
+          $ref: components.yaml#/components/schemas/PageInfo
+      required:
+      - items
+      - page
+    CreateSupportTicketRequest:
+      type: object
+      description: Обращение «Не получил ключ»
+      properties:
+        orderId:
+          $ref: components.yaml#/components/schemas/Id
+        reason:
+          type: string
+          description: Причина, для покупателя только «не получил ключ»
+          enum:
+          - key_not_received
+      required:
+      - orderId
+      - reason
+      additionalProperties: false
+    ResendAccepted:
+      type: object
+      description: Заказ получил новый адрес, повторная выдача создаётся асинхронно (событие `order.address-updated`).
+        Статус выдачи виден в обращении
+      properties:
+        ticketId:
+          $ref: components.yaml#/components/schemas/Id
+        orderId:
+          $ref: components.yaml#/components/schemas/Id
+        status:
+          type: string
+          description: Повторная отправка принята к выполнению
+          enum:
+          - accepted
+      required:
+      - ticketId
+      - orderId
+      - status
+    StartEmailChangeRequest:
+      type: object
+      description: Новый адрес, который назвал покупатель оператору
+      properties:
+        newEmail:
+          $ref: components.yaml#/components/schemas/Email
+      required:
+      - newEmail
+      additionalProperties: false
+    VerifyEmailChangeCodeRequest:
+      type: object
+      description: 'Ввод кода в форме обращения. Порядок этапов задаёт сервис: сначала `phone`, затем `new_email`'
+      properties:
+        step:
+          type: string
+          description: 'Какой код вводится: из SMS на телефон учётной записи или из письма на новый адрес'
+          enum:
+          - phone
+          - new_email
+        code:
+          type: string
+          description: Одноразовый код из 6 цифр
+          pattern: ^[0-9]{6}$
+      required:
+      - step
+      - code
+      additionalProperties: false
+    RequestEmailChangeCodeRequest:
+      type: object
+      description: Запрос нового кода в пределах лимита
+      properties:
+        step:
+          type: string
+          description: Для какого этапа запрашивается новый код
+          enum:
+          - phone
+          - new_email
+      required:
+      - step
+      additionalProperties: false
+    StaffUser:
+      type: object
+      description: Учётная запись в кабинете администратора. Номер телефона не показывается
+      properties:
+        userId:
+          $ref: components.yaml#/components/schemas/Id
+        email:
+          type: string
+          description: E-mail учётной записи. Для анонимизированной записи обезличенное значение
+          maxLength: 254
+        name:
+          oneOf:
+          - type: string
+            description: Отображаемое имя
+            maxLength: 200
+          - type: 'null'
+        role:
+          $ref: components.yaml#/components/schemas/Role
+        status:
+          type: string
+          description: Статус учётной записи
+          enum:
+          - active
+          - deactivated
+        phoneConfirmed:
+          type: boolean
+          description: Телефон подтверждён
+        anonymized:
+          type: boolean
+          description: Персональные данные анонимизированы
+        createdAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        deactivatedAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+      required:
+      - userId
+      - email
+      - name
+      - role
+      - status
+      - phoneConfirmed
+      - anonymized
+      - createdAt
+      - deactivatedAt
+    StaffUserPage:
+      type: object
+      description: Страница учётных записей, новые выше
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/StaffUser'
+        page:
+          $ref: components.yaml#/components/schemas/PageInfo
+      required:
+      - items
+      - page
+    ChangeRoleRequest:
+      type: object
+      description: 'Новая роль. Роль `seller` вручную не назначается (U8): значение принимается только для того,
+        чтобы вернуть 409 `role-managed-by-system`'
+      properties:
+        role:
+          $ref: components.yaml#/components/schemas/Role
+      required:
+      - role
+      additionalProperties: false
+    PlatformParameter:
+      type: object
+      description: Параметр платформы R1. Новые значения получают новые заказы и действия, созданные ранее сохраняют
+        прежние сроки (US-8.3)
+      properties:
+        key:
+          type: string
+          description: Ключ параметра, совпадает с ключом записи Kafka `platform.config`
+          pattern: ^[a-z][a-z0-9.-]*$
+          maxLength: 128
+        description:
+          type: string
+          description: Назначение параметра
+        unit:
+          type: string
+          description: Единица измерения значения
+          enum:
+          - seconds
+          - count
+          - basis_points
+          - kopecks
+          - text
+          - flag
+        value:
+          type: integer
+          description: Текущее значение
+          minimum: 1
+        defaultValue:
+          type: integer
+          description: Значение по умолчанию
+          minimum: 1
+        minValue:
+          type: integer
+          description: Нижняя граница допустимого значения
+          minimum: 1
+        maxValue:
+          type: integer
+          description: Верхняя граница допустимого значения
+          minimum: 1
+        version:
+          type: integer
+          description: Номер версии параметра, совпадает с ETag. Начальное значение это версия 1
+          minimum: 1
+        updatedAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        updatedBy:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Id
+          - type: 'null'
+      required:
+      - key
+      - description
+      - unit
+      - value
+      - defaultValue
+      - minValue
+      - maxValue
+      - version
+      - updatedAt
+      - updatedBy
+    PlatformParameterList:
+      type: object
+      description: Все параметры R1, список короткий и без страниц
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformParameter'
+      required:
+      - items
+    SetParameterRequest:
+      type: object
+      description: Новое значение параметра
+      properties:
+        value:
+          type: integer
+          description: 'Новое значение: положительное целое в границах параметра'
+          minimum: 1
+      required:
+      - value
+      additionalProperties: false
+    AuditRecord:
+      type: object
+      description: 'Запись журнала аудита. Только добавляется (INV-42): персональных данных в открытом виде нет,
+        только идентификаторы, имена полей и HMAC-хеши'
+      properties:
+        recordId:
+          $ref: components.yaml#/components/schemas/Id
+        occurredAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        actorId:
+          $ref: components.yaml#/components/schemas/Id
+        actorRole:
+          type: string
+          description: Роль исполнителя
+          enum:
+          - buyer
+          - seller
+          - moderator
+          - support-operator
+          - admin
+          - system
+        action:
+          type: string
+          description: Что сделано, например `parameter.changed`
+          maxLength: 128
+        objectType:
+          type: string
+          description: Тип объекта
+          maxLength: 64
+        objectId:
+          type: string
+          description: Идентификатор объекта
+          maxLength: 128
+        changes:
+          type: array
+          description: Изменённые поля
+          items:
+            type: object
+            description: Изменение одного поля (ADR-014)
+            properties:
+              field:
+                type: string
+                description: Имя поля
+                minLength: 1
+                maxLength: 64
+              personal:
+                type: boolean
+                description: '`true`, если поле персональное и значения переданы HMAC-хешем'
+              before:
+                oneOf:
+                - type: string
+                  description: Значение до изменения или хеш
+                - type: 'null'
+              after:
+                oneOf:
+                - type: string
+                  description: Значение после изменения или хеш
+                - type: 'null'
+            required:
+            - field
+            - personal
+            - before
+            - after
+        actorIp:
+          type: string
+          description: 'IP исполнителя: у сотрудника как есть, у пользователя HMAC-хеш'
+          maxLength: 128
+        actorIpHashed:
+          type: boolean
+          description: '`true`, если IP передан хешем'
+        correlationId:
+          $ref: components.yaml#/components/schemas/CorrelationId
+      required:
+      - recordId
+      - occurredAt
+      - actorId
+      - actorRole
+      - action
+      - objectType
+      - objectId
+      - changes
+      - actorIp
+      - actorIpHashed
+      - correlationId
+    AuditRecordPage:
+      type: object
+      description: Страница записей, новые выше
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditRecord'
+        page:
+          $ref: components.yaml#/components/schemas/PageInfo
+      required:
+      - items
+      - page
+    IssueOtpRequest:
+      type: object
+      description: Запрос кода входа по SMS
+      properties:
+        purpose:
+          type: string
+          description: Назначение кода. Код для одного назначения к другому не подходит
+          enum:
+          - sms_login
+        phone:
+          type: string
+          description: Номер телефона E.164, в R1 только +7
+          pattern: ^\+7[0-9]{10}$
+        clientIp:
+          type: string
+          description: IP клиента для лимита 10 запросов в час
+          maxLength: 45
+      required:
+      - purpose
+      - phone
+      additionalProperties: false
+    OtpIssueAccepted:
+      type: object
+      description: 'Нейтральный ответ: «если номер привязан, код отправлен». Для неизвестного номера и номера не
+        покупателя SMS не отправляется, запрос учитывается в лимитах, время ответа выравнивается (ADR-010)'
+      properties:
+        accepted:
+          type: boolean
+          description: 'Всегда `true`: ответ одинаков для известного и неизвестного номера (U12)'
+      required:
+      - accepted
+    VerifyOtpRequest:
+      type: object
+      description: Проверка кода входа по SMS
+      properties:
+        purpose:
+          type: string
+          description: Назначение кода
+          enum:
+          - sms_login
+        phone:
+          type: string
+          description: Номер телефона E.164
+          pattern: ^\+7[0-9]{10}$
+        code:
+          type: string
+          description: Одноразовый код из 6 цифр
+          pattern: ^[0-9]{6}$
+      required:
+      - purpose
+      - phone
+      - code
+      additionalProperties: false
+    OtpVerified:
+      type: object
+      description: Идентификатор учётной записи покупателя, по которому Keycloak выпускает токен сессии по SMS (`amr`
+        равен `sms`, области только `orders.read` и `support.write`, 15 минут)
+      properties:
+        userId:
+          $ref: components.yaml#/components/schemas/Id
+      required:
+      - userId
+    MailProviderNotification:
+      type: object
+      description: Статус письма от e-mail-провайдера (письма без ключей)
+      properties:
+        messageId:
+          type: string
+          description: Идентификатор письма у провайдера
+          minLength: 1
+          maxLength: 128
+        status:
+          type: string
+          description: Статус письма. Перечисление открытое
+          enum:
+          - accepted
+          - delivered
+          - failed
+        occurredAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        reason:
+          type: string
+          description: Причина отказа, для `failed`
+          enum:
+          - address_rejected
+          - other
+      required:
+      - messageId
+      - status
+      - occurredAt
+      additionalProperties: false
+    SmsProviderNotification:
+      type: object
+      description: Статус SMS от SMS-провайдера
+      properties:
+        messageId:
+          type: string
+          description: Идентификатор SMS у провайдера
+          minLength: 1
+          maxLength: 128
+        status:
+          type: string
+          description: Статус SMS. Перечисление открытое
+          enum:
+          - delivered
+          - failed
+        occurredAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+      required:
+      - messageId
+      - status
+      - occurredAt
+      additionalProperties: false
