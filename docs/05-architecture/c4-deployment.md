@@ -73,7 +73,7 @@ flowchart LR
 
 ### 2.1. Диаграмма D2: профили Compose
 
-На диаграмме все контейнеры R1 сгруппированы по профилям Compose. Число в заголовке группы это сумма лимитов памяти контейнеров группы ([memory-budget.md](../09-operations/memory-budget.md)). Связи между контейнерами показаны на диаграммах [c4-containers.md](c4-containers.md) и здесь не повторяются.
+На диаграмме все контейнеры R1 сгруппированы по профилям Compose. Число в заголовке группы это сумма лимитов памяти контейнеров группы ([memory-budget.md](../09-operations/memory-budget.md)). Связи между контейнерами показаны на диаграммах [c4-containers.md](c4-containers.md) и здесь не повторяются. Хранилище секретов `secret-store` на диаграмме не показано: процесса у него нет, секреты монтируются в контейнеры файлами (раздел 6).
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"edgeLabelBackground":"#ffffff","lineColor":"#444444"},"flowchart": {"nodeSpacing": 40, "rankSpacing": 60, "curve": "basis"}}}%%
