@@ -17,6 +17,7 @@ run python3 "$HERE/check_components.py"
 run python3 "$HERE/check_seq.py"
 run python3 "$HERE/check_budgets.py"
 run python3 "$HERE/check_security.py"
+run python3 "$HERE/check_strategy.py"
 run python3 "$HERE/check_refs.py"
 if [ "$1" = "--db" ]; then
   run bash "$HERE/db/apply.sh"

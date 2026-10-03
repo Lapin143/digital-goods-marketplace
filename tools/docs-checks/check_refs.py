@@ -19,7 +19,6 @@ TOOLS = os.path.join(L.REPO, 'tools', 'docs-checks')
 SKIP_DIRS = ('node_modules', '.git')
 # документы, которые появятся на следующих шагах плана; ссылки на них пока допустимы только в виде имени в кавычках
 FUTURE_MD = {
-    'test-strategy.md',                              # Ф2, шаг 13
     'requirements_v1.6.md',                          # решение D-12: версия 1.6 после замечаний Ф2
     'monitoring.md', 'runbook.md', 'deploy.md',      # Ф6, раздел 09-operations
 }
@@ -146,6 +145,8 @@ def main():
                 n_names += 1
                 if 'NN' in m:
                     continue    # шаблон имени, например ADR-NNN-short-name.md
+                if m.startswith('TC-'):
+                    continue    # файлы тест-кейсов по областям появляются в Ф4 (имена заданы в test-strategy.md, раздел 13)
                 if m not in md_names and m not in FUTURE_MD:
                     rep.err(rel, 'файл %s упомянут, но не найден в репозитории' % m)
     rep.fact('Ссылки: якорей %d, идентификаторов %d, упоминаний скриптов %d, имён файлов %d'
