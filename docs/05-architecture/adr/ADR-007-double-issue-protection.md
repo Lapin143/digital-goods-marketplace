@@ -42,6 +42,10 @@
 ```sql
 BEGIN;
 
+-- сначала резерв: ключ ссылается на него внешним ключом fk_key_reservation_id
+INSERT INTO reservation (id, order_id, product_id, quantity, status, expires_at)
+VALUES (:reservation_id, :order_id, :product_id, :quantity, 'active', now() + :ttl);
+
 WITH picked AS (
   SELECT id
   FROM   key
@@ -57,12 +61,12 @@ FROM   picked
 WHERE  k.id = picked.id
 RETURNING k.id;
 
--- если вернулось меньше :quantity строк: ROLLBACK, ответ «ключей не хватает» (INV-05)
-INSERT INTO reservation (id, order_id, product_id, quantity, status, expires_at)
-VALUES (:reservation_id, :order_id, :product_id, :quantity, 'active', now() + :ttl);
+-- если вернулось меньше :quantity строк: ROLLBACK (резерв откатывается вместе с ключами), ответ «ключей не хватает» (INV-05)
 
 COMMIT;
 ```
+
+Порядок важен: ключ со статусом «зарезервирован» обязан ссылаться на существующий резерв, поэтому вставка резерва идёт первой. Откат при нехватке ключей отменяет и вставку резерва, частичного резерва не остаётся. Порядок проверен на PostgreSQL 16 ([физическая модель](../../07-data/README.md), находка F12-1).
 
 Параллельные заказы на последние ключи: пул 10 ключей, заказы A и B по 5 штук одновременно. A блокирует ключи 1-5, B пропускает их и блокирует 6-10: оба получают по 5 разных ключей. Если A и B по 6 штук, A получит 6, B увидит только 4 свободных, вернёт «не хватает» и откатится: резерв всё или ничего.
 

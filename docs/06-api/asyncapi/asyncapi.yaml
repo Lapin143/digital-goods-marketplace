@@ -3571,6 +3571,7 @@ components:
             buyerId: 3f8e1d52-7b6a-4c90-8d21-5a9b0e7c4f13
             sellerId: 0199b7e0-1a22-7f10-8b3c-6d5e4f3a2b10
             productId: 0199b8f1-2c33-7a20-9c4d-7e6f5a4b3c21
+            productTitle: 'Лунная тропа: ключ Steam'
             quantity: 1
             total:
               amount: 149900
@@ -6987,6 +6988,7 @@ components:
       - buyerId
       - sellerId
       - productId
+      - productTitle
       - quantity
       - total
       - commission
@@ -7010,6 +7012,11 @@ components:
           type: string
           format: uuid
           description: Идентификатор товара
+        productTitle:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Название товара на момент оформления (снимок). Нужно «Выдаче» для письма без запроса в «Заказы»
         quantity:
           type: integer
           minimum: 1

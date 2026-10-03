@@ -1,0 +1,322 @@
+# Соответствие атрибутов логической модели (docs/04-domain/logical-er.md) и столбцов физических таблиц.
+# Проверяется скриптом check_datamodel.py в обе стороны: каждый атрибут ER есть в карте и ведёт на существующие столбцы,
+# каждый столбец таблицы либо получен из атрибута, либо назван в разделе technical с причиной.
+#
+# Формы значения атрибута:
+#   имя столбца                      один столбец с другим именем или тем же
+#   [столбец, столбец]               атрибут разложен на несколько столбцов
+#   {table: схема.таблица, note: ..} атрибут вынесен в отдельную таблицу (она при этом описана здесь же в tables)
+#   {derived: [таблица.столбец], note: ..}  значение вычисляется из таблицы, отдельного столбца нет
+#   {release: R2}                    атрибут будущего релиза, физической модели R1 в нём нет
+version: 1
+entities:
+  USER:
+    release: R1
+    db: platform_db
+    table: identity.user_account
+    attributes:
+      id: id
+      email: email
+      phone: phone
+      phone_confirmed: phone_confirmed
+      name: name
+      role: role
+      has_2fa: has_2fa
+      phone_change_step: {release: R2}
+      registered_at: registered_at
+      deactivated_at: deactivated_at
+      anonymized: anonymized
+      status: status
+    technical:
+      previous_email: Прежний адрес после смены e-mail на 7 суток для письма на него (SEQ-04, шаг 22)
+      previous_email_until: Срок очистки прежнего адреса (identity-reconciler)
+      phone_synced_to_idp: Признак «передан в Keycloak» для сверки раз в минуту (SEQ-05, раздел 7)
+      audit_salt: Соль пользователя для HMAC журнала аудита, удаляется при анонимизации (ADR-014)
+      version: Версия строки, увеличивается триггером
+      updated_at: Время последнего изменения строки
+  SELLER_PROFILE:
+    release: R1
+    db: catalog_db
+    table: seller_onboarding.seller_profile
+    attributes:
+      id: id
+      user_id: user_id
+      seller_type: seller_type
+      title: name
+      requisites: [payout_recipient_name, payout_bank_name, payout_bik, payout_account_number]
+      document_links: {table: seller_onboarding.seller_document, note: "ссылки на документы вынесены в таблицу, файлы лежат в объектном хранилище"}
+      assortment: assortment_description
+      decision_reason: decision_reason
+      last_rejected_at: last_rejected_at
+      submitted_at: submitted_at
+      status: status
+    technical:
+      review_deadline_at: Срок рассмотрения 3 суток от постановки в очередь (FT-2.1, US-2.2)
+      overdue_marked_at: Пометка просрочки задания контроля сроков, один раз (US-8.8)
+      version: Версия для ETag и If-Match (conventions 8.3)
+      created_at: Время создания строки
+      updated_at: Время последнего изменения строки
+  API_KEY:
+    release: R2
+  PRODUCT:
+    release: R1
+    db: catalog_db
+    table: catalog.product
+    attributes:
+      id: id
+      seller_id: seller_id
+      title: title
+      description: description
+      product_type: product_type
+      platform: platform
+      region: activation_regions
+      price: price
+      delivery_method: issuance_method
+      reject_reason: rejection_reason
+      status_before_block: status_before_block
+      block_reason: block_reason
+      submitted_at: submitted_at
+      status: status
+    technical:
+      currency: Валюта суммы, в R1 только RUB (conventions 4.3)
+      review_deadline_at: Срок модерации 3 суток от постановки в очередь (FT-3.2, US-3.3)
+      overdue_marked_at: Пометка просрочки задания контроля сроков, один раз (US-8.8)
+      published_at: Время последней публикации, порядок витрины «новые выше» (US-3.9)
+      version: Версия для ETag и If-Match (conventions 8.3)
+      created_at: Время создания строки, порядок списка продавца (US-3.1)
+      updated_at: Время последнего изменения строки
+  KEY:
+    release: R1
+    db: inventory_db
+    table: inventory.key
+    attributes:
+      id: id
+      product_id: product_id
+      value: [dek_id, nonce, ciphertext]
+      hmac: hmac
+      order_id: order_id
+      issued_at: issued_at
+      status: status
+    technical:
+      hmac_version: Версия секрета HMAC для миграции после компрометации (ADR-009)
+      reservation_id: Резерв, который держит ключ, нужен для снятия и подтверждения резерва (ADR-007), связь внутри модуля
+      created_at: Время загрузки ключа
+      updated_at: Время последнего изменения статуса
+  RESERVATION:
+    release: R1
+    db: inventory_db
+    table: inventory.reservation
+    attributes:
+      id: id
+      order_id: order_id
+      product_id: product_id
+      quantity: quantity
+      expires_at: expires_at
+      release_reason: release_reason
+      status: status
+    technical:
+      created_at: Время создания резерва, от него считается срок
+      used_at: Когда резерв стал «использован» (SM-08/T2)
+      released_at: Когда резерв снят (SM-08/T3, T4)
+  API_STOCK:
+    release: R2
+  ORDER:
+    release: R1
+    db: order_db
+    table: orders.orders
+    attributes:
+      id: id
+      buyer_id: buyer_id
+      seller_id: seller_id
+      product_id: product_id
+      product_title: product_title
+      quantity: quantity
+      unit_price: unit_price
+      amount: amount
+      commission: commission
+      commission_rate_bp: commission_rate_bp
+      delivery_address: delivery_address
+      delivery_channel: delivery_channel
+      reserve_until: reserve_until
+      session_until: session_until
+      payment_session_url: payment_session_url
+      cancel_reason: cancel_reason
+      created_at: created_at
+      paid_at: paid_at
+      issued_at: issued_at
+      status: status
+    technical:
+      currency: Валюта суммы, в R1 только RUB (conventions 4.3)
+      version: Версия строки, увеличивается триггером
+      updated_at: Время последнего изменения строки
+  PAYMENT:
+    release: R1
+    db: payment_db
+    table: payments.payment
+    attributes:
+      id: id
+      order_id: order_id
+      gateway_payment_id: gateway_payment_id
+      gateway_refund_id: gateway_refund_id
+      refund_reason: refund_reason
+      amount: amount
+      session_url: session_url
+      session_expires_at: session_expires_at
+      refund_attempts: {derived: [payments.refund_attempt.attempt_no], note: число завершённых попыток возврата считается по таблице попыток}
+      next_refund_attempt_at: {derived: [payments.refund_attempt.next_attempt_at], note: срок открытой попытки возврата}
+      in_admin_queue: in_admin_queue
+      created_at: created_at
+      confirmed_at: confirmed_at
+      refunded_at: refunded_at
+      status: status
+    technical:
+      currency: Валюта суммы, в R1 только RUB (conventions 4.3)
+      rejected_at: Когда шлюз сообщил об отказе (SM-02/T3)
+      refund_escalated_at: Когда возврат попал в очередь администратора, порядок очереди (FT-6.4)
+      version: Версия строки, увеличивается триггером
+      updated_at: Время последнего изменения строки
+  DELIVERY:
+    release: R1
+    db: delivery_db
+    table: delivery.delivery
+    attributes:
+      id: id
+      order_id: order_id
+      buyer_id: buyer_id
+      product_title: product_title
+      quantity: quantity
+      kind: kind
+      channel: channel
+      address: address
+      attempt: attempt_no
+      sent_at: sent_at
+      delivered_at: delivered_at
+      status: status
+    technical:
+      next_attempt_at: Срок следующей попытки и аренда выдачи диспетчером (ADR-011)
+      last_error_code: Код последней ошибки отправки, без свободного текста (INV-20)
+      fail_reason: Причина статуса «ошибка» (conventions 7.3)
+      created_at: Время создания выдачи
+      updated_at: Время последнего изменения строки
+  TICKET:
+    release: R1
+    db: platform_db
+    table: support.ticket
+    attributes:
+      id: id
+      order_id: order_id
+      buyer_id: buyer_id
+      source: source
+      reason: reason
+      operator_id: operator_id
+      action: action
+      code_check_result: code_check_result
+      created_at: created_at
+      taken_at: taken_at
+      resolved_at: resolved_at
+      status: status
+    technical:
+      resolved_by: Кто решил обращение, оператор или система (API resolution.resolvedBy)
+      version: Версия строки, увеличивается триггером
+      updated_at: Время последнего изменения строки
+  DISPUTE:
+    release: R2
+  BALANCE_OP:
+    release: R2
+  BALANCE_LOG:
+    release: R2
+  WITHDRAWAL:
+    release: R2
+  PLATFORM_PARAM:
+    release: R1
+    db: platform_db
+    table: audit_admin.platform_parameter
+    attributes:
+      code: key
+      value: value
+      commission_scale: {release: R3}
+    technical:
+      description: Назначение параметра для кабинета администратора (US-8.3)
+      unit: Единица значения (seconds, count, basis_points)
+      default_value: Значение по умолчанию (FT-11.1)
+      min_value: Нижняя граница допустимого значения, не меньше 1 (US-8.3)
+      max_value: Верхняя граница допустимого значения (US-8.3)
+      version: Номер версии, он же ETag при правке
+      updated_at: Когда параметр изменён
+      updated_by: Кто изменил, пусто у начального значения
+  AUDIT:
+    release: R1
+    db: platform_db
+    table: audit_admin.audit_log
+    attributes:
+      id: id
+      actor_id: actor_id
+      actor_role: actor_role
+      action: action
+      object_type: object_type
+      object_id: object_id
+      changed_fields: changes
+      values_before: changes
+      values_after: changes
+      at: occurred_at
+      actor_ip: actor_ip
+    technical:
+      event_id: Идентификатор события audit.recorded, защита от дубля (ADR-014)
+      actor_ip_hashed: Признак «IP передан хешем» (ADR-014)
+      correlation_id: Сквозной идентификатор действия (NFT-6.0)
+      recorded_at: Когда запись вставлена в журнал
+
+# Таблицы без собственной сущности ER: служебные, копии для чтения и вспомогательные. Все столбцы таких таблиц
+# считаются покрытыми, причина указана для таблицы целиком.
+tables:
+  - db: catalog_db
+    table: seller_onboarding.seller_document
+    reason: "«Ссылки на документы» профиля продавца (атрибут document_links), файлы в объектном хранилище"
+  - db: catalog_db
+    table: catalog.stock_view
+    reason: "Копия остатка для витрины из события stock.changed, источник истины inventory-service (domain-model 4.4, NFT-1.0)"
+  - db: inventory_db
+    table: inventory.product_copy
+    reason: "Копия владельца и способа выдачи товара из событий каталога (реестр товаров, c4-components-inventory-service)"
+  - db: inventory_db
+    table: inventory.data_key
+    reason: "Версии ключа данных шифрования, зашифрованы мастер-ключом (ADR-009)"
+  - db: payment_db
+    table: payments.payment_event
+    reason: "Дедупликация уведомлений шлюза по паре «внешний платёж, тип события» (ADR-015, INV-14)"
+  - db: payment_db
+    table: payments.refund_attempt
+    reason: "Попытки возврата с расписанием, источник атрибутов refund_attempts и next_refund_attempt_at (ADR-015)"
+  - db: payment_db
+    table: payments.unmatched_notification
+    reason: "Уведомления шлюза о неизвестных платежах до сопоставления (ADR-015)"
+  - db: delivery_db
+    table: delivery.delivery_attempt
+    reason: "История попыток отправки без значений ключей (ADR-011, INV-20)"
+  - db: delivery_db
+    table: delivery.delivery_watch
+    reason: "Контроль доставки 30 минут от оплаты (ADR-011, NFT-2.4)"
+  - db: delivery_db
+    table: delivery.provider_status_event
+    reason: "Дедупликация статусов писем провайдера (ADR-006, ADR-011)"
+  - db: platform_db
+    table: support.email_change
+    reason: "Этапы смены e-mail по обращению (SEQ-04, US-7.4)"
+  - db: platform_db
+    table: support.order_view
+    reason: "Модель чтения заказа для окна 72 часа и статуса выдачи (c4-components-platform-service, INV-22)"
+  - db: platform_db
+    table: notification.notification
+    reason: "Служебная запись «Уведомление» (domain-model, раздел 5, FT-11.0)"
+  - db: platform_db
+    table: notification.provider_status_event
+    reason: "Дедупликация статусов писем провайдера (ADR-006)"
+
+# Служебные таблицы схемы public, одинаковые во всех шести базах (domain-model, раздел 5)
+shared:
+  - table: public.outbox
+    reason: "Исходящие события, запись в одной транзакции с изменением данных (ADR-005, INV-43)"
+  - table: public.processed_event
+    reason: "Обработанные события потребителя (ADR-006, уровень 2)"
+  - table: public.idempotency_key
+    reason: "Ключи идемпотентности HTTP-запросов (ADR-006, уровень 1)"
