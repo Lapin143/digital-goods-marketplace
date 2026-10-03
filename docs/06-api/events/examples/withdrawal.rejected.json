@@ -1,0 +1,23 @@
+{
+  "specversion": "1.0",
+  "id": "0199e035-0000-7000-8000-000000e00035",
+  "source": "finance-service",
+  "type": "withdrawal.rejected",
+  "time": "2026-10-03T12:51:11.100Z",
+  "subject": "0199d100-2b3c-7d4e-9f50-6b7c8d9e0f1a",
+  "datacontenttype": "application/json",
+  "schemaversion": 1,
+  "aggregatetype": "Withdrawal",
+  "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba90235-01",
+  "correlationid": "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+  "data": {
+    "withdrawalId": "0199d100-2b3c-7d4e-9f50-6b7c8d9e0f1a",
+    "sellerId": "0199b7e0-1a22-7f10-8b3c-6d5e4f3a2b10",
+    "amount": {
+      "amount": 500000,
+      "currency": "RUB"
+    },
+    "adminId": "7e1c3a95-2d4f-4b68-9a0c-8b6d4f2a1e53",
+    "reason": "Реквизиты не совпадают с профилем"
+  }
+}

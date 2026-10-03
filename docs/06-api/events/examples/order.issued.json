@@ -1,0 +1,29 @@
+{
+  "specversion": "1.0",
+  "id": "0199e00e-0000-7000-8000-000000e0000e",
+  "source": "order-service",
+  "type": "order.issued",
+  "time": "2026-10-03T12:03:49.250Z",
+  "subject": "0199c2a4-5e10-7a3b-9c1d-2f4e6a8b0c1d",
+  "datacontenttype": "application/json",
+  "schemaversion": 1,
+  "aggregatetype": "Order",
+  "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba9020e-01",
+  "correlationid": "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+  "data": {
+    "orderId": "0199c2a4-5e10-7a3b-9c1d-2f4e6a8b0c1d",
+    "buyerId": "3f8e1d52-7b6a-4c90-8d21-5a9b0e7c4f13",
+    "sellerId": "0199b7e0-1a22-7f10-8b3c-6d5e4f3a2b10",
+    "productId": "0199b8f1-2c33-7a20-9c4d-7e6f5a4b3c21",
+    "total": {
+      "amount": 149900,
+      "currency": "RUB"
+    },
+    "commission": {
+      "amount": 2998,
+      "currency": "RUB"
+    },
+    "deliveryId": "0199c2a5-9d01-7e12-a3b4-c5d6e7f80910",
+    "issuedAt": "2026-10-03T12:03:49.000Z"
+  }
+}

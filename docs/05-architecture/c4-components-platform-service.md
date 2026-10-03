@@ -65,7 +65,7 @@
 
 | Компонент | Алиас | Модули | Ответственность |
 | --- | --- | --- | --- |
-| Потребитель событий | `event-consumer` | все | Читает `catalog.events`, `order.events`, `payment.events`, `delivery.events`, `audit.events`, пропускает обработанные, повторы 1, 5, 25 с, DLQ, передаёт обработчикам модулей |
+| Потребитель событий | `event-consumer` | все | Читает `catalog.events`, `order.events`, `payment.events`, `delivery.events`, `identity.events` (события собственных модулей идут через Outbox, ADR-005), `audit.events`, пропускает обработанные, повторы 1, 5, 25 с, DLQ, передаёт обработчикам модулей |
 | Публикатор Outbox | `outbox-relay` | все | Публикует записи Outbox всех модулей в `identity.events`, `support.events`, `notification.events`, `audit.events`, `platform.config` ([ADR-005](adr/ADR-005-transactional-outbox.md)) |
 
 Модули вызывают друг друга только через интерфейсы своего подпакета `api` ([decomposition.md](decomposition.md), правило 3):

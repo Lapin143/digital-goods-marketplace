@@ -1,0 +1,20 @@
+{
+  "specversion": "1.0",
+  "id": "0199e023-0000-7000-8000-000000e00023",
+  "source": "platform-service",
+  "type": "config.changed",
+  "time": "2026-10-03T12:49:05.100Z",
+  "subject": "reservation.ttl-seconds",
+  "datacontenttype": "application/json",
+  "schemaversion": 1,
+  "aggregatetype": "Parameter",
+  "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba90223-01",
+  "correlationid": "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+  "data": {
+    "key": "reservation.ttl-seconds",
+    "value": 900,
+    "unit": "seconds",
+    "version": 3,
+    "changedBy": "7e1c3a95-2d4f-4b68-9a0c-8b6d4f2a1e53"
+  }
+}

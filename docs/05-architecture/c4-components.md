@@ -122,7 +122,7 @@
 
 ### 5.3. События
 
-Каждое событие из [c4-containers.md](c4-containers.md), раздел 8, сопоставлено с компонентом, который его записывает в Outbox, и компонентами, которые его читают. Имена событий здесь технические и совпадают с `ADR-004` и `ADR-011`, а полные схемы фиксирует AsyncAPI (шаг 10).
+Каждое событие из [c4-containers.md](c4-containers.md), раздел 8, сопоставлено с компонентом, который его записывает в Outbox, и компонентами, которые его читают. Имена событий здесь технические и совпадают с `ADR-004` и `ADR-011`, а полные схемы фиксирует [asyncapi.yaml](../06-api/asyncapi/asyncapi.yaml) ([каталог событий](../06-api/events/README.md)). Скрипт `check_asyncapi.py` сверяет эту таблицу с контрактом.
 
 | Событие (раздел 8) | Техническое имя | Издатель (компонент) | Подписчики (компоненты) |
 | --- | --- | --- | --- |
@@ -143,7 +143,8 @@
 | Письмо принято | `delivery.accepted` | `delivery-domain` | `event-consumer` → `saga-orchestrator` (`order-service`), `support-event-handler` |
 | Выдача доставлена | `delivery.delivered` | `delivery-domain` | `support-event-handler` (закрывает обращение системы, обновляет статус выдачи) |
 | Выдача не удалась, 30 минут без доставки | `delivery.failed`, `delivery.overdue` | `delivery-domain` | `support-event-handler`, `notification-handler` |
-| Пользователь зарегистрирован, роль назначена, e-mail изменён, телефон подтверждён, пользователь деактивирован | `user.registered`, `user.role-assigned`, `user.email-changed`, `user.phone-confirmed`, `user.deactivated` | `user-service` | `notification-handler`, аудит через `audit.recorded` |
+| E-mail изменён, пользователь деактивирован | `user.email-changed`, `user.deactivated` | `user-service` | `notification-handler` |
+| Пользователь зарегистрирован, роль назначена, телефон подтверждён | `user.registered`, `user.role-assigned`, `user.phone-confirmed` | `user-service` | Потребителей в R1 нет, факт для аудита и метрик |
 | Пользователь анонимизирован | `user.anonymized` | `user-service` | `event-consumer` → `order-domain` (`order-service`), `event-consumer` → `delivery-domain` (`delivery-service`) |
 | Обращение создано, решено | `ticket.created`, `ticket.resolved` | `ticket-service` | Метрики, аудит через `audit.recorded` |
 | Письмо не доставлено | `notification.failed` | `notification-service` | Метрика и оповещение |

@@ -1,0 +1,20 @@
+{
+  "specversion": "1.0",
+  "id": "0199e02d-0000-7000-8000-000000e0002d",
+  "source": "finance-service",
+  "type": "dispute.opened",
+  "time": "2026-10-03T12:50:15.100Z",
+  "subject": "0199c2a4-5e10-7a3b-9c1d-2f4e6a8b0c1d",
+  "datacontenttype": "application/json",
+  "schemaversion": 1,
+  "aggregatetype": "Dispute",
+  "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba9022d-01",
+  "correlationid": "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+  "data": {
+    "disputeId": "0199d000-1a2b-7c3d-8e4f-5a6b7c8d9e0f",
+    "orderId": "0199c2a4-5e10-7a3b-9c1d-2f4e6a8b0c1d",
+    "buyerId": "3f8e1d52-7b6a-4c90-8d21-5a9b0e7c4f13",
+    "sellerId": "0199b7e0-1a22-7f10-8b3c-6d5e4f3a2b10",
+    "reason": "Ключ не активируется"
+  }
+}

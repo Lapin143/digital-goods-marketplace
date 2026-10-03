@@ -1,0 +1,19 @@
+{
+  "specversion": "1.0",
+  "id": "0199e02c-0000-7000-8000-000000e0002c",
+  "source": "delivery-service",
+  "type": "delivery.seller-timeout",
+  "time": "2026-10-03T12:50:08.100Z",
+  "subject": "0199c2a4-5e10-7a3b-9c1d-2f4e6a8b0c1d",
+  "datacontenttype": "application/json",
+  "schemaversion": 1,
+  "aggregatetype": "Delivery",
+  "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba9022c-01",
+  "correlationid": "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+  "data": {
+    "deliveryId": "0199c2a5-9d01-7e12-a3b4-c5d6e7f80910",
+    "orderId": "0199c2a4-5e10-7a3b-9c1d-2f4e6a8b0c1d",
+    "sellerId": "0199b7e0-1a22-7f10-8b3c-6d5e4f3a2b10",
+    "waitedSeconds": 600
+  }
+}

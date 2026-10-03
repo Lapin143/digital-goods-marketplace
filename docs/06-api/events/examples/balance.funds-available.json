@@ -1,0 +1,22 @@
+{
+  "specversion": "1.0",
+  "id": "0199e032-0000-7000-8000-000000e00032",
+  "source": "finance-service",
+  "type": "balance.funds-available",
+  "time": "2026-10-03T12:50:50.100Z",
+  "subject": "0199b7e0-1a22-7f10-8b3c-6d5e4f3a2b10",
+  "datacontenttype": "application/json",
+  "schemaversion": 1,
+  "aggregatetype": "SellerBalance",
+  "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba90232-01",
+  "correlationid": "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+  "data": {
+    "operationId": "0199d100-3c4d-7e5f-a061-7c8d9e0f1a2b",
+    "sellerId": "0199b7e0-1a22-7f10-8b3c-6d5e4f3a2b10",
+    "orderId": "0199c2a4-5e10-7a3b-9c1d-2f4e6a8b0c1d",
+    "amount": {
+      "amount": 146902,
+      "currency": "RUB"
+    }
+  }
+}

@@ -185,7 +185,7 @@ flowchart LR
 | Компонент | Алиас | Spring-слой | Ответственность | События |
 | --- | --- | --- | --- | --- |
 | Остаток по API | `api-stock-service` | `@Service` | Атомарное уменьшение остатка при резерве, восстановление, правка продавцом с проверкой версии (`If-Match`, 412 `stale-version`) по [ADR-008](adr/ADR-008-api-stock-optimistic-lock.md). Использует `inventory-repository`, таблица `api_stock` | `stock.changed` |
-| Обработчик замены ключа | `key-replacement-handler` | Метод `event-consumer` | По команде `key.replace-requested` от `finance-service` переводит ключ в «аннулирован» (SM-03/T5), для пула берёт новый свободный ключ, для API запрашивает у `delivery-service` через событие | `key.voided`, `key.replaced` |
+| Обработчик замены ключа | `key-replacement-handler` | Метод `event-consumer` | По команде `dispute.key-replacement-requested` от `finance-service` переводит ключ в «аннулирован» (SM-03/T5), для пула берёт новый свободный ключ, для API запрашивает у `delivery-service` через событие | `key.voided`, `key.replaced`, `key.replacement-failed` |
 
 Новые связи R2 на уровне контейнеров показаны в [c4-containers.md](c4-containers.md), раздел 9.
 

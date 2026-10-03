@@ -1,0 +1,21 @@
+{
+  "specversion": "1.0",
+  "id": "0199e022-0000-7000-8000-000000e00022",
+  "source": "platform-service",
+  "type": "notification.failed",
+  "time": "2026-10-03T12:48:58.100Z",
+  "subject": "0199c3b1-7c88-7a99-bbaa-ccddeeff0011",
+  "datacontenttype": "application/json",
+  "schemaversion": 1,
+  "aggregatetype": "Notification",
+  "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba90222-01",
+  "correlationid": "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+  "data": {
+    "notificationId": "0199c3b1-7c88-7a99-bbaa-ccddeeff0011",
+    "channel": "email",
+    "template": "order-paid",
+    "recipientUserId": "3f8e1d52-7b6a-4c90-8d21-5a9b0e7c4f13",
+    "attempts": 6,
+    "reason": "attempts_exhausted"
+  }
+}
