@@ -5,7 +5,7 @@
 | Статус | Принято |
 | Дата | 2026-10-03 |
 | Требования | FT-5.1, FT-6.1, FT-6.2, FT-6.4, FT-7.1, FT-7.5, NFT-2.2, NFT-2.3, раздел 8.2 требований |
-| Связанные ADR | [ADR-003](ADR-003-kafka-events.md), [ADR-004](ADR-004-saga-purchase.md), [ADR-005](ADR-005-transactional-outbox.md), [ADR-007](README.md), [ADR-015](ADR-015-payment-gateway-integration.md) |
+| Связанные ADR | [ADR-003](ADR-003-kafka-events.md), [ADR-004](ADR-004-saga-purchase.md), [ADR-005](ADR-005-transactional-outbox.md), [ADR-007](ADR-007-double-issue-protection.md), [ADR-015](ADR-015-payment-gateway-integration.md) |
 
 ## Контекст
 
@@ -96,7 +96,7 @@ processed_event (
 | Одна «первичная» выдача на заказ: частичный `unique (order_id) where type = 'primary'` | `delivery` | SM-06, INV-18: повторное событие не создаёт вторую первичную выдачу |
 | Не более одной выдачи «в очереди» на заказ: частичный `unique (order_id) where status = 'queued'` | `delivery` | SM-06: письмо не уходит дважды |
 | Не более одного активного резерва на заказ: частичный `unique (order_id) where status = 'active'` | `reservation` | SM-08, INV-06 |
-| Один ключ у одного заказа: `order_id` в строке ключа и условие обновления `where status = 'reserved' and reservation_id = ?` | `key` | FT-7.1, NFT-2.2, INV-01, INV-02, подробнее [ADR-007](README.md) |
+| Один ключ у одного заказа: `order_id` в строке ключа и условие обновления `where status = 'reserved' and reservation_id = ?` | `key` | FT-7.1, NFT-2.2, INV-01, INV-02, подробнее [ADR-007](ADR-007-double-issue-protection.md) |
 | Не более одного открытого обращения на заказ: частичный `unique (order_id) where status in ('created', 'in_progress')` | `ticket` | SM-07, INV-21 |
 
 ### Идемпотентность исходящих вызовов
