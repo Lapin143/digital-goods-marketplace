@@ -1,0 +1,2778 @@
+openapi: 3.1.0
+info:
+  title: 'Digital Goods Marketplace: сервис каталога'
+  version: 1.0.0
+  description: |-
+    REST API сервиса каталога (модули `seller_onboarding` и `catalog`). Заявка на статус продавца и её проверка, товары продавца и их модерация, публичная витрина и поиск, внутренний вызов «карточка товара» для сервиса заказов.
+
+    Контракт описывает релиз R1. Общие правила (идентификаторы, деньги, время, ошибки, страницы, идемпотентность) записаны в `docs/05-architecture/conventions.md`, права каждой операции в `docs/05-architecture/roles-permissions.md`. Пути под `/api/v1` проходят через `api-gateway`, пути под `/internal/v1` вызываются другими сервисами напрямую по mTLS.
+  license:
+    name: Учебный проект, лицензия не задана
+    identifier: NOASSERTION
+servers:
+- url: https://api.marketplace.example
+  description: Публичный адрес `api-gateway`. На демо-стенде адрес задаёт конфигурация развёртывания
+tags:
+- name: Заявка продавца
+  description: Анкета, документы и отправка заявки покупателем (область `seller.apply`)
+- name: Модерация заявок
+  description: Очередь и решения модератора по заявкам продавцов (область `staff.moderation`, 2FA)
+- name: Товары продавца
+  description: 'Кабинет продавца: создание, правка, отправка на модерацию, архив (область `seller.catalog`, 2FA)'
+- name: Модерация товаров
+  description: Очередь и решения модератора по товарам (область `staff.moderation`, 2FA)
+- name: Витрина
+  description: Публичный каталог, карточка товара, поиск и фильтры без токена
+- name: Внутренние вызовы
+  description: Вызовы между сервисами по mTLS, через шлюз не маршрутизируются
+security: []
+paths:
+  /api/v1/seller-applications:
+    post:
+      operationId: createSellerApplication
+      summary: 'Начать заявку: создать черновик анкеты'
+      description: |-
+        Создаёт профиль продавца в статусе `draft` (SM-05, переход T1). Заявитель может сохранить анкету частично: в очередь модератора черновик не попадает. У пользователя один профиль (INV-39): если профиль уже есть, ответ 409 с текущим статусом, анкету правят через `PUT /api/v1/seller-applications/current`.
+
+        Матрица прав: OP-10. Истории: US-2.1.
+      tags:
+      - Заявка продавца
+      x-matrix-id: OP-10
+      x-stories:
+      - US-2.1
+      x-allowed-roles:
+      - buyer
+      x-conditions:
+      - U15
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - seller.apply
+      parameters:
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SellerApplicationForm'
+            example:
+              sellerType: self_employed
+              name: Студия «Лунный свет»
+              payoutDetails:
+                recipientName: Иванов Иван Иванович
+                bankName: Банк «Пример»
+                bik: '044525000'
+                accountNumber: '40817810000000000001'
+              assortmentDescription: Ключи к инди-играм для Steam
+      responses:
+        '201':
+          description: Черновик создан
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            ETag:
+              $ref: components.yaml#/components/headers/ETag
+            Location:
+              $ref: components.yaml#/components/headers/Location
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerApplication'
+              example:
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                status: draft
+                sellerType: self_employed
+                name: Студия «Лунный свет»
+                payoutDetails:
+                  recipientName: Иванов Иван Иванович
+                  bankName: Банк «Пример»
+                  bik: '044525000'
+                  accountNumber: '40817810000000000001'
+                assortmentDescription: Ключи к инди-играм для Steam
+                documents:
+                - documentId: 0199e0a0-0000-7000-8000-000000000901
+                  fileName: certificate.pdf
+                  contentType: application/pdf
+                  sizeBytes: 482113
+                  uploadedAt: '2026-10-03T11:00:00.456Z'
+                decisionReason: null
+                rejectedAt: null
+                nextApplicationAt: null
+                submittedAt: null
+                reviewDeadlineAt: null
+                createdAt: '2026-10-03T11:00:00.456Z'
+                updatedAt: '2026-10-03T11:00:00.456Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenFullLoginRequired
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/seller-applications/current:
+    get:
+      operationId: getCurrentSellerApplication
+      summary: Показать свою заявку
+      description: |-
+        Возвращает заявку текущего пользователя: анкету, документы, статус, причину отказа или комментарий доработки (FT-2.4). После отказа поле `nextApplicationAt` показывает, когда можно подать новую заявку. Если профиля нет, ответ 404.
+
+        Матрица прав: OP-10. Истории: US-2.1.
+      tags:
+      - Заявка продавца
+      x-matrix-id: OP-10
+      x-stories:
+      - US-2.1
+      x-allowed-roles:
+      - buyer
+      x-conditions:
+      - U15
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - seller.apply
+      responses:
+        '200':
+          description: Заявка
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            ETag:
+              $ref: components.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerApplication'
+              example:
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                status: draft
+                sellerType: self_employed
+                name: Студия «Лунный свет»
+                payoutDetails:
+                  recipientName: Иванов Иван Иванович
+                  bankName: Банк «Пример»
+                  bik: '044525000'
+                  accountNumber: '40817810000000000001'
+                assortmentDescription: Ключи к инди-играм для Steam
+                documents:
+                - documentId: 0199e0a0-0000-7000-8000-000000000901
+                  fileName: certificate.pdf
+                  contentType: application/pdf
+                  sizeBytes: 482113
+                  uploadedAt: '2026-10-03T11:00:00.456Z'
+                decisionReason: null
+                rejectedAt: null
+                nextApplicationAt: null
+                submittedAt: null
+                reviewDeadlineAt: null
+                createdAt: '2026-10-03T11:00:00.456Z'
+                updatedAt: '2026-10-03T11:00:00.456Z'
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenFullLoginRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+    put:
+      operationId: replaceSellerApplicationDraft
+      summary: Сохранить анкету целиком
+      description: |-
+        Заменяет анкету целиком (`PUT`, идемпотентна), нужен `If-Match`. Доступна для профиля в статусах `draft`, `returned` и `rejected`. Для `rejected` это переход T6: профиль возвращается в `draft`, причина отказа остаётся видна, подача новой заявки станет возможна после паузы (проверяется при отправке, US-2.5). В статусах `on_review` и `approved` изменить анкету нельзя.
+
+        Матрица прав: OP-10 и OP-14. Истории: US-2.1, US-2.5.
+      tags:
+      - Заявка продавца
+      x-matrix-id: OP-10
+      x-matrix-also:
+      - OP-14
+      x-stories:
+      - US-2.1
+      - US-2.5
+      x-allowed-roles:
+      - buyer
+      x-conditions:
+      - U14
+      - U15
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - seller.apply
+      parameters:
+      - $ref: components.yaml#/components/parameters/IfMatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SellerApplicationForm'
+            example:
+              sellerType: self_employed
+              name: Студия «Лунный свет»
+              payoutDetails:
+                recipientName: Иванов Иван Иванович
+                bankName: Банк «Пример»
+                bik: '044525000'
+                accountNumber: '40817810000000000001'
+              assortmentDescription: Ключи к инди-играм для Steam
+      responses:
+        '200':
+          description: Анкета сохранена
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            ETag:
+              $ref: components.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerApplication'
+              example:
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                status: draft
+                sellerType: self_employed
+                name: Студия «Лунный свет»
+                payoutDetails:
+                  recipientName: Иванов Иван Иванович
+                  bankName: Банк «Пример»
+                  bik: '044525000'
+                  accountNumber: '40817810000000000001'
+                assortmentDescription: Ключи к инди-играм для Steam
+                documents:
+                - documentId: 0199e0a0-0000-7000-8000-000000000901
+                  fileName: certificate.pdf
+                  contentType: application/pdf
+                  sizeBytes: 482113
+                  uploadedAt: '2026-10-03T11:00:00.456Z'
+                decisionReason: null
+                rejectedAt: null
+                nextApplicationAt: null
+                submittedAt: null
+                reviewDeadlineAt: null
+                createdAt: '2026-10-03T11:00:00.456Z'
+                updatedAt: '2026-10-03T11:00:00.456Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenFullLoginRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflict
+        '412':
+          $ref: components.yaml#/components/responses/E412VersionConflict
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailed
+        '428':
+          $ref: components.yaml#/components/responses/E428PreconditionRequired
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/seller-applications/current/documents:
+    post:
+      operationId: uploadSellerDocument
+      summary: Загрузить документ
+      description: |-
+        Загружает файл в закрытый бакет объектного хранилища в РФ (форма `multipart/form-data`, часть `file`). Допустимы PDF, JPEG и PNG до 2 МБ (предел тела на шлюзе). Не больше 10 документов в заявке. Документ добавляется только к заявке в статусах `draft`, `returned`, `rejected`.
+
+        Матрица прав: OP-10. Истории: US-2.1.
+      tags:
+      - Заявка продавца
+      x-matrix-id: OP-10
+      x-stories:
+      - US-2.1
+      x-allowed-roles:
+      - buyer
+      x-conditions:
+      - U15
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - seller.apply
+      parameters:
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  description: Файл документа
+                  format: binary
+              required:
+              - file
+              additionalProperties: false
+            example:
+              file: (двоичное содержимое файла)
+      responses:
+        '201':
+          description: Документ сохранён
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Location:
+              $ref: components.yaml#/components/headers/Location
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerDocument'
+              example:
+                documentId: 0199e0a0-0000-7000-8000-000000000901
+                fileName: certificate.pdf
+                contentType: application/pdf
+                sizeBytes: 482113
+                uploadedAt: '2026-10-03T11:00:00.456Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenFullLoginRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '413':
+          $ref: components.yaml#/components/responses/E413PayloadTooLarge
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/seller-applications/current/documents/{documentId}:
+    delete:
+      operationId: deleteSellerDocument
+      summary: Удалить документ из заявки
+      description: |-
+        Удаляет документ из заявки в статусах `draft`, `returned`, `rejected`. Повтор после успеха даёт 404.
+
+        Матрица прав: OP-10. Истории: US-2.1.
+      tags:
+      - Заявка продавца
+      x-matrix-id: OP-10
+      x-stories:
+      - US-2.1
+      x-allowed-roles:
+      - buyer
+      x-conditions:
+      - U15
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - seller.apply
+      parameters:
+      - name: documentId
+        in: path
+        required: true
+        description: Идентификатор документа заявки
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000901
+      responses:
+        '204':
+          description: Документ удалён
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenFullLoginRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflict
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/seller-applications/current/documents/{documentId}/link:
+    get:
+      operationId: getSellerDocumentLink
+      summary: Получить ссылку на свой документ
+      description: |-
+        Выдаёт короткоживущую подписанную ссылку (5 минут) на документ своей заявки. Ссылка открывается через маршрут `/files/**` шлюза.
+
+        Матрица прав: OP-10. Истории: US-2.1.
+      tags:
+      - Заявка продавца
+      x-matrix-id: OP-10
+      x-stories:
+      - US-2.1
+      x-allowed-roles:
+      - buyer
+      x-conditions:
+      - U15
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - seller.apply
+      parameters:
+      - name: documentId
+        in: path
+        required: true
+        description: Идентификатор документа заявки
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000901
+      responses:
+        '200':
+          description: Ссылка
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentLink'
+              example:
+                url: https://api.marketplace.example/files/seller-documents/0199e0a0-0000-7000-8000-000000000901?X-Signature=abc123
+                expiresAt: '2026-10-03T12:15:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenFullLoginRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/seller-applications/current/submit:
+    post:
+      operationId: submitSellerApplication
+      summary: Отправить заявку на проверку
+      description: |-
+        Переводит профиль в `on_review` (SM-05, T2 и T7), заявка попадает в очередь модератора, срок рассмотрения 3 суток отсчитывается заново. Проверяется полнота анкеты и наличие документа: незаполненные поля возвращаются в `errors` с кодом `required`. После отказа заявку принимают не раньше чем через 24 часа (параметр `seller.reapplication-pause-seconds`, U14), иначе 409 `application-pause-active` с `retryAfterAt`. Пока заявка на проверке, вторая не принимается (U15, INV-39).
+
+        Матрица прав: OP-10 и OP-14. Истории: US-2.1, US-2.5.
+      tags:
+      - Заявка продавца
+      x-matrix-id: OP-10
+      x-matrix-also:
+      - OP-14
+      x-stories:
+      - US-2.1
+      - US-2.5
+      x-allowed-roles:
+      - buyer
+      x-conditions:
+      - U14
+      - U15
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - seller.apply
+      parameters:
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: Заявка принята к проверке
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerApplication'
+              example:
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                status: on_review
+                sellerType: self_employed
+                name: Студия «Лунный свет»
+                payoutDetails:
+                  recipientName: Иванов Иван Иванович
+                  bankName: Банк «Пример»
+                  bik: '044525000'
+                  accountNumber: '40817810000000000001'
+                assortmentDescription: Ключи к инди-играм для Steam
+                documents:
+                - documentId: 0199e0a0-0000-7000-8000-000000000901
+                  fileName: certificate.pdf
+                  contentType: application/pdf
+                  sizeBytes: 482113
+                  uploadedAt: '2026-10-03T11:00:00.456Z'
+                decisionReason: null
+                rejectedAt: null
+                nextApplicationAt: null
+                submittedAt: '2026-10-03T12:00:00.123Z'
+                reviewDeadlineAt: '2026-10-06T12:00:00.123Z'
+                createdAt: '2026-10-03T11:00:00.456Z'
+                updatedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400IdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenFullLoginRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressApplicationPauseActive
+        '422':
+          $ref: components.yaml#/components/responses/E422IdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/seller-applications:
+    get:
+      operationId: listSellerApplicationQueue
+      summary: Очередь заявок на проверке
+      description: |-
+        Заявки в статусе `on_review`, старые выше. Просроченные (больше 3 суток) помечены признаком `overdue`; оповещение администратору даёт правило мониторинга, автоматического решения нет.
+
+        Матрица прав: OP-11. Истории: US-2.2.
+      tags:
+      - Модерация заявок
+      x-matrix-id: OP-11
+      x-stories:
+      - US-2.2
+      x-allowed-roles:
+      - moderator
+      x-conditions: []
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.moderation
+      parameters:
+      - $ref: components.yaml#/components/parameters/Limit
+      - $ref: components.yaml#/components/parameters/Cursor
+      responses:
+        '200':
+          description: Страница очереди
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerApplicationQueuePage'
+              example:
+                items:
+                - sellerId: 0199e0a0-0000-7000-8000-000000000101
+                  name: Студия «Лунный свет»
+                  sellerType: self_employed
+                  documentsCount: 1
+                  submittedAt: '2026-10-03T12:00:00.123Z'
+                  reviewDeadlineAt: '2026-10-06T12:00:00.123Z'
+                  overdue: false
+                page:
+                  limit: 20
+                  nextCursor: null
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailed
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/seller-applications/{sellerId}:
+    get:
+      operationId: getSellerApplicationCard
+      summary: Карточка заявки с документами
+      description: |-
+        Анкета и ссылки на документы (5 минут). Открытие карточки не меняет заявку.
+
+        Матрица прав: OP-11. Истории: US-2.2, US-2.3.
+      tags:
+      - Модерация заявок
+      x-matrix-id: OP-11
+      x-stories:
+      - US-2.2
+      - US-2.3
+      x-allowed-roles:
+      - moderator
+      x-conditions: []
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.moderation
+      parameters:
+      - name: sellerId
+        in: path
+        required: true
+        description: Идентификатор профиля продавца (он же идентификатор заявки)
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000101
+      responses:
+        '200':
+          description: Карточка
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerApplicationCard'
+              example:
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                userId: 7e1c3a95-2d4f-4b68-9a0c-8b6d4f2a1e53
+                status: on_review
+                sellerType: self_employed
+                name: Студия «Лунный свет»
+                payoutDetails:
+                  recipientName: Иванов Иван Иванович
+                  bankName: Банк «Пример»
+                  bik: '044525000'
+                  accountNumber: '40817810000000000001'
+                assortmentDescription: Ключи к инди-играм для Steam
+                documents:
+                - documentId: 0199e0a0-0000-7000-8000-000000000901
+                  fileName: certificate.pdf
+                  contentType: application/pdf
+                  sizeBytes: 482113
+                  uploadedAt: '2026-10-03T11:00:00.456Z'
+                  link:
+                    url: https://api.marketplace.example/files/seller-documents/0199e0a0-0000-7000-8000-000000000901?X-Signature=abc123
+                    expiresAt: '2026-10-03T12:15:00.123Z'
+                submittedAt: '2026-10-03T12:00:00.123Z'
+                reviewDeadlineAt: '2026-10-06T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/seller-applications/{sellerId}/approve:
+    post:
+      operationId: approveSellerApplication
+      summary: Одобрить заявку
+      description: |-
+        Переводит профиль из `on_review` в `approved` (SM-05, T3). Публикуется `seller.approved`: `platform-service` назначает роль «Продавец» и включает требование второго фактора (INV-36, INV-37), заявителю уходит письмо. Решение пишется в журнал аудита в той же транзакции (INV-43). Если заявку уже решил другой модератор, ответ 409.
+
+        Матрица прав: OP-12. Истории: US-2.2.
+      tags:
+      - Модерация заявок
+      x-matrix-id: OP-12
+      x-stories:
+      - US-2.2
+      x-allowed-roles:
+      - moderator
+      x-conditions:
+      - U6
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.moderation
+      parameters:
+      - name: sellerId
+        in: path
+        required: true
+        description: Идентификатор профиля продавца (он же идентификатор заявки)
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000101
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: Заявка одобрена
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerApplication'
+              example:
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                status: approved
+                sellerType: self_employed
+                name: Студия «Лунный свет»
+                payoutDetails:
+                  recipientName: Иванов Иван Иванович
+                  bankName: Банк «Пример»
+                  bik: '044525000'
+                  accountNumber: '40817810000000000001'
+                assortmentDescription: Ключи к инди-играм для Steam
+                documents:
+                - documentId: 0199e0a0-0000-7000-8000-000000000901
+                  fileName: certificate.pdf
+                  contentType: application/pdf
+                  sizeBytes: 482113
+                  uploadedAt: '2026-10-03T11:00:00.456Z'
+                decisionReason: null
+                rejectedAt: null
+                nextApplicationAt: null
+                submittedAt: '2026-10-03T11:00:00.456Z'
+                reviewDeadlineAt: '2026-10-06T12:00:00.123Z'
+                createdAt: '2026-10-03T11:00:00.456Z'
+                updatedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '422':
+          $ref: components.yaml#/components/responses/E422IdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/seller-applications/{sellerId}/reject:
+    post:
+      operationId: rejectSellerApplication
+      summary: Отклонить заявку с причиной
+      description: |-
+        Переводит профиль из `on_review` в `rejected` (T4), дата отказа записывается, после неё идёт пауза 24 часа. Причина обязательна.
+
+        Матрица прав: OP-12. Истории: US-2.3.
+      tags:
+      - Модерация заявок
+      x-matrix-id: OP-12
+      x-stories:
+      - US-2.3
+      x-allowed-roles:
+      - moderator
+      x-conditions:
+      - U6
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.moderation
+      parameters:
+      - name: sellerId
+        in: path
+        required: true
+        description: Идентификатор профиля продавца (он же идентификатор заявки)
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000101
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReasonRequest'
+            example:
+              reason: Документ не читается
+      responses:
+        '200':
+          description: Заявка отклонена
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerApplication'
+              example:
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                status: rejected
+                sellerType: self_employed
+                name: Студия «Лунный свет»
+                payoutDetails:
+                  recipientName: Иванов Иван Иванович
+                  bankName: Банк «Пример»
+                  bik: '044525000'
+                  accountNumber: '40817810000000000001'
+                assortmentDescription: Ключи к инди-играм для Steam
+                documents:
+                - documentId: 0199e0a0-0000-7000-8000-000000000901
+                  fileName: certificate.pdf
+                  contentType: application/pdf
+                  sizeBytes: 482113
+                  uploadedAt: '2026-10-03T11:00:00.456Z'
+                decisionReason: Документ не читается
+                rejectedAt: '2026-10-03T12:00:00.123Z'
+                nextApplicationAt: '2026-10-04T12:00:00.123Z'
+                submittedAt: '2026-10-03T11:00:00.456Z'
+                reviewDeadlineAt: '2026-10-06T12:00:00.123Z'
+                createdAt: '2026-10-03T11:00:00.456Z'
+                updatedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/seller-applications/{sellerId}/return:
+    post:
+      operationId: returnSellerApplication
+      summary: Вернуть заявку на доработку
+      description: |-
+        Переводит профиль из `on_review` в `returned` (T5), заявка выходит из очереди, заявителю уходит письмо с комментарием. Комментарий обязателен. Пауза не назначается.
+
+        Матрица прав: OP-12. Истории: US-2.3.
+      tags:
+      - Модерация заявок
+      x-matrix-id: OP-12
+      x-stories:
+      - US-2.3
+      x-allowed-roles:
+      - moderator
+      x-conditions:
+      - U6
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.moderation
+      parameters:
+      - name: sellerId
+        in: path
+        required: true
+        description: Идентификатор профиля продавца (он же идентификатор заявки)
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000101
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentRequest'
+            example:
+              comment: Приложите свидетельство о постановке на учёт
+      responses:
+        '200':
+          description: Заявка возвращена на доработку
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerApplication'
+              example:
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                status: returned
+                sellerType: self_employed
+                name: Студия «Лунный свет»
+                payoutDetails:
+                  recipientName: Иванов Иван Иванович
+                  bankName: Банк «Пример»
+                  bik: '044525000'
+                  accountNumber: '40817810000000000001'
+                assortmentDescription: Ключи к инди-играм для Steam
+                documents:
+                - documentId: 0199e0a0-0000-7000-8000-000000000901
+                  fileName: certificate.pdf
+                  contentType: application/pdf
+                  sizeBytes: 482113
+                  uploadedAt: '2026-10-03T11:00:00.456Z'
+                decisionReason: Приложите свидетельство о постановке на учёт
+                rejectedAt: null
+                nextApplicationAt: null
+                submittedAt: '2026-10-03T11:00:00.456Z'
+                reviewDeadlineAt: '2026-10-06T12:00:00.123Z'
+                createdAt: '2026-10-03T11:00:00.456Z'
+                updatedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/seller/products:
+    post:
+      operationId: createSellerProduct
+      summary: Создать товар
+      description: |-
+        Создаёт товар в статусе `draft` (SM-04, T1), на витрине его нет. Нужны все поля, цена больше нуля. В R1 способ выдачи только `key_pool`, `seller_api` даёт 422. Ключи для создания не нужны, пул загружается отдельно (inventory-service). Продавец должен быть одобрен (U3), иначе 403.
+
+        Матрица прав: OP-20. Истории: US-3.1, US-4.1.
+      tags:
+      - Товары продавца
+      x-matrix-id: OP-20
+      x-stories:
+      - US-3.1
+      - US-4.1
+      x-allowed-roles:
+      - seller
+      x-conditions:
+      - U3
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - seller.catalog
+      parameters:
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductInput'
+            example:
+              title: 'Лунная тропа: ключ Steam'
+              description: Приключенческая игра, ключ активации Steam
+              productType: game_key
+              platform: Steam
+              activationRegions:
+              - RU
+              - KZ
+              price:
+                amount: 149900
+                currency: RUB
+              issuanceMethod: key_pool
+      responses:
+        '201':
+          description: Товар создан
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            ETag:
+              $ref: components.yaml#/components/headers/ETag
+            Location:
+              $ref: components.yaml#/components/headers/Location
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerProduct'
+              example:
+                productId: 0199e0a0-0000-7000-8000-000000000201
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                title: 'Лунная тропа: ключ Steam'
+                description: Приключенческая игра, ключ активации Steam
+                productType: game_key
+                platform: Steam
+                activationRegions:
+                - RU
+                - KZ
+                price:
+                  amount: 149900
+                  currency: RUB
+                issuanceMethod: key_pool
+                status: draft
+                rejectionReason: null
+                blockReason: null
+                submittedAt: null
+                reviewDeadlineAt: null
+                version: 1
+                createdAt: '2026-10-03T11:00:00.456Z'
+                updatedAt: '2026-10-03T11:00:00.456Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '409':
+          $ref: components.yaml#/components/responses/E409RequestInProgress
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+    get:
+      operationId: listSellerProducts
+      summary: Список своих товаров
+      description: |-
+        Товары продавца, новые выше. Фильтр `status` принимает несколько значений через запятую (например `status=draft,rejected`). Продавец видит только свои товары (U3).
+
+        Матрица прав: OP-20. Истории: US-3.1.
+      tags:
+      - Товары продавца
+      x-matrix-id: OP-20
+      x-stories:
+      - US-3.1
+      x-allowed-roles:
+      - seller
+      x-conditions:
+      - U3
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - seller.catalog
+      parameters:
+      - name: status
+        in: query
+        required: false
+        description: Статусы через запятую
+        schema:
+          type: string
+          pattern: ^[a-z_]+(,[a-z_]+)*$
+        example: draft,rejected
+      - $ref: components.yaml#/components/parameters/Limit
+      - $ref: components.yaml#/components/parameters/Cursor
+      responses:
+        '200':
+          description: Страница товаров
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerProductPage'
+              example:
+                items:
+                - productId: 0199e0a0-0000-7000-8000-000000000201
+                  sellerId: 0199e0a0-0000-7000-8000-000000000101
+                  title: 'Лунная тропа: ключ Steam'
+                  description: Приключенческая игра, ключ активации Steam
+                  productType: game_key
+                  platform: Steam
+                  activationRegions:
+                  - RU
+                  - KZ
+                  price:
+                    amount: 149900
+                    currency: RUB
+                  issuanceMethod: key_pool
+                  status: draft
+                  rejectionReason: null
+                  blockReason: null
+                  submittedAt: null
+                  reviewDeadlineAt: null
+                  version: 1
+                  createdAt: '2026-10-03T11:00:00.456Z'
+                  updatedAt: '2026-10-03T11:00:00.456Z'
+                page:
+                  limit: 20
+                  nextCursor: null
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailed
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/seller/products/{productId}:
+    get:
+      operationId: getSellerProduct
+      summary: Карточка своего товара
+      description: |-
+        Товар со статусом, причиной отклонения или блокировки и версией для правки. Чужой товар даёт 404.
+
+        Матрица прав: OP-25. Истории: US-3.6.
+      tags:
+      - Товары продавца
+      x-matrix-id: OP-25
+      x-stories:
+      - US-3.6
+      x-allowed-roles:
+      - seller
+      x-conditions:
+      - U3
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - seller.catalog
+      parameters:
+      - name: productId
+        in: path
+        required: true
+        description: Идентификатор товара
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000201
+      responses:
+        '200':
+          description: Товар
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            ETag:
+              $ref: components.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerProduct'
+              example:
+                productId: 0199e0a0-0000-7000-8000-000000000201
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                title: 'Лунная тропа: ключ Steam'
+                description: Приключенческая игра, ключ активации Steam
+                productType: game_key
+                platform: Steam
+                activationRegions:
+                - RU
+                - KZ
+                price:
+                  amount: 149900
+                  currency: RUB
+                issuanceMethod: key_pool
+                status: draft
+                rejectionReason: null
+                blockReason: null
+                submittedAt: null
+                reviewDeadlineAt: null
+                version: 1
+                createdAt: '2026-10-03T11:00:00.456Z'
+                updatedAt: '2026-10-03T11:00:00.456Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+    put:
+      operationId: replaceSellerProduct
+      summary: Править товар
+      description: |-
+        Заменяет изменяемые поля товара (`PUT`, нужен `If-Match`). В статусах `draft`, `rejected` и `blocked` правка только сохраняется. В статусе `published` правка названия, описания или типа возвращает товар на модерацию и снимает с витрины (T6), правка цены, платформы, региона или способа выдачи статус не меняет (T7); заказы, созданные раньше, сохраняют прежнюю цену. В статусах `on_moderation` и `archived` правка запрещена (409). Новое состояние видно в ответе.
+
+        Матрица прав: OP-25. Истории: US-3.6.
+      tags:
+      - Товары продавца
+      x-matrix-id: OP-25
+      x-stories:
+      - US-3.6
+      x-allowed-roles:
+      - seller
+      x-conditions:
+      - U3
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - seller.catalog
+      parameters:
+      - name: productId
+        in: path
+        required: true
+        description: Идентификатор товара
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000201
+      - $ref: components.yaml#/components/parameters/IfMatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductInput'
+            example:
+              title: 'Лунная тропа: ключ Steam'
+              description: Приключенческая игра, ключ активации Steam
+              productType: game_key
+              platform: Steam
+              activationRegions:
+              - RU
+              - KZ
+              price:
+                amount: 149900
+                currency: RUB
+              issuanceMethod: key_pool
+      responses:
+        '200':
+          description: Товар сохранён
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            ETag:
+              $ref: components.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerProduct'
+              example:
+                productId: 0199e0a0-0000-7000-8000-000000000201
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                title: 'Лунная тропа: ключ Steam'
+                description: Приключенческая игра, ключ активации Steam
+                productType: game_key
+                platform: Steam
+                activationRegions:
+                - RU
+                - KZ
+                price:
+                  amount: 149900
+                  currency: RUB
+                issuanceMethod: key_pool
+                status: draft
+                rejectionReason: null
+                blockReason: null
+                submittedAt: null
+                reviewDeadlineAt: null
+                version: 2
+                createdAt: '2026-10-03T11:00:00.456Z'
+                updatedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflict
+        '412':
+          $ref: components.yaml#/components/responses/E412VersionConflict
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailed
+        '428':
+          $ref: components.yaml#/components/responses/E428PreconditionRequired
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/seller/products/{productId}/submit:
+    post:
+      operationId: submitSellerProduct
+      summary: Отправить товар на модерацию
+      description: |-
+        Переводит товар в `on_moderation` из `draft` (T2), `rejected` (T5) или `blocked` по решению модератора (T11). Срок проверки 3 суток отсчитывается заново, поля до решения менять нельзя. Ключи в пуле не обязательны (US-3.2). Повторная отправка товара, уже находящегося на модерации, срок не сбрасывает и даёт 409.
+
+        Матрица прав: OP-21. Истории: US-3.2.
+      tags:
+      - Товары продавца
+      x-matrix-id: OP-21
+      x-stories:
+      - US-3.2
+      x-allowed-roles:
+      - seller
+      x-conditions:
+      - U3
+      - U4
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - seller.catalog
+      parameters:
+      - name: productId
+        in: path
+        required: true
+        description: Идентификатор товара
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000201
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: Товар на модерации
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerProduct'
+              example:
+                productId: 0199e0a0-0000-7000-8000-000000000201
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                title: 'Лунная тропа: ключ Steam'
+                description: Приключенческая игра, ключ активации Steam
+                productType: game_key
+                platform: Steam
+                activationRegions:
+                - RU
+                - KZ
+                price:
+                  amount: 149900
+                  currency: RUB
+                issuanceMethod: key_pool
+                status: on_moderation
+                rejectionReason: null
+                blockReason: null
+                submittedAt: '2026-10-03T12:00:00.123Z'
+                reviewDeadlineAt: '2026-10-06T12:00:00.123Z'
+                version: 2
+                createdAt: '2026-10-03T11:00:00.456Z'
+                updatedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '422':
+          $ref: components.yaml#/components/responses/E422IdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/seller/products/{productId}/archive:
+    post:
+      operationId: archiveSellerProduct
+      summary: Снять товар с продажи в архив
+      description: |-
+        Переводит товар из `draft`, `on_moderation`, `published` или `rejected` в `archived` (T12): товар не виден на витрине и выходит из очереди модератора. Заказы, оформленные раньше, доводятся до выдачи. Заблокированный товар в архив не уходит.
+
+        Матрица прав: OP-26. Истории: US-3.8.
+      tags:
+      - Товары продавца
+      x-matrix-id: OP-26
+      x-stories:
+      - US-3.8
+      x-allowed-roles:
+      - seller
+      x-conditions:
+      - U3
+      - U4
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - seller.catalog
+      parameters:
+      - name: productId
+        in: path
+        required: true
+        description: Идентификатор товара
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000201
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: Товар в архиве
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerProduct'
+              example:
+                productId: 0199e0a0-0000-7000-8000-000000000201
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                title: 'Лунная тропа: ключ Steam'
+                description: Приключенческая игра, ключ активации Steam
+                productType: game_key
+                platform: Steam
+                activationRegions:
+                - RU
+                - KZ
+                price:
+                  amount: 149900
+                  currency: RUB
+                issuanceMethod: key_pool
+                status: archived
+                rejectionReason: null
+                blockReason: null
+                submittedAt: null
+                reviewDeadlineAt: null
+                version: 3
+                createdAt: '2026-10-03T11:00:00.456Z'
+                updatedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '422':
+          $ref: components.yaml#/components/responses/E422IdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/seller/products/{productId}/restore:
+    post:
+      operationId: restoreSellerProduct
+      summary: Восстановить товар из архива
+      description: |-
+        Переводит товар из `archived` в `draft` (T13), пул ключей сохраняется. Дальше обычный путь с модерацией.
+
+        Матрица прав: OP-26. Истории: US-3.8.
+      tags:
+      - Товары продавца
+      x-matrix-id: OP-26
+      x-stories:
+      - US-3.8
+      x-allowed-roles:
+      - seller
+      x-conditions:
+      - U3
+      - U4
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - seller.catalog
+      parameters:
+      - name: productId
+        in: path
+        required: true
+        description: Идентификатор товара
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000201
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: Товар восстановлен
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerProduct'
+              example:
+                productId: 0199e0a0-0000-7000-8000-000000000201
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                title: 'Лунная тропа: ключ Steam'
+                description: Приключенческая игра, ключ активации Steam
+                productType: game_key
+                platform: Steam
+                activationRegions:
+                - RU
+                - KZ
+                price:
+                  amount: 149900
+                  currency: RUB
+                issuanceMethod: key_pool
+                status: draft
+                rejectionReason: null
+                blockReason: null
+                submittedAt: null
+                reviewDeadlineAt: null
+                version: 4
+                createdAt: '2026-10-03T11:00:00.456Z'
+                updatedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '422':
+          $ref: components.yaml#/components/responses/E422IdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/products:
+    get:
+      operationId: listProductModerationQueue
+      summary: Очередь товаров на модерации
+      description: |-
+        Товары в статусе `on_moderation`, старые выше. Просроченные помечены `overdue`.
+
+        Матрица прав: OP-22. Истории: US-3.3.
+      tags:
+      - Модерация товаров
+      x-matrix-id: OP-22
+      x-stories:
+      - US-3.3
+      x-allowed-roles:
+      - moderator
+      x-conditions: []
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.moderation
+      parameters:
+      - $ref: components.yaml#/components/parameters/Limit
+      - $ref: components.yaml#/components/parameters/Cursor
+      responses:
+        '200':
+          description: Страница очереди
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModerationQueuePage'
+              example:
+                items:
+                - productId: 0199e0a0-0000-7000-8000-000000000201
+                  sellerId: 0199e0a0-0000-7000-8000-000000000101
+                  title: 'Лунная тропа: ключ Steam'
+                  productType: game_key
+                  price:
+                    amount: 149900
+                    currency: RUB
+                  submittedAt: '2026-10-03T12:00:00.123Z'
+                  reviewDeadlineAt: '2026-10-06T12:00:00.123Z'
+                  overdue: false
+                page:
+                  limit: 20
+                  nextCursor: null
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailed
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/products/{productId}:
+    get:
+      operationId: getProductForModeration
+      summary: Карточка товара для модератора
+      description: |-
+        Все поля товара. Значения ключей модератору не показываются (US-3.3, сценарий 3).
+
+        Матрица прав: OP-22. Истории: US-3.3.
+      tags:
+      - Модерация товаров
+      x-matrix-id: OP-22
+      x-stories:
+      - US-3.3
+      x-allowed-roles:
+      - moderator
+      x-conditions: []
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.moderation
+      parameters:
+      - name: productId
+        in: path
+        required: true
+        description: Идентификатор товара
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000201
+      responses:
+        '200':
+          description: Товар
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerProduct'
+              example:
+                productId: 0199e0a0-0000-7000-8000-000000000201
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                title: 'Лунная тропа: ключ Steam'
+                description: Приключенческая игра, ключ активации Steam
+                productType: game_key
+                platform: Steam
+                activationRegions:
+                - RU
+                - KZ
+                price:
+                  amount: 149900
+                  currency: RUB
+                issuanceMethod: key_pool
+                status: on_moderation
+                rejectionReason: null
+                blockReason: null
+                submittedAt: '2026-10-03T12:00:00.123Z'
+                reviewDeadlineAt: '2026-10-06T12:00:00.123Z'
+                version: 2
+                createdAt: '2026-10-03T11:00:00.456Z'
+                updatedAt: '2026-10-03T11:00:00.456Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/products/{productId}/approve:
+    post:
+      operationId: approveProduct
+      summary: Одобрить товар
+      description: |-
+        Переводит товар из `on_moderation` в `published` (T3), товар появляется на витрине. Публикуется `product.published`, продавцу уходит письмо, решение пишется в журнал аудита. Если товар уже решён другим модератором, 409.
+
+        Матрица прав: OP-23. Истории: US-3.3.
+      tags:
+      - Модерация товаров
+      x-matrix-id: OP-23
+      x-stories:
+      - US-3.3
+      x-allowed-roles:
+      - moderator
+      x-conditions:
+      - U6
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.moderation
+      parameters:
+      - name: productId
+        in: path
+        required: true
+        description: Идентификатор товара
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000201
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: Товар опубликован
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerProduct'
+              example:
+                productId: 0199e0a0-0000-7000-8000-000000000201
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                title: 'Лунная тропа: ключ Steam'
+                description: Приключенческая игра, ключ активации Steam
+                productType: game_key
+                platform: Steam
+                activationRegions:
+                - RU
+                - KZ
+                price:
+                  amount: 149900
+                  currency: RUB
+                issuanceMethod: key_pool
+                status: published
+                rejectionReason: null
+                blockReason: null
+                submittedAt: '2026-10-03T11:00:00.456Z'
+                reviewDeadlineAt: '2026-10-06T12:00:00.123Z'
+                version: 3
+                createdAt: '2026-10-03T11:00:00.456Z'
+                updatedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '422':
+          $ref: components.yaml#/components/responses/E422IdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/products/{productId}/reject:
+    post:
+      operationId: rejectProduct
+      summary: Отклонить товар с причиной
+      description: |-
+        Переводит товар из `on_moderation` в `rejected` (T4), причина обязательна и видна продавцу.
+
+        Матрица прав: OP-23. Истории: US-3.4.
+      tags:
+      - Модерация товаров
+      x-matrix-id: OP-23
+      x-stories:
+      - US-3.4
+      x-allowed-roles:
+      - moderator
+      x-conditions:
+      - U6
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.moderation
+      parameters:
+      - name: productId
+        in: path
+        required: true
+        description: Идентификатор товара
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000201
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReasonRequest'
+            example:
+              reason: В описании есть запрещённое содержимое
+      responses:
+        '200':
+          description: Товар отклонён
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerProduct'
+              example:
+                productId: 0199e0a0-0000-7000-8000-000000000201
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                title: 'Лунная тропа: ключ Steam'
+                description: Приключенческая игра, ключ активации Steam
+                productType: game_key
+                platform: Steam
+                activationRegions:
+                - RU
+                - KZ
+                price:
+                  amount: 149900
+                  currency: RUB
+                issuanceMethod: key_pool
+                status: rejected
+                rejectionReason: В описании есть запрещённое содержимое
+                blockReason: null
+                submittedAt: '2026-10-03T11:00:00.456Z'
+                reviewDeadlineAt: '2026-10-06T12:00:00.123Z'
+                version: 3
+                createdAt: '2026-10-03T11:00:00.456Z'
+                updatedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/products/{productId}/block:
+    post:
+      operationId: blockProduct
+      summary: Заблокировать опубликованный товар
+      description: |-
+        Переводит товар из `published` в `blocked` (T8), товар исчезает с витрины. Причина обязательна. Блокировку по решению модератора кнопкой не снимают: путь назад идёт через правку и новую модерацию (T11). Заказы, оформленные раньше, доводятся до выдачи.
+
+        Матрица прав: OP-24. Истории: US-3.5.
+      tags:
+      - Модерация товаров
+      x-matrix-id: OP-24
+      x-stories:
+      - US-3.5
+      x-allowed-roles:
+      - moderator
+      x-conditions:
+      - U4
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.moderation
+      parameters:
+      - name: productId
+        in: path
+        required: true
+        description: Идентификатор товара
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000201
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReasonRequest'
+            example:
+              reason: Жалоба правообладателя
+      responses:
+        '200':
+          description: Товар заблокирован
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerProduct'
+              example:
+                productId: 0199e0a0-0000-7000-8000-000000000201
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                title: 'Лунная тропа: ключ Steam'
+                description: Приключенческая игра, ключ активации Steam
+                productType: game_key
+                platform: Steam
+                activationRegions:
+                - RU
+                - KZ
+                price:
+                  amount: 149900
+                  currency: RUB
+                issuanceMethod: key_pool
+                status: blocked
+                rejectionReason: null
+                blockReason: Жалоба правообладателя
+                submittedAt: null
+                reviewDeadlineAt: null
+                version: 4
+                createdAt: '2026-10-03T11:00:00.456Z'
+                updatedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/products:
+    get:
+      operationId: listStorefrontProducts
+      summary: 'Каталог: список, поиск и фильтры'
+      description: |-
+        Опубликованные товары. Поиск `q` ищет часть названия без учёта регистра (полнотекстовый индекс PostgreSQL), фильтры комбинируются по «и». Диапазон цены `priceFrom` и `priceTo` в копейках включает обе границы, нижняя больше верхней даёт 422 (US-3.11, сценарий 4). Порядок: новые публикации выше. Ответ кэшируется на 30 секунд, поддерживается условный запрос по `If-None-Match`. Цель 500 мс при 95-м перцентиле (NFT-1.1).
+
+        Матрица прав: OP-28. Истории: US-3.9, US-3.10, US-3.11.
+      tags:
+      - Витрина
+      x-matrix-id: OP-28
+      x-stories:
+      - US-3.9
+      - US-3.10
+      - US-3.11
+      x-allowed-roles:
+      - guest
+      - buyer
+      - seller
+      - moderator
+      - support-operator
+      - admin
+      x-conditions: []
+      x-sms-session: allowed
+      security: []
+      parameters:
+      - name: q
+        in: query
+        required: false
+        description: Часть названия
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 100
+        example: тропа
+      - name: productType
+        in: query
+        required: false
+        description: Тип товара, несколько значений через запятую
+        schema:
+          type: string
+          pattern: ^[a-z_]+(,[a-z_]+)*$
+        example: game_key
+      - name: platform
+        in: query
+        required: false
+        description: Платформа
+        schema:
+          type: string
+          maxLength: 64
+        example: Steam
+      - name: region
+        in: query
+        required: false
+        description: 'Регион активации (код страны): товары с этим регионом и без ограничений'
+        schema:
+          $ref: components.yaml#/components/schemas/Country
+        example: RU
+      - name: priceFrom
+        in: query
+        required: false
+        description: Нижняя граница цены в копейках, включительно
+        schema:
+          type: integer
+          minimum: 0
+      - name: priceTo
+        in: query
+        required: false
+        description: Верхняя граница цены в копейках, включительно
+        schema:
+          type: integer
+          minimum: 0
+      - $ref: components.yaml#/components/parameters/Limit
+      - $ref: components.yaml#/components/parameters/Cursor
+      responses:
+        '200':
+          description: Страница каталога
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlPublic
+            ETag:
+              $ref: components.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorefrontPage'
+              example:
+                items:
+                - productId: 0199e0a0-0000-7000-8000-000000000201
+                  title: 'Лунная тропа: ключ Steam'
+                  productType: game_key
+                  platform: Steam
+                  price:
+                    amount: 149900
+                    currency: RUB
+                  inStock: true
+                page:
+                  limit: 20
+                  nextCursor: null
+        '304':
+          description: Ресурс не изменился с момента ETag из If-None-Match
+          headers:
+            ETag:
+              $ref: components.yaml#/components/headers/ETag
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailed
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/products/{productId}:
+    get:
+      operationId: getStorefrontProduct
+      summary: Карточка товара
+      description: |-
+        Карточка опубликованного товара: название, описание, тип, платформа, регион, цена и наличие. Товар в другом статусе даёт 404 «Товар не найден». При нулевом остатке карточка показывается, `maxOrderQuantity` равен нулю и покупка недоступна. Цель 300 мс при 95-м перцентиле (US-3.9).
+
+        Матрица прав: OP-28. Истории: US-3.9.
+      tags:
+      - Витрина
+      x-matrix-id: OP-28
+      x-stories:
+      - US-3.9
+      x-allowed-roles:
+      - guest
+      - buyer
+      - seller
+      - moderator
+      - support-operator
+      - admin
+      x-conditions: []
+      x-sms-session: allowed
+      security: []
+      parameters:
+      - name: productId
+        in: path
+        required: true
+        description: Идентификатор товара
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000201
+      responses:
+        '200':
+          description: Карточка
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlPublic
+            ETag:
+              $ref: components.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorefrontProduct'
+              example:
+                productId: 0199e0a0-0000-7000-8000-000000000201
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                title: 'Лунная тропа: ключ Steam'
+                description: Приключенческая игра, ключ активации Steam
+                productType: game_key
+                platform: Steam
+                activationRegions:
+                - RU
+                - KZ
+                price:
+                  amount: 149900
+                  currency: RUB
+                inStock: true
+                maxOrderQuantity: 10
+        '304':
+          description: Ресурс не изменился с момента ETag из If-None-Match
+          headers:
+            ETag:
+              $ref: components.yaml#/components/headers/ETag
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /internal/v1/products/{productId}:
+    get:
+      operationId: getProductCard
+      summary: Карточка товара для заказа (внутренний)
+      description: |-
+        Возвращает статус, цену, продавца и способ выдачи. Вызывает только `order-service` при оформлении заказа, ответ за 500 мс (SEQ-01, шаги 4 и 5). Товар не найден даёт 404, решение о доступности (опубликован, не заблокирован) принимает вызывающий по полю `status`.
+
+        Матрица прав: OP-50. Истории: US-5.1.
+      tags:
+      - Внутренние вызовы
+      x-matrix-id: OP-50
+      x-stories:
+      - US-5.1
+      x-allowed-roles:
+      - system
+      x-conditions: []
+      x-allowed-callers:
+      - order-service
+      x-internal: true
+      security:
+      - mutualTls: []
+      servers:
+      - url: https://catalog-service:8443
+        description: Внутренний адрес сервиса, mTLS, не через шлюз
+      parameters:
+      - name: productId
+        in: path
+        required: true
+        description: Идентификатор товара
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000201
+      responses:
+        '200':
+          description: Карточка товара
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductCard'
+              example:
+                productId: 0199e0a0-0000-7000-8000-000000000201
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                title: 'Лунная тропа: ключ Steam'
+                status: published
+                price:
+                  amount: 149900
+                  currency: RUB
+                issuanceMethod: key_pool
+                productType: game_key
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '403':
+          $ref: components.yaml#/components/responses/E403Forbidden
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+components:
+  schemas:
+    PayoutDetails:
+      type: object
+      description: Банковские реквизиты для выплат. Копируются снимком в заявку на вывод (R2). Персональные данные
+        продавца, в журналы не пишутся
+      properties:
+        recipientName:
+          type: string
+          description: Получатель платежа
+          minLength: 1
+          maxLength: 200
+        bankName:
+          type: string
+          description: Наименование банка
+          minLength: 1
+          maxLength: 200
+        bik:
+          type: string
+          description: БИК банка, 9 цифр
+          pattern: ^[0-9]{9}$
+        accountNumber:
+          type: string
+          description: Расчётный счёт, 20 цифр
+          pattern: ^[0-9]{20}$
+    SellerApplicationForm:
+      type: object
+      description: 'Анкета продавца. При сохранении черновика поля необязательны, при отправке заявки обязательны
+        все четыре и хотя бы один документ. `PUT` заменяет анкету целиком: пропущенное поле очищается'
+      properties:
+        sellerType:
+          $ref: components.yaml#/components/schemas/SellerType
+        name:
+          type: string
+          description: Наименование продавца
+          minLength: 1
+          maxLength: 200
+        payoutDetails:
+          $ref: '#/components/schemas/PayoutDetails'
+        assortmentDescription:
+          type: string
+          description: Что продавец собирается продавать
+          minLength: 1
+          maxLength: 2000
+      additionalProperties: false
+    SellerDocument:
+      type: object
+      description: Документ заявки. Сам файл лежит в закрытом бакете объектного хранилища в РФ, открывается по короткоживущей
+        ссылке
+      properties:
+        documentId:
+          $ref: components.yaml#/components/schemas/Id
+        fileName:
+          type: string
+          description: Имя файла при загрузке
+          maxLength: 255
+        contentType:
+          type: string
+          description: Тип файла
+          enum:
+          - application/pdf
+          - image/jpeg
+          - image/png
+        sizeBytes:
+          type: integer
+          description: Размер в байтах
+          minimum: 1
+        uploadedAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+      required:
+      - documentId
+      - fileName
+      - contentType
+      - sizeBytes
+      - uploadedAt
+    DocumentLink:
+      type: object
+      description: Короткоживущая ссылка (5 минут). Ссылку получает только заявитель и модератор
+      properties:
+        url:
+          type: string
+          description: Подписанная ссылка на документ в хранилище, подпись считается без вызова хранилища
+          format: uri
+        expiresAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+      required:
+      - url
+      - expiresAt
+    SellerApplication:
+      type: object
+      description: 'Заявка на статус продавца: профиль продавца с анкетой и итогом проверки (SM-05). Идентификатор
+        заявки равен идентификатору профиля `sellerId`. `nextApplicationAt` показывает, когда после отказа можно
+        подать новую заявку, `reviewDeadlineAt` это срок рассмотрения 3 суток'
+      properties:
+        sellerId:
+          $ref: components.yaml#/components/schemas/Id
+        status:
+          $ref: components.yaml#/components/schemas/SellerProfileStatus
+        sellerType:
+          $ref: components.yaml#/components/schemas/SellerType
+        name:
+          type: string
+          description: Наименование продавца
+        payoutDetails:
+          $ref: '#/components/schemas/PayoutDetails'
+        assortmentDescription:
+          type: string
+          description: Описание ассортимента
+        documents:
+          type: array
+          description: Документы заявки, не больше 10
+          items:
+            $ref: '#/components/schemas/SellerDocument'
+          maxItems: 10
+        decisionReason:
+          oneOf:
+          - type: string
+            description: Причина отказа или комментарий доработки, видна заявителю
+          - type: 'null'
+        rejectedAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+        nextApplicationAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+        submittedAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+        reviewDeadlineAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+        createdAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        updatedAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+      required:
+      - sellerId
+      - status
+      - documents
+      - decisionReason
+      - rejectedAt
+      - nextApplicationAt
+      - submittedAt
+      - reviewDeadlineAt
+      - createdAt
+      - updatedAt
+    ReviewDocument:
+      allOf:
+      - $ref: '#/components/schemas/SellerDocument'
+      - type: object
+        properties:
+          link:
+            $ref: '#/components/schemas/DocumentLink'
+        required:
+        - link
+      description: Документ заявки со ссылкой для модератора
+    SellerApplicationCard:
+      type: object
+      description: 'Карточка заявки для модератора: анкета и ссылки на документы. Ссылки живут 5 минут'
+      properties:
+        sellerId:
+          $ref: components.yaml#/components/schemas/Id
+        userId:
+          $ref: components.yaml#/components/schemas/Id
+        status:
+          $ref: components.yaml#/components/schemas/SellerProfileStatus
+        sellerType:
+          $ref: components.yaml#/components/schemas/SellerType
+        name:
+          type: string
+          description: Наименование продавца
+        payoutDetails:
+          $ref: '#/components/schemas/PayoutDetails'
+        assortmentDescription:
+          type: string
+          description: Описание ассортимента
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReviewDocument'
+        submittedAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        reviewDeadlineAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+      required:
+      - sellerId
+      - userId
+      - status
+      - sellerType
+      - name
+      - payoutDetails
+      - assortmentDescription
+      - documents
+      - submittedAt
+      - reviewDeadlineAt
+    SellerApplicationQueueItem:
+      type: object
+      description: Строка очереди заявок
+      properties:
+        sellerId:
+          $ref: components.yaml#/components/schemas/Id
+        name:
+          type: string
+          description: Наименование продавца
+        sellerType:
+          $ref: components.yaml#/components/schemas/SellerType
+        documentsCount:
+          type: integer
+          description: Число документов
+          minimum: 0
+        submittedAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        reviewDeadlineAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        overdue:
+          type: boolean
+          description: '`true`, если срок рассмотрения 3 суток истёк'
+      required:
+      - sellerId
+      - name
+      - sellerType
+      - documentsCount
+      - submittedAt
+      - reviewDeadlineAt
+      - overdue
+    SellerApplicationQueuePage:
+      type: object
+      description: Страница очереди заявок, старые выше
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SellerApplicationQueueItem'
+        page:
+          $ref: components.yaml#/components/schemas/PageInfo
+      required:
+      - items
+      - page
+    ReasonRequest:
+      type: object
+      description: Решение с причиной
+      properties:
+        reason:
+          type: string
+          description: Причина решения, обязательна. Видна продавцу и попадает в письмо
+          minLength: 1
+          maxLength: 1000
+      required:
+      - reason
+      additionalProperties: false
+    CommentRequest:
+      type: object
+      description: Возврат на доработку с комментарием
+      properties:
+        comment:
+          type: string
+          description: Комментарий для доработки, обязателен. Виден заявителю и попадает в письмо
+          minLength: 1
+          maxLength: 1000
+      required:
+      - comment
+      additionalProperties: false
+    ProductInput:
+      type: object
+      description: Поля товара при создании и правке. Все поля обязательны. Цена больше нуля. В R1 способ выдачи
+        только `key_pool`
+      properties:
+        title:
+          type: string
+          description: Название
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          description: Описание
+          minLength: 1
+          maxLength: 5000
+        productType:
+          $ref: components.yaml#/components/schemas/ProductType
+        platform:
+          type: string
+          description: Платформа или сервис активации, например `Steam`
+          minLength: 1
+          maxLength: 64
+        activationRegions:
+          type: array
+          description: Регионы активации. Пустой массив означает «без ограничений»
+          items:
+            $ref: components.yaml#/components/schemas/Country
+          maxItems: 250
+          uniqueItems: true
+        price:
+          $ref: components.yaml#/components/schemas/Money
+        issuanceMethod:
+          $ref: components.yaml#/components/schemas/IssuanceMethod
+      required:
+      - title
+      - description
+      - productType
+      - platform
+      - activationRegions
+      - price
+      - issuanceMethod
+      additionalProperties: false
+    SellerProduct:
+      type: object
+      description: 'Товар в кабинете продавца и в карточке модератора. Остаток товара не хранится в каталоге: его
+        показывает сервис остатков'
+      properties:
+        productId:
+          $ref: components.yaml#/components/schemas/Id
+        sellerId:
+          $ref: components.yaml#/components/schemas/Id
+        title:
+          type: string
+          description: Название
+        description:
+          type: string
+          description: Описание
+        productType:
+          $ref: components.yaml#/components/schemas/ProductType
+        platform:
+          type: string
+          description: Платформа
+        activationRegions:
+          type: array
+          items:
+            $ref: components.yaml#/components/schemas/Country
+        price:
+          $ref: components.yaml#/components/schemas/Money
+        issuanceMethod:
+          $ref: components.yaml#/components/schemas/IssuanceMethod
+        status:
+          $ref: components.yaml#/components/schemas/ProductStatus
+        rejectionReason:
+          oneOf:
+          - type: string
+            description: Причина отклонения, заполняется решением модератора
+          - type: 'null'
+        blockReason:
+          oneOf:
+          - type: string
+            description: Причина блокировки
+          - type: 'null'
+        submittedAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+        reviewDeadlineAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+        version:
+          type: integer
+          description: Номер версии, совпадает с ETag
+          minimum: 1
+        createdAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        updatedAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+      required:
+      - productId
+      - sellerId
+      - title
+      - description
+      - productType
+      - platform
+      - activationRegions
+      - price
+      - issuanceMethod
+      - status
+      - rejectionReason
+      - blockReason
+      - submittedAt
+      - reviewDeadlineAt
+      - version
+      - createdAt
+      - updatedAt
+    SellerProductPage:
+      type: object
+      description: Страница товаров продавца, новые выше
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SellerProduct'
+        page:
+          $ref: components.yaml#/components/schemas/PageInfo
+      required:
+      - items
+      - page
+    ModerationQueueItem:
+      type: object
+      description: Строка очереди товаров на модерации
+      properties:
+        productId:
+          $ref: components.yaml#/components/schemas/Id
+        sellerId:
+          $ref: components.yaml#/components/schemas/Id
+        title:
+          type: string
+          description: Название
+        productType:
+          $ref: components.yaml#/components/schemas/ProductType
+        price:
+          $ref: components.yaml#/components/schemas/Money
+        submittedAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        reviewDeadlineAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        overdue:
+          type: boolean
+          description: '`true`, если срок проверки 3 суток истёк'
+      required:
+      - productId
+      - sellerId
+      - title
+      - productType
+      - price
+      - submittedAt
+      - reviewDeadlineAt
+      - overdue
+    ModerationQueuePage:
+      type: object
+      description: Страница очереди товаров, старые выше
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModerationQueueItem'
+        page:
+          $ref: components.yaml#/components/schemas/PageInfo
+      required:
+      - items
+      - page
+    StorefrontItem:
+      type: object
+      description: Товар в выдаче каталога
+      properties:
+        productId:
+          $ref: components.yaml#/components/schemas/Id
+        title:
+          type: string
+          description: Название
+        productType:
+          $ref: components.yaml#/components/schemas/ProductType
+        platform:
+          type: string
+          description: Платформа
+        price:
+          $ref: components.yaml#/components/schemas/Money
+        inStock:
+          type: boolean
+          description: Есть ли свободные ключи, значение из копии витрины и может отставать на доли секунды
+      required:
+      - productId
+      - title
+      - productType
+      - platform
+      - price
+      - inStock
+    StorefrontPage:
+      type: object
+      description: Страница каталога
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorefrontItem'
+        page:
+          $ref: components.yaml#/components/schemas/PageInfo
+      required:
+      - items
+      - page
+    StorefrontProduct:
+      type: object
+      description: Карточка опубликованного товара для витрины
+      properties:
+        productId:
+          $ref: components.yaml#/components/schemas/Id
+        sellerId:
+          $ref: components.yaml#/components/schemas/Id
+        title:
+          type: string
+          description: Название
+        description:
+          type: string
+          description: Описание
+        productType:
+          $ref: components.yaml#/components/schemas/ProductType
+        platform:
+          type: string
+          description: Платформа
+        activationRegions:
+          type: array
+          items:
+            $ref: components.yaml#/components/schemas/Country
+        price:
+          $ref: components.yaml#/components/schemas/Money
+        inStock:
+          type: boolean
+          description: Есть ли свободные ключи
+        maxOrderQuantity:
+          type: integer
+          description: 'Сколько штук можно заказать сейчас: от 0 до 10, ноль означает «нет в наличии» (INV-09, INV-10)'
+          minimum: 0
+          maximum: 10
+      required:
+      - productId
+      - sellerId
+      - title
+      - description
+      - productType
+      - platform
+      - activationRegions
+      - price
+      - inStock
+      - maxOrderQuantity
+    ProductCard:
+      type: object
+      description: 'Карточка товара для сервиса заказов: статус, цена, продавец, способ выдачи. Продавец «заблокирован»
+        учитывается в статусе товара (R2)'
+      properties:
+        productId:
+          $ref: components.yaml#/components/schemas/Id
+        sellerId:
+          $ref: components.yaml#/components/schemas/Id
+        title:
+          type: string
+          description: Название, сервис заказов хранит его снимком
+        status:
+          $ref: components.yaml#/components/schemas/ProductStatus
+        price:
+          $ref: components.yaml#/components/schemas/Money
+        issuanceMethod:
+          $ref: components.yaml#/components/schemas/IssuanceMethod
+        productType:
+          $ref: components.yaml#/components/schemas/ProductType
+      required:
+      - productId
+      - sellerId
+      - title
+      - status
+      - price
+      - issuanceMethod
+      - productType
