@@ -281,7 +281,7 @@ flowchart LR
 | 1 | `api-gateway` | `redis` | Счётчики ограничения частоты запросов. R2: кэш проверки API-ключа | NFT-3.5 |
 | 2 | `catalog-service` | `redis` | Кэш карточек и результатов поиска | NFT-1.0, NFT-1.1 |
 | 3 | `inventory-service` | `redis` | Таймеры резервов. Источник истины остаётся в PostgreSQL ([ADR-012](adr/ADR-012-reservation-redis-timer.md)) | FT-5.2 |
-| 4 | `platform-service` | `redis` | Одноразовые коды с временем жизни 5 минут, счётчики попыток и запросов. Хранение кодов подтверждает [ADR-010](adr/README.md) | NFT-3.5, NFT-3.7 |
+| 4 | `platform-service` | `redis` | Одноразовые коды с временем жизни 5 минут, счётчики попыток и запросов. Хранение кодов в Redis решено в [ADR-010](adr/ADR-010-keycloak-sms-codes.md) | NFT-3.5, NFT-3.7 |
 | 5 | `catalog-service` | `object-storage` | Документы продавцов, бакет закрытый, хранилище в РФ | NFT-5.0 |
 
 Файлы CSV с пулами ключей в объектном хранилище не хранятся: сервис читает их потоком и сразу шифрует, иначе копия с открытыми значениями жила бы вне шифрования ([ADR-009](adr/ADR-009-key-encryption-hmac.md)). Остальные сервисы Redis не используют: срок платёжной сессии закрывает шлюз, контроль 30 минут и повторы выдачи живут в базе `delivery-service` ([ADR-011](adr/ADR-011-guaranteed-delivery.md)), таймер резерва только у `inventory-service` ([ADR-012](adr/ADR-012-reservation-redis-timer.md)).
@@ -352,7 +352,7 @@ flowchart LR
 | Событие | Издатель | Подписчики | Зачем |
 | --- | --- | --- | --- |
 | Продавец заблокирован, блокировка снята | `catalog-service` (`seller_onboarding`) | `catalog-service` (`catalog`) | Товары продавца блокируются и возвращаются. Внутри сервиса, поэтому на диаграммах нет |
-| API-ключ выпущен, API-ключ отозван | `catalog-service` (`seller_onboarding`) | `api-gateway`, `platform-service` | Сбросить кэш проверки ключа (или короткое время жизни кэша, решается перед Ф5), запись в журнал |
+| API-ключ выпущен, API-ключ отозван | `catalog-service` (`seller_onboarding`) | `platform-service` | Запись в журнал. Шлюз события не читает: кэш проверки ключа живёт 30 секунд, отзыв действует не позже ([ADR-021](adr/ADR-021-api-gateway.md)) |
 | Ключ аннулирован, ключ заменён | `inventory-service` | `delivery-service`, `finance-service` | Повторная выдача, результат исполнения решения по спору |
 | Продавец не ответил | `delivery-service` | `order-service` | Тайм-аут API продавца: заказ отменяется, автовозврат (SM-01/T10) |
 | Спор открыт, спор решён, спор возвращён модератору | `finance-service` (`disputes`) | `finance-service` (`balance`), `platform-service` | Заморозка и разморозка денег, письма, журнал решений модератора |

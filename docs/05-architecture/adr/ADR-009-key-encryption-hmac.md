@@ -7,7 +7,7 @@
 | Требования | FT-4.1, FT-4.2, FT-7.5, NFT-3.2, NFT-3.3, NFT-5.1 |
 | Инварианты | INV-03, INV-20, INV-23 |
 | Связанные документы | [SM-03](../../03-processes/SM-03-key.md), [domain-model.md](../../04-domain/domain-model.md) (раздел 4.5, решение 11), [c4-containers.md](../c4-containers.md) (раздел 7.1, секреты) |
-| Связанные ADR | [ADR-007](ADR-007-double-issue-protection.md), [ADR-011](ADR-011-guaranteed-delivery.md), [ADR-022](README.md) |
+| Связанные ADR | [ADR-007](ADR-007-double-issue-protection.md), [ADR-011](ADR-011-guaranteed-delivery.md), [ADR-022](ADR-022-internal-traffic-encryption.md) |
 
 ## Контекст
 
@@ -70,7 +70,7 @@
 | Сервис | Когда | Как |
 | --- | --- | --- |
 | `inventory-service` | Расшифровывает по запросу «значения ключей по заказу» | Только для заказа, ключи которого «выданы». Ответ в памяти, без записи |
-| `delivery-service` | Получает значения, вкладывает в письмо, отдаёт провайдеру | Запрос по mTLS ([ADR-022](README.md)), сертификат определяет клиента: разрешён только `delivery-service`. В базу, события, логи значение не пишется ([ADR-011](ADR-011-guaranteed-delivery.md)) |
+| `delivery-service` | Получает значения, вкладывает в письмо, отдаёт провайдеру | Запрос по mTLS ([ADR-022](ADR-022-internal-traffic-encryption.md)), сертификат определяет клиента: разрешён только `delivery-service`. В базу, события, логи значение не пишется ([ADR-011](ADR-011-guaranteed-delivery.md)) |
 
 Оператор поддержки значение не видит ни в каком виде: он запускает повторную отправку, а письмо формирует выдача (FT-7.5, INV-23). Администратор и продавец после загрузки значения не видят тоже.
 

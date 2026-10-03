@@ -7,7 +7,7 @@
 | Требования | FT-1.4, FT-11.2, NFT-3.6, NFT-5.0, NFT-5.2, NFT-5.3, раздел 8.2 требований (152-ФЗ) |
 | Инварианты | INV-42, INV-43, INV-44 |
 | Связанные документы | [domain-model.md](../../04-domain/domain-model.md) (разделы 4.1, 4.16, 6.6), [bounded-contexts.md](../../04-domain/bounded-contexts.md) |
-| Связанные ADR | [ADR-003](ADR-003-kafka-events.md), [ADR-005](ADR-005-transactional-outbox.md), [ADR-006](ADR-006-idempotency.md), [ADR-010](README.md) |
+| Связанные ADR | [ADR-003](ADR-003-kafka-events.md), [ADR-005](ADR-005-transactional-outbox.md), [ADR-006](ADR-006-idempotency.md), [ADR-010](ADR-010-keycloak-sms-codes.md) |
 
 ## Контекст
 
