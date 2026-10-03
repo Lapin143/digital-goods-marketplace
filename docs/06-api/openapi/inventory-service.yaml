@@ -1,0 +1,639 @@
+openapi: 3.1.0
+info:
+  title: 'Digital Goods Marketplace: сервис остатков и ключей'
+  version: 1.0.0
+  description: |-
+    REST API сервиса остатков и ключей. Продавец загружает пулы ключей и смотрит остаток; сервис заказов резервирует и подтверждает резерв; сервис выдачи получает значения ключей заказа.
+
+    Значения ключей нигде не возвращаются продавцу, модератору, оператору и не попадают в журналы и события (INV-20, NFT-3.2). Единственная операция, отдающая значения, это внутренний вызов выдачи. Тела запросов загрузки ключей и ответ со значениями не логируются (conventions.md, раздел 13).
+  license:
+    name: Учебный проект, лицензия не задана
+    identifier: NOASSERTION
+servers:
+- url: https://api.marketplace.example
+  description: Публичный адрес `api-gateway`. На демо-стенде адрес задаёт конфигурация развёртывания
+tags:
+- name: Пулы ключей
+  description: Загрузка ключей и остаток товара (область `seller.catalog`, 2FA)
+- name: Внутренние вызовы
+  description: Резерв и значения ключей для других сервисов по mTLS
+security: []
+paths:
+  /api/v1/seller/products/{productId}/key-batches:
+    post:
+      operationId: uploadKeyBatch
+      summary: Загрузить ключи списком
+      description: |-
+        Добавляет ключи в пул товара. Каждый новый ключ шифруется (AES-256-GCM) и сохраняется в статусе `free`, дубликаты по паре «товар, HMAC значения» отклоняются, остальные принимаются (US-4.2). Такое же значение в пуле другого товара дубликатом не считается. Товар должен принадлежать одобренному продавцу (U3) и находиться в статусе `draft`, `on_moderation`, `published` или `rejected` со способом выдачи `key_pool` (U4), иначе 409. Если после загрузки в пуле было бы больше 100000 ключей, список отклоняется целиком (409 `pool-limit-exceeded`). Удалять свободные ключи продавец не может. Загрузка ограничена 6 запросами в час.
+
+        Матрица прав: OP-36. Истории: US-4.2.
+      tags:
+      - Пулы ключей
+      x-matrix-id: OP-36
+      x-stories:
+      - US-4.2
+      x-allowed-roles:
+      - seller
+      x-conditions:
+      - U3
+      - U4
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - seller.catalog
+      parameters:
+      - name: productId
+        in: path
+        required: true
+        description: Идентификатор своего товара
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000201
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KeyBatchRequest'
+            example:
+              keys:
+              - XXXXX-XXXXX-00001
+              - XXXXX-XXXXX-00002
+              - XXXXX-XXXXX-00002
+              - XXXXX-XXXXX-00003
+              - ''
+              - XXXXX-XXXXX-00004
+      responses:
+        '200':
+          description: Итог загрузки
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyUploadReport'
+              example:
+                accepted: 3
+                rejectedTotal: 2
+                rejected:
+                - line: 2
+                  reason: duplicate_in_upload
+                - line: 5
+                  reason: empty
+                available: 103
+                poolLimit: 100000
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressPoolLimitExceeded
+        '413':
+          $ref: components.yaml#/components/responses/E413PayloadTooLarge
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/seller/products/{productId}/key-files:
+    post:
+      operationId: uploadKeyFile
+      summary: Загрузить ключи файлом CSV
+      description: |-
+        Принимает тело `text/csv`: один ключ в строке, кодировка UTF-8, пустые строки считаются некорректными. Правила те же, что у загрузки списком, итог содержит номера отклонённых строк (US-4.3). Пустая строка или строка длиннее 1 КБ отклоняется, остальные принимаются. Тело не больше 2 МБ, файл читается потоком, значения не попадают в журналы.
+
+        Матрица прав: OP-37. Истории: US-4.3.
+      tags:
+      - Пулы ключей
+      x-matrix-id: OP-37
+      x-stories:
+      - US-4.3
+      x-allowed-roles:
+      - seller
+      x-conditions:
+      - U3
+      - U4
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - seller.catalog
+      parameters:
+      - name: productId
+        in: path
+        required: true
+        description: Идентификатор своего товара
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000201
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema:
+              type: string
+              description: Ключи по одному в строке
+              format: binary
+            example: |
+              XXXXX-XXXXX-00001
+              XXXXX-XXXXX-00002
+              XXXXX-XXXXX-00003
+      responses:
+        '200':
+          description: Итог загрузки
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyUploadReport'
+              example:
+                accepted: 3
+                rejectedTotal: 0
+                rejected: []
+                available: 3
+                poolLimit: 100000
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressPoolLimitExceeded
+        '413':
+          $ref: components.yaml#/components/responses/E413PayloadTooLarge
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/seller/products/{productId}/stock:
+    get:
+      operationId: getProductStock
+      summary: Остаток своего товара
+      description: |-
+        Свободные, зарезервированные и выданные ключи. Остаток товара равен числу свободных ключей (US-4.5). Значений ключей в ответе нет.
+
+        Матрица прав: OP-39. Истории: US-4.5.
+      tags:
+      - Пулы ключей
+      x-matrix-id: OP-39
+      x-stories:
+      - US-4.5
+      x-allowed-roles:
+      - seller
+      x-conditions:
+      - U3
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - seller.catalog
+      parameters:
+      - name: productId
+        in: path
+        required: true
+        description: Идентификатор своего товара
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000201
+      responses:
+        '200':
+          description: Остаток
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockInfo'
+              example:
+                productId: 0199e0a0-0000-7000-8000-000000000201
+                available: 87
+                reserved: 3
+                issued: 10
+                poolSize: 100
+                poolLimit: 100000
+                updatedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /internal/v1/reservations:
+    post:
+      operationId: reserveKeys
+      summary: Зарезервировать ключи (внутренний)
+      description: |-
+        Закрепляет за заказом нужное число свободных ключей одной транзакцией: выбор строк `FOR UPDATE SKIP LOCKED`, привязка к заказу, создание резерва, перевод ключей в `reserved` (INV-01, INV-05). Если свободных ключей меньше, ответ 409 `insufficient-stock` с `available`, ничего не резервируется. У заказа не больше одного активного резерва (INV-06): повторный вызов с тем же `Idempotency-Key` возвращает тот же резерв, вызов с новым ключом при активном резерве даёт 409 `state-conflict`. Срок резерва задаёт параметр платформы. Тайм-аут вызывающего 2 секунды.
+
+        Матрица прав: OP-51. Истории: US-5.2.
+      tags:
+      - Внутренние вызовы
+      x-matrix-id: OP-51
+      x-stories:
+      - US-5.2
+      x-allowed-roles:
+      - system
+      x-conditions: []
+      x-allowed-callers:
+      - order-service
+      x-internal: true
+      security:
+      - mutualTls: []
+      servers:
+      - url: https://inventory-service:8443
+        description: Внутренний адрес сервиса, mTLS, не через шлюз
+      parameters:
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReserveRequest'
+            example:
+              orderId: 0199e0a0-0000-7000-8000-000000000301
+              productId: 0199e0a0-0000-7000-8000-000000000201
+              quantity: 2
+      responses:
+        '201':
+          description: Резерв создан
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Location:
+              $ref: components.yaml#/components/headers/Location
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reservation'
+              example:
+                reservationId: 0199e0a0-0000-7000-8000-000000000701
+                orderId: 0199e0a0-0000-7000-8000-000000000301
+                productId: 0199e0a0-0000-7000-8000-000000000201
+                quantity: 2
+                status: active
+                expiresAt: '2026-10-03T12:15:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '403':
+          $ref: components.yaml#/components/responses/E403Forbidden
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressInsufficientStock
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /internal/v1/reservations/{reservationId}/confirm:
+    post:
+      operationId: confirmReservation
+      summary: Подтвердить резерв после оплаты (внутренний)
+      description: |-
+        Переводит резерв в `used`, ключи из `reserved` в `issued` (SM-08, SM-03/T2), ключи закреплены за заказом окончательно. Вызов синхронный, чтобы между «оплачен» и «ключи закреплены» не было окна, в котором резерв истечёт. Если резерв уже снят или истёк, ответ 409 и заказ идёт по пути поздней оплаты (SEQ-02): повторный резерв через `POST /internal/v1/reservations`.
+
+        Матрица прав: OP-54. Истории: US-5.5.
+      tags:
+      - Внутренние вызовы
+      x-matrix-id: OP-54
+      x-stories:
+      - US-5.5
+      x-allowed-roles:
+      - system
+      x-conditions: []
+      x-allowed-callers:
+      - order-service
+      x-internal: true
+      security:
+      - mutualTls: []
+      servers:
+      - url: https://inventory-service:8443
+        description: Внутренний адрес сервиса, mTLS, не через шлюз
+      parameters:
+      - name: reservationId
+        in: path
+        required: true
+        description: Идентификатор резерва
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000701
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: Резерв подтверждён
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reservation'
+              example:
+                reservationId: 0199e0a0-0000-7000-8000-000000000701
+                orderId: 0199e0a0-0000-7000-8000-000000000301
+                productId: 0199e0a0-0000-7000-8000-000000000201
+                quantity: 2
+                status: used
+                expiresAt: '2026-10-03T12:15:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '403':
+          $ref: components.yaml#/components/responses/E403Forbidden
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '422':
+          $ref: components.yaml#/components/responses/E422IdempotencyKeyReuse
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /internal/v1/keys:
+    get:
+      operationId: getKeyValues
+      summary: Значения ключей заказа (внутренний)
+      description: |-
+        Отдаёт расшифрованные значения ключей заказа для письма. Вызывает только `delivery-service`, остальным (включая `order-service` и `platform-service`) отказ на уровне сертификата (U17, ADR-009). Ключи заказа должны быть в статусе `issued`, то есть платёж подтверждён (SM-03/T4), иначе 409. Ответ с `Cache-Control: no-store`, тело не пишется в журналы.
+
+        Матрица прав: OP-38. Истории: US-4.4.
+      tags:
+      - Внутренние вызовы
+      x-matrix-id: OP-38
+      x-stories:
+      - US-4.4
+      x-allowed-roles:
+      - system
+      x-conditions: []
+      x-allowed-callers:
+      - delivery-service
+      x-internal: true
+      security:
+      - mutualTls: []
+      servers:
+      - url: https://inventory-service:8443
+        description: Внутренний адрес сервиса, mTLS, не через шлюз
+      parameters:
+      - name: orderId
+        in: query
+        required: true
+        description: Идентификатор заказа
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000301
+      responses:
+        '200':
+          description: Значения ключей
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyValues'
+              example:
+                orderId: 0199e0a0-0000-7000-8000-000000000301
+                keys:
+                - keyId: 0199e0a0-0000-7000-8000-000000000801
+                  value: XXXXX-XXXXX-00001
+                - keyId: 0199e0a0-0000-7000-8000-000000000802
+                  value: XXXXX-XXXXX-00002
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '403':
+          $ref: components.yaml#/components/responses/E403Forbidden
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflict
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailed
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+components:
+  schemas:
+    RejectedLine:
+      type: object
+      description: Отклонённая строка. Только номер и причина
+      properties:
+        line:
+          type: integer
+          description: Номер строки или позиции в списке, с единицы
+          minimum: 1
+        reason:
+          type: string
+          description: Почему строка отклонена. Значение ключа в ответ не попадает
+          enum:
+          - empty
+          - too_long
+          - duplicate_in_upload
+          - duplicate_in_pool
+      required:
+      - line
+      - reason
+    KeyUploadReport:
+      type: object
+      description: 'Итог загрузки: принятые и отклонённые ключи. Повторная загрузка того же списка принимает 0 ключей:
+        все значения уже в пуле (HMAC по паре «товар, значение»)'
+      properties:
+        accepted:
+          type: integer
+          description: Сколько ключей принято и сохранено в статусе «свободен»
+          minimum: 0
+        rejectedTotal:
+          type: integer
+          description: Сколько строк отклонено
+          minimum: 0
+        rejected:
+          type: array
+          description: Первые 1000 отклонённых строк
+          items:
+            $ref: '#/components/schemas/RejectedLine'
+          maxItems: 1000
+        available:
+          type: integer
+          description: 'Остаток товара после загрузки: свободные ключи'
+          minimum: 0
+        poolLimit:
+          type: integer
+          description: Предел пула одного товара
+          minimum: 1
+      required:
+      - accepted
+      - rejectedTotal
+      - rejected
+      - available
+      - poolLimit
+    KeyBatchRequest:
+      type: object
+      description: 'Ручная загрузка. Размер тела не больше 2 МБ (предел шлюза): больший пул загружают несколькими
+        запросами'
+      properties:
+        keys:
+          type: array
+          description: Ключи по одному в элементе
+          items:
+            type: string
+            description: Значение ключа, от 1 до 1024 символов
+            maxLength: 1024
+          minItems: 1
+          maxItems: 100000
+      required:
+      - keys
+      additionalProperties: false
+    StockInfo:
+      type: object
+      description: Остаток товара с пулом ключей по статусам ключей (SM-03). Выданный ключ в остаток не возвращается
+      properties:
+        productId:
+          $ref: components.yaml#/components/schemas/Id
+        available:
+          type: integer
+          description: Свободные ключи, это и есть остаток товара
+          minimum: 0
+        reserved:
+          type: integer
+          description: Ключи в резерве под неоплаченные заказы
+          minimum: 0
+        issued:
+          type: integer
+          description: Выданные ключи
+          minimum: 0
+        poolSize:
+          type: integer
+          description: 'Всего ключей в пуле: свободные, в резерве и выданные (аннулированных в R1 нет)'
+          minimum: 0
+        poolLimit:
+          type: integer
+          description: Предел пула одного товара
+          minimum: 1
+        updatedAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+      required:
+      - productId
+      - available
+      - reserved
+      - issued
+      - poolSize
+      - poolLimit
+      - updatedAt
+    ReserveRequest:
+      type: object
+      description: 'Резерв всего заказанного количества: частичного резерва нет (INV-05)'
+      properties:
+        orderId:
+          $ref: components.yaml#/components/schemas/Id
+        productId:
+          $ref: components.yaml#/components/schemas/Id
+        quantity:
+          type: integer
+          description: Сколько ключей, от 1 до 10
+          minimum: 1
+          maximum: 10
+      required:
+      - orderId
+      - productId
+      - quantity
+      additionalProperties: false
+    Reservation:
+      type: object
+      description: Резерв ключей за заказом. Срок резерва берётся из параметра `reservation.ttl-seconds` (по умолчанию
+        15 минут)
+      properties:
+        reservationId:
+          $ref: components.yaml#/components/schemas/Id
+        orderId:
+          $ref: components.yaml#/components/schemas/Id
+        productId:
+          $ref: components.yaml#/components/schemas/Id
+        quantity:
+          type: integer
+          description: Сколько ключей закреплено
+          minimum: 1
+          maximum: 10
+        status:
+          type: string
+          description: Статус резерва по SM-08
+          enum:
+          - active
+          - used
+          - released
+        expiresAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+      required:
+      - reservationId
+      - orderId
+      - productId
+      - quantity
+      - status
+      - expiresAt
+    KeyValues:
+      type: object
+      description: 'Значения ключей заказа для письма. Ответ с заголовком `Cache-Control: no-store`, тело не логируется'
+      properties:
+        orderId:
+          $ref: components.yaml#/components/schemas/Id
+        keys:
+          type: array
+          description: Ключи заказа
+          items:
+            type: object
+            properties:
+              keyId:
+                $ref: components.yaml#/components/schemas/Id
+              value:
+                type: string
+                description: 'Значение ключа в открытом виде. Секрет: не логировать, не сохранять, вложить в письмо
+                  и забыть'
+                minLength: 1
+                maxLength: 1024
+            required:
+            - keyId
+            - value
+          minItems: 1
+          maxItems: 10
+      required:
+      - orderId
+      - keys

@@ -1,0 +1,467 @@
+openapi: 3.1.0
+info:
+  title: 'Digital Goods Marketplace: сервис платежей'
+  version: 1.0.0
+  description: |-
+    REST API сервиса платежей. Сервис единственный разговаривает с внешним платёжным шлюзом (в проекте его играет заглушка `external-stubs`, ADR-015). Данные банковских карт на платформу не попадают, оплата идёт на странице шлюза.
+
+    Контракт содержит внутренний вызов «открыть платёжную сессию» для сервиса заказов, публичный вебхук шлюза и очередь ручных возвратов администратора. Автоматический возврат запускается событием `order.refund-requested` и в REST не участвует.
+  license:
+    name: Учебный проект, лицензия не задана
+    identifier: NOASSERTION
+servers:
+- url: https://api.marketplace.example
+  description: Публичный адрес `api-gateway`. На демо-стенде адрес задаёт конфигурация развёртывания
+tags:
+- name: Платёжная сессия
+  description: Внутренний вызов сервиса заказов по mTLS
+- name: Вебхук шлюза
+  description: Уведомления платёжного шлюза без токена, подпись проверяет сервис
+- name: Ручные возвраты
+  description: Очередь возвратов, не прошедших автоматически (область `staff.admin`, 2FA)
+security: []
+paths:
+  /internal/v1/payment-sessions:
+    post:
+      operationId: openPaymentSession
+      summary: Открыть платёжную сессию (внутренний)
+      description: |-
+        Создаёт платёж в статусе `created` (уникален по заказу, INV-11) и платёжную сессию у шлюза: запрос шлюзу идёт с `Idempotency-Key` равным идентификатору заказа, потерянный ответ не приводит ко второму платежу (ADR-015). Срок сессии берётся из заказа и короче срока резерва (INV-07). Шлюз: тайм-аут попытки 2 секунды, до трёх попыток, общий срок шага 7 секунд, предохранитель при 50% ошибок. Не уложились: 503 `payment-session-unavailable`, заказ отменяется (E12). Платёж по заказу уже в статусе `confirmed`, `rejected` или `refunded` даёт 409.
+
+        Матрица прав: OP-51. Истории: US-5.2.
+      tags:
+      - Платёжная сессия
+      x-matrix-id: OP-51
+      x-stories:
+      - US-5.2
+      x-allowed-roles:
+      - system
+      x-conditions: []
+      x-allowed-callers:
+      - order-service
+      x-internal: true
+      security:
+      - mutualTls: []
+      servers:
+      - url: https://payment-service:8443
+        description: Внутренний адрес сервиса, mTLS, не через шлюз
+      parameters:
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpenPaymentSessionRequest'
+            example:
+              orderId: 0199e0a0-0000-7000-8000-000000000301
+              amount:
+                amount: 299800
+                currency: RUB
+              sessionExpiresAt: '2026-10-03T12:12:00.123Z'
+      x-internal-nolocation: true
+      responses:
+        '201':
+          description: Платёжная сессия открыта
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentSessionOpened'
+              example:
+                paymentId: 0199e0a0-0000-7000-8000-000000000401
+                orderId: 0199e0a0-0000-7000-8000-000000000301
+                status: created
+                sessionUrl: https://pay.gateway.example/session/abc123
+                sessionExpiresAt: '2026-10-03T12:12:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '403':
+          $ref: components.yaml#/components/responses/E403Forbidden
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+        '503':
+          $ref: components.yaml#/components/responses/E503PaymentSessionUnavailableDependencyUnavailable
+        '504':
+          $ref: components.yaml#/components/responses/E504GatewayTimeout
+  /api/v1/webhooks/payment-gateway:
+    post:
+      operationId: receivePaymentGatewayNotification
+      summary: Принять уведомление платёжного шлюза
+      description: |-
+        Публичный вход через `api-gateway`, без токена, тело до 64 КБ, 300 запросов в минуту с IP источника. Порядок обработки (ADR-015): 1) подпись HMAC-SHA-256 от `X-Webhook-Timestamp.тело`, допустимы два действующих секрета; 2) метка времени не старше 5 минут; 3) платёж находится по `orderId`; неизвестный платёж записывается как несопоставленное уведомление и сопоставляется планировщиком; 4) сумма и валюта равны платёжным, расхождение не меняет статус и уходит в метрику ошибок платежей; 5) дедупликация по паре «внешний идентификатор платежа и тип», повтор ничего не меняет (INV-14, FT-6.2); 6) одна транзакция: запись `payment_event`, смена статуса по SM-02, запись события в Outbox. Ответ 200 без тела получают повтор, неизвестный платёж и расхождение суммы: шлюз не должен повторять их бесконечно. Сбой базы даёт 5xx, шлюз повторит.
+
+        Матрица прав: OP-54. Истории: US-5.5.
+      tags:
+      - Вебхук шлюза
+      x-matrix-id: OP-54
+      x-stories:
+      - US-5.5
+      x-allowed-roles:
+      - system
+      x-conditions: []
+      security:
+      - webhookSignature: []
+      parameters:
+      - name: X-Webhook-Timestamp
+        in: header
+        required: true
+        description: Метка времени отправки, RFC 3339 UTC. Входит в подписанную строку, не старше 5 минут
+        schema:
+          type: string
+          format: date-time
+        example: '2026-10-03T12:00:00.123Z'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentGatewayNotification'
+            example:
+              eventId: evt_8f3a1c
+              type: payment.paid
+              occurredAt: '2026-10-03T12:00:00.123Z'
+              data:
+                paymentId: pay_5d2e91
+                orderId: 0199e0a0-0000-7000-8000-000000000301
+                amount:
+                  amount: 299800
+                  currency: RUB
+      responses:
+        '200':
+          description: 'Принято: обработано либо повтор, неизвестный платёж или расхождение суммы. Тела нет'
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401SignatureInvalidWebhookExpired
+        '413':
+          $ref: components.yaml#/components/responses/E413PayloadTooLarge
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/manual-refunds:
+    get:
+      operationId: listManualRefunds
+      summary: Очередь ручных возвратов
+      description: |-
+        Платежи с возвратом, ожидающим ручного исполнения: после пятой неудачной автоматической попытки (интервалы 0, 30 с, 2 мин, 5 мин, 10 мин) публикуется `payment.refund-escalated` и платёж попадает сюда. Старые выше. Возврат по решению спора (R2) использует ту же очередь.
+
+        Матрица прав: OP-57. Истории: US-5.8.
+      tags:
+      - Ручные возвраты
+      x-matrix-id: OP-57
+      x-stories:
+      - US-5.8
+      x-allowed-roles:
+      - admin
+      x-conditions:
+      - U4
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.admin
+      parameters:
+      - $ref: components.yaml#/components/parameters/Limit
+      - $ref: components.yaml#/components/parameters/Cursor
+      responses:
+        '200':
+          description: Страница очереди
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManualRefundPage'
+              example:
+                items:
+                - paymentId: 0199e0a0-0000-7000-8000-000000000401
+                  orderId: 0199e0a0-0000-7000-8000-000000000301
+                  amount:
+                    amount: 299800
+                    currency: RUB
+                  refundReason: late_payment
+                  attempts: 5
+                  escalatedAt: '2026-10-03T12:00:00.123Z'
+                page:
+                  limit: 20
+                  nextCursor: null
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailed
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/staff/manual-refunds/{paymentId}/complete:
+    post:
+      operationId: completeManualRefund
+      summary: Отметить ручной возврат выполненным
+      description: |-
+        Администратор вернул деньги в кабинете шлюза и отмечает это здесь. Платёж переходит в `refunded`, заказ в `refunded` по событию `payment.refunded` (с признаком `manual`), покупателю уходит письмо, действие пишется в журнал аудита без персональных данных (INV-43). Платёж вне очереди (например, заказ `issued`) или возврат, уже отмеченный выполненным, даёт 409 `refund-not-allowed`: статусы не меняются, второе письмо не отправляется (US-5.8, сценарии 2 и 3). Подтверждение того же возврата от шлюза позже тоже ничего не меняет.
+
+        Матрица прав: OP-57. Истории: US-5.8.
+      tags:
+      - Ручные возвраты
+      x-matrix-id: OP-57
+      x-stories:
+      - US-5.8
+      x-allowed-roles:
+      - admin
+      x-conditions:
+      - U4
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - staff.admin
+      parameters:
+      - name: paymentId
+        in: path
+        required: true
+        description: Идентификатор платежа
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000401
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteManualRefundRequest'
+            example:
+              externalRefundId: rf_71b2c0
+      responses:
+        '200':
+          description: Возврат отмечен выполненным
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompletedRefund'
+              example:
+                paymentId: 0199e0a0-0000-7000-8000-000000000401
+                orderId: 0199e0a0-0000-7000-8000-000000000301
+                paymentStatus: refunded
+                refundedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409RequestInProgressRefundNotAllowed
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+components:
+  schemas:
+    OpenPaymentSessionRequest:
+      type: object
+      description: 'Заказ, сумма и срок сессии из заказа. Один заказ оплачивается одним платежом (INV-11): повторный
+        вызов по тому же заказу возвращает ту же сессию'
+      properties:
+        orderId:
+          $ref: components.yaml#/components/schemas/Id
+        amount:
+          $ref: components.yaml#/components/schemas/Money
+        sessionExpiresAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+      required:
+      - orderId
+      - amount
+      - sessionExpiresAt
+      additionalProperties: false
+    PaymentSessionOpened:
+      type: object
+      description: Платёж и его платёжная сессия. Внешний идентификатор платежа у шлюза наружу не отдаётся
+      properties:
+        paymentId:
+          $ref: components.yaml#/components/schemas/Id
+        orderId:
+          $ref: components.yaml#/components/schemas/Id
+        status:
+          type: string
+          description: Статус платежа по SM-02
+          enum:
+          - created
+          - confirmed
+          - rejected
+          - refunded
+        sessionUrl:
+          type: string
+          description: Адрес страницы оплаты у шлюза
+          format: uri
+        sessionExpiresAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+      required:
+      - paymentId
+      - orderId
+      - status
+      - sessionUrl
+      - sessionExpiresAt
+    PaymentGatewayNotification:
+      type: object
+      description: Уведомление шлюза. Идентификатор заказа приходит в метаданных платежа. Дедупликация по паре «внешний
+        идентификатор платежа и тип» (INV-14, уникальный индекс `payment_event`)
+      properties:
+        eventId:
+          type: string
+          description: Идентификатор уведомления у шлюза, непрозрачная строка
+          minLength: 1
+          maxLength: 128
+        type:
+          type: string
+          description: 'Тип уведомления. Перечисление открытое: неизвестный тип принимается ответом 200 и игнорируется'
+          enum:
+          - payment.paid
+          - payment.declined
+          - payment.session-expired
+          - refund.completed
+        occurredAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        data:
+          type: object
+          properties:
+            paymentId:
+              type: string
+              description: Внешний идентификатор платежа у шлюза
+              minLength: 1
+              maxLength: 128
+            orderId:
+              $ref: components.yaml#/components/schemas/Id
+            amount:
+              $ref: components.yaml#/components/schemas/Money
+            refundId:
+              type: string
+              description: Внешний идентификатор возврата, для `refund.completed`
+              minLength: 1
+              maxLength: 128
+            failureReason:
+              type: string
+              description: Причина отказа, для `payment.declined`
+              enum:
+              - declined
+              - insufficient_funds
+              - authentication_failed
+              - other
+          required:
+          - paymentId
+          - orderId
+          - amount
+          additionalProperties: false
+      required:
+      - eventId
+      - type
+      - occurredAt
+      - data
+      additionalProperties: false
+    ManualRefund:
+      type: object
+      description: 'Возврат, не прошедший автоматически после пяти попыток и ожидающий ручного исполнения в кабинете
+        шлюза (FT-6.4). Идентификатор возврата равен идентификатору платежа: возврат полный и единственный (INV-15)'
+      properties:
+        paymentId:
+          $ref: components.yaml#/components/schemas/Id
+        orderId:
+          $ref: components.yaml#/components/schemas/Id
+        amount:
+          $ref: components.yaml#/components/schemas/Money
+        refundReason:
+          type: string
+          description: Причина возврата. Перечисление открытое
+          enum:
+          - late_payment
+          - seller_api_timeout
+          - dispute_decision
+        attempts:
+          type: integer
+          description: Сколько автоматических попыток возврата сделано
+          minimum: 0
+        escalatedAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+      required:
+      - paymentId
+      - orderId
+      - amount
+      - refundReason
+      - attempts
+      - escalatedAt
+    ManualRefundPage:
+      type: object
+      description: Страница очереди ручных возвратов, старые выше
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ManualRefund'
+        page:
+          $ref: components.yaml#/components/schemas/PageInfo
+      required:
+      - items
+      - page
+    CompleteManualRefundRequest:
+      type: object
+      description: Отметка о выполненном вручную возврате
+      properties:
+        externalRefundId:
+          type: string
+          description: Идентификатор возврата в кабинете шлюза, необязательно
+          minLength: 1
+          maxLength: 128
+      additionalProperties: false
+    CompletedRefund:
+      type: object
+      description: Результат отметки. Заказ получит статус `refunded` по событию `payment.refunded`
+      properties:
+        paymentId:
+          $ref: components.yaml#/components/schemas/Id
+        orderId:
+          $ref: components.yaml#/components/schemas/Id
+        paymentStatus:
+          type: string
+          description: Статус платежа после отметки
+          enum:
+          - refunded
+        refundedAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+      required:
+      - paymentId
+      - orderId
+      - paymentStatus
+      - refundedAt

@@ -1,0 +1,104 @@
+openapi: 3.1.0
+info:
+  title: 'Digital Goods Marketplace: сервис выдачи'
+  version: 1.0.0
+  description: |-
+    REST API сервиса выдачи. Выдача запускается событием `order.paid` и пользовательских маршрутов не имеет: покупатель видит статус выдачи в карточке заказа, оператор повторяет отправку через обращение (platform-service). Единственный вход по HTTP это вебхук e-mail-провайдера со статусами писем с ключами.
+
+    Значения ключей в этом API не передаются: сервис запрашивает их у `inventory-service` по mTLS, вкладывает в письмо и отдаёт провайдеру, не сохраняя (NFT-3.2, ADR-009).
+  license:
+    name: Учебный проект, лицензия не задана
+    identifier: NOASSERTION
+servers:
+- url: https://api.marketplace.example
+  description: Публичный адрес `api-gateway`. На демо-стенде адрес задаёт конфигурация развёртывания
+tags:
+- name: Вебхук провайдера
+  description: Статусы писем с ключом от e-mail-провайдера без токена, подпись проверяет сервис
+security: []
+paths:
+  /api/v1/webhooks/email-provider-keys:
+    post:
+      operationId: receiveKeyEmailStatus
+      summary: Принять статус письма с ключом
+      description: |-
+        Публичный вход через `api-gateway`, без токена, тело до 64 КБ. Подпись HMAC-SHA-256 от `X-Webhook-Timestamp.тело` секретом `delivery_webhook_secret`, метка времени не старше 5 минут. Статус `delivered` переводит выдачу в `delivered` (SM-06, T5), отказ в `failed` (T6) с повторами и передачей в поддержку (ADR-011). Повтор и неизвестное письмо получают 200 без тела. Статусы писем, не содержащих ключей, принимает `platform-service` (`/api/v1/webhooks/email-provider`).
+
+        Матрица прав: OP-60. Истории: US-6.3.
+      tags:
+      - Вебхук провайдера
+      x-matrix-id: OP-60
+      x-stories:
+      - US-6.3
+      x-allowed-roles:
+      - system
+      x-conditions: []
+      security:
+      - webhookSignature: []
+      parameters:
+      - name: X-Webhook-Timestamp
+        in: header
+        required: true
+        description: Метка времени отправки, RFC 3339 UTC. Входит в подписанную строку, не старше 5 минут
+        schema:
+          type: string
+          format: date-time
+        example: '2026-10-03T12:00:00.123Z'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailStatusNotification'
+            example:
+              messageId: msg_91c3d7
+              status: delivered
+              occurredAt: '2026-10-03T12:00:00.123Z'
+      responses:
+        '200':
+          description: Принято, в том числе повтор и неизвестное письмо. Тела нет
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401SignatureInvalidWebhookExpired
+        '413':
+          $ref: components.yaml#/components/responses/E413PayloadTooLarge
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+components:
+  schemas:
+    EmailStatusNotification:
+      type: object
+      description: Статус письма с ключом. Дедупликация по паре «идентификатор письма, статус» (ADR-011), статус
+        применяется один раз
+      properties:
+        messageId:
+          type: string
+          description: Идентификатор письма у провайдера, непрозрачная строка
+          minLength: 1
+          maxLength: 128
+        status:
+          type: string
+          description: 'Статус письма: принято, доставлено, отказ. Перечисление открытое'
+          enum:
+          - accepted
+          - delivered
+          - failed
+        occurredAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        reason:
+          type: string
+          description: Причина отказа, для `failed`
+          enum:
+          - address_rejected
+          - other
+      required:
+      - messageId
+      - status
+      - occurredAt
+      additionalProperties: false

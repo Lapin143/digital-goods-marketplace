@@ -1,0 +1,612 @@
+openapi: 3.1.0
+info:
+  title: 'Digital Goods Marketplace: сервис заказов'
+  version: 1.0.0
+  description: |-
+    REST API сервиса заказов. Покупатель оформляет заказ из карточки товара, получает платёжную сессию и смотрит историю заказов. Сервис заказов оркестрирует сагу покупки (резерв, платёжная сессия, подтверждение резерва, ADR-004).
+
+    Значения ключей в кабинете не показываются и этим API не возвращаются (FT-5.4). Заказ одного товара одного продавца оплачивается одним платежом, корзины нет (ADR-001).
+  license:
+    name: Учебный проект, лицензия не задана
+    identifier: NOASSERTION
+servers:
+- url: https://api.marketplace.example
+  description: Публичный адрес `api-gateway`. На демо-стенде адрес задаёт конфигурация развёртывания
+tags:
+- name: Заказы
+  description: Оформление заказа, платёжная сессия, история и карточка заказа (области `orders.create`, `orders.read`)
+- name: Внутренние вызовы
+  description: Вызовы между сервисами по mTLS
+security: []
+paths:
+  /api/v1/orders:
+    post:
+      operationId: createOrder
+      summary: Оформить заказ
+      description: |-
+        Создаёт заказ одного товара и ведёт покупателя к оплате: запрашивает карточку товара у каталога, резервирует ключи (по умолчанию 15 минут), фиксирует цену, комиссию и снимок e-mail, открывает платёжную сессию (по умолчанию 12 минут). Всё выполняется в одном запросе, цель 1 секунда при 95-м перцентиле (US-5.1). Ответ 201 содержит заказ в статусе `awaiting_payment` и платёжную сессию. Количество от 1 до 10 (INV-10), иначе 422. Нужен подтверждённый телефон (U2): иначе 403 `phone-not-confirmed`, и интерфейс запускает подтверждение (US-1.6). Товар не опубликован или заблокирован даёт 409 `product-unavailable`, нехватка ключей 409 `insufficient-stock` с `available`. Если платёжный шлюз не ответил за 7 секунд, резерв снимается, заказ отменяется с причиной `payment_session_failed`, ответ 503 `payment-session-unavailable` (E12). Повтор с тем же `Idempotency-Key` возвращает тот же заказ и ту же платёжную сессию. Ограничение шлюза: 10 запросов в минуту на пользователя.
+
+        Матрица прав: OP-50. Истории: US-5.1, US-4.6.
+      tags:
+      - Заказы
+      x-matrix-id: OP-50
+      x-stories:
+      - US-5.1
+      - US-4.6
+      x-allowed-roles:
+      - buyer
+      x-conditions:
+      - U2
+      - U16
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - orders.create
+      parameters:
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+            example:
+              productId: 0199e0a0-0000-7000-8000-000000000201
+              quantity: 2
+      responses:
+        '201':
+          description: Заказ создан, платёжная сессия открыта
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Location:
+              $ref: components.yaml#/components/headers/Location
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderWithPaymentSession'
+              example:
+                orderId: 0199e0a0-0000-7000-8000-000000000301
+                productId: 0199e0a0-0000-7000-8000-000000000201
+                productTitle: 'Лунная тропа: ключ Steam'
+                quantity: 2
+                unitPrice:
+                  amount: 149900
+                  currency: RUB
+                total:
+                  amount: 299800
+                  currency: RUB
+                status: awaiting_payment
+                cancelReason: null
+                delivery:
+                  channel: email
+                  address: buyer@mail.example
+                  masked: false
+                reserveExpiresAt: '2026-10-03T12:15:00.123Z'
+                paymentSessionExpiresAt: '2026-10-03T12:12:00.123Z'
+                createdAt: '2026-10-03T12:00:00.123Z'
+                paidAt: null
+                issuedAt: null
+                paymentSession:
+                  url: https://pay.gateway.example/session/abc123
+                  expiresAt: '2026-10-03T12:12:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenFullLoginRequiredPhoneNotConfirmed
+        '409':
+          $ref: components.yaml#/components/responses/E409RequestInProgressProductUnavailableInsufficientStock
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+        '503':
+          $ref: components.yaml#/components/responses/E503PaymentSessionUnavailableDependencyUnavailable
+        '504':
+          $ref: components.yaml#/components/responses/E504GatewayTimeout
+    get:
+      operationId: listOrders
+      summary: История заказов
+      description: |-
+        Заказы текущего покупателя, новые выше: товар, сумма, дата и статус (US-5.9). Фильтры: `status` (несколько значений через запятую), `createdFrom` включительно, `createdTo` не включая. Значения ключей не возвращаются. Доступна и сессии по SMS: адрес доставки в ней маскируется.
+
+        Матрица прав: OP-58. Истории: US-5.9.
+      tags:
+      - Заказы
+      x-matrix-id: OP-58
+      x-stories:
+      - US-5.9
+      x-allowed-roles:
+      - buyer
+      x-conditions:
+      - U1
+      x-sms-session: allowed
+      security:
+      - bearerJwt:
+        - orders.read
+      parameters:
+      - name: status
+        in: query
+        required: false
+        description: Статусы через запятую
+        schema:
+          type: string
+          pattern: ^[a-z_]+(,[a-z_]+)*$
+        example: paid,issued
+      - name: createdFrom
+        in: query
+        required: false
+        description: Создан не раньше, RFC 3339
+        schema:
+          type: string
+          format: date-time
+      - name: createdTo
+        in: query
+        required: false
+        description: Создан раньше, RFC 3339
+        schema:
+          type: string
+          format: date-time
+      - $ref: components.yaml#/components/parameters/Limit
+      - $ref: components.yaml#/components/parameters/Cursor
+      responses:
+        '200':
+          description: Страница заказов
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderPage'
+              example:
+                items:
+                - orderId: 0199e0a0-0000-7000-8000-000000000301
+                  productId: 0199e0a0-0000-7000-8000-000000000201
+                  productTitle: 'Лунная тропа: ключ Steam'
+                  quantity: 2
+                  unitPrice:
+                    amount: 149900
+                    currency: RUB
+                  total:
+                    amount: 299800
+                    currency: RUB
+                  status: issued
+                  cancelReason: null
+                  delivery:
+                    channel: email
+                    address: buyer@mail.example
+                    masked: false
+                  reserveExpiresAt: null
+                  paymentSessionExpiresAt: null
+                  createdAt: '2026-10-03T12:00:00.123Z'
+                  paidAt: '2026-10-03T12:00:00.123Z'
+                  issuedAt: '2026-10-03T12:00:00.123Z'
+                page:
+                  limit: 20
+                  nextCursor: null
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403Forbidden
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailed
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/orders/{orderId}/payment-session:
+    get:
+      operationId: getOrderPaymentSession
+      summary: Получить платёжную сессию заказа
+      description: |-
+        Возвращает текущую платёжную сессию заказа в статусе `awaiting_payment`: покупатель, закрывший страницу оплаты, возвращается к оплате без создания второго платежа (US-5.3, сценарий 3). Для заказа в другом статусе или с истёкшей сессией 409. Чужой заказ даёт 404 (U1).
+
+        Матрица прав: OP-52. Истории: US-5.3.
+      tags:
+      - Заказы
+      x-matrix-id: OP-52
+      x-stories:
+      - US-5.3
+      x-allowed-roles:
+      - buyer
+      x-conditions:
+      - U1
+      - U4
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - orders.create
+      parameters:
+      - name: orderId
+        in: path
+        required: true
+        description: Идентификатор заказа
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000301
+      responses:
+        '200':
+          description: Платёжная сессия
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Платёжная сессия заказа
+                properties:
+                  orderId:
+                    $ref: components.yaml#/components/schemas/Id
+                  url:
+                    type: string
+                    description: Адрес страницы оплаты
+                    format: uri
+                  expiresAt:
+                    $ref: components.yaml#/components/schemas/Timestamp
+                required:
+                - orderId
+                - url
+                - expiresAt
+              example:
+                orderId: 0199e0a0-0000-7000-8000-000000000301
+                url: https://pay.gateway.example/session/abc123
+                expiresAt: '2026-10-03T12:12:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenFullLoginRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflict
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/orders/{orderId}:
+    get:
+      operationId: getOrder
+      summary: Карточка заказа
+      description: |-
+        Заказ с текущим статусом, причиной отмены и адресом доставки. Кнопку «Не получил ключ» интерфейс показывает для статуса `issued`, окно 72 часа от `issuedAt` проверяет сервис поддержки (US-6.6, US-7.1). Для статусов `paid` и `issued` срок получения ключа «до 30 минут». Чужой заказ даёт 404 (U1, US-5.9, сценарий 2).
+
+        Матрица прав: OP-58. Истории: US-5.9, US-6.6.
+      tags:
+      - Заказы
+      x-matrix-id: OP-58
+      x-stories:
+      - US-5.9
+      - US-6.6
+      x-allowed-roles:
+      - buyer
+      x-conditions:
+      - U1
+      x-sms-session: allowed
+      security:
+      - bearerJwt:
+        - orders.read
+      parameters:
+      - name: orderId
+        in: path
+        required: true
+        description: Идентификатор заказа
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000301
+      responses:
+        '200':
+          description: Заказ
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+              example:
+                orderId: 0199e0a0-0000-7000-8000-000000000301
+                productId: 0199e0a0-0000-7000-8000-000000000201
+                productTitle: 'Лунная тропа: ключ Steam'
+                quantity: 2
+                unitPrice:
+                  amount: 149900
+                  currency: RUB
+                total:
+                  amount: 299800
+                  currency: RUB
+                status: issued
+                cancelReason: null
+                delivery:
+                  channel: email
+                  address: buyer@mail.example
+                  masked: false
+                reserveExpiresAt: null
+                paymentSessionExpiresAt: null
+                createdAt: '2026-10-03T12:00:00.123Z'
+                paidAt: '2026-10-03T12:00:00.123Z'
+                issuedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403Forbidden
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /internal/v1/orders/{orderId}/update-delivery-address:
+    post:
+      operationId: updateDeliveryAddress
+      summary: Обновить адрес доставки в заказе (внутренний)
+      description: |-
+        Заменяет снимок адреса доставки в заказе актуальным e-mail учётной записи. Единственный способ изменить снимок (domain-model, решение 5). Вызывает только `platform-service` по обращению в работе, тайм-аут 2 секунды (SEQ-04). Заказ должен быть в статусе `issued`, иначе 409. Публикуется `order.address-updated`, окна 72 часа и 7 дней не сдвигаются. Повтор с тем же `Idempotency-Key` ничего не меняет.
+
+        Матрица прав: OP-72. Истории: US-7.3.
+      tags:
+      - Внутренние вызовы
+      x-matrix-id: OP-72
+      x-stories:
+      - US-7.3
+      x-allowed-roles:
+      - system
+      x-conditions: []
+      x-allowed-callers:
+      - platform-service
+      x-internal: true
+      security:
+      - mutualTls: []
+      servers:
+      - url: https://order-service:8443
+        description: Внутренний адрес сервиса, mTLS, не через шлюз
+      parameters:
+      - name: orderId
+        in: path
+        required: true
+        description: Идентификатор заказа
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000301
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDeliveryAddressRequest'
+            example:
+              ticketId: 0199e0a0-0000-7000-8000-000000000501
+              email: buyer@mail.example
+      responses:
+        '200':
+          description: Адрес обновлён
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdatedDeliveryAddress'
+              example:
+                orderId: 0199e0a0-0000-7000-8000-000000000301
+                delivery:
+                  channel: email
+                  address: buyer@mail.example
+                updatedAt: '2026-10-03T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '403':
+          $ref: components.yaml#/components/responses/E403Forbidden
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+components:
+  schemas:
+    PaymentSession:
+      type: object
+      description: 'Платёжная сессия: покупатель переходит по адресу и оплачивает на странице шлюза. Срок сессии
+        (по умолчанию 12 минут) всегда короче срока резерва (INV-07). Возврат со страницы шлюза ничего не решает:
+        решение о деньгах принимает вебхук (ADR-015)'
+      properties:
+        url:
+          type: string
+          description: Адрес страницы оплаты на стороне платёжного шлюза
+          format: uri
+        expiresAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+      required:
+      - url
+      - expiresAt
+    OrderDelivery:
+      type: object
+      description: 'Снимок адреса доставки на момент заказа (INV-44). Персональные данные: возвращаются только владельцу
+        и не пишутся в журналы'
+      properties:
+        channel:
+          type: string
+          description: Канал выдачи, в R1 только e-mail
+          enum:
+          - email
+        address:
+          type: string
+          description: Адрес, на который отправлен или будет отправлен ключ. Для сессии по SMS адрес маскируется
+            (`i***@mail.example`)
+          maxLength: 254
+        masked:
+          type: boolean
+          description: '`true`, если адрес замаскирован'
+      required:
+      - channel
+      - address
+      - masked
+    Order:
+      type: object
+      description: 'Заказ покупателя. Цена и сумма это снимок на момент оформления (INV-12). Комиссия платформы
+        покупателю не показывается. Значений ключей нет. Статус «выдан» означает: ключи привязаны и письмо принято
+        провайдером. От `issuedAt` считаются окна обращения и спора'
+      properties:
+        orderId:
+          $ref: components.yaml#/components/schemas/Id
+        productId:
+          $ref: components.yaml#/components/schemas/Id
+        productTitle:
+          type: string
+          description: Название товара на момент заказа (снимок)
+        quantity:
+          type: integer
+          description: Количество, от 1 до 10
+          minimum: 1
+          maximum: 10
+        unitPrice:
+          $ref: components.yaml#/components/schemas/Money
+        total:
+          $ref: components.yaml#/components/schemas/Money
+        status:
+          $ref: components.yaml#/components/schemas/OrderStatus
+        cancelReason:
+          oneOf:
+          - type: string
+            description: Причина отмены, заполнена у `cancelled`. Перечисление открытое
+            enum:
+            - out_of_stock
+            - payment_declined
+            - reservation_expired
+            - payment_session_failed
+            - system_error
+            - seller_api_timeout
+          - type: 'null'
+        delivery:
+          $ref: '#/components/schemas/OrderDelivery'
+        reserveExpiresAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+        paymentSessionExpiresAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+        createdAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        paidAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+        issuedAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+      required:
+      - orderId
+      - productId
+      - productTitle
+      - quantity
+      - unitPrice
+      - total
+      - status
+      - cancelReason
+      - delivery
+      - reserveExpiresAt
+      - paymentSessionExpiresAt
+      - createdAt
+      - paidAt
+      - issuedAt
+    OrderWithPaymentSession:
+      allOf:
+      - $ref: '#/components/schemas/Order'
+      - type: object
+        properties:
+          paymentSession:
+            $ref: '#/components/schemas/PaymentSession'
+        required:
+        - paymentSession
+      description: Созданный заказ вместе с платёжной сессией
+    OrderPage:
+      type: object
+      description: Страница заказов покупателя, новые выше
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Order'
+        page:
+          $ref: components.yaml#/components/schemas/PageInfo
+      required:
+      - items
+      - page
+    CreateOrderRequest:
+      type: object
+      description: Заказ одного товара. Покупатель, телефон которого не подтверждён, получает 403 `phone-not-confirmed`
+      properties:
+        productId:
+          $ref: components.yaml#/components/schemas/Id
+        quantity:
+          type: integer
+          description: Количество, от 1 до 10
+          minimum: 1
+          maximum: 10
+      required:
+      - productId
+      - quantity
+      additionalProperties: false
+    UpdateDeliveryAddressRequest:
+      type: object
+      description: 'Новый адрес доставки: актуальный e-mail учётной записи покупателя, по обращению'
+      properties:
+        ticketId:
+          $ref: components.yaml#/components/schemas/Id
+        email:
+          $ref: components.yaml#/components/schemas/Email
+      required:
+      - ticketId
+      - email
+      additionalProperties: false
+    UpdatedDeliveryAddress:
+      type: object
+      description: Снимок адреса после обновления. Публикуется `order.address-updated`, выдача создаёт повторную
+        отправку
+      properties:
+        orderId:
+          $ref: components.yaml#/components/schemas/Id
+        delivery:
+          $ref: components.yaml#/components/schemas/DeliveryAddress
+        updatedAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+      required:
+      - orderId
+      - delivery
+      - updatedAt
