@@ -133,15 +133,16 @@
 | Остаток изменился | `stock.changed` | `reservation-service`, `key-pool-service` | `event-consumer` → `stock-view-service` (`catalog-service`) |
 | Резерв истёк, резерв снят | `reservation.expired`, `reservation.released` | `reservation-service` | `event-consumer` → `saga-orchestrator` (`order-service`, только `reservation.expired`) |
 | Заказ оплачен | `order.paid` | `order-domain` | `event-consumer` → `delivery-domain` (`delivery-service`), `notification-handler` |
-| Заказ создан, выдан, возвращён | `order.created`, `order.issued`, `order.refunded` | `order-domain` | `notification-handler` |
-| Заказ отменён | `order.cancelled` | `order-domain` | `event-consumer` → `reservation-service` (`inventory-service`), `notification-handler` |
+| Заказ создан, возвращён | `order.created`, `order.refunded` | `order-domain` | `notification-handler` |
+| Заказ выдан | `order.issued` | `order-domain` | `support-event-handler` (R2: `finance-service`) |
+| Заказ отменён | `order.cancelled` | `order-domain` | `event-consumer` → `reservation-service` (`inventory-service`) |
 | Адрес доставки обновлён | `order.address-updated` | `order-domain` | `event-consumer` → `delivery-domain` (`delivery-service`) |
 | Вернуть деньги | `order.refund-requested` | `order-domain` | `event-consumer` → `refund-service` (`payment-service`) |
 | Платёж подтверждён, отклонён, возвращён | `payment.confirmed`, `payment.rejected`, `payment.refunded` | `payment-domain` | `event-consumer` → `saga-orchestrator` (`order-service`) |
 | Возврат ждёт администратора | `payment.refund-escalated` | `payment-domain` | `notification-handler` |
-| Письмо принято | `delivery.accepted` | `delivery-domain` | `event-consumer` → `saga-orchestrator` (`order-service`) |
-| Выдача доставлена | `delivery.delivered` | `delivery-domain` | `system-ticket-handler` |
-| Выдача не удалась, 30 минут без доставки | `delivery.failed`, `delivery.overdue` | `delivery-domain` | `system-ticket-handler`, `notification-handler` |
+| Письмо принято | `delivery.accepted` | `delivery-domain` | `event-consumer` → `saga-orchestrator` (`order-service`), `support-event-handler` |
+| Выдача доставлена | `delivery.delivered` | `delivery-domain` | `support-event-handler` (закрывает обращение системы, обновляет статус выдачи) |
+| Выдача не удалась, 30 минут без доставки | `delivery.failed`, `delivery.overdue` | `delivery-domain` | `support-event-handler`, `notification-handler` |
 | Пользователь зарегистрирован, роль назначена, e-mail изменён, телефон подтверждён, пользователь деактивирован | `user.registered`, `user.role-assigned`, `user.email-changed`, `user.phone-confirmed`, `user.deactivated` | `user-service` | `notification-handler`, аудит через `audit.recorded` |
 | Пользователь анонимизирован | `user.anonymized` | `user-service` | `event-consumer` → `order-domain` (`order-service`), `event-consumer` → `delivery-domain` (`delivery-service`) |
 | Обращение создано, решено | `ticket.created`, `ticket.resolved` | `ticket-service` | Метрики, аудит через `audit.recorded` |
@@ -177,8 +178,8 @@
 | INV-18 | `delivery-service` | `delivery-domain`, `delivery-repository`, `event-consumer` |
 | INV-19 | `delivery-service`, `inventory-service` | `letter-builder`, `key-value-reader` |
 | INV-20 | `inventory-service`, `delivery-service` | `key-crypto`, `key-pool-service`, `key-value-reader`, `inventory-controller`, `caller-filter`, `key-client`, `letter-builder`, `delivery-dispatcher`, `delivery-repository` |
-| INV-21 | `platform-service` | `ticket-service`, `system-ticket-handler` |
-| INV-22 | `platform-service` | `ticket-controller`, `ticket-service` |
+| INV-21 | `platform-service` | `ticket-service`, `support-event-handler` |
+| INV-22 | `platform-service` | `ticket-controller`, `ticket-service`, `support-event-handler` |
 | INV-23 | `platform-service`, `delivery-service`, `inventory-service` | `ticket-service`, `delivery-domain`, `key-value-reader` |
 | INV-24 – INV-25 (R2) | `finance-service` | Модуль `disputes`, компоненты описываются перед R2 |
 | INV-26 (R2) | `platform-service` | `parameter-service` |
