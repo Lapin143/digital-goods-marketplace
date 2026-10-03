@@ -75,7 +75,7 @@ sequenceDiagram
     end
     platform-service -->> web-app: 5. Обращение принято
     support-operator ->> web-app: 6. Открывает очередь обращений и берёт обращение в работу
-    web-app ->> platform-service: 7. Взять в работу (область staff.operator, 2FA)
+    web-app ->> platform-service: 7. Взять в работу (область staff.support, 2FA)
     Note over platform-service: 8. TX: обращение «в работе» (SM-07/T2), записан OperatorID, audit.recorded в Outbox. Оператор видит заказ и статусы выдачи, ключа не видит (INV-23)
     support-operator ->> web-app: 9. Выбирает «Повторно отправить ключ» на прежний адрес
     web-app ->> platform-service: 10. Повторная отправка ключа

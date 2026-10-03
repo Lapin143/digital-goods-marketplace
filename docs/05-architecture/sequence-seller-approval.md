@@ -82,11 +82,11 @@ sequenceDiagram
         Note over catalog-service: 13. moderation-deadline-job: заявка «на проверке» дольше 3 суток помечена просроченной, растут метрика сроков модерации и оповещение администратору по правилу мониторинга. Статус не меняется, автоматического решения нет
     end
     moderator ->> web-app: 14. Открывает очередь заявок и выбирает заявку
-    web-app ->> catalog-service: 15. Анкета и документы (область staff.moderator, 2FA)
+    web-app ->> catalog-service: 15. Анкета и документы (область staff.moderation, 2FA)
     catalog-service -->> web-app: 16. Анкета и короткоживущие ссылки на документы (подписаны без вызова хранилища, срок 5 минут)
     web-app ->> object-storage: 17. Открывает документы по ссылкам
     moderator ->> web-app: 18. Принимает решение: одобрить, отклонить с причиной или вернуть на доработку с комментарием
-    web-app ->> catalog-service: 19. Решение по заявке (область staff.moderator, 2FA, Idempotency-Key)
+    web-app ->> catalog-service: 19. Решение по заявке (область staff.moderation, 2FA, Idempotency-Key)
     alt Одобрить
         Note over catalog-service: 20. TX: профиль «одобрен» (SM-05/T3), seller.approved и audit.recorded в Outbox
     else E1. Отклонить с причиной
@@ -181,7 +181,7 @@ sequenceDiagram
     Note over keycloak: 12. TOTP-устройство зарегистрировано, обязательное действие снято, 2FA включена
     keycloak -->> web-app: 13. Токен: роль «Продавец», отметка второго фактора (amr: pwd, otp)
     seller ->> web-app: 14. Открывает кабинет продавца
-    web-app ->> catalog-service: 15. Профиль и разделы кабинета (область seller.products, отметку 2FA проверяют шлюз и сервис)
+    web-app ->> catalog-service: 15. Профиль и разделы кабинета (область seller.catalog, отметку 2FA проверяют шлюз и сервис)
     Note over catalog-service: 16. product-service спрашивает у модуля seller_onboarding: профиль «одобрен» и не заблокирован
     catalog-service -->> web-app: 17. Кабинет открыт. Дальше BPMN-03: товары и ключи
     Note over keycloak: 18. При каждом следующем входе Keycloak запрашивает код TOTP (условный шаг по роли). Настройка выполняется один раз

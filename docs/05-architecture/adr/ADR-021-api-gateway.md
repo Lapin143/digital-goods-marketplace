@@ -5,7 +5,7 @@
 | Статус | Принято |
 | Дата | 2026-10-03 |
 | Требования | FT-10.0, NFT-1.0, NFT-3.0, NFT-3.3, NFT-3.4, NFT-3.5, NFT-6.0, NFT-6.1, раздел 8.2 требований |
-| Связанные документы | [c4-containers.md](../c4-containers.md) (раздел 2, путь запроса), [decomposition.md](../decomposition.md) (раздел 5, шлюз), `roles-permissions.md` (шаг 9) |
+| Связанные документы | [c4-containers.md](../c4-containers.md) (раздел 2, путь запроса), [decomposition.md](../decomposition.md) (раздел 5, шлюз), [roles-permissions.md](../roles-permissions.md) (шаг 9) |
 | Связанные ADR | [ADR-010](ADR-010-keycloak-sms-codes.md), [ADR-015](ADR-015-payment-gateway-integration.md), [ADR-022](ADR-022-internal-traffic-encryption.md) |
 
 ## Контекст
@@ -73,8 +73,9 @@ API Gateway единая точка входа в систему из интер
 | Документы продавцов: `/files/**` | Подписанная ссылка, подпись проверяет `object-storage` | | `object-storage` | 60 запросов в минуту с IP, срок ссылки 5 минут |
 | Покупатель: заказ, история, обращения | JWT | `orders.read`, `orders.create`, `support.write` | `order-service`, `platform-service` | 120 в минуту на пользователя. `POST /orders` 10 в минуту |
 | Кабинет учётной записи: телефон, смена e-mail, смена номера | JWT | `account.manage` (нет у сессий по SMS) | `platform-service` | 30 в минуту на пользователя |
-| Продавец: товары, ключи, остатки | JWT | `seller.*` | `catalog-service`, `inventory-service` | 60 в минуту на пользователя, загрузка пулов 6 в час |
-| Кабинеты сотрудников | JWT с 2FA | `staff.*` | `platform-service`, `catalog-service`, `payment-service` | 120 в минуту на пользователя |
+| Заявка на статус продавца | JWT | `seller.apply` (нет у сессий по SMS) | `catalog-service` | 30 в минуту на пользователя |
+| Продавец: товары, ключи, остатки | JWT с 2FA | `seller.catalog` | `catalog-service`, `inventory-service` | 60 в минуту на пользователя, загрузка пулов 6 в час |
+| Кабинеты сотрудников | JWT с 2FA | `staff.moderation`, `staff.support`, `staff.admin`, `staff.audit` | `platform-service`, `catalog-service`, `payment-service` | 120 в минуту на пользователя |
 | Вебхуки шлюза, e-mail- и SMS-провайдера | Подпись проверяет сервис | | `payment-service`, `delivery-service`, `platform-service` | 300 в минуту с IP источника, тело до 64 КБ |
 | Вход и токены Keycloak | Не нужна | | `keycloak` | 30 в минуту с IP, дополнительно защита Keycloak от подбора пароля |
 | R2: API продавца | API-ключ | `seller.api` | `delivery-service`, `catalog-service`, `inventory-service` | 600 в минуту на ключ (NFT-3.5) |
