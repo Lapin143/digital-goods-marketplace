@@ -10,6 +10,7 @@
 | [00-phase0-guide.md](00-phase0-guide.md) | Подготовка окружения: GitHub, WSL2, Docker, VS Code | Ф0 |
 | [00-phase1-guide.md](00-phase1-guide.md) | Аналитика: процессы, статусные модели, истории, use cases, домен, трассировка | Ф1 |
 | [00-phase1-report.md](00-phase1-report.md) | Итоговый отчёт по Ф1: принятые решения, правки, находки для v1.6, проверка вехи M1 | Ф1 |
+| [00-phase2-guide.md](00-phase2-guide.md) | Архитектура и контракты: 14 шагов, нотация C4, контрольный список M2 | Ф2 |
 | [01-vision](01-vision/) | Видение и границы, стейкхолдеры, глоссарий | Ф1 |
 | [02-requirements](02-requirements/) | Требования, user stories, use cases | Ф1 |
 | [03-processes](03-processes/) | BPMN-процессы, статусные модели | Ф1 |
