@@ -29,7 +29,7 @@
 | Брокер событий | `kafka` | Брокер | Apache Kafka | Доставка событий между сервисами | Нет (журнал событий) | R1 |
 | Реляционные базы | `postgres` | Хранилище | PostgreSQL 16 | По базе на сервис: `catalog_db`, `inventory_db`, `order_db`, `payment_db`, `delivery_db`, `platform_db`, `keycloak_db` | Данные своих сервисов | R1 |
 | Кэш и таймеры | `redis` | Хранилище | Redis | Кэш каталога, ограничение частоты, таймеры резервов, одноразовые коды | Нет (временные данные) | R1 |
-| Объектное хранилище | `object-storage` | Хранилище | MinIO, S3 API | Документы продавцов, файлы CSV с пулами | Нет (файлы по ссылкам) | R1 |
+| Объектное хранилище | `object-storage` | Хранилище | MinIO, S3 API | Документы продавцов | Нет (файлы по ссылкам) | R1 |
 | Хранилище секретов | `secret-store` | Хранилище | Секреты Docker и Kubernetes | Мастер-ключ, секрет HMAC, ключи внешних провайдеров | Секреты | R1 |
 | Заглушки внешних систем | `external-stubs` | Заглушка | Node.js, TypeScript | В проекте играет платёжный шлюз, e-mail-провайдер, SMS-провайдер и VK ID | Нет | R1 |
 
@@ -271,7 +271,6 @@ flowchart LR
     inventory-service -->|"Ставит таймеры резервов<br/>[Redis]"| redis
     platform-service -->|"Хранит коды и счётчики<br/>[Redis]"| redis
     catalog-service -->|"Хранит документы<br/>продавцов [S3 API]"| object-storage
-    inventory-service -->|"Хранит файлы CSV<br/>[S3 API]"| object-storage
 
     classDef container fill:#438dd5,stroke:#2e6295,color:#ffffff
     class api-gateway,catalog-service,inventory-service,platform-service,redis,object-storage container
@@ -281,12 +280,11 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | 1 | `api-gateway` | `redis` | Счётчики ограничения частоты запросов. R2: кэш проверки API-ключа | NFT-3.5 |
 | 2 | `catalog-service` | `redis` | Кэш карточек и результатов поиска | NFT-1.0, NFT-1.1 |
-| 3 | `inventory-service` | `redis` | Таймеры резервов. Источник истины остаётся в PostgreSQL ([ADR-012](adr/README.md)) | FT-5.2 |
+| 3 | `inventory-service` | `redis` | Таймеры резервов. Источник истины остаётся в PostgreSQL ([ADR-012](adr/ADR-012-reservation-redis-timer.md)) | FT-5.2 |
 | 4 | `platform-service` | `redis` | Одноразовые коды с временем жизни 5 минут, счётчики попыток и запросов. Хранение кодов подтверждает [ADR-010](adr/README.md) | NFT-3.5, NFT-3.7 |
 | 5 | `catalog-service` | `object-storage` | Документы продавцов, бакет закрытый, хранилище в РФ | NFT-5.0 |
-| 6 | `inventory-service` | `object-storage` | Файлы CSV с пулами ключей до обработки | FT-4.1 |
 
-Использование Redis сервисами `order-service` и `delivery-service` (таймеры сессии оплаты, контроль 30 минут) подтверждается ADR-012, ADR-011 и ADR-013. Если таймеры там уйдут в Redis, на диаграмме появятся ещё две связи.
+Файлы CSV с пулами ключей в объектном хранилище не хранятся: сервис читает их потоком и сразу шифрует, иначе копия с открытыми значениями жила бы вне шифрования ([ADR-009](adr/ADR-009-key-encryption-hmac.md)). Остальные сервисы Redis не используют: срок платёжной сессии закрывает шлюз, контроль 30 минут и повторы выдачи живут в базе `delivery-service` ([ADR-011](adr/ADR-011-guaranteed-delivery.md)), таймер резерва только у `inventory-service` ([ADR-012](adr/ADR-012-reservation-redis-timer.md)).
 
 ### 7.1. Секреты
 
