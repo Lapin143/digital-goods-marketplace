@@ -101,7 +101,7 @@ flowchart LR
     keycloak["<b>Сервер идентификации</b><br/><i>[Контейнер: Keycloak]</i><br/>Вход, 2FA, VK ID, токены"]
 
     order-service -->|"Запрашивает карточку товара<br/>[REST/HTTPS]"| catalog-service
-    order-service -->|"Резервирует ключи<br/>[REST/HTTPS]"| inventory-service
+    order-service -->|"Резервирует ключи и<br/>подтверждает резерв<br/>[REST/HTTPS]"| inventory-service
     order-service -->|"Открывает платёжную сессию<br/>[REST/HTTPS]"| payment-service
     delivery-service -->|"Запрашивает значения ключей<br/>[REST/HTTPS, mTLS]"| inventory-service
     platform-service -->|"Обновляет адрес доставки<br/>[REST/HTTPS]"| order-service
@@ -115,7 +115,7 @@ flowchart LR
 | № | От | К | Что передаётся | Протокол | Основание |
 | --- | --- | --- | --- | --- | --- |
 | 1 | `order-service` | `catalog-service` | «Карточка товара»: статус, цена, продавец, способ выдачи. При оформлении заказа | REST/HTTPS | BPMN-01, SM-01/T1, bounded-contexts 4.5 |
-| 2 | `order-service` | `inventory-service` | «Зарезервировать ключи». Повторно при поздней оплате. Ответ: резерв активен на 15 минут или ключей не хватает. Сравнение с gRPC в ADR-016 (Ф5) | REST/HTTPS | FT-5.2, FT-6.5, NFT-1.2 |
+| 2 | `order-service` | `inventory-service` | «Зарезервировать ключи» при оформлении и «подтвердить резерв» после оплаты (закрепить ключи за заказом, при снятом резерве повторно зарезервировать, [ADR-004](adr/ADR-004-saga-purchase.md)). Ответ: резерв активен на 15 минут или ключей не хватает. Сравнение с gRPC в ADR-016 (Ф5) | REST/HTTPS | FT-5.2, FT-6.5, NFT-1.2 |
 | 3 | `order-service` | `payment-service` | «Открыть платёжную сессию» на 12 минут | REST/HTTPS | FT-5.2, FT-6.1 |
 | 4 | `delivery-service` | `inventory-service` | «Значения ключей по заказу» для письма. Значения не пишутся в логи | REST/HTTPS, mTLS | NFT-3.2, решение 11 доменной модели |
 | 5 | `platform-service` | `order-service` | «Обновить адрес доставки» из учётной записи. Вызывает модуль `support` при повторной отправке | REST/HTTPS | FT-7.5, решение 3 раздела 6 bounded-contexts |
@@ -331,8 +331,7 @@ flowchart LR
 | Товар опубликован, отклонён, заблокирован | `catalog-service` | `platform-service` | Письмо продавцу о решении (FT-11.4) |
 | Остаток изменился | `inventory-service` | `catalog-service` | Остаток на витрине |
 | Резерв истёк, резерв снят | `inventory-service` | `order-service` | Отмена заказа по сроку |
-| Ключи заказа закреплены | `inventory-service` | `delivery-service` | Создать выдачу |
-| Заказ оплачен | `order-service` | `inventory-service`, `platform-service` | Использовать резерв и закрепить ключи, письмо «Заказ оплачен» |
+| Заказ оплачен | `order-service` | `delivery-service`, `platform-service` | Создать выдачу и запустить контроль 30 минут, письмо «Заказ оплачен». Ключи к этому моменту уже закреплены синхронным подтверждением резерва |
 | Заказ создан, выдан, возвращён | `order-service` | `platform-service` | Письма покупателю (FT-11.0). R2: «выдан» и «возвращён» читает `finance-service` |
 | Заказ отменён | `order-service` | `inventory-service`, `platform-service` | Снять резерв, письмо |
 | Адрес доставки обновлён | `order-service` | `delivery-service` | Повторная выдача по новому адресу |
@@ -444,7 +443,7 @@ flowchart LR
 | Проверка | Результат |
 | --- | --- |
 | Каждый сервис из [decomposition.md](decomposition.md) есть в таблице контейнеров и на диаграммах | Выполнено, алиасы сверены скриптом |
-| Каждый синхронный вызов из bounded-contexts.md присутствует на диаграмме 3 | Выполнено: карточка товара, резерв, платёжная сессия, значения ключей, адрес доставки, смена e-mail, SMS-код (в модель контейнеров переложены на Keycloak и `platform-service`) |
+| Каждый синхронный вызов из bounded-contexts.md присутствует на диаграмме 3 | Выполнено: карточка товара, резерв и подтверждение резерва, платёжная сессия, значения ключей, адрес доставки, смена e-mail, SMS-код (в модель контейнеров переложены на Keycloak и `platform-service`) |
 | Нет связей, которых нет в bounded-contexts.md | Три связи новые, и они объяснены: Keycloak → e-mail-провайдер по SMTP (раздел 4, связь 10), `platform-service` → Keycloak по Admin REST и Keycloak → `platform-service` для кодов (следствие решения об идентификации в decomposition.md, раздел 3.1) |
 | События из bounded-contexts.md присутствуют в разделе 8 | Выполнено |
 | Нет общей базы данных | Выполнено: 7 баз на одном сервере, у каждого сервиса своя |
