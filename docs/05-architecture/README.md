@@ -16,7 +16,12 @@
 | [c4-components-payment-service.md](c4-components-payment-service.md) | Компоненты сервиса платежей: сессия, подпись вебхуков, сверка, возвраты (2 диаграммы) | 6 |
 | [c4-components-catalog-service.md](c4-components-catalog-service.md) | Компоненты сервиса каталога (таблицы) | 6 |
 | [c4-components-platform-service.md](c4-components-platform-service.md) | Компоненты служебного сервиса по модулям (таблицы) | 6 |
-| `sequence-<scenario>.md` | Sequence-диаграммы SEQ-01…SEQ-06 | 7 |
+| [sequence-purchase.md](sequence-purchase.md) | SEQ-01: покупка, успешный путь, динамика C4 и три sequence-диаграммы, исключения E1 – E12 | 7 |
+| [sequence-late-payment.md](sequence-late-payment.md) | SEQ-02: поздняя оплата, перерезервирование, автовозврат и очередь администратора | 7 |
+| [sequence-guaranteed-delivery.md](sequence-guaranteed-delivery.md) | SEQ-03: повторы отправки, контроль 30 минут, DLQ, передача в поддержку | 7 |
+| [sequence-email-change.md](sequence-email-change.md) | SEQ-04: обращение в поддержку, повторная отправка, смена e-mail по двум кодам | 7 |
+| [sequence-phone-sms-login.md](sequence-phone-sms-login.md) | SEQ-05: подтверждение телефона и вход по коду из SMS | 7 |
+| [sequence-seller-approval.md](sequence-seller-approval.md) | SEQ-06: заявка продавца, решение модератора, роль и обязательная 2FA | 7 |
 | `c4-deployment.md` | Диаграмма развёртывания: Compose и сервер | 8 |
 | `time-budgets.md` | Бюджеты времени: сессия, резерв, выдача, повторы | 8 |
 | `roles-permissions.md` | Матрица ролей и прав | 9 |
