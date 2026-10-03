@@ -22,8 +22,9 @@
 | [sequence-email-change.md](sequence-email-change.md) | SEQ-04: обращение в поддержку, повторная отправка, смена e-mail по двум кодам | 7 |
 | [sequence-phone-sms-login.md](sequence-phone-sms-login.md) | SEQ-05: подтверждение телефона и вход по коду из SMS | 7 |
 | [sequence-seller-approval.md](sequence-seller-approval.md) | SEQ-06: заявка продавца, решение модератора, роль и обязательная 2FA | 7 |
-| `c4-deployment.md` | Диаграмма развёртывания: Compose и сервер | 8 |
-| `time-budgets.md` | Бюджеты времени: сессия, резерв, выдача, повторы | 8 |
+| [c4-deployment.md](c4-deployment.md) | Развёртывание: среды, профили Compose, сети и порты, наблюдаемость и копирование, секреты, переход на k3s (5 диаграмм) | 8 |
+| [time-budgets.md](time-budgets.md) | Бюджеты времени: сессия, резерв, выдача, повторы, автовозврат, тест-режим | 8 |
+| [../09-operations/memory-budget.md](../09-operations/memory-budget.md) | Бюджеты памяти: лимиты контейнеров, профили, наборы для ноутбука, CI и сервера (предварительные, замеры в Ф3) | 8 |
 | `roles-permissions.md` | Матрица ролей и прав | 9 |
 | `threat-model.md` | Модель угроз STRIDE | 9 |
 | `conventions.md` | Сквозные соглашения для API, событий и данных | 10 |
