@@ -74,7 +74,7 @@
 | `payment-service`: открыть платёжную сессию | `order-service` |
 | `order-service`: обновить адрес доставки | `platform-service` |
 | `platform-service`: отправить и проверить код входа | `keycloak` |
-| Остальные внутренние маршруты | Перечисляются в OpenAPI (шаг 11, расширение `x-allowed-callers`) |
+| Остальные внутренние маршруты | Перечисляются в OpenAPI ([openapi/README.md](../../06-api/openapi/README.md), расширение `x-allowed-callers`) |
 
 Маршруты для пользователей доступны с сертификатом `api-gateway` и токеном.
 

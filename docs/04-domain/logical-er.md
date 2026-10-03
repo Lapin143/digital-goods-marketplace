@@ -208,6 +208,7 @@ erDiagram
         id buyer_id FK "покупатель"
         id seller_id FK "продавец"
         id product_id FK "товар"
+        text product_title "название товара, снимок"
         number quantity "количество от 1 до 10"
         money unit_price "цена за единицу, снимок"
         money amount "сумма"
