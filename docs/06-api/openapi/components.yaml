@@ -1,0 +1,1567 @@
+openapi: 3.1.0
+info:
+  title: 'Digital Goods Marketplace: общие компоненты REST API'
+  version: 1.0.0
+  description: 'Общий файл компонентов для контрактов сервисов: схемы идентификатора, денег, времени, проблемы,
+    страницы, параметры, заголовки, схемы безопасности и стандартные ответы с ошибками. Ответы с ошибками собираются
+    из реестра типов проблем conventions.md, раздел 9.1, и называются `E<код HTTP><Типы>`. Файл не описывает операций.'
+  license:
+    name: Учебный проект, лицензия не задана
+    identifier: NOASSERTION
+paths: {}
+components:
+  securitySchemes:
+    bearerJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Токен Keycloak. Шлюз проверяет область и способ входа, сервис ещё раз проверяет подпись, `iss`,
+        `aud`, область, роль, владельца и статус (roles-permissions.md, раздел 7). Для маршрутов продавца и сотрудников
+        нужен `amr` с `otp`.
+    webhookSignature:
+      type: apiKey
+      in: header
+      name: X-Webhook-Signature
+      description: 'Подпись вебхука: HMAC-SHA-256 от строки `<X-Webhook-Timestamp>.<тело>`, hex, секрет источника
+        из хранилища секретов, сравнение за постоянное время. Метка времени в заголовке `X-Webhook-Timestamp` (RFC
+        3339 UTC) не старше 5 минут. Токена нет, вход через шлюз (roles-permissions.md, раздел 8.2).'
+    mutualTls:
+      type: mutualTLS
+      description: 'Внутренний вызов по mTLS: вызывающий определяется по CN клиентского сертификата, он должен входить
+        в `x-allowed-callers` операции (roles-permissions.md, раздел 8.1, ADR-022). Токен пользователя не пересылается.'
+  schemas:
+    Id:
+      type: string
+      description: 'Идентификатор сущности: UUID по RFC 9562 в нижнем регистре, версия 7 (идентификатор пользователя
+        это `sub` Keycloak, версия 4). Идентификатор не секрет, право доступа проверяет сервис (conventions.md,
+        раздел 3).'
+      format: uuid
+      pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+      examples:
+      - 0199e0a0-0000-7000-8000-000000000001
+    Timestamp:
+      type: string
+      description: 'Момент времени: RFC 3339 в UTC с миллисекундами и суффиксом `Z` (conventions.md, раздел 5).'
+      format: date-time
+      pattern: ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$
+      examples:
+      - '2026-10-03T12:00:00.123Z'
+    Money:
+      type: object
+      description: 'Сумма: целое число копеек и код валюты (conventions.md, раздел 4)'
+      properties:
+        amount:
+          type: integer
+          description: Сумма в копейках (целое число)
+          minimum: 0
+          maximum: 9007199254740991
+        currency:
+          type: string
+          description: Код валюты ISO 4217, в R1 только `RUB`
+          enum:
+          - RUB
+      required:
+      - amount
+      - currency
+      additionalProperties: false
+    Email:
+      type: string
+      description: Адрес e-mail в нижнем регистре, не длиннее 254 символов
+      format: email
+      maxLength: 254
+    Country:
+      type: string
+      description: Код страны ISO 3166-1 alpha-2 в верхнем регистре
+      pattern: ^[A-Z]{2}$
+      examples:
+      - RU
+    CorrelationId:
+      type: string
+      description: UUID версии 4, сквозной идентификатор запроса
+      format: uuid
+    Role:
+      type: string
+      description: Роль пользователя в Keycloak, у пользователя одна
+      enum:
+      - buyer
+      - seller
+      - moderator
+      - support-operator
+      - admin
+    ProductType:
+      type: string
+      description: 'Тип товара: ключ игры, лицензия ПО, подарочная карта или пополнение, подписка. Перечисление
+        открытое'
+      enum:
+      - game_key
+      - software_license
+      - gift_card
+      - subscription
+    IssuanceMethod:
+      type: string
+      description: 'Способ выдачи: пул ключей (R1) или API продавца (R2). В R1 принимается только `key_pool`. Перечисление
+        открытое'
+      enum:
+      - key_pool
+      - seller_api
+    ProductStatus:
+      type: string
+      description: Статус товара по SM-04
+      enum:
+      - draft
+      - on_moderation
+      - published
+      - rejected
+      - blocked
+      - archived
+    SellerProfileStatus:
+      type: string
+      description: Статус профиля продавца по SM-05
+      enum:
+      - draft
+      - on_review
+      - returned
+      - approved
+      - rejected
+      - blocked
+    SellerType:
+      type: string
+      description: 'Тип продавца: ИП, самозанятый, юридическое лицо'
+      enum:
+      - sole_proprietor
+      - self_employed
+      - legal_entity
+    OrderStatus:
+      type: string
+      description: Статус заказа по SM-01
+      enum:
+      - created
+      - awaiting_payment
+      - paid
+      - issued
+      - cancelled
+      - refunded
+    TicketStatus:
+      type: string
+      description: Статус обращения по SM-07
+      enum:
+      - created
+      - in_progress
+      - resolved
+    DeliveryStatus:
+      type: string
+      description: Статус выдачи по SM-06
+      enum:
+      - queued
+      - sent
+      - delivered
+      - failed
+    DeliveryAddress:
+      type: object
+      description: 'Снимок адреса доставки. Персональные данные: возвращается только владельцу заказа и не пишется
+        в журналы'
+      properties:
+        channel:
+          type: string
+          description: Канал выдачи, в R1 только e-mail
+          enum:
+          - email
+        address:
+          type: string
+          description: Адрес получателя, снимок на момент заказа
+          format: email
+          maxLength: 254
+      required:
+      - channel
+      - address
+    PageInfo:
+      type: object
+      description: Описание страницы (conventions.md, раздел 10)
+      properties:
+        limit:
+          type: integer
+          description: Размер страницы
+          minimum: 1
+          maximum: 100
+        nextCursor:
+          oneOf:
+          - type: string
+            description: Непрозрачный курсор следующей страницы, `null` на последней
+          - type: 'null'
+      required:
+      - limit
+      - nextCursor
+    FieldError:
+      type: object
+      description: Ошибка одного поля. Задаётся `pointer` либо `parameter`
+      properties:
+        pointer:
+          type: string
+          description: JSON Pointer на поле тела запроса, например `/quantity`
+        parameter:
+          type: string
+          description: Имя параметра запроса или заголовка
+        code:
+          type: string
+          description: Код ошибки поля
+          enum:
+          - required
+          - invalid_format
+          - out_of_range
+          - too_long
+          - too_short
+          - not_unique
+          - unknown_value
+          - immutable
+        detail:
+          type: string
+          description: Объяснение для разработчика
+      required:
+      - code
+      - detail
+    Problem:
+      type: object
+      description: 'Проблема по RFC 9457 (`application/problem+json`). Клиент смотрит на `code`, а не на текст.
+        Расширения: `errors`, `currentStatus`, `available`, `retryAfterAt`, `attemptsLeft`, `limit` (conventions.md,
+        раздел 9)'
+      properties:
+        type:
+          type: string
+          description: URI типа проблемы, служит именем
+          format: uri
+          pattern: ^https://api\.marketplace\.example/problems/[a-z0-9-]+$
+        title:
+          type: string
+          description: Короткое название типа, одно для всех случаев типа
+        status:
+          type: integer
+          description: Код HTTP, равен коду ответа
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+          description: Объяснение случая для разработчика, без трассировок, внутренних адресов и персональных данных
+        instance:
+          type: string
+          description: Путь запроса
+        code:
+          type: string
+          description: Стабильный код типа, равен последнему сегменту `type`
+          enum:
+          - bad-request
+          - idempotency-key-required
+          - unauthenticated
+          - signature-invalid
+          - webhook-expired
+          - forbidden
+          - second-factor-required
+          - full-login-required
+          - phone-not-confirmed
+          - not-found
+          - state-conflict
+          - request-in-progress
+          - product-unavailable
+          - insufficient-stock
+          - ticket-window-closed
+          - ticket-already-open
+          - application-pause-active
+          - refund-not-allowed
+          - email-not-allowed
+          - phone-not-allowed
+          - pool-limit-exceeded
+          - last-admin-required
+          - role-managed-by-system
+          - version-conflict
+          - payload-too-large
+          - unsupported-media-type
+          - validation-failed
+          - idempotency-key-reuse
+          - otp-invalid
+          - otp-expired
+          - precondition-required
+          - rate-limited
+          - otp-request-limited
+          - otp-locked
+          - internal-error
+          - payment-session-unavailable
+          - dependency-unavailable
+          - gateway-timeout
+        correlationId:
+          $ref: components.yaml#/components/schemas/CorrelationId
+        errors:
+          type: array
+          description: Ошибки полей, для `validation-failed`
+          items:
+            $ref: components.yaml#/components/schemas/FieldError
+        currentStatus:
+          type: string
+          description: Текущий статус объекта, для `state-conflict`
+        available:
+          type: integer
+          description: Доступное число ключей, для `insufficient-stock`
+          minimum: 0
+        retryAfterAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        attemptsLeft:
+          type: integer
+          description: Оставшиеся попытки ввода кода, для `otp-invalid`
+          minimum: 0
+        limit:
+          type: integer
+          description: Предел, для `pool-limit-exceeded`
+          minimum: 0
+      required:
+      - type
+      - title
+      - status
+      - detail
+      - code
+      - correlationId
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: 'UUID версии 4, созданный клиентом. Повтор с тем же ключом и телом возвращает сохранённый ответ
+        с заголовком `Idempotency-Replayed: true`, срок хранения 24 часа (ADR-006).'
+      schema:
+        type: string
+        format: uuid
+      example: 3f2b8c6e-1a4d-4e0b-9d7a-5c1e2f3a4b5c
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: Строгий ETag версии ресурса, например `"7"`. Без него 428, при несовпадении 412.
+      schema:
+        type: string
+        pattern: ^"[0-9]+"$
+      example: '"7"'
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Размер страницы, по умолчанию 20, не больше 100. Значение вне границ даёт 422.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Курсор из `page.nextCursor` предыдущего ответа.
+      schema:
+        type: string
+        maxLength: 512
+  headers:
+    CorrelationId:
+      description: Сквозной идентификатор запроса (UUID), по нему ищут журналы и трассу
+      schema:
+        type: string
+        format: uuid
+    ETag:
+      description: Строгий ETag с номером версии ресурса, например `"7"`
+      schema:
+        type: string
+    Location:
+      description: Адрес созданного ресурса
+      schema:
+        type: string
+    IdempotencyReplayed:
+      description: '`true`, если ответ взят из сохранённого, а не получен выполнением'
+      schema:
+        type: boolean
+    RetryAfter:
+      description: Через сколько секунд можно повторить запрос
+      schema:
+        type: integer
+        minimum: 0
+    WwwAuthenticate:
+      description: 'Схема аутентификации: `Bearer`'
+      schema:
+        type: string
+    CacheControlNoStore:
+      description: '`no-store`: авторизованные ответы не кэшируются'
+      schema:
+        type: string
+    CacheControlPublic:
+      description: '`public, max-age=30` для публичной витрины'
+      schema:
+        type: string
+  responses:
+    E400BadRequestIdempotencyKeyRequired:
+      description: Некорректный запрос; Нужен ключ идемпотентности
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            bad-request:
+              summary: Некорректный запрос
+              value:
+                type: https://api.marketplace.example/problems/bad-request
+                title: Некорректный запрос
+                status: 400
+                detail: Тело запроса не разбирается как JSON.
+                code: bad-request
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            idempotency-key-required:
+              summary: Нужен ключ идемпотентности
+              value:
+                type: https://api.marketplace.example/problems/idempotency-key-required
+                title: Нужен ключ идемпотентности
+                status: 400
+                detail: Для этой операции нужен заголовок Idempotency-Key (UUID версии 4).
+                code: idempotency-key-required
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E401Unauthenticated:
+      description: Требуется вход
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        WWW-Authenticate:
+          $ref: '#/components/headers/WwwAuthenticate'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            unauthenticated:
+              summary: Требуется вход
+              value:
+                type: https://api.marketplace.example/problems/unauthenticated
+                title: Требуется вход
+                status: 401
+                detail: Токен отсутствует, недействителен или просрочен.
+                code: unauthenticated
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E403ForbiddenFullLoginRequired:
+      description: Недостаточно прав; Нужен полный вход
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            forbidden:
+              summary: Недостаточно прав
+              value:
+                type: https://api.marketplace.example/problems/forbidden
+                title: Недостаточно прав
+                status: 403
+                detail: Роль, область токена или условие операции не выполнены.
+                code: forbidden
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            full-login-required:
+              summary: Нужен полный вход
+              value:
+                type: https://api.marketplace.example/problems/full-login-required
+                title: Нужен полный вход
+                status: 403
+                detail: Действие недоступно для сессии по коду из SMS, войдите по паролю или через VK ID.
+                code: full-login-required
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E409StateConflictRequestInProgress:
+      description: Действие недоступно в этом статусе; Запрос уже выполняется
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            state-conflict:
+              summary: Действие недоступно в этом статусе
+              value:
+                type: https://api.marketplace.example/problems/state-conflict
+                title: Действие недоступно в этом статусе
+                status: 409
+                detail: Действие недоступно в текущем статусе объекта.
+                code: state-conflict
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                currentStatus: created
+            request-in-progress:
+              summary: Запрос уже выполняется
+              value:
+                type: https://api.marketplace.example/problems/request-in-progress
+                title: Запрос уже выполняется
+                status: 409
+                detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
+                code: request-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E415UnsupportedMediaType:
+      description: Неподдерживаемый тип
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            unsupported-media-type:
+              summary: Неподдерживаемый тип
+              value:
+                type: https://api.marketplace.example/problems/unsupported-media-type
+                title: Неподдерживаемый тип
+                status: 415
+                detail: Тип содержимого не поддерживается этой операцией.
+                code: unsupported-media-type
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E422ValidationFailedIdempotencyKeyReuse:
+      description: Данные не прошли проверку; Ключ уже использован
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            validation-failed:
+              summary: Данные не прошли проверку
+              value:
+                type: https://api.marketplace.example/problems/validation-failed
+                title: Данные не прошли проверку
+                status: 422
+                detail: Данные не прошли проверку, подробности в поле errors.
+                code: validation-failed
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                errors:
+                - pointer: /quantity
+                  code: out_of_range
+                  detail: Допустимо от 1 до 10 штук.
+            idempotency-key-reuse:
+              summary: Ключ уже использован
+              value:
+                type: https://api.marketplace.example/problems/idempotency-key-reuse
+                title: Ключ уже использован
+                status: 422
+                detail: Этот Idempotency-Key уже использован с другим телом запроса.
+                code: idempotency-key-reuse
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E429RateLimited:
+      description: Слишком много запросов
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            rate-limited:
+              summary: Слишком много запросов
+              value:
+                type: https://api.marketplace.example/problems/rate-limited
+                title: Слишком много запросов
+                status: 429
+                detail: Слишком много запросов, повторите позже.
+                code: rate-limited
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E500InternalError:
+      description: Внутренняя ошибка
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            internal-error:
+              summary: Внутренняя ошибка
+              value:
+                type: https://api.marketplace.example/problems/internal-error
+                title: Внутренняя ошибка
+                status: 500
+                detail: Внутренняя ошибка сервиса.
+                code: internal-error
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E404NotFound:
+      description: Не найдено
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            not-found:
+              summary: Не найдено
+              value:
+                type: https://api.marketplace.example/problems/not-found
+                title: Не найдено
+                status: 404
+                detail: Объект не найден.
+                code: not-found
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E400BadRequest:
+      description: Некорректный запрос
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            bad-request:
+              summary: Некорректный запрос
+              value:
+                type: https://api.marketplace.example/problems/bad-request
+                title: Некорректный запрос
+                status: 400
+                detail: Тело запроса не разбирается как JSON.
+                code: bad-request
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E409StateConflict:
+      description: Действие недоступно в этом статусе
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            state-conflict:
+              summary: Действие недоступно в этом статусе
+              value:
+                type: https://api.marketplace.example/problems/state-conflict
+                title: Действие недоступно в этом статусе
+                status: 409
+                detail: Действие недоступно в текущем статусе объекта.
+                code: state-conflict
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                currentStatus: created
+    E412VersionConflict:
+      description: Ресурс изменился
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            version-conflict:
+              summary: Ресурс изменился
+              value:
+                type: https://api.marketplace.example/problems/version-conflict
+                title: Ресурс изменился
+                status: 412
+                detail: Ресурс изменился, перечитайте его и повторите с новым ETag.
+                code: version-conflict
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E422ValidationFailed:
+      description: Данные не прошли проверку
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            validation-failed:
+              summary: Данные не прошли проверку
+              value:
+                type: https://api.marketplace.example/problems/validation-failed
+                title: Данные не прошли проверку
+                status: 422
+                detail: Данные не прошли проверку, подробности в поле errors.
+                code: validation-failed
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                errors:
+                - pointer: /quantity
+                  code: out_of_range
+                  detail: Допустимо от 1 до 10 штук.
+    E428PreconditionRequired:
+      description: Нужен заголовок `If-Match`
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            precondition-required:
+              summary: Нужен заголовок `If-Match`
+              value:
+                type: https://api.marketplace.example/problems/precondition-required
+                title: Нужен заголовок `If-Match`
+                status: 428
+                detail: Для изменения нужен заголовок If-Match.
+                code: precondition-required
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E413PayloadTooLarge:
+      description: Слишком большой запрос
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            payload-too-large:
+              summary: Слишком большой запрос
+              value:
+                type: https://api.marketplace.example/problems/payload-too-large
+                title: Слишком большой запрос
+                status: 413
+                detail: Тело запроса больше предела маршрута.
+                code: payload-too-large
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E400IdempotencyKeyRequired:
+      description: Нужен ключ идемпотентности
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            idempotency-key-required:
+              summary: Нужен ключ идемпотентности
+              value:
+                type: https://api.marketplace.example/problems/idempotency-key-required
+                title: Нужен ключ идемпотентности
+                status: 400
+                detail: Для этой операции нужен заголовок Idempotency-Key (UUID версии 4).
+                code: idempotency-key-required
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E409StateConflictRequestInProgressApplicationPauseActive:
+      description: Действие недоступно в этом статусе; Запрос уже выполняется; Повторная заявка пока недоступна
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            state-conflict:
+              summary: Действие недоступно в этом статусе
+              value:
+                type: https://api.marketplace.example/problems/state-conflict
+                title: Действие недоступно в этом статусе
+                status: 409
+                detail: Действие недоступно в текущем статусе объекта.
+                code: state-conflict
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                currentStatus: created
+            request-in-progress:
+              summary: Запрос уже выполняется
+              value:
+                type: https://api.marketplace.example/problems/request-in-progress
+                title: Запрос уже выполняется
+                status: 409
+                detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
+                code: request-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            application-pause-active:
+              summary: Повторная заявка пока недоступна
+              value:
+                type: https://api.marketplace.example/problems/application-pause-active
+                title: Повторная заявка пока недоступна
+                status: 409
+                detail: Повторная заявка пока недоступна, пауза после отказа не закончилась.
+                code: application-pause-active
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                retryAfterAt: '2026-10-04T12:00:00.000Z'
+    E422IdempotencyKeyReuse:
+      description: Ключ уже использован
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            idempotency-key-reuse:
+              summary: Ключ уже использован
+              value:
+                type: https://api.marketplace.example/problems/idempotency-key-reuse
+                title: Ключ уже использован
+                status: 422
+                detail: Этот Idempotency-Key уже использован с другим телом запроса.
+                code: idempotency-key-reuse
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E403ForbiddenSecondFactorRequired:
+      description: Недостаточно прав; Нужна двухфакторная проверка
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            forbidden:
+              summary: Недостаточно прав
+              value:
+                type: https://api.marketplace.example/problems/forbidden
+                title: Недостаточно прав
+                status: 403
+                detail: Роль, область токена или условие операции не выполнены.
+                code: forbidden
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            second-factor-required:
+              summary: Нужна двухфакторная проверка
+              value:
+                type: https://api.marketplace.example/problems/second-factor-required
+                title: Нужна двухфакторная проверка
+                status: 403
+                detail: Для этой операции в токене нужна двухфакторная проверка.
+                code: second-factor-required
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E409RequestInProgress:
+      description: Запрос уже выполняется
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            request-in-progress:
+              summary: Запрос уже выполняется
+              value:
+                type: https://api.marketplace.example/problems/request-in-progress
+                title: Запрос уже выполняется
+                status: 409
+                detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
+                code: request-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E403Forbidden:
+      description: Недостаточно прав
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            forbidden:
+              summary: Недостаточно прав
+              value:
+                type: https://api.marketplace.example/problems/forbidden
+                title: Недостаточно прав
+                status: 403
+                detail: Роль, область токена или условие операции не выполнены.
+                code: forbidden
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E409StateConflictRequestInProgressPoolLimitExceeded:
+      description: Действие недоступно в этом статусе; Запрос уже выполняется; Пул ключей переполнен
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            state-conflict:
+              summary: Действие недоступно в этом статусе
+              value:
+                type: https://api.marketplace.example/problems/state-conflict
+                title: Действие недоступно в этом статусе
+                status: 409
+                detail: Действие недоступно в текущем статусе объекта.
+                code: state-conflict
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                currentStatus: created
+            request-in-progress:
+              summary: Запрос уже выполняется
+              value:
+                type: https://api.marketplace.example/problems/request-in-progress
+                title: Запрос уже выполняется
+                status: 409
+                detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
+                code: request-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            pool-limit-exceeded:
+              summary: Пул ключей переполнен
+              value:
+                type: https://api.marketplace.example/problems/pool-limit-exceeded
+                title: Пул ключей переполнен
+                status: 409
+                detail: После загрузки в пуле товара было бы больше 100000 ключей.
+                code: pool-limit-exceeded
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                limit: 100000
+    E409StateConflictRequestInProgressInsufficientStock:
+      description: Действие недоступно в этом статусе; Запрос уже выполняется; Недостаточно ключей
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            state-conflict:
+              summary: Действие недоступно в этом статусе
+              value:
+                type: https://api.marketplace.example/problems/state-conflict
+                title: Действие недоступно в этом статусе
+                status: 409
+                detail: Действие недоступно в текущем статусе объекта.
+                code: state-conflict
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                currentStatus: created
+            request-in-progress:
+              summary: Запрос уже выполняется
+              value:
+                type: https://api.marketplace.example/problems/request-in-progress
+                title: Запрос уже выполняется
+                status: 409
+                detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
+                code: request-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            insufficient-stock:
+              summary: Недостаточно ключей
+              value:
+                type: https://api.marketplace.example/problems/insufficient-stock
+                title: Недостаточно ключей
+                status: 409
+                detail: Запрошено больше ключей, чем доступно.
+                code: insufficient-stock
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                available: 2
+    E403ForbiddenFullLoginRequiredPhoneNotConfirmed:
+      description: Недостаточно прав; Нужен полный вход; Подтвердите номер телефона
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            forbidden:
+              summary: Недостаточно прав
+              value:
+                type: https://api.marketplace.example/problems/forbidden
+                title: Недостаточно прав
+                status: 403
+                detail: Роль, область токена или условие операции не выполнены.
+                code: forbidden
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            full-login-required:
+              summary: Нужен полный вход
+              value:
+                type: https://api.marketplace.example/problems/full-login-required
+                title: Нужен полный вход
+                status: 403
+                detail: Действие недоступно для сессии по коду из SMS, войдите по паролю или через VK ID.
+                code: full-login-required
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            phone-not-confirmed:
+              summary: Подтвердите номер телефона
+              value:
+                type: https://api.marketplace.example/problems/phone-not-confirmed
+                title: Подтвердите номер телефона
+                status: 403
+                detail: Подтвердите номер телефона перед первым заказом.
+                code: phone-not-confirmed
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E409RequestInProgressProductUnavailableInsufficientStock:
+      description: Запрос уже выполняется; Товар недоступен; Недостаточно ключей
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            request-in-progress:
+              summary: Запрос уже выполняется
+              value:
+                type: https://api.marketplace.example/problems/request-in-progress
+                title: Запрос уже выполняется
+                status: 409
+                detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
+                code: request-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            product-unavailable:
+              summary: Товар недоступен
+              value:
+                type: https://api.marketplace.example/problems/product-unavailable
+                title: Товар недоступен
+                status: 409
+                detail: 'Товар недоступен для заказа: не опубликован или заблокирован.'
+                code: product-unavailable
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            insufficient-stock:
+              summary: Недостаточно ключей
+              value:
+                type: https://api.marketplace.example/problems/insufficient-stock
+                title: Недостаточно ключей
+                status: 409
+                detail: Запрошено больше ключей, чем доступно.
+                code: insufficient-stock
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                available: 2
+    E503PaymentSessionUnavailableDependencyUnavailable:
+      description: Не удалось открыть оплату; Сервис временно недоступен
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            payment-session-unavailable:
+              summary: Не удалось открыть оплату
+              value:
+                type: https://api.marketplace.example/problems/payment-session-unavailable
+                title: Не удалось открыть оплату
+                status: 503
+                detail: Не удалось открыть оплату, заказ отменён.
+                code: payment-session-unavailable
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            dependency-unavailable:
+              summary: Сервис временно недоступен
+              value:
+                type: https://api.marketplace.example/problems/dependency-unavailable
+                title: Сервис временно недоступен
+                status: 503
+                detail: Сервис временно недоступен, повторите позже.
+                code: dependency-unavailable
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E504GatewayTimeout:
+      description: Время ожидания истекло
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            gateway-timeout:
+              summary: Время ожидания истекло
+              value:
+                type: https://api.marketplace.example/problems/gateway-timeout
+                title: Время ожидания истекло
+                status: 504
+                detail: Время ожидания ответа истекло.
+                code: gateway-timeout
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E401SignatureInvalidWebhookExpired:
+      description: Подпись неверна; Уведомление устарело
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            signature-invalid:
+              summary: Подпись неверна
+              value:
+                type: https://api.marketplace.example/problems/signature-invalid
+                title: Подпись неверна
+                status: 401
+                detail: Подпись уведомления не совпала.
+                code: signature-invalid
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            webhook-expired:
+              summary: Уведомление устарело
+              value:
+                type: https://api.marketplace.example/problems/webhook-expired
+                title: Уведомление устарело
+                status: 401
+                detail: Метка времени уведомления вне окна 5 минут.
+                code: webhook-expired
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E409RequestInProgressRefundNotAllowed:
+      description: Запрос уже выполняется; Возврат недоступен
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            request-in-progress:
+              summary: Запрос уже выполняется
+              value:
+                type: https://api.marketplace.example/problems/request-in-progress
+                title: Запрос уже выполняется
+                status: 409
+                detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
+                code: request-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            refund-not-allowed:
+              summary: Возврат недоступен
+              value:
+                type: https://api.marketplace.example/problems/refund-not-allowed
+                title: Возврат недоступен
+                status: 409
+                detail: Платёж не стоит в очереди ручных возвратов.
+                code: refund-not-allowed
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E409StateConflictRequestInProgressPhoneNotAllowed:
+      description: Действие недоступно в этом статусе; Запрос уже выполняется; Номер использовать нельзя
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            state-conflict:
+              summary: Действие недоступно в этом статусе
+              value:
+                type: https://api.marketplace.example/problems/state-conflict
+                title: Действие недоступно в этом статусе
+                status: 409
+                detail: Действие недоступно в текущем статусе объекта.
+                code: state-conflict
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                currentStatus: created
+            request-in-progress:
+              summary: Запрос уже выполняется
+              value:
+                type: https://api.marketplace.example/problems/request-in-progress
+                title: Запрос уже выполняется
+                status: 409
+                detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
+                code: request-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            phone-not-allowed:
+              summary: Номер использовать нельзя
+              value:
+                type: https://api.marketplace.example/problems/phone-not-allowed
+                title: Номер использовать нельзя
+                status: 409
+                detail: Этот номер использовать нельзя.
+                code: phone-not-allowed
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E429RateLimitedOtpRequestLimited:
+      description: Слишком много запросов; Слишком много запросов кода
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            rate-limited:
+              summary: Слишком много запросов
+              value:
+                type: https://api.marketplace.example/problems/rate-limited
+                title: Слишком много запросов
+                status: 429
+                detail: Слишком много запросов, повторите позже.
+                code: rate-limited
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            otp-request-limited:
+              summary: Слишком много запросов кода
+              value:
+                type: https://api.marketplace.example/problems/otp-request-limited
+                title: Слишком много запросов кода
+                status: 429
+                detail: Слишком много запросов кода, повторите позже.
+                code: otp-request-limited
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E503DependencyUnavailable:
+      description: Сервис временно недоступен
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            dependency-unavailable:
+              summary: Сервис временно недоступен
+              value:
+                type: https://api.marketplace.example/problems/dependency-unavailable
+                title: Сервис временно недоступен
+                status: 503
+                detail: Сервис временно недоступен, повторите позже.
+                code: dependency-unavailable
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E409RequestInProgressPhoneNotAllowed:
+      description: Запрос уже выполняется; Номер использовать нельзя
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            request-in-progress:
+              summary: Запрос уже выполняется
+              value:
+                type: https://api.marketplace.example/problems/request-in-progress
+                title: Запрос уже выполняется
+                status: 409
+                detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
+                code: request-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            phone-not-allowed:
+              summary: Номер использовать нельзя
+              value:
+                type: https://api.marketplace.example/problems/phone-not-allowed
+                title: Номер использовать нельзя
+                status: 409
+                detail: Этот номер использовать нельзя.
+                code: phone-not-allowed
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E422ValidationFailedIdempotencyKeyReuseOtpInvalidOtpExpired:
+      description: Данные не прошли проверку; Ключ уже использован; Код неверен; Код устарел
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            validation-failed:
+              summary: Данные не прошли проверку
+              value:
+                type: https://api.marketplace.example/problems/validation-failed
+                title: Данные не прошли проверку
+                status: 422
+                detail: Данные не прошли проверку, подробности в поле errors.
+                code: validation-failed
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                errors:
+                - pointer: /quantity
+                  code: out_of_range
+                  detail: Допустимо от 1 до 10 штук.
+            idempotency-key-reuse:
+              summary: Ключ уже использован
+              value:
+                type: https://api.marketplace.example/problems/idempotency-key-reuse
+                title: Ключ уже использован
+                status: 422
+                detail: Этот Idempotency-Key уже использован с другим телом запроса.
+                code: idempotency-key-reuse
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            otp-invalid:
+              summary: Код неверен
+              value:
+                type: https://api.marketplace.example/problems/otp-invalid
+                title: Код неверен
+                status: 422
+                detail: Код неверен.
+                code: otp-invalid
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                attemptsLeft: 4
+            otp-expired:
+              summary: Код устарел
+              value:
+                type: https://api.marketplace.example/problems/otp-expired
+                title: Код устарел
+                status: 422
+                detail: Срок кода истёк, запросите новый.
+                code: otp-expired
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E429RateLimitedOtpLocked:
+      description: Слишком много запросов; Код заблокирован
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            rate-limited:
+              summary: Слишком много запросов
+              value:
+                type: https://api.marketplace.example/problems/rate-limited
+                title: Слишком много запросов
+                status: 429
+                detail: Слишком много запросов, повторите позже.
+                code: rate-limited
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            otp-locked:
+              summary: Код заблокирован
+              value:
+                type: https://api.marketplace.example/problems/otp-locked
+                title: Код заблокирован
+                status: 429
+                detail: Исчерпаны попытки ввода кода, повторите позже.
+                code: otp-locked
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E409StateConflictRequestInProgressTicketWindowClosedTicketAlreadyOpen:
+      description: Действие недоступно в этом статусе; Запрос уже выполняется; Срок обращения истёк; Обращение уже
+        открыто
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            state-conflict:
+              summary: Действие недоступно в этом статусе
+              value:
+                type: https://api.marketplace.example/problems/state-conflict
+                title: Действие недоступно в этом статусе
+                status: 409
+                detail: Действие недоступно в текущем статусе объекта.
+                code: state-conflict
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                currentStatus: created
+            request-in-progress:
+              summary: Запрос уже выполняется
+              value:
+                type: https://api.marketplace.example/problems/request-in-progress
+                title: Запрос уже выполняется
+                status: 409
+                detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
+                code: request-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            ticket-window-closed:
+              summary: Срок обращения истёк
+              value:
+                type: https://api.marketplace.example/problems/ticket-window-closed
+                title: Срок обращения истёк
+                status: 409
+                detail: С первичной выдачи прошло больше 72 часов.
+                code: ticket-window-closed
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            ticket-already-open:
+              summary: Обращение уже открыто
+              value:
+                type: https://api.marketplace.example/problems/ticket-already-open
+                title: Обращение уже открыто
+                status: 409
+                detail: По заказу уже есть открытое обращение.
+                code: ticket-already-open
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E409StateConflictRequestInProgressEmailNotAllowed:
+      description: Действие недоступно в этом статусе; Запрос уже выполняется; Адрес использовать нельзя
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            state-conflict:
+              summary: Действие недоступно в этом статусе
+              value:
+                type: https://api.marketplace.example/problems/state-conflict
+                title: Действие недоступно в этом статусе
+                status: 409
+                detail: Действие недоступно в текущем статусе объекта.
+                code: state-conflict
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                currentStatus: created
+            request-in-progress:
+              summary: Запрос уже выполняется
+              value:
+                type: https://api.marketplace.example/problems/request-in-progress
+                title: Запрос уже выполняется
+                status: 409
+                detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
+                code: request-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            email-not-allowed:
+              summary: Адрес использовать нельзя
+              value:
+                type: https://api.marketplace.example/problems/email-not-allowed
+                title: Адрес использовать нельзя
+                status: 409
+                detail: Этот адрес использовать нельзя.
+                code: email-not-allowed
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E409StateConflictRequestInProgressLastAdminRequiredRoleManagedBySystem:
+      description: Действие недоступно в этом статусе; Запрос уже выполняется; Нужен хотя бы один администратор;
+        Роль управляется системой
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            state-conflict:
+              summary: Действие недоступно в этом статусе
+              value:
+                type: https://api.marketplace.example/problems/state-conflict
+                title: Действие недоступно в этом статусе
+                status: 409
+                detail: Действие недоступно в текущем статусе объекта.
+                code: state-conflict
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                currentStatus: created
+            request-in-progress:
+              summary: Запрос уже выполняется
+              value:
+                type: https://api.marketplace.example/problems/request-in-progress
+                title: Запрос уже выполняется
+                status: 409
+                detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
+                code: request-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            last-admin-required:
+              summary: Нужен хотя бы один администратор
+              value:
+                type: https://api.marketplace.example/problems/last-admin-required
+                title: Нужен хотя бы один администратор
+                status: 409
+                detail: В системе должен остаться хотя бы один активный администратор.
+                code: last-admin-required
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            role-managed-by-system:
+              summary: Роль управляется системой
+              value:
+                type: https://api.marketplace.example/problems/role-managed-by-system
+                title: Роль управляется системой
+                status: 409
+                detail: Роль «Продавец» вручную не назначается и не снимается.
+                code: role-managed-by-system
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E409StateConflictRequestInProgressLastAdminRequired:
+      description: Действие недоступно в этом статусе; Запрос уже выполняется; Нужен хотя бы один администратор
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            state-conflict:
+              summary: Действие недоступно в этом статусе
+              value:
+                type: https://api.marketplace.example/problems/state-conflict
+                title: Действие недоступно в этом статусе
+                status: 409
+                detail: Действие недоступно в текущем статусе объекта.
+                code: state-conflict
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                currentStatus: created
+            request-in-progress:
+              summary: Запрос уже выполняется
+              value:
+                type: https://api.marketplace.example/problems/request-in-progress
+                title: Запрос уже выполняется
+                status: 409
+                detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
+                code: request-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            last-admin-required:
+              summary: Нужен хотя бы один администратор
+              value:
+                type: https://api.marketplace.example/problems/last-admin-required
+                title: Нужен хотя бы один администратор
+                status: 409
+                detail: В системе должен остаться хотя бы один активный администратор.
+                code: last-admin-required
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E429OtpRequestLimited:
+      description: Слишком много запросов кода
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            otp-request-limited:
+              summary: Слишком много запросов кода
+              value:
+                type: https://api.marketplace.example/problems/otp-request-limited
+                title: Слишком много запросов кода
+                status: 429
+                detail: Слишком много запросов кода, повторите позже.
+                code: otp-request-limited
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E429OtpLocked:
+      description: Код заблокирован
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            otp-locked:
+              summary: Код заблокирован
+              value:
+                type: https://api.marketplace.example/problems/otp-locked
+                title: Код заблокирован
+                status: 429
+                detail: Исчерпаны попытки ввода кода, повторите позже.
+                code: otp-locked
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
