@@ -1897,6 +1897,8 @@ paths:
           $ref: components.yaml#/components/responses/E413PayloadTooLarge
         '415':
           $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
         '500':
           $ref: components.yaml#/components/responses/E500InternalError
   /api/v1/webhooks/sms-provider:
@@ -1950,6 +1952,8 @@ paths:
           $ref: components.yaml#/components/responses/E413PayloadTooLarge
         '415':
           $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
         '500':
           $ref: components.yaml#/components/responses/E500InternalError
 components:

@@ -404,7 +404,8 @@ paths:
       - US-4.4
       x-allowed-roles:
       - system
-      x-conditions: []
+      x-conditions:
+      - U17
       x-allowed-callers:
       - delivery-service
       x-internal: true

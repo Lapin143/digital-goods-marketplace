@@ -2,11 +2,11 @@
 
 | Поле | Содержание |
 | --- | --- |
-| Состояние | Шаг 11 Ф2. 68 операций в шести сервисах, 937 примеров запросов, ответов и ошибок проверены по схемам |
+| Состояние | Шаг 11 Ф2. 68 операций в шести сервисах, 941 пример запросов, ответов и ошибок проверен по схемам |
 | Формат | OpenAPI 3.1, YAML, по одному файлу на сервис плюс общий файл компонентов [components.yaml](components.yaml) |
 | Принцип | Contract-first: контракт пишется до кода, сверяется с матрицей прав, историями и доменной моделью, дальше по нему строятся код и контрактные тесты (Ф3) |
 | Правила | [conventions.md](../../05-architecture/conventions.md) (деньги, время, ошибки, страницы, заголовки), [roles-permissions.md](../../05-architecture/roles-permissions.md) (роли, области, условия) |
-| Проверка | Линтер `check_openapi.py`, раздел 8 |
+| Проверка | Линтер [`tools/docs-checks/check_openapi.py`](../../../tools/docs-checks/check_openapi.py), раздел 8 |
 
 ## 1. Как читать
 
@@ -120,7 +120,7 @@
 
 ## 7. Каталог операций
 
-Раздел создаётся скриптом из контрактов: `python3 check_openapi.py --write-catalog`. Руками его править не нужно, линтер сообщает, если он устарел.
+Раздел создаётся скриптом из контрактов: `python3 tools/docs-checks/check_openapi.py --write-catalog`. Руками его править не нужно, линтер сообщает, если он устарел.
 
 <!-- catalog:begin -->
 ### Операции по сервисам
@@ -166,7 +166,7 @@
 | GET | `/api/v1/seller/products/{productId}/stock` | `getProductStock` | OP-39 | `seller.catalog` | `seller` | U3 | US-4.5 |
 | POST | `/internal/v1/reservations` | `reserveKeys` | OP-51 | mTLS: `order-service` | `system` | - | US-5.2 |
 | POST | `/internal/v1/reservations/{reservationId}/confirm` | `confirmReservation` | OP-54 | mTLS: `order-service` | `system` | - | US-5.5 |
-| GET | `/internal/v1/keys` | `getKeyValues` | OP-38 | mTLS: `delivery-service` | `system` | - | US-4.4 |
+| GET | `/internal/v1/keys` | `getKeyValues` | OP-38 | mTLS: `delivery-service` | `system` | U17 | US-4.4 |
 
 #### `order-service`, операций 5
 
@@ -271,7 +271,7 @@
 
 ## 8. Проверка контрактов
 
-Линтер `check_openapi.py` читает YAML, [conventions.md](../../05-architecture/conventions.md), [roles-permissions.md](../../05-architecture/roles-permissions.md), истории требований и доменную модель и проверяет:
+Линтер `tools/docs-checks/check_openapi.py` читает YAML, [conventions.md](../../05-architecture/conventions.md), [roles-permissions.md](../../05-architecture/roles-permissions.md), истории требований и доменную модель и проверяет:
 
 1. Структуру: пути, методы, уникальные `operationId`, обязательные поля, один успешный ответ, имена путей и параметров.
 2. Ссылки `$ref`, неиспользуемые схемы, ответы, параметры и заголовки.
@@ -283,7 +283,7 @@
 8. Покрытие историй R1 в обе стороны, строки матрицы без операции и владение сущностями.
 9. Этот README: таблица без REST, актуальность каталога, число операций в шапке.
 
-Запуск: `python3 check_openapi.py`. Код выхода 0 означает «проблем: 0».
+Запуск из корня репозитория: `python3 tools/docs-checks/check_openapi.py`. Код выхода 0 означает «проблем: 0». Нужны Python 3 с PyYAML и jsonschema.
 
 ## 9. Решения и находки шага
 

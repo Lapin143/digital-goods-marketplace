@@ -2081,6 +2081,8 @@ paths:
         '304':
           description: Ресурс не изменился с момента ETag из If-None-Match
           headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
             ETag:
               $ref: components.yaml#/components/headers/ETag
         '400':
@@ -2154,6 +2156,8 @@ paths:
         '304':
           description: Ресурс не изменился с момента ETag из If-None-Match
           headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
             ETag:
               $ref: components.yaml#/components/headers/ETag
         '400':
