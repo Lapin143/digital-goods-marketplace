@@ -1,0 +1,63 @@
+name: wrapper
+
+# Создание и обновление Gradle wrapper. Скачать дистрибутив Gradle из рабочей среды проекта нельзя,
+# поэтому wrapper создаётся на раннере и возвращается в ту же ветку коммитом.
+#
+# Как запустить: отправить любой коммит в ветку ci/wrapper (workflow_dispatch недоступен без входа в GitHub).
+# Версия задаётся в GRADLE_VERSION ниже и записана в docs/09-operations/versions.md.
+# После запуска забрать из ветки файлы gradlew, gradlew.bat, gradle/wrapper/* и перенести в рабочую ветку.
+on:
+  push:
+    branches: ['ci/wrapper']
+
+permissions:
+  contents: write
+
+env:
+  GRADLE_VERSION: 9.8.0
+
+jobs:
+  wrapper:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Создание wrapper в пустом проекте
+        run: |
+          set -euo pipefail
+          base="https://services.gradle.org/distributions"
+          sum=$(curl -sSfL "$base/gradle-${GRADLE_VERSION}-bin.zip.sha256")
+          echo "Контрольная сумма дистрибутива: $sum"
+          w=$(mktemp -d)
+          cd "$w"
+          touch settings.gradle
+          tools_gradle=$(command -v gradle || true)
+          echo "Установленный gradle: ${tools_gradle:-нет}"
+          [ -n "$tools_gradle" ] || { curl -sSfL -o g.zip "$base/gradle-${GRADLE_VERSION}-bin.zip" && unzip -q g.zip && tools_gradle="$PWD/gradle-${GRADLE_VERSION}/bin/gradle"; }
+          "$tools_gradle" --no-daemon wrapper --gradle-version "${GRADLE_VERSION}" --distribution-type bin --gradle-distribution-sha256-sum "$sum"
+          cp -r gradlew gradlew.bat gradle "$GITHUB_WORKSPACE/"
+          echo "WRAPPER_DIR=$w" >> "$GITHUB_ENV"
+
+      - name: Проверка jar wrapper по официальной контрольной сумме
+        run: |
+          set -euo pipefail
+          want=$(curl -sSfL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-wrapper.jar.sha256")
+          have=$(sha256sum gradle/wrapper/gradle-wrapper.jar | cut -d' ' -f1)
+          echo "официальная: $want"
+          echo "полученная:  $have"
+          [ "$want" = "$have" ]
+
+      - name: Коммит в ветку
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add gradlew gradlew.bat gradle/wrapper
+          git diff --cached --stat
+          git commit -m "build: Gradle wrapper ${GRADLE_VERSION}" || echo "нечего коммитить"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
