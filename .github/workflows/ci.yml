@@ -55,7 +55,7 @@ jobs:
 
       - name: Проверки документов, контрактов и модели данных
         env:
-          DIAG_FILTER: '^\s+- |^== |Traceback|Error|ОШИБКА|проблем: [1-9]|ПРОБЛЕМЫ'
+          DIAG_TAIL: "40"
         run: tools/ci/diag.sh "Проверки документов" bash tools/docs-checks/run_all.sh --db
 
       - name: Самопроверка контролей

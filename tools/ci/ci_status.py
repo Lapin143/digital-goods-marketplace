@@ -92,6 +92,11 @@ def main():
     a = ap.parse_args()
     repo = a.repo or default_repo()
     branch = a.branch or (None if a.sha else git('rev-parse', '--abbrev-ref', 'HEAD'))
+    if not a.sha and branch:
+        # По умолчанию ждём запуск именно для последнего локального коммита ветки, а не для предыдущего.
+        local = git('rev-parse', '--verify', '-q', branch)
+        if local:
+            a.sha = local[:12]
     t0 = time.time()
     while True:
         try:

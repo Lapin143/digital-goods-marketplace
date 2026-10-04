@@ -5,7 +5,22 @@ HERE=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
 export REPO=${REPO:-$(cd "$HERE/../.." && pwd)}
 cd "$REPO" || exit 2
 fail=0
-run() { echo "== $*"; "$@" || fail=1; echo; }
+summary=$(mktemp)
+trap 'rm -f "$summary"' EXIT
+# Каждая проверка печатает свой вывод; проверки с ошибками дополнительно попадают в сводку в конце
+# (по ней видно, что именно сломалось, без прокрутки длинного журнала, в том числе в аннотациях CI).
+run() {
+  local out rc
+  echo "== $*"
+  out=$(mktemp)
+  "$@" 2>&1 | tee "$out"; rc=${PIPESTATUS[0]}
+  if [ "$rc" -ne 0 ]; then
+    fail=1
+    { echo "== ${*##*/}"; grep -E '^\s+- |ОШИБКА|Traceback|Error' "$out" | head -n 20; } >> "$summary"
+  fi
+  rm -f "$out"
+  echo
+}
 run python3 "$HERE/validate_docs.py" docs
 run python3 "$HERE/check_us.py"
 run python3 "$HERE/check_uc.py"
@@ -26,5 +41,5 @@ if [ "$1" = "--db" ]; then
   run python3 "$HERE/db/check_datamodel.py"
   run python3 "$HERE/db/check_explain.py"
 fi
-[ $fail -eq 0 ] && echo "ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ" || echo "ЕСТЬ ПРОБЛЕМЫ"
+if [ $fail -eq 0 ]; then echo "ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ"; else echo "СВОДКА ОШИБОК:"; cat "$summary"; echo "ЕСТЬ ПРОБЛЕМЫ"; fi
 exit $fail
