@@ -12,7 +12,10 @@
 
 | `build` | `./gradlew build` на Java 25, сводка тестов, образы всех сервисов, проверка образов | Компиляция с `-Werror`, модульные тесты (в аннотации заметка с числом тестов по модулям), образ запускается от UID 10001 с файловой системой только для чтения и отвечает на `/actuator/health`. Wrapper сверяется с официальной контрольной суммой |
 
-Следующие шаги Ф3 добавляют проверку тегов образов (`images`), интеграционные тесты на Testcontainers в `build` и задание `stand` (подъём Compose и дымовой тест).
+| `images` | `tools/ci/check-images.sh` | Теги образов из `versions.md` (раздел 3) и базовый образ Java существуют в реестрах (`docker manifest inspect`) |
+| `infra` | `make up SET=dev-min`, `tools/stand-checks/wait.py`, `tools/stand-checks/infra_security.sh` | PostgreSQL, Redis и Kafka поднимаются с TLS и ACL, `kafka-init` завершается кодом 0, повторный подъём проходит. Шифрование и права проверяются «плохими» и «хорошими» клиентами. В конце печатается память контейнеров |
+
+Следующие шаги Ф3 добавляют интеграционные тесты на Testcontainers в `build` и задание `stand` (подъём всего набора `full` и дымовой тест).
 
 Отдельный рабочий процесс `wrapper.yml` создаёт и обновляет Gradle wrapper на раннере (запуск: коммит в ветку `ci/wrapper`, файлы возвращаются в ту же ветку).
 
@@ -45,6 +48,7 @@ python3 tools/ci/ci_status.py --all-steps     # печатать все шаги
 | `test_summary.py` | Сводка отчётов JUnit по модулям в аннотацию notice, падает, если тестов нет |
 | `check-no-secrets-in-git.sh` | ST-14: в Git нет файлов ключей, сертификатов и каталогов `secrets/`, `.pki/` |
 | `check-image.sh` | Проверка образа: UID, запуск с `--read-only`, `/actuator/health` |
+| `check-images.sh` | Теги образов стенда существуют в реестрах |
 | `../../.gitleaks.toml` | Настройки Gitleaks: стандартные правила и исключения проекта |
 | `../docs-checks/requirements.txt` | Зависимости Python проверок документов |
 

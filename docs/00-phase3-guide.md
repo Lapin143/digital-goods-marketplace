@@ -283,23 +283,26 @@
 
 ## Шаг 6. Compose и профиль `infra`
 
-**Файлы:** `compose.yaml`, `.env.example`, `infra/postgres/`, `infra/redis/`, `infra/kafka/`, `tools/docs-checks/check_compose.py`.
+**Файлы:** `compose.yaml`, `compose.debug.yaml`, `.env.example`, `infra/postgres/`, `infra/redis/`, `infra/kafka/`, `tools/docs-checks/check_compose.py`, `tools/stand-checks/{wait.py,infra_security.sh}`, `tools/ci/check-images.sh`.
 
-**6.1. Каркас Compose.** Сети `edge`, `app`, `data` (`internal: true`), `obs`; профили и наборы из c4-deployment §3; `mem_limit` и `memswap_limit` из memory-budget §2.1; `depends_on` по готовности (c4-deployment §7); проверки готовности; Docker secrets.
+**6.1. Каркас Compose.** Сети `edge`, `app`, `data` (`internal: true`), `obs`; профили и наборы из c4-deployment §3 (наборы в `Makefile`, `make up SET=…`); `mem_limit` и `memswap_limit` из memory-budget §2.1; `depends_on` по готовности (c4-deployment §7); проверки готовности; Docker secrets; защита контейнера (не root, `cap_drop: ALL`, файловая система только для чтения). Отладочные порты на `127.0.0.1` лежат в отдельном `compose.debug.yaml` (`make up DEBUG=1`): сеть `data` закрыта, и публикация порта в ней невозможна без второй сети.
 
-**6.2. PostgreSQL.** TLS (`sslmode=verify-full`), `scram-sha-256`, `pg_hba` только для TLS, настройки памяти из бюджета, инициализация баз и ролей в `infra/postgres/init`.
+**6.2. PostgreSQL.** TLS (`sslmode=verify-full`), `scram-sha-256`, `pg_hba` только для TLS, настройки памяти из бюджета, сценарий запуска копирует ключ с правами 0600. Инициализация баз и ролей в `infra/postgres/init` это шаг 7.
 
 **6.3. Redis.** TLS, пользователи ACL по ключам (один на сервис), `maxmemory 64mb`, `noeviction`, без тома.
 
-**6.4. Kafka и `kafka-init`.** Режим KRaft, SSL, ACL по сертификату, создание 11 тем из `conventions.md` §11.3 вместе с DLQ, права по сервисам.
+**6.4. Kafka и `kafka-init`.** Режим KRaft, SSL с сертификатом клиента, принципал из CN, ACL. Темы и права генерирует `infra/kafka/gen_kafka.py` из AsyncAPI (17 тем выпуска R1: 10 основных и 7 очередей недоставленных), `kafka-init` применяет их и ставит метку `dgm-init-<хеш>`.
 
-**6.5. Скрипт `check_compose.py`.** Сверяет `compose.yaml` с c4-deployment и memory-budget: контейнеры, профили, наборы, лимиты, порты, публикуемые на хост, сети, секреты. Подключается к `run_all.sh`.
+**6.5. Скрипт `check_compose.py`.** Сверяет `compose.yaml` с c4-deployment, memory-budget, versions и `inventory.json`: контейнеры, профили, наборы, лимиты, образы, порты на хосте, сети, секреты, защиту, тома. Ключ `--complete` (шаг 15) требует полный состав. Подключается к `run_all.sh`, самопроверка в `selftest.sh docs`.
 
-*Что проверить:*
+*Что проверить (CI, задания `docs`, `images`, `infra`):*
 
-- `check_compose.py` проходит и ловит намеренно внесённую ошибку (лишний порт, неверный лимит).
-- В CI `make up SET=dev-min` доводит `postgres`, `redis`, `kafka`, `kafka-init` до состояния healthy.
-- Клиент без сертификата и клиент с чужим сертификатом отвергаются каждым из трёх хранилищ. Клиент с верным сертификатом, но не своей темой Kafka получает отказ ACL.
+- `check_compose.py` проходит и ловит намеренно внесённые ошибки (лишний порт, неверный лимит, лишние права, чужой секрет, плавающий тег).
+- Теги образов существуют в реестрах (`images`).
+- `make up SET=dev-min` доводит `postgres`, `redis`, `kafka` до healthy и `kafka-init` до кода 0; повторный запуск проходит за секунды.
+- PostgreSQL: соединение без шифрования, неверный пароль и сервер с чужим центром отвергаются, верный клиент подключается. Redis: то же плюс права по ключам (`NOPERM` на чужой префикс и опасные команды). Kafka: клиент без сертификата и клиент с сертификатом чужого центра отвергаются, клиент с верным сертификатом не пишет в чужую тему и не читает чужую, но работает со своей.
+
+*Отклонения от первой редакции плана* (решения в c4-deployment §9, 10–13): клиентский сертификат обязателен только у Kafka (ADR-022 для PostgreSQL и Redis требует TLS и пароль), а не у всех трёх хранилищ; лимит `kafka-init` 128 МБ вместо 32 МБ (инструменты Kafka это JVM); архив журнала транзакций отложен до Ф6.
 
 **Commit:** `infra: Compose, профили и наборы, PostgreSQL, Redis и Kafka с TLS и ACL`.
 

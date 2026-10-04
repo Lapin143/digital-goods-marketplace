@@ -128,14 +128,16 @@ expect_ok "kafka: темы созданы (17) и метка инициализ�
 
 k_prod_foreign_topic() { kcli order-service /s/tls_ca.crt "echo probe | $PROD --topic catalog.events"; }
 k_prod_own_topic()     { kcli order-service /s/tls_ca.crt "echo probe | $PROD --topic order.events"; }
-k_cons_own()           { kcli order-service /s/tls_ca.crt "$CONS --topic order.events --group order-service --from-beginning --max-messages 1 --timeout-ms 20000" | grep -qx probe; }
+k_cons_own()           { kcli payment-service /s/tls_ca.crt "$CONS --topic order.events --group payment-service --from-beginning --max-messages 1 --timeout-ms 20000" | grep -qx probe; }
+k_cons_publisher()     { kcli order-service /s/tls_ca.crt "$CONS --topic order.events --group order-service --from-beginning --max-messages 1 --timeout-ms 15000"; }
 k_cons_foreign_topic() { kcli catalog-service /s/tls_ca.crt "$CONS --topic order.events --group catalog-service --from-beginning --max-messages 1 --timeout-ms 15000"; }
-k_cons_foreign_group() { kcli order-service /s/tls_ca.crt "$CONS --topic order.events --group catalog-service --from-beginning --max-messages 1 --timeout-ms 15000"; }
+k_cons_foreign_group() { kcli payment-service /s/tls_ca.crt "$CONS --topic order.events --group order-service --from-beginning --max-messages 1 --timeout-ms 15000"; }
 expect_denied "kafka: order-service не может писать в тему catalog.events (ACL)" "$DENY" k_prod_foreign_topic
 expect_ok     "kafka: order-service пишет в свою тему order.events" k_prod_own_topic
-expect_ok     "kafka: order-service читает order.events в своей группе" k_cons_own
+expect_ok     "kafka: payment-service (потребитель по AsyncAPI) читает order.events в своей группе" k_cons_own
+expect_denied "kafka: order-service издатель order.events и не потребитель: читать её не может (ACL)" "$DENY" k_cons_publisher
 expect_denied "kafka: catalog-service не читает order.events (ACL)" "$DENY" k_cons_foreign_topic
-expect_denied "kafka: order-service не читает в чужой группе catalog-service (ACL)" "$DENY" k_cons_foreign_group
+expect_denied "kafka: payment-service не читает в чужой группе order-service (ACL)" "$DENY" k_cons_foreign_group
 
 echo
 echo "Проверок успешно: $PASSED, с ошибками: ${#FAILED[@]}"
