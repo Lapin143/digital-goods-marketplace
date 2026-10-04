@@ -1,5 +1,5 @@
 {
-  "_comment": "Перечень сертификатов и секретов стенда. Источник: docs/05-architecture/c4-deployment.md (раздел 6) и ADR-022. check_compose.py сверяет с ним монтирование секретов в compose.yaml.",
+  "_comment": "Перечень сертификатов и секретов стенда (containers: контейнеры с сертификатом, jobs: разовые задания без сертификата, читающие секреты). Источник: docs/05-architecture/c4-deployment.md (раздел 6) и ADR-022. check_compose.py сверяет с ним монтирование секретов в compose.yaml.",
   "ca": {
     "common_name": "DGM Private CA",
     "organization": "digital-goods-marketplace",
@@ -24,6 +24,9 @@
     {"name": "redis"},
     {"name": "external-stubs"},
     {"name": "prometheus"}
+  ],
+  "jobs": [
+    {"name": "storage-init", "purpose": "Разовое задание: входит в хранилище по паролю из секрета, своего сертификата не имеет, читает секреты как контейнер из списка выше"}
   ],
   "secrets": [
     {"name": "inventory_kek", "kind": "key32", "readers": ["inventory-service"], "purpose": "Мастер-ключ шифрования ключей AES-256 (ADR-009)"},

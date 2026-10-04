@@ -109,7 +109,7 @@ check "сертификат сервера выдан нашим центром 
 listeners_ok() {
   local out bad
   out=$(docker exec "$OS" netstat -tln 2>&1) || { echo "$out"; return 1; }
-  bad=$(echo "$out" | awk 'NR>2 {print $4}' | grep -v -E '^(127\.0\.0\.1|\[?::1\]?):' | grep -v -E '^(0\.0\.0\.0|:::|\[::\]):9000$' | grep -v '^$')
+  bad=$(echo "$out" | awk 'NR>2 {print $4}' | grep -v -E '^(127\.[0-9.]+|\[?::1\]?):' | grep -v -E '^(0\.0\.0\.0|:::|\[::\]):9000$' | grep -v '^$')
   [ -z "$bad" ] || { echo "лишние слушающие адреса: $bad"; return 1; }
   echo "$out" | awk 'NR>2 {print $4}' | grep -q -E ':9000$'
 }
@@ -142,7 +142,7 @@ tampered() { local c; c=$(http "$BADURL"); echo "HTTP $c"; [ "$c" = 403 ]; }
 check "ссылка с испорченной подписью отвергается" tampered
 anonymous() { local c; c=$(http "$EP/$BUCKET/check/blob"); echo "HTTP $c"; [ "$c" = 403 ]; }
 check "анонимный доступ к объекту закрыт" anonymous
-delete_own() { svc s3 rm "s3://$BUCKET/check/blob" --no-progress >/dev/null && [ "$(svc s3 ls "s3://$BUCKET/check/" | wc -l)" = 0 ]; }
+delete_own() { svc s3 rm "s3://$BUCKET/check/blob" >/dev/null && [ "$(svc s3 ls "s3://$BUCKET/check/" | wc -l)" = 0 ]; }
 check "удаление объекта своим ключом" delete_own
 
 echo "== За пределами своего бакета"
@@ -206,7 +206,7 @@ check "после init запись в свой бакет снова разре
 
 # Новый пароль начинается со знака «-»: так проверяется и разделитель «--» в init
 NEWPASS="-$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
-ALT="$WORK/secrets"; cp -r "$SECRETS" "$ALT"; printf '%s' "$NEWPASS" > "$ALT/storage_catalog"; chmod 644 "$ALT/storage_catalog"
+ALT="$WORK/secrets"; cp -r "$SECRETS" "$ALT"; rm -f "$ALT/storage_catalog"; printf '%s' "$NEWPASS" > "$ALT/storage_catalog"; chmod 644 "$ALT/storage_catalog"
 rotate() { DGM_SECRETS_DIR=$ALT rerun_init; }
 check "init с новым паролем (начинается с «-») выполняется" rotate
 expect_denied "старый пароль после смены отвергается" "$BADKEY" aws_ "$CAT_USER" "$CAT_PASS" s3 ls "s3://$BUCKET"

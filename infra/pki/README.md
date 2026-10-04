@@ -42,7 +42,7 @@ make pki-test     # тесты самого скрипта
 
 ## Как добавить контейнер или секрет
 
-1. Дописать запись в [inventory.json](inventory.json): контейнер в `containers`, секрет в `secrets` (вид `password`, `key32` или `hex32`, перечень `readers`).
+1. Дописать запись в [inventory.json](inventory.json): контейнер в `containers` (разовое задание без сертификата в `jobs`), секрет в `secrets` (вид `password`, `key32` или `hex32`, перечень `readers`).
 2. `make certs secrets pki-verify`.
 3. Смонтировать секрет в `compose.yaml` только перечисленным читателям. `check_compose.py` сверяет монтирование с перечнем.
 

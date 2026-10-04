@@ -42,7 +42,6 @@ VER = os.path.join(L.OPS_DIR, 'versions.md')
 
 R1_PROFILES = ['infra', 'stubs', 'auth', 'gateway', 'purchase', 'platform', 'storage']
 ONE_SHOT = {'kafka-init', 'storage-init'}     # завершаются сами, проверки готовности нет
-NO_OWN_CERT = {'storage-init'}                # разовое задание входит в хранилище по паролю из секрета, своего сертификата не имеет
 BUILT_FROM_REPO = {'catalog-service', 'inventory-service', 'order-service', 'payment-service', 'delivery-service',
                    'platform-service', 'api-gateway'}   # образы собираются из репозитория, версии нет в versions.md
 DEFERRED = {'backup-job': 'Ф6', 'certbot': 'Ф6'}          # контейнеры, которых в Ф3 нет
@@ -164,6 +163,7 @@ def main():
     inv = json.load(open(INVENTORY, encoding='utf-8'))
     inv_secrets = {s['name']: s for s in inv['secrets']}
     inv_containers = {c['name'] for c in inv['containers']}
+    inv_jobs = {j['name'] for j in inv.get('jobs', [])}   # разовые задания без собственного сертификата (входят по паролю из секрета)
     versions = images_from_versions()
 
     # --- наборы Makefile и документа
@@ -330,9 +330,14 @@ def main():
         for name, info in inv_secrets.items():
             if alias in info['readers'] and name not in mounted:
                 rep.err(w, 'секрет %s по inventory.json читает %s, но не подключён' % (name, alias))
-        if alias in NO_OWN_CERT:
+        if alias in inv_jobs:
             if alias in inv_containers:
-                rep.err(w, 'у контейнера нет собственного сертификата (NO_OWN_CERT), а в inventory.json (containers) он есть')
+                rep.err(w, 'разовое задание (inventory.json, jobs) не должно быть в списке containers: сертификат ему не выпускается')
+            if alias not in ONE_SHOT:
+                rep.err(w, 'в inventory.json (jobs) значится %s, а это не разовое задание' % alias)
+            for suffix in ('key', 'crt'):
+                if 'tls_%s.%s' % (alias, suffix) in mounted:
+                    rep.err(w, 'у разового задания нет своего сертификата, подключён tls_%s.%s' % (alias, suffix))
         elif alias in inv_containers:
             for suffix in ('key', 'crt'):
                 if 'tls_%s.%s' % (alias, suffix) not in mounted:
