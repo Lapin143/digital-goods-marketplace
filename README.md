@@ -15,7 +15,7 @@
 
 ## Стек
 
-Java (Spring Boot), PostgreSQL + Flyway, Kafka, Redis, Keycloak (OAuth2, JWT), API Gateway, MinIO, React, Docker Compose, GitHub Actions. По плану также k3s + Helm, Prometheus, Grafana, Loki, OpenTelemetry, OpenSearch, gRPC.
+Java (Spring Boot), PostgreSQL + Flyway, Kafka, Redis, Keycloak (OAuth2, JWT), API Gateway, объектное хранилище S3 (RustFS), React, Docker Compose, GitHub Actions. По плану также k3s + Helm, Prometheus, Grafana, Loki, OpenTelemetry, OpenSearch, gRPC.
 
 ## Статус
 

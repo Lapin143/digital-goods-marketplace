@@ -115,6 +115,6 @@ comment on column seller_onboarding.seller_document.file_name is 'Имя фай�
 comment on column seller_onboarding.seller_document.content_type is 'Тип содержимого файла, проверяется при загрузке';
 comment on column seller_onboarding.seller_document.size_bytes is 'Размер файла в байтах, лимит проверяется при загрузке';
 comment on column seller_onboarding.seller_document.uploaded_at is 'Время загрузки документа';
-comment on column seller_onboarding.seller_document.object_key is 'Ключ объекта в бакете MinIO, ссылка выдаётся подписанной на 5 минут';
+comment on column seller_onboarding.seller_document.object_key is 'Ключ объекта в бакете объектного хранилища, ссылка выдаётся подписанной на 5 минут';
 create index ix_seller_document_seller_id on seller_onboarding.seller_document (seller_id, uploaded_at);
 comment on index seller_onboarding.ix_seller_document_seller_id is 'Документы заявки продавца: карточка заявки и список документов (US-2.1, US-2.2), а также проверка внешнего ключа';

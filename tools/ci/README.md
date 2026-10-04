@@ -49,6 +49,7 @@ python3 tools/ci/ci_status.py --all-steps     # печатать все шаги
 | `check-no-secrets-in-git.sh` | ST-14: в Git нет файлов ключей, сертификатов и каталогов `secrets/`, `.pki/` |
 | `check-image.sh` | Проверка образа: UID, запуск с `--read-only`, `/actuator/health` |
 | `check-images.sh` | Теги образов стенда существуют в реестрах |
+| `storage-spike.sh` | Спайк выбора объектного хранилища ([ADR-024](../../docs/05-architecture/adr/ADR-024-object-storage.md)): одинаковые проверки для SeaweedFS, RustFS и Garage с ограничениями стенда, итог аннотациями. Запускался в ветке `ci/spike`, сохранён как доказательство выбора и для повторной проверки кандидатов (`storage-spike.sh run <кандидат>`) |
 | `../../.gitleaks.toml` | Настройки Gitleaks: стандартные правила и исключения проекта |
 | `../docs-checks/requirements.txt` | Зависимости Python проверок документов |
 

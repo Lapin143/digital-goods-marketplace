@@ -96,8 +96,8 @@ flowchart TB
         subgraph p-platform["<b>Профиль platform, 352 МБ</b>"]
             platform-service["<b>Служебный сервис</b><br/><i>[Контейнер: Java, Spring Boot]</i><br/>8443"]
         end
-        subgraph p-storage["<b>Профиль storage, 192 МБ</b>"]
-            object-storage[("<b>Объектное хранилище</b><br/><i>[Контейнер: MinIO]</i><br/>9000")]
+        subgraph p-storage["<b>Профиль storage, 224 МБ</b>"]
+            object-storage[("<b>Объектное хранилище</b><br/><i>[Контейнер: RustFS, S3 API]</i><br/>9000")]
         end
         subgraph p-infra["<b>Профиль infra, 1184 МБ</b>"]
             postgres[("<b>Реляционные базы</b><br/><i>[Контейнер: PostgreSQL 16]</i><br/>5432")]
@@ -136,22 +136,23 @@ flowchart TB
 | Сервис платежей | `payment-service` | c4-containers | `purchase` | 8443 (mTLS), 8444 | Нет | то же |
 | Сервис выдачи | `delivery-service` | c4-containers | `purchase` | 8443 (mTLS), 8444 | Нет | то же |
 | Служебный сервис | `platform-service` | c4-containers | `platform` | 8443 (mTLS), 8444 | Нет | то же |
-| Объектное хранилище | `object-storage` | c4-containers | `storage` | 9000 (S3 API, TLS), 9001 (консоль, не публикуется) | `miniodata` | `mc ready local` |
+| Объектное хранилище | `object-storage` | c4-containers | `storage` | 9000 (S3 API, TLS), консоль отключена | `objectdata` | `curl` к `/health` по TLS |
 | Реляционные базы | `postgres` | c4-containers | `infra` | 5432 (TLS) | `pgdata`, `pgarchive` (журнал транзакций) | `pg_isready` |
 | Брокер событий | `kafka` | c4-containers | `infra` | 9093 (SSL, клиенты), 19093 (SSL, для отладки с хоста), 9094 (контроллер, SSL, внутри контейнера) | `kafkadata` | `kafka-broker-api-versions` |
 | Кэш и таймеры | `redis` | c4-containers | `infra` | 6379 (TLS) | Нет, данные временные ([ADR-012](adr/ADR-012-reservation-redis-timer.md)) | `redis-cli --tls ping` |
 | Заглушки внешних систем | `external-stubs` | c4-containers | `stubs` | 8443 (шлюз, e-mail, SMS, VK ID, просмотр писем), 1025 (SMTP для Keycloak) | Нет | `/health` |
 | Инициализация Kafka | `kafka-init` | Развёртывание | `infra` | Нет (разовое задание) | Нет | Завершается с кодом 0 |
+| Инициализация хранилища | `storage-init` | Развёртывание | `storage` | Нет (разовое задание) | Нет | Завершается с кодом 0 |
 | Prometheus | `prometheus` | Развёртывание | `obs` | 9090 | `promdata` | `/-/ready` |
 | Alertmanager | `alertmanager` | Развёртывание | `obs` | 9093 | Нет | `/-/ready` |
 | Grafana | `grafana` | Развёртывание | `obs` | 3000 | `grafanadata` | `/api/health` |
 | Loki | `loki` | Развёртывание | `obs` | 3100 | `lokidata` | `/ready` |
 | Tempo | `tempo` | Развёртывание | `obs` | 3200 (запросы), 4317 (OTLP от `alloy`) | `tempodata` | `/ready` |
 | Alloy | `alloy` | Развёртывание | `obs` | 4317, 4318 (OTLP от сервисов), 12345 (состояние) | Нет, читает журналы контейнеров через сокет Docker только для чтения | `/-/ready` |
-| Резервное копирование | `backup-job` | Развёртывание | `ops` | Нет | `pgarchive`, `miniodata` (чтение), `backups` | Метрика возраста копии |
+| Резервное копирование | `backup-job` | Развёртывание | `ops` | Нет | `pgarchive`, `objectdata` (чтение), `backups` | Метрика возраста копии |
 | Выпуск сертификата | `certbot` | Развёртывание | `ops` | 80 (только во время выпуска и обновления) | `letsencrypt` | Срок сертификата в метрике |
 
-`kafka-init`, `prometheus`, `alertmanager`, `grafana`, `loki`, `tempo`, `alloy`, `backup-job` и `certbot` не входят в архитектуру R1 из [c4-containers.md](c4-containers.md): у них нет бизнес-обязанностей, они нужны для работы, наблюдения и восстановления (NFT-4.2, NFT-6.0, NFT-6.1, NFT-3.3).
+`kafka-init`, `storage-init`, `prometheus`, `alertmanager`, `grafana`, `loki`, `tempo`, `alloy`, `backup-job` и `certbot` не входят в архитектуру R1 из [c4-containers.md](c4-containers.md): у них нет бизнес-обязанностей, они нужны для работы, наблюдения и восстановления (NFT-4.2, NFT-6.0, NFT-6.1, NFT-3.3).
 
 Именованные тома живут на диске хоста. Значения секретов не хранятся в томах: они монтируются как файлы Docker secrets (раздел 6). Том `pgarchive` и архивирование журнала транзакций подключаются в Ф6 вместе с `backup-job` (решение 11 раздела 9).
 
@@ -167,7 +168,7 @@ flowchart TB
 | `gateway` | `api-gateway`, `web-app` | Единая точка входа и интерфейс |
 | `purchase` | `order-service`, `inventory-service`, `payment-service`, `delivery-service`, `catalog-service` | Критический путь покупки и выдачи, плюс карточка товара |
 | `platform` | `platform-service` | Поддержка, уведомления, журнал аудита, параметры, прикладной слой идентификации |
-| `storage` | `object-storage` | Документы продавцов |
+| `storage` | `object-storage`, `storage-init` | Документы продавцов |
 | `obs` | `prometheus`, `alertmanager`, `grafana`, `loki`, `tempo`, `alloy` | Метрики, журналы, трассировка, оповещения |
 | `ops` | `backup-job`, `certbot` | Резервные копии и сертификат, только сервер |
 
@@ -250,18 +251,18 @@ flowchart TB
 | `data` | `postgres`, `redis`, `kafka`, `object-storage`, а также сервисы, которые к ним обращаются (по списку ниже), `keycloak` (только PostgreSQL), `api-gateway` (только Redis) | Выход в интернет закрыт (`internal: true`) |
 | `obs` | `prometheus`, `alertmanager`, `grafana`, `loki`, `tempo`, `alloy`, а также сервисы (метрики и OTLP) | Только внутренний трафик |
 
-Принадлежность сервисов к сети `data`: `catalog-service` (PostgreSQL, Redis, MinIO), `inventory-service` (PostgreSQL, Redis, Kafka), `order-service` (PostgreSQL, Kafka), `payment-service` (PostgreSQL, Kafka), `delivery-service` (PostgreSQL, Kafka), `platform-service` (PostgreSQL, Redis, Kafka). Права на темы Kafka и ключи Redis ограничены по сервисам (ACL по сертификату и пользователю Redis, [ADR-022](adr/ADR-022-internal-traffic-encryption.md)), поэтому доступ к сети `data` не равен доступу ко всем данным.
+Принадлежность сервисов к сети `data`: `catalog-service` (PostgreSQL, Redis, объектное хранилище), `inventory-service` (PostgreSQL, Redis, Kafka), `order-service` (PostgreSQL, Kafka), `payment-service` (PostgreSQL, Kafka), `delivery-service` (PostgreSQL, Kafka), `platform-service` (PostgreSQL, Redis, Kafka). Права на темы Kafka и ключи Redis ограничены по сервисам (ACL по сертификату и пользователю Redis, [ADR-022](adr/ADR-022-internal-traffic-encryption.md)), поэтому доступ к сети `data` не равен доступу ко всем данным.
 
 ### 4.3. Порты, публикуемые на хост
 
 | Среда | Порт хоста | Контейнер | Кто может подключиться |
 | --- | --- | --- | --- |
 | Ноутбук | 8443 | `api-gateway` | Браузер разработчика (`https://localhost:8443`, сертификат частного центра) |
-| Ноутбук, только с отладочным файлом `compose.debug.yaml` (`make up DEBUG=1`) и только на 127.0.0.1 | 15432, 19093, 16379, 9001 | `postgres`, `kafka`, `redis`, `object-storage` (консоль) | Инструменты разработчика |
+| Ноутбук, только с отладочным файлом `compose.debug.yaml` (`make up DEBUG=1`) и только на 127.0.0.1 | 15432, 19093, 16379, 19000 | `postgres`, `kafka`, `redis`, `object-storage` (S3 API, TLS) | Инструменты разработчика |
 | Ноутбук, только в профиле `obs` на 127.0.0.1 | 3000, 9090 | `grafana`, `prometheus` | Браузер разработчика |
 | Сервер | 443 | `api-gateway` | Весь интернет (TLS 1.2 и выше) |
 | Сервер | 80 | `certbot` | Интернет, только запросы проверки сертификата во время выпуска и обновления |
-| Сервер, только на 127.0.0.1, доступ через SSH-туннель | 3000, 9001 | `grafana`, `object-storage` (консоль) | Администратор по SSH |
+| Сервер, только на 127.0.0.1, доступ через SSH-туннель | 3000 | `grafana` | Администратор по SSH |
 
 Базы данных, Kafka, Redis, Prometheus и остальные внутренние контейнеры на сервере наружу не публикуются.
 
@@ -339,7 +340,8 @@ flowchart LR
 | `platform_otp_pepper` | `platform-service` | HMAC кодов подтверждения в Redis ([ADR-010](adr/ADR-010-keycloak-sms-codes.md)) | При компрометации, коды живут 5 минут |
 | `db_postgres_admin`, `db_migrator_<сервис>`, `db_app_<роль>`, `db_keycloak` | `postgres` (все, создаёт роли), сервис (свои), `keycloak` | Пароли ролей базы: администратор (только инициализация), роль миграций Flyway на каждую базу, рабочая роль каждого модуля (11 ролей, у `platform-service` пять), роль базы Keycloak | По плану |
 | `redis_admin`, `redis_<сервис>` (`catalog`, `inventory`, `platform`, `gateway`) | `redis`, соответствующий сервис или шлюз | Пароли пользователей Redis: служебный и по одному на сервис с ограничением по ключам | По плану |
-| `minio_catalog` | `catalog-service` | Сервисная учётная запись MinIO только на бакет документов | По плану |
+| `storage_admin` | `object-storage`, `storage-init` | Пароль корневой записи хранилища (имя `dgm-storage-admin` в `infra/storage/root_user`), нужен для запуска и инициализации, сервисы его не получают | По плану: замена файла и перезапуск `object-storage` |
+| `storage_catalog` | `catalog-service`, `storage-init` | Пароль учётной записи `catalog-service` только на бакет документов продавцов ([ADR-024](adr/ADR-024-object-storage.md)) | Замена файла и `make storage-init` ставят новый пароль, сервис каталога перезапускается |
 | `tls_<контейнер>` (ключ и сертификат), `tls_ca` | Каждый контейнер | mTLS и TLS к хранилищам ([ADR-022](adr/ADR-022-internal-traffic-encryption.md)) | Сертификаты 90 дней, перевыпуск раз в 60 дней |
 | `letsencrypt` (том, не секрет Docker) | `certbot`, `api-gateway` (чтение) | Публичный сертификат на 443 | Автоматически, обновление раз в 60 дней |
 | `keycloak_admin`, `keycloak_client_platform` | `keycloak`, `platform-service` (второй) | Начальный администратор, секрет клиента `platform-service` для Admin API (назначение ролей по событиям). Пароль базы Keycloak это `db_keycloak` | По плану |
@@ -381,7 +383,7 @@ flowchart TB
             postgres-sts[("<b>Базы</b><br/><i>[StatefulSet]</i><br/>postgres")]
             kafka-sts[("<b>Брокер</b><br/><i>[StatefulSet]</i><br/>kafka")]
             redis-sts[("<b>Кэш</b><br/><i>[StatefulSet]</i><br/>redis")]
-            minio-sts[("<b>Хранилище</b><br/><i>[StatefulSet]</i><br/>object-storage")]
+            storage-sts[("<b>Хранилище</b><br/><i>[StatefulSet]</i><br/>object-storage")]
         end
         obs-stack["<b>Наблюдаемость</b><br/><i>[Namespace dgm-obs]</i><br/>prometheus, grafana, loki, tempo, alloy"]
         k8s-secrets[("<b>Хранилище секретов</b><br/><i>[Secret]</i><br/>Те же файлы")]
@@ -395,7 +397,7 @@ flowchart TB
     services-deploy -->|"TLS"| postgres-sts
     services-deploy -->|"SSL"| kafka-sts
     services-deploy -->|"TLS"| redis-sts
-    services-deploy -->|"TLS"| minio-sts
+    services-deploy -->|"TLS"| storage-sts
     services-deploy -->|"HTTPS 8443"| stubs-deploy
     services-deploy -.->|"Метрики, журналы, трассы"| obs-stack
     services-deploy -.->|"Файлы секретов"| k8s-secrets
@@ -403,7 +405,7 @@ flowchart TB
     classDef person fill:#08427b,stroke:#052e56,color:#ffffff
     classDef container fill:#438dd5,stroke:#2e6295,color:#ffffff
     class user person
-    class traefik,cert-manager,gateway-deploy,keycloak-deploy,services-deploy,stubs-deploy,postgres-sts,kafka-sts,redis-sts,minio-sts,obs-stack,k8s-secrets container
+    class traefik,cert-manager,gateway-deploy,keycloak-deploy,services-deploy,stubs-deploy,postgres-sts,kafka-sts,redis-sts,storage-sts,obs-stack,k8s-secrets container
     style server fill:#f4f4f4,stroke:#666666,color:#000000
     style ns-app fill:#eaf2fb,stroke:#7a9cc0,color:#000000
     style ns-data fill:#e8f3e8,stroke:#7fae7f,color:#000000
@@ -454,6 +456,7 @@ flowchart TB
 | 13 | Инициализация Kafka | Задание `kafka-init` с лимитом 128 МБ, метка `dgm-init-<хеш>` | Инструменты Kafka это JVM, в 32 МБ она не запускается. Метка в виде темы позволяет повторному запуску пропустить готовое за секунды, а изменение AsyncAPI меняет хеш и запускает создание заново |
 | 14 | Базы и роли PostgreSQL | `infra/postgres/init/10-databases-and-roles.sql` читает `infra/postgres/roles.json`: 7 баз, 6 ролей-миграторов (владельцы баз), 11 рабочих ролей модулей, роль `keycloak`. Пароли из секретов, подключение к базе только у её владельца и её ролей, у всех пределы соединений. Повтор: `make db-roles` | У сервиса нет суперпользователя, а у модуля права только на свою схему (правило модульности 2). Пределы равны пулам из [memory-budget.md](../09-operations/memory-budget.md) (сервис 8, Keycloak 10), миграторам 2 на время запуска. Сверяет `check_db_roles.py` |
 | 15 | Миграции Flyway | Файлы создаёт `tools/docs-checks/db/gen_migrations.py` из тех же частей, что и DDL: `V1` служебные таблицы, затем по миграции на схему модуля, последней роли и права. Номера сквозные внутри сервиса, подпапка на модуль | Документ и миграции не расходятся: склейка миграций равна `docs/07-data/ddl/<сервис>.sql` по SHA-256. Пока выпуск R1 не вышел, базовые миграции пересобираются, затем изменения идут новыми номерами. Применяет Flyway из Spring Boot при старте сервиса, проверка на стенде идёт образом Flyway ([versions.md](../09-operations/versions.md), раздел 6) |
+| 16 | Объектное хранилище | RustFS 1.0.1 вместо архивного MinIO ([ADR-024](adr/ADR-024-object-storage.md)): один контейнер `object-storage` (192 МБ, порт 9000 по TLS, консоль отключена, том `objectdata`) и разовое задание `storage-init` (32 МБ, клиент `rc`), которое создаёт бакет `seller-documents`, политику и учётную запись `catalog-service` | Выбор подтверждён спайком на раннере CI, а не обзорами: из трёх кандидатов один выполняет TLS, учётную запись на один бакет и один открытый порт без дополнительных контейнеров, пик памяти около 100 МБ. Корневая запись и запись сервиса разделены, пароли только файлами (`storage_admin`, `storage_catalog`). Инициализация идемпотентна, правка политики и смена пароля выполняются повторным `make storage-init`. Проект молодой (1.0 от 16 сентября 2026), поэтому поведение проверяет `tools/stand-checks/storage_checks.sh` в каждом запуске CI, запасной вариант SeaweedFS 4.48 описан в ADR |
 
 ## 10. Связанные документы
 
