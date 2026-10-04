@@ -8,13 +8,15 @@ ARG KEYCLOAK_IMAGE=quay.io/keycloak/keycloak:26.8.0
 ARG JDK_IMAGE=eclipse-temurin:25-jdk-noble
 ARG UBI_IMAGE=registry.access.redhat.com/ubi9:9.8
 
-# 1. curl и его библиотеки в корневой каталог, который переносится в итоговый образ (способ из документации Keycloak для ubi-micro)
+# 1. curl и его библиотеки в корневой каталог, который переносится в итоговый образ (способ из документации Keycloak для ubi-micro).
+#    Пакет setup удаляется вместе с зависимостями (--nodeps): иначе его файлы /etc/passwd и /etc/group заменили бы файлы образа Keycloak
+#    и пользователь 1000 пропал бы.
 FROM ${UBI_IMAGE} AS ubi-micro-build
 RUN mkdir -p /mnt/rootfs && \
     dnf install --installroot /mnt/rootfs curl --releasever 9 --setopt install_weak_deps=false --nodocs -y && \
     dnf --installroot /mnt/rootfs clean all && \
     dnf clean all && \
-    rpm --root /mnt/rootfs -e --nodocs setup
+    rpm --root /mnt/rootfs -e --nodeps setup
 
 # 2. Библиотеки Keycloak для компиляции расширения: берутся из того же образа, на котором оно будет работать
 FROM ${KEYCLOAK_IMAGE} AS keycloak-base
