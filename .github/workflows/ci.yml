@@ -89,6 +89,9 @@ jobs:
           DIAG_MAX: "40"
         run: tools/ci/diag.sh "Gradle build" ./gradlew --console=plain build
 
+      - name: Сводка тестов
+        run: python3 tools/ci/test_summary.py
+
       - name: Образы сервисов
         run: tools/ci/diag.sh "Сборка образов" make docker-images
 

@@ -72,8 +72,12 @@ def show(repo, runs, details):
                 mark = {'success': 'ok ', 'failure': 'ОШ ', 'skipped': '-- ', 'cancelled': 'xx '}.get(s.get('conclusion'), '.. ')
                 if details or s.get('conclusion') not in ('success', 'skipped'):
                     print('    %s%s' % (mark, s['name']))
-            if j.get('conclusion') in ('failure', 'cancelled', 'timed_out'):
+            if j.get('status') == 'completed':
+                failed = j.get('conclusion') in ('failure', 'cancelled', 'timed_out')
                 for a in get('%s/repos/%s/check-runs/%s/annotations?per_page=50' % (API, repo, j['id'])):
+                    # Для упавших заданий печатаются все аннотации, для успешных только заметки уровня notice
+                    if not failed and a.get('annotation_level') != 'notice':
+                        continue
                     msg = (a.get('message') or '').strip()
                     print('    ::%s:: %s' % (a.get('annotation_level'), a.get('title') or ''))
                     for line in msg.splitlines():
