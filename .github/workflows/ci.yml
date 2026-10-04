@@ -1,0 +1,107 @@
+name: ci
+
+# Запуск: каждый push в main и в ветки ci/*, pull request в main, ручной запуск.
+# Ветка ci/sandbox нужна для отладки CI: итерации идут в ней, а main остаётся зелёным (tools/ci/README.md).
+on:
+  push:
+    branches: [main, 'ci/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GITLEAKS_VERSION: 8.30.1
+  TRIVY_VERSION: 0.74.0
+  MERMAID_CLI_VERSION: 11.16.0
+
+jobs:
+  # Проверки документов и контрактов Ф1–Ф2 и физической модели БД на настоящем PostgreSQL 16.
+  docs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Зависимости Python
+        run: tools/ci/diag.sh "Зависимости Python" python3 -m pip install --break-system-packages --user -r tools/docs-checks/requirements.txt
+
+      - name: Mermaid CLI (проверка отрисовки диаграмм)
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "1"
+        run: |
+          tools/ci/diag.sh "Установка Mermaid CLI" sudo env PUPPETEER_SKIP_DOWNLOAD=1 npm install -g "@mermaid-js/mermaid-cli@${MERMAID_CLI_VERSION}"
+          chrome=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
+          echo "Chrome: $chrome"
+          printf '{"executablePath": "%s", "args": ["--no-sandbox", "--disable-setuid-sandbox"]}\n' "$chrome" > "$RUNNER_TEMP/puppeteer.json"
+          echo "MMDC_PUPPETEER_CONFIG=$RUNNER_TEMP/puppeteer.json" >> "$GITHUB_ENV"
+
+      - name: PostgreSQL 16 для проверок модели данных
+        run: |
+          PGBIN=/usr/lib/postgresql/16/bin
+          if [ ! -x "$PGBIN/initdb" ]; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-16
+          fi
+          D="$RUNNER_TEMP/pg16data"
+          "$PGBIN/initdb" -D "$D" -U postgres --auth=trust -E UTF8 >/dev/null
+          "$PGBIN/pg_ctl" -D "$D" -o "-p 5433 -k /tmp -c listen_addresses= -c fsync=off" -l "$RUNNER_TEMP/pg16.log" -w start
+          echo "$PGBIN" >> "$GITHUB_PATH"
+
+      - name: Проверки документов, контрактов и модели данных
+        env:
+          DIAG_FILTER: '^\s+- |^== |Traceback|Error|ОШИБКА|проблем: [1-9]|ПРОБЛЕМЫ'
+        run: tools/ci/diag.sh "Проверки документов" bash tools/docs-checks/run_all.sh --db
+
+      - name: Самопроверка контролей
+        run: tools/ci/selftest.sh docs
+
+  # ST-14: поиск секретов и уязвимостей. Бинарные файлы проверяются по контрольным суммам из выпуска.
+  security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        run: |
+          set -euo pipefail
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          cd "$RUNNER_TEMP"
+          curl -sSfL -O "$base/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -O "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          sha256sum --check --ignore-missing "gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          tar -xzf "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks
+          sudo install gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Поиск секретов в истории и в файлах
+        run: |
+          tools/ci/diag.sh "Gitleaks история" gitleaks git . --no-banner --redact --config .gitleaks.toml
+          tools/ci/diag.sh "Gitleaks файлы" gitleaks dir . --no-banner --redact --config .gitleaks.toml
+
+      - name: Самопроверка поиска секретов
+        run: tools/ci/selftest.sh security
+
+      - name: Trivy
+        run: |
+          set -euo pipefail
+          base="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
+          cd "$RUNNER_TEMP"
+          curl -sSfL -O "$base/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl -sSfL -O "$base/trivy_${TRIVY_VERSION}_checksums.txt"
+          sha256sum --check --ignore-missing "trivy_${TRIVY_VERSION}_checksums.txt"
+          tar -xzf "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" trivy
+          sudo install trivy /usr/local/bin/trivy
+          trivy --version
+
+      - name: Уязвимости, секреты и конфигурации в файлах репозитория
+        run: |
+          tools/ci/diag.sh "Trivy файлы" trivy fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 --no-progress .

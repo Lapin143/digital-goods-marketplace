@@ -1,0 +1,11 @@
+# Настройки Gitleaks (ST-14): стандартные правила плюс исключения проекта.
+title = "digital-goods-marketplace"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Файлы, где образцы секретов запрещены, но допустимы имена переменных и пути"
+paths = [
+  '''\.env\.example$''',
+]
