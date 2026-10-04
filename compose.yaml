@@ -206,6 +206,69 @@ services:
       retries: 20
       start_period: 2s
 
+  # ------------------------------------------------------------------ профиль auth
+  keycloak:
+    <<: *common
+    image: dgm/keycloak:${IMAGE_TAG:-dev}
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.keycloak
+      args:
+        KEYCLOAK_IMAGE: quay.io/keycloak/keycloak:26.8.0
+        JDK_IMAGE: eclipse-temurin:25-jdk-noble
+        UBI_IMAGE: registry.access.redhat.com/ubi9:9.8
+    profiles: [auth]
+    user: "1000:0"
+    entrypoint: ["/bin/bash", "/etc/dgm/keycloak/entrypoint.sh"]
+    command: []
+    mem_limit: 640m
+    memswap_limit: 640m
+    networks: [app, data]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Адрес для браузера: тот, по которому клиент заходит на шлюз (в токене он станет издателем iss). Внутри сети Keycloak
+      # отвечает и по своему имени, адрес для запросов между контейнерами подбирается из запроса (KC_HOSTNAME_BACKCHANNEL_DYNAMIC)
+      DGM_PUBLIC_ORIGIN: ${DGM_PUBLIC_ORIGIN:-https://localhost:8443}
+      KC_HOSTNAME: ${DGM_PUBLIC_ORIGIN:-https://localhost:8443}/auth
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "false"
+      KC_HTTPS_PORT: "8443"
+      KC_HTTPS_CERTIFICATE_FILE: /run/secrets/tls_keycloak.crt
+      KC_HTTPS_CERTIFICATE_KEY_FILE: /run/secrets/tls_keycloak.key
+      KC_HTTPS_PROTOCOLS: TLSv1.3,TLSv1.2
+      KC_TRUSTSTORE_PATHS: /run/secrets/tls_ca.crt
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak_db?sslmode=verify-full&sslrootcert=/run/secrets/tls_ca.crt
+      KC_DB_USERNAME: keycloak
+      KC_DB_POOL_INITIAL_SIZE: "2"
+      KC_DB_POOL_MIN_SIZE: "2"
+      KC_DB_POOL_MAX_SIZE: "10"
+      # Куча 384 МБ из 640 МБ лимита: остальное метаданные, стеки потоков, прямая память и кэш кода (memory-budget.md)
+      JAVA_OPTS_KC_HEAP: -Xms64m -Xmx384m
+      JAVA_OPTS_APPEND: -Xss512k -XX:MaxMetaspaceSize=192m -XX:MaxDirectMemorySize=64m -XX:ReservedCodeCacheSize=64m
+    volumes:
+      - ./infra/keycloak:/etc/dgm/keycloak:ro
+    tmpfs:
+      - /opt/keycloak/data:uid=1000,gid=0,mode=0770,size=16m   # каталог импорта realm и временные файлы
+      - /tmp:uid=1000,gid=0,mode=1777,size=32m
+    secrets:
+      - tls_ca.crt
+      - tls_keycloak.key
+      - tls_keycloak.crt
+      - db_keycloak
+      - keycloak_admin
+      - keycloak_client_platform
+      - keycloak_vkid_client
+    healthcheck:
+      # Готовность по TLS с проверкой цепочки: порт управления 9000 отвечает UP, когда импорт realm закончен и база доступна
+      test: ["CMD-SHELL", "curl -fsS --cacert /run/secrets/tls_ca.crt https://localhost:9000/health/ready >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
   # ------------------------------------------------------------------ профиль storage
   object-storage:
     <<: *common
@@ -422,3 +485,5 @@ secrets:
     file: ${DGM_SECRETS_DIR:-./secrets}/keycloak_admin
   keycloak_client_platform:
     file: ${DGM_SECRETS_DIR:-./secrets}/keycloak_client_platform
+  keycloak_vkid_client:
+    file: ${DGM_SECRETS_DIR:-./secrets}/keycloak_vkid_client

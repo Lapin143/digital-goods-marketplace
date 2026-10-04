@@ -133,6 +133,30 @@ PY
     mutate_repo "check_db_roles находит чужой секрет у роли" \
       "infra/postgres/roles.json" '"secret": "db_app_catalog"' '"secret": "db_app_orders"' \
       "ожидался db_app_catalog" tools/docs-checks/check_db_roles.py
+    # 5. Realm Keycloak: правка срока токена, второго фактора, привязки области, секрета и политики паролей ловится check_realm.py.
+    R=infra/keycloak/realm/dgm-realm.json
+    mutate_repo "check_realm находит срок access-токена не по документу" "$R" '"accessTokenLifespan": 300' '"accessTokenLifespan": 3600' \
+      "срок access-токена realm" tools/docs-checks/check_realm.py
+    mutate_repo "check_realm находит ослабленную защиту от перебора" "$R" '"failureFactor": 5' '"failureFactor": 50' \
+      "защита от перебора" tools/docs-checks/check_realm.py
+    mutate_repo "check_realm находит TLS не для всех адресов" "$R" '"sslRequired": "all"' '"sslRequired": "external"' \
+      "TLS обязателен для всех адресов" tools/docs-checks/check_realm.py
+    mutate_repo "check_realm находит политику паролей без Argon2" "$R" 'hashAlgorithm(argon2)' 'hashAlgorithm(pbkdf2-sha512)' \
+      "политика паролей без hashAlgorithm" tools/docs-checks/check_realm.py
+    mutate_repo "check_realm находит второй фактор не у той роли" "$R" '"condUserRole": "seller"' '"condUserRole": "buyer"' \
+      "второй фактор в потоке входа у ролей" tools/docs-checks/check_realm.py
+    mutate_repo "check_realm находит область, выданную не той роли" "$R" '"clientScope": "orders.create",
+      "roles": [
+        "buyer"' '"clientScope": "orders.create",
+      "roles": [
+        "admin"' \
+      "области orders.create выдаются ролям" tools/docs-checks/check_realm.py
+    mutate_repo "check_realm находит значение секрета вместо подстановки" "$R" '"secret": "${DGM_PLATFORM_CLIENT_SECRET}"' '"secret": "plain-secret-value"' \
+      "секрет клиента должен быть подстановкой" tools/docs-checks/check_realm.py
+    mutate_repo "check_realm находит amr без срока хранения" "$R" '"default.reference.maxAge": "36000"' '"default.reference.maxAge": "0"' \
+      "у amr нет default.reference.maxAge" tools/docs-checks/check_realm.py
+    mutate_repo "gen_realm --check находит ручную правку realm" "$R" '"verifyEmail": true' '"verifyEmail": true, "x": 1' \
+      "не равен результату gen_realm.py" infra/keycloak/gen_realm.py --check
     ;;
   security)
     # Фиктивный токен формата GitHub (ghp_ и 36 случайных символов). Он не настоящий и нигде не работает.

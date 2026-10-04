@@ -1,0 +1,1461 @@
+{
+  "id": "dgm",
+  "realm": "dgm",
+  "displayName": "Маркетплейс цифровых товаров",
+  "enabled": true,
+  "sslRequired": "all",
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "rememberMe": false,
+  "verifyEmail": true,
+  "resetPasswordAllowed": true,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 5,
+  "waitIncrementSeconds": 900,
+  "maxFailureWaitSeconds": 900,
+  "minimumQuickLoginWaitSeconds": 60,
+  "maxDeltaTimeSeconds": 43200,
+  "quickLoginCheckMilliSeconds": 1000,
+  "accessTokenLifespan": 300,
+  "accessTokenLifespanForImplicitFlow": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "ssoSessionIdleTimeoutRememberMe": 0,
+  "ssoSessionMaxLifespanRememberMe": 0,
+  "offlineSessionIdleTimeout": 2592000,
+  "offlineSessionMaxLifespanEnabled": false,
+  "accessCodeLifespan": 60,
+  "accessCodeLifespanUserAction": 300,
+  "accessCodeLifespanLogin": 1800,
+  "actionTokenGeneratedByAdminLifespan": 43200,
+  "actionTokenGeneratedByUserLifespan": 300,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "defaultSignatureAlgorithm": "RS256",
+  "passwordPolicy": "hashAlgorithm(argon2) and length(12) and notUsername and notEmail",
+  "otpPolicyType": "totp",
+  "otpPolicyAlgorithm": "HmacSHA1",
+  "otpPolicyInitialCounter": 0,
+  "otpPolicyDigits": 6,
+  "otpPolicyLookAheadWindow": 1,
+  "otpPolicyPeriod": 30,
+  "otpPolicyCodeReusable": false,
+  "otpSupportedApplications": [
+    "totpAppFreeOTPName",
+    "totpAppGoogleName",
+    "totpAppMicrosoftAuthenticatorName"
+  ],
+  "requiredCredentials": [
+    "password"
+  ],
+  "internationalizationEnabled": true,
+  "supportedLocales": [
+    "ru",
+    "en"
+  ],
+  "defaultLocale": "ru",
+  "eventsEnabled": true,
+  "eventsExpiration": 604800,
+  "eventsListeners": [
+    "jboss-logging"
+  ],
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": false,
+  "browserSecurityHeaders": {
+    "contentSecurityPolicyReportOnly": "",
+    "xContentTypeOptions": "nosniff",
+    "referrerPolicy": "no-referrer",
+    "xRobotsTag": "none",
+    "xFrameOptions": "DENY",
+    "contentSecurityPolicy": "frame-src 'self'; frame-ancestors 'none'; object-src 'none';",
+    "strictTransportSecurity": "max-age=31536000; includeSubDomains"
+  },
+  "smtpServer": {
+    "host": "external-stubs",
+    "port": "1025",
+    "from": "no-reply@dgm.local",
+    "fromDisplayName": "Маркетплейс цифровых товаров",
+    "ssl": "false",
+    "starttls": "false",
+    "auth": "false"
+  },
+  "browserFlow": "dgm-browser",
+  "registrationFlow": "registration",
+  "directGrantFlow": "direct grant",
+  "resetCredentialsFlow": "reset credentials",
+  "clientAuthenticationFlow": "clients",
+  "dockerAuthenticationFlow": "docker auth",
+  "firstBrokerLoginFlow": "dgm-first-broker-login",
+  "authenticationFlows": [
+    {
+      "id": "7f3803a9-07af-5ba4-a904-f2360ff5906a",
+      "alias": "dgm-browser",
+      "description": "Вход: SSO-cookie, внешний провайдер или пароль плюс второй фактор по роли",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-cookie",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "identity-provider-redirector",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 25,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorFlow": true,
+          "autheticatorFlow": true,
+          "flowAlias": "dgm-browser-forms",
+          "requirement": "ALTERNATIVE",
+          "priority": 30,
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "id": "91be18bc-07f6-5c1d-8bd4-f01301b2d8de",
+      "alias": "dgm-browser-forms",
+      "description": "Пароль и условный второй фактор",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-username-password-form",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "ref-pwd"
+        },
+        {
+          "authenticatorFlow": true,
+          "autheticatorFlow": true,
+          "flowAlias": "dgm-2fa-seller",
+          "requirement": "CONDITIONAL",
+          "priority": 20,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorFlow": true,
+          "autheticatorFlow": true,
+          "flowAlias": "dgm-2fa-moderator",
+          "requirement": "CONDITIONAL",
+          "priority": 30,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorFlow": true,
+          "autheticatorFlow": true,
+          "flowAlias": "dgm-2fa-support-operator",
+          "requirement": "CONDITIONAL",
+          "priority": 40,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorFlow": true,
+          "autheticatorFlow": true,
+          "flowAlias": "dgm-2fa-admin",
+          "requirement": "CONDITIONAL",
+          "priority": 50,
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "id": "5ffbaa01-e153-5457-83db-56c53d8ec2cf",
+      "alias": "dgm-2fa-seller",
+      "description": "Второй фактор обязателен для роли seller",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "conditional-user-role",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "cond-role-seller"
+        },
+        {
+          "authenticator": "auth-otp-form",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "ref-otp-seller"
+        }
+      ]
+    },
+    {
+      "id": "606cc83d-5903-5bb2-880d-3fcfd8ec98eb",
+      "alias": "dgm-2fa-moderator",
+      "description": "Второй фактор обязателен для роли moderator",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "conditional-user-role",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "cond-role-moderator"
+        },
+        {
+          "authenticator": "auth-otp-form",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "ref-otp-moderator"
+        }
+      ]
+    },
+    {
+      "id": "6a13d773-9c2a-58cb-848c-41d353c50bea",
+      "alias": "dgm-2fa-support-operator",
+      "description": "Второй фактор обязателен для роли support-operator",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "conditional-user-role",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "cond-role-support-operator"
+        },
+        {
+          "authenticator": "auth-otp-form",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "ref-otp-support-operator"
+        }
+      ]
+    },
+    {
+      "id": "34626d6c-95ba-5230-a7f3-fd1774735c0a",
+      "alias": "dgm-2fa-admin",
+      "description": "Второй фактор обязателен для роли admin",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "conditional-user-role",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "cond-role-admin"
+        },
+        {
+          "authenticator": "auth-otp-form",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "ref-otp-admin"
+        }
+      ]
+    },
+    {
+      "id": "cdc0af9c-80c4-5143-ad0a-822a008372b8",
+      "alias": "registration",
+      "description": "Регистрация",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticatorFlow": true,
+          "autheticatorFlow": true,
+          "flowAlias": "registration form",
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "id": "acfaebe7-23cd-5410-b3e9-9a79ad64ffa6",
+      "alias": "registration form",
+      "description": "Форма регистрации",
+      "providerId": "form-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "registration-user-creation",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "registration-password-action",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 50,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "registration-recaptcha-action",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "DISABLED",
+          "priority": 60,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "registration-terms-and-conditions",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "DISABLED",
+          "priority": 70,
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "id": "7467cbae-f337-53cb-b102-5e492500ee9d",
+      "alias": "direct grant",
+      "description": "Выдача токена по паролю (клиентам не включена)",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "direct-grant-validate-username",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "direct-grant-validate-password",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorFlow": true,
+          "autheticatorFlow": true,
+          "flowAlias": "Direct Grant - Conditional OTP",
+          "requirement": "CONDITIONAL",
+          "priority": 30,
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "id": "248a494d-56db-57cf-b23c-eb9e7b75087e",
+      "alias": "Direct Grant - Conditional OTP",
+      "description": "OTP, если настроен",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "conditional-user-configured",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "direct-grant-validate-otp",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "id": "0329ab30-077b-567c-99c4-a0bcabd86755",
+      "alias": "reset credentials",
+      "description": "Сброс пароля",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "reset-credentials-choose-user",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "reset-credential-email",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "reset-password",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 30,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorFlow": true,
+          "autheticatorFlow": true,
+          "flowAlias": "Reset - Conditional OTP",
+          "requirement": "CONDITIONAL",
+          "priority": 40,
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "id": "b74b0b10-e514-5385-84bd-919745465ac6",
+      "alias": "Reset - Conditional OTP",
+      "description": "OTP при сбросе, если настроен",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "conditional-user-configured",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "reset-otp",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "id": "5f16f46a-89b1-59b7-8b4b-f780234669e5",
+      "alias": "clients",
+      "description": "Проверка подлинности клиентов",
+      "providerId": "client-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "client-secret",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "client-jwt",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 20,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "client-secret-jwt",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 30,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "client-x509",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 40,
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "id": "962f4c9b-8e5a-5de1-a55f-683c04baa752",
+      "alias": "docker auth",
+      "description": "Docker (не используется)",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "docker-http-basic-authenticator",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "id": "14bb3632-d923-5561-8b85-5ef1e972ea9c",
+      "alias": "dgm-first-broker-login",
+      "description": "Первый вход через внешнего провайдера",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "idp-create-user-if-unique",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "create-unique-user"
+        },
+        {
+          "authenticatorFlow": true,
+          "autheticatorFlow": true,
+          "flowAlias": "dgm-handle-existing-account",
+          "requirement": "ALTERNATIVE",
+          "priority": 20,
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "id": "ce893bc8-8c7e-5c6a-bebf-70933467f682",
+      "alias": "dgm-handle-existing-account",
+      "description": "Учётная запись с таким e-mail уже есть",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "idp-confirm-link",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "idp-email-verification",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "id": "6b516838-1bec-57d8-a832-a5b444c6dc05",
+      "alias": "dgm-vk-deny-nonbuyer",
+      "description": "Отказ всем, кроме покупателей",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "conditional-user-role",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "dgm-vk-deny-nonbuyer-cond"
+        },
+        {
+          "authenticator": "deny-access-authenticator",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "dgm-vk-deny-nonbuyer-deny"
+        }
+      ]
+    },
+    {
+      "id": "38f9d499-8a72-59b8-b63b-c01d393f07f0",
+      "alias": "dgm-vk-post-login",
+      "description": "После входа через VK ID",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticatorFlow": true,
+          "autheticatorFlow": true,
+          "flowAlias": "dgm-vk-deny-nonbuyer",
+          "requirement": "CONDITIONAL",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "allow-access-authenticator",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "ref-vk"
+        }
+      ]
+    },
+    {
+      "id": "c11490fb-3d62-5cbd-8ed9-851a8ef51f49",
+      "alias": "dgm-sms-deny-nonbuyer",
+      "description": "Отказ всем, кроме покупателей",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "conditional-user-role",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "dgm-sms-deny-nonbuyer-cond"
+        },
+        {
+          "authenticator": "deny-access-authenticator",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "dgm-sms-deny-nonbuyer-deny"
+        }
+      ]
+    },
+    {
+      "id": "00edd7fe-256c-569a-b2cc-10c586c50564",
+      "alias": "sms-login",
+      "description": "Вход по коду из SMS",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "sms-otp",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "ref-sms"
+        },
+        {
+          "authenticatorFlow": true,
+          "autheticatorFlow": true,
+          "flowAlias": "dgm-sms-deny-nonbuyer",
+          "requirement": "CONDITIONAL",
+          "priority": 20,
+          "userSetupAllowed": false
+        }
+      ]
+    }
+  ],
+  "authenticatorConfig": [
+    {
+      "id": "d9de5390-c725-5fec-bd89-0206c68ba5bd",
+      "alias": "ref-pwd",
+      "config": {
+        "default.reference.value": "pwd",
+        "default.reference.maxAge": "36000"
+      }
+    },
+    {
+      "id": "7944e349-b141-5384-b523-3b5fe07362b2",
+      "alias": "cond-role-seller",
+      "config": {
+        "condUserRole": "seller",
+        "negate": "false"
+      }
+    },
+    {
+      "id": "0dfefb91-3aa7-55a3-ac03-42f8b17458f8",
+      "alias": "ref-otp-seller",
+      "config": {
+        "default.reference.value": "otp",
+        "default.reference.maxAge": "28800"
+      }
+    },
+    {
+      "id": "fb8739d7-3f94-50d4-878d-5e8a700bbd57",
+      "alias": "cond-role-moderator",
+      "config": {
+        "condUserRole": "moderator",
+        "negate": "false"
+      }
+    },
+    {
+      "id": "3a6ce5ce-708e-5b93-8578-2ffc4f514c93",
+      "alias": "ref-otp-moderator",
+      "config": {
+        "default.reference.value": "otp",
+        "default.reference.maxAge": "28800"
+      }
+    },
+    {
+      "id": "a988ca70-f4b8-57c4-b8ff-1b11758167f3",
+      "alias": "cond-role-support-operator",
+      "config": {
+        "condUserRole": "support-operator",
+        "negate": "false"
+      }
+    },
+    {
+      "id": "9ae357c7-1734-522f-a5ac-38a781005e17",
+      "alias": "ref-otp-support-operator",
+      "config": {
+        "default.reference.value": "otp",
+        "default.reference.maxAge": "28800"
+      }
+    },
+    {
+      "id": "766b6989-cdef-5fca-94b3-dde8cdcafc51",
+      "alias": "cond-role-admin",
+      "config": {
+        "condUserRole": "admin",
+        "negate": "false"
+      }
+    },
+    {
+      "id": "1151b038-e4d6-5e27-a040-a04cf71d4410",
+      "alias": "ref-otp-admin",
+      "config": {
+        "default.reference.value": "otp",
+        "default.reference.maxAge": "28800"
+      }
+    },
+    {
+      "id": "342e0d84-697e-5332-9218-d79b9fe7fc14",
+      "alias": "create-unique-user",
+      "config": {
+        "require.password.update.after.registration": "false"
+      }
+    },
+    {
+      "id": "f6f9a06b-1fdd-53c0-83ca-16e3913b948d",
+      "alias": "dgm-vk-deny-nonbuyer-cond",
+      "config": {
+        "condUserRole": "buyer",
+        "negate": "true"
+      }
+    },
+    {
+      "id": "9d3871ee-7adc-5bcd-9be0-bf445157e801",
+      "alias": "dgm-vk-deny-nonbuyer-deny",
+      "config": {
+        "denyErrorMessage": "Вход через VK ID доступен только покупателям"
+      }
+    },
+    {
+      "id": "46e2c318-4ee5-53e4-8600-fbfb939fba9f",
+      "alias": "ref-vk",
+      "config": {
+        "default.reference.value": "vk",
+        "default.reference.maxAge": "36000"
+      }
+    },
+    {
+      "id": "eb90d3d1-1b8a-5c51-b308-605be51e9e08",
+      "alias": "dgm-sms-deny-nonbuyer-cond",
+      "config": {
+        "condUserRole": "buyer",
+        "negate": "true"
+      }
+    },
+    {
+      "id": "bc2638ff-11eb-5eb8-be5b-b81aafade428",
+      "alias": "dgm-sms-deny-nonbuyer-deny",
+      "config": {
+        "denyErrorMessage": "Вход по коду из SMS доступен только покупателям"
+      }
+    },
+    {
+      "id": "f9945dd1-2a35-557b-9fdb-8901e1cd5bf9",
+      "alias": "ref-sms",
+      "config": {
+        "default.reference.value": "sms",
+        "default.reference.maxAge": "3600"
+      }
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "buyer",
+        "description": "Покупатель",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "name": "seller",
+        "description": "Продавец, второй фактор обязателен",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "name": "moderator",
+        "description": "Модератор, второй фактор обязателен",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "name": "support-operator",
+        "description": "Оператор поддержки, второй фактор обязателен",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "name": "admin",
+        "description": "Администратор, второй фактор обязателен",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "name": "default-roles-dgm",
+        "description": "Роль по умолчанию: покупатель",
+        "composite": true,
+        "composites": {
+          "realm": [
+            "buyer"
+          ]
+        },
+        "clientRole": false
+      }
+    ]
+  },
+  "defaultRole": {
+    "name": "default-roles-dgm",
+    "description": "Роль по умолчанию: покупатель",
+    "composite": true,
+    "clientRole": false,
+    "containerId": "dgm"
+  },
+  "scopeMappings": [
+    {
+      "clientScope": "orders.create",
+      "roles": [
+        "buyer"
+      ]
+    },
+    {
+      "clientScope": "orders.read",
+      "roles": [
+        "buyer"
+      ]
+    },
+    {
+      "clientScope": "support.write",
+      "roles": [
+        "buyer"
+      ]
+    },
+    {
+      "clientScope": "account.manage",
+      "roles": [
+        "buyer"
+      ]
+    },
+    {
+      "clientScope": "seller.apply",
+      "roles": [
+        "buyer"
+      ]
+    },
+    {
+      "clientScope": "seller.catalog",
+      "roles": [
+        "seller"
+      ]
+    },
+    {
+      "clientScope": "staff.moderation",
+      "roles": [
+        "moderator"
+      ]
+    },
+    {
+      "clientScope": "staff.support",
+      "roles": [
+        "support-operator"
+      ]
+    },
+    {
+      "clientScope": "staff.admin",
+      "roles": [
+        "admin"
+      ]
+    },
+    {
+      "clientScope": "staff.audit",
+      "roles": [
+        "admin"
+      ]
+    }
+  ],
+  "clientScopes": [
+    {
+      "name": "basic",
+      "description": "Идентификатор пользователя sub и время входа",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "sub",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-sub-mapper",
+          "consentRequired": false,
+          "config": {
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "auth_time",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usersessionmodel-note-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.session.note": "AUTH_TIME",
+            "claim.name": "auth_time",
+            "jsonType.label": "long",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "name": "roles",
+      "description": "Роль пользователя в realm_access.roles (одна роль из roles-permissions.md, раздел 2)",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "realm roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "lightweight.claim": "false",
+            "claim.name": "realm_access.roles",
+            "jsonType.label": "String",
+            "multivalued": "true"
+          }
+        }
+      ]
+    },
+    {
+      "name": "email",
+      "description": "E-mail для интерфейса. В access-токен не попадает: персональные данные не нужны шлюзу и сервисам",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "email",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "email",
+            "claim.name": "email",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "false",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "email verified",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "emailVerified",
+            "claim.name": "email_verified",
+            "jsonType.label": "boolean",
+            "id.token.claim": "true",
+            "access.token.claim": "false",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dgm-api",
+      "description": "Адресат dgm-api, признак подтверждённого телефона и способы входа amr",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience dgm-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "lightweight.claim": "false",
+            "included.custom.audience": "dgm-api"
+          }
+        },
+        {
+          "name": "phone_verified",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "lightweight.claim": "false",
+            "user.attribute": "phone_verified",
+            "claim.name": "phone_verified",
+            "jsonType.label": "boolean"
+          }
+        },
+        {
+          "name": "amr",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-amr-mapper",
+          "consentRequired": false,
+          "config": {
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "lightweight.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "name": "orders.create",
+      "description": "Оформление заказа и платёжная сессия",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    },
+    {
+      "name": "orders.read",
+      "description": "История заказов и статусы выдачи",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    },
+    {
+      "name": "support.write",
+      "description": "Создание обращения, ввод кодов смены e-mail",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    },
+    {
+      "name": "account.manage",
+      "description": "Кабинет учётной записи",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    },
+    {
+      "name": "seller.apply",
+      "description": "Заявка на статус продавца",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    },
+    {
+      "name": "seller.catalog",
+      "description": "Товары, пулы ключей и остатки продавца",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    },
+    {
+      "name": "staff.moderation",
+      "description": "Очереди заявок и товаров, решения модератора",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    },
+    {
+      "name": "staff.support",
+      "description": "Очередь обращений, повторная отправка, смена e-mail",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    },
+    {
+      "name": "staff.admin",
+      "description": "Роли, учётные записи, параметры, ручные возвраты",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    },
+    {
+      "name": "staff.audit",
+      "description": "Чтение журнала аудита",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    }
+  ],
+  "defaultDefaultClientScopes": [],
+  "defaultOptionalClientScopes": [],
+  "clients": [
+    {
+      "clientId": "dgm-web",
+      "name": "Веб-интерфейс: покупатель",
+      "description": "Одностраничное приложение, кабинет покупателя (код авторизации с PKCE)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "bearerOnly": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "consentRequired": false,
+      "frontchannelLogout": false,
+      "redirectUris": [
+        "${DGM_PUBLIC_ORIGIN:https://localhost:8443}/*"
+      ],
+      "webOrigins": [
+        "${DGM_PUBLIC_ORIGIN:https://localhost:8443}"
+      ],
+      "rootUrl": "${DGM_PUBLIC_ORIGIN:https://localhost:8443}",
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+",
+        "oauth2.device.authorization.grant.enabled": "false",
+        "oidc.ciba.grant.enabled": "false",
+        "access.token.lifespan": "300",
+        "client.session.idle.timeout": "1800",
+        "client.session.max.lifespan": "36000",
+        "use.refresh.tokens": "true"
+      },
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "email",
+        "dgm-api",
+        "orders.create",
+        "orders.read",
+        "support.write",
+        "account.manage",
+        "seller.apply"
+      ],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "dgm-staff",
+      "name": "Веб-интерфейс: продавец и сотрудники",
+      "description": "Кабинеты продавца, модератора, поддержки и администратора (код с PKCE, второй фактор по роли)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "bearerOnly": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "consentRequired": false,
+      "frontchannelLogout": false,
+      "redirectUris": [
+        "${DGM_PUBLIC_ORIGIN:https://localhost:8443}/*"
+      ],
+      "webOrigins": [
+        "${DGM_PUBLIC_ORIGIN:https://localhost:8443}"
+      ],
+      "rootUrl": "${DGM_PUBLIC_ORIGIN:https://localhost:8443}",
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+",
+        "oauth2.device.authorization.grant.enabled": "false",
+        "oidc.ciba.grant.enabled": "false",
+        "access.token.lifespan": "300",
+        "client.session.idle.timeout": "900",
+        "client.session.max.lifespan": "28800",
+        "use.refresh.tokens": "true"
+      },
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "email",
+        "dgm-api",
+        "seller.catalog",
+        "staff.moderation",
+        "staff.support",
+        "staff.admin",
+        "staff.audit"
+      ],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "dgm-sms",
+      "name": "Веб-интерфейс: вход по коду из SMS",
+      "description": "Ограниченная сессия покупателя: 15 минут, без refresh-токена (roles-permissions.md, раздел 5)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "bearerOnly": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "consentRequired": false,
+      "frontchannelLogout": false,
+      "redirectUris": [
+        "${DGM_PUBLIC_ORIGIN:https://localhost:8443}/*"
+      ],
+      "webOrigins": [
+        "${DGM_PUBLIC_ORIGIN:https://localhost:8443}"
+      ],
+      "rootUrl": "${DGM_PUBLIC_ORIGIN:https://localhost:8443}",
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+",
+        "oauth2.device.authorization.grant.enabled": "false",
+        "oidc.ciba.grant.enabled": "false",
+        "access.token.lifespan": "900",
+        "client.session.max.lifespan": "3600",
+        "use.refresh.tokens": "false"
+      },
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "dgm-api",
+        "orders.read",
+        "support.write"
+      ],
+      "optionalClientScopes": [],
+      "authenticationFlowBindingOverrides": {
+        "browser": "00edd7fe-256c-569a-b2cc-10c586c50564"
+      }
+    },
+    {
+      "clientId": "platform-service",
+      "name": "platform-service: Admin API",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "description": "Служебный клиент: платформа назначает роли и признак подтверждения телефона (ADR-010, INV-36)",
+      "publicClient": false,
+      "bearerOnly": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${DGM_PLATFORM_CLIENT_SECRET}",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "fullScopeAllowed": true,
+      "consentRequired": false,
+      "attributes": {
+        "access.token.lifespan": "300"
+      },
+      "defaultClientScopes": [
+        "basic"
+      ],
+      "optionalClientScopes": []
+    }
+  ],
+  "identityProviders": [
+    {
+      "alias": "vkid",
+      "displayName": "VK ID",
+      "providerId": "oidc",
+      "enabled": true,
+      "trustEmail": true,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "authenticateByDefault": false,
+      "linkOnly": false,
+      "hideOnLogin": false,
+      "firstBrokerLoginFlowAlias": "dgm-first-broker-login",
+      "postBrokerLoginFlowAlias": "dgm-vk-post-login",
+      "config": {
+        "authorizationUrl": "${DGM_PUBLIC_ORIGIN:https://localhost:8443}/vkid/authorize",
+        "tokenUrl": "https://external-stubs:8443/vkid/token",
+        "userInfoUrl": "https://external-stubs:8443/vkid/userinfo",
+        "jwksUrl": "https://external-stubs:8443/vkid/jwks",
+        "issuer": "https://external-stubs:8443/vkid",
+        "useJwksUrl": "true",
+        "validateSignature": "true",
+        "pkceEnabled": "true",
+        "pkceMethod": "S256",
+        "clientId": "dgm-keycloak",
+        "clientSecret": "${DGM_VKID_CLIENT_SECRET}",
+        "clientAuthMethod": "client_secret_post",
+        "defaultScope": "openid email",
+        "syncMode": "IMPORT",
+        "backchannelSupported": "false",
+        "disableUserInfo": "false"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-platform-service",
+      "enabled": true,
+      "serviceAccountClientId": "platform-service",
+      "realmRoles": [],
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "query-users"
+        ]
+      }
+    }
+  ],
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+      {
+        "providerId": "declarative-user-profile",
+        "subComponents": {},
+        "config": {
+          "kc.user.profile.config": [
+            "{\"attributes\": [{\"name\": \"username\", \"displayName\": \"${username}\", \"validations\": {\"length\": {\"min\": 3, \"max\": 255}, \"username-prohibited-characters\": {}, \"up-username-not-idn-homograph\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"email\", \"displayName\": \"${email}\", \"validations\": {\"email\": {}, \"length\": {\"max\": 255}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"phone_verified\", \"displayName\": \"Телефон подтверждён\", \"validations\": {\"options\": {\"options\": [\"true\", \"false\"]}}, \"permissions\": {\"view\": [\"admin\"], \"edit\": [\"admin\"]}, \"multivalued\": false}], \"groups\": []}"
+          ]
+        }
+      }
+    ],
+    "org.keycloak.keys.KeyProvider": [
+      {
+        "name": "rsa-generated",
+        "providerId": "rsa-generated",
+        "subComponents": {},
+        "config": {
+          "priority": [
+            "100"
+          ],
+          "keySize": [
+            "2048"
+          ]
+        }
+      },
+      {
+        "name": "hmac-generated-hs512",
+        "providerId": "hmac-generated",
+        "subComponents": {},
+        "config": {
+          "priority": [
+            "100"
+          ],
+          "algorithm": [
+            "HS512"
+          ]
+        }
+      },
+      {
+        "name": "aes-generated",
+        "providerId": "aes-generated",
+        "subComponents": {},
+        "config": {
+          "priority": [
+            "100"
+          ]
+        }
+      }
+    ]
+  }
+}

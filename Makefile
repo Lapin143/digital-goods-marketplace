@@ -10,7 +10,7 @@ GRADLEW     := ./gradlew --console=plain
 
 .PHONY: help
 help: ## Показать список команд
-	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: build
 build: ## Собрать все модули и прогнать модульные тесты (Gradle)
@@ -129,6 +129,31 @@ stubs-test: ## Модульные тесты заглушек внешних с�
 .PHONY: stubs-check
 stubs-check: ## Проверить контейнер заглушек: TLS, ключи, SMTP, вебхуки получателю (поднято с DEBUG=1, профиль stubs)
 	tools/stand-checks/stubs_checks.sh
+
+# Keycloak: адреса отладочных портов (make up ... DEBUG=1), по которым проверки заходят минуя шлюз
+KC_ENV := KC_TARGET=https://127.0.0.1:18445 STUBS_TARGET=https://127.0.0.1:18443 STUBS_ADMIN_TARGET=https://127.0.0.1:18444
+
+.PHONY: realm
+realm: ## Пересоздать файл realm Keycloak из генератора (infra/keycloak/gen_realm.py)
+	python3 infra/keycloak/gen_realm.py
+
+.PHONY: keycloak-users
+keycloak-users: ## Создать тестовых пользователей Keycloak: случайные пароли в secrets/test_users.json (поднято с DEBUG=1, профиль auth)
+	$(KC_ENV) python3 infra/keycloak/provision_test_users.py
+
+.PHONY: keycloak-reimport
+keycloak-reimport: ## Применить изменённый realm: удалить realm dgm и перезапустить Keycloak (пользователи пропадут; поднято с DEBUG=1)
+	$(KC_ENV) python3 infra/keycloak/reimport_realm.py
+	$(COMPOSE) --profile '*' restart keycloak
+	python3 tools/stand-checks/wait.py --profiles auth --timeout 240
+
+.PHONY: keycloak-test
+keycloak-test: ## Модульные тесты клиента входа Keycloak (сеть не нужна)
+	python3 -m unittest tools/stand-checks/test_kc_client.py
+
+.PHONY: keycloak-check
+keycloak-check: ## Проверить Keycloak: вход по ролям, второй фактор, сроки, перебор, VK ID, Argon2 (поднято с DEBUG=1, профили infra, stubs, auth)
+	tools/stand-checks/keycloak_checks.sh
 
 .PHONY: clean
 clean: ## Удалить результаты сборки

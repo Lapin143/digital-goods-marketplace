@@ -1,0 +1,52 @@
+# syntax=docker/dockerfile:1
+# Образ Keycloak проекта: официальный образ, расширение «вход по SMS» (infra/keycloak/sms-otp), готовая оптимизированная сборка
+# (kc.sh build) и curl для проверки готовности по TLS (в официальном образе curl нет). Сборка из корня репозитория:
+#   docker build -f docker/Dockerfile.keycloak -t dgm/keycloak:dev .
+# Версии образов берутся из docs/09-operations/versions.md; те же теги записаны в аргументах сборки compose.yaml,
+# совпадение сверяет tools/docs-checks/check_compose.py.
+ARG KEYCLOAK_IMAGE=quay.io/keycloak/keycloak:26.8.0
+ARG JDK_IMAGE=eclipse-temurin:25-jdk-noble
+ARG UBI_IMAGE=registry.access.redhat.com/ubi9:9.8
+
+# 1. curl и его библиотеки в корневой каталог, который переносится в итоговый образ (способ из документации Keycloak для ubi-micro)
+FROM ${UBI_IMAGE} AS ubi-micro-build
+RUN mkdir -p /mnt/rootfs && \
+    dnf install --installroot /mnt/rootfs curl --releasever 9 --setopt install_weak_deps=false --nodocs -y && \
+    dnf --installroot /mnt/rootfs clean all && \
+    rpm --root /mnt/rootfs -e --nodocs setup
+
+# 2. Библиотеки Keycloak для компиляции расширения: берутся из того же образа, на котором оно будет работать
+FROM ${KEYCLOAK_IMAGE} AS keycloak-base
+
+FROM ${JDK_IMAGE} AS spi
+COPY --from=keycloak-base /opt/keycloak/lib/lib/main /kc-libs/main
+COPY --from=keycloak-base /opt/keycloak/lib/lib/boot /kc-libs/boot
+COPY infra/keycloak/sms-otp /src
+# --release 21: Java в образе Keycloak 21, а не 25 (versions.md, раздел 2)
+RUN set -eu; mkdir /classes; \
+    javac --release 21 -Xlint:all -cp '/kc-libs/main/*:/kc-libs/boot/*' -d /classes $(find /src/src -name '*.java'); \
+    cp -r /src/resources/. /classes/; \
+    jar --create --file /dgm-sms-otp.jar -C /classes .
+
+# 3. Оптимизированная сборка: параметры времени сборки заданы здесь, при запуске они не меняются
+FROM ${KEYCLOAK_IMAGE} AS builder
+ENV KC_DB=postgres \
+    KC_HEALTH_ENABLED=true \
+    KC_METRICS_ENABLED=true \
+    KC_CACHE=local \
+    KC_HTTP_RELATIVE_PATH=/auth \
+    KC_HTTP_MANAGEMENT_RELATIVE_PATH=/
+COPY --from=spi /dgm-sms-otp.jar /opt/keycloak/providers/dgm-sms-otp.jar
+RUN /opt/keycloak/bin/kc.sh build
+
+FROM ${KEYCLOAK_IMAGE}
+ARG KEYCLOAK_IMAGE
+LABEL org.opencontainers.image.title="keycloak" \
+      org.opencontainers.image.description="Keycloak с расширением входа по SMS, готовая сборка start --optimized" \
+      org.opencontainers.image.source="https://github.com/Lapin143/digital-goods-marketplace" \
+      org.opencontainers.image.base.name="${KEYCLOAK_IMAGE}"
+COPY --from=ubi-micro-build /mnt/rootfs /
+COPY --from=builder /opt/keycloak/ /opt/keycloak/
+# Пользователь 1000 и точка входа остаются от базового образа. Compose запускает infra/keycloak/entrypoint.sh (секреты из файлов).
+# 8443 клиентский вход по TLS, 9000 здоровье и метрики по TLS.
+EXPOSE 8443 9000

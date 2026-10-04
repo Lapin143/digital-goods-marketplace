@@ -71,6 +71,7 @@
     {"name": "storage_catalog", "kind": "password", "readers": ["catalog-service", "storage-init"], "purpose": "Учётная запись catalog-service только на бакет seller-documents (ADR-024)"},
 
     {"name": "keycloak_admin", "kind": "password", "readers": ["keycloak"], "purpose": "Начальный администратор Keycloak"},
-    {"name": "keycloak_client_platform", "kind": "password", "readers": ["keycloak", "platform-service"], "purpose": "Секрет клиента platform-service для Admin API Keycloak (назначение ролей по событиям)"}
+    {"name": "keycloak_client_platform", "kind": "password", "readers": ["keycloak", "platform-service"], "purpose": "Секрет клиента platform-service для Admin API Keycloak (назначение ролей по событиям)"},
+    {"name": "keycloak_vkid_client", "kind": "password", "readers": ["keycloak"], "purpose": "Секрет клиента Keycloak у провайдера VK ID: на стенде заглушку не проверяет, на сервере его выдаёт VK"}
   ]
 }

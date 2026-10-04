@@ -13,6 +13,8 @@ services:
   object-storage:
     ports: ["127.0.0.1:19000:9000"]
     networks: [debug]
+  keycloak:
+    ports: ["127.0.0.1:18445:8443"]
   external-stubs:
     ports: ["127.0.0.1:18443:8443", "127.0.0.1:18444:8444", "127.0.0.1:11025:1025"]
 
