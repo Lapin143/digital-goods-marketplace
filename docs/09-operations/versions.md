@@ -30,7 +30,7 @@
 | Spring Cloud | 2025.1.3 | Вместе с Spring Boot 4.0 и 4.1 | Версия 2025.1.2 и выше поддерживает Spring Boot 4.1. Линейка 2026.0 пока в предварительных выпусках |
 | Gradle | 9.8.0 | Текущая линейка 9.x | Spring Boot 4.1 поддерживает Gradle 8.14 и выше и 9.x. Файлы wrapper создаёт рабочий процесс `wrapper.yml` на раннере CI (ADR-023, правило 7) |
 | ArchUnit | 1.4.2 | Пока развивается | Поддерживает Java 26. Версия задаётся в каталоге, в BOM Spring её нет |
-| Остальные библиотеки (Flyway, драйвер PostgreSQL, клиент Kafka, Lettuce, Micrometer, Testcontainers) | Из BOM Spring Boot 4.1.1 | Вместе с Spring Boot | Явных версий нет, это правило 4 |
+| Остальные библиотеки (Flyway, драйвер PostgreSQL, клиент Kafka, Lettuce, Micrometer, Nimbus JOSE) | Из BOM Spring Boot 4.1.1 | Вместе с Spring Boot | Явных версий нет, это правило 4 |
 | Node.js | 24.21.0 LTS | Апрель 2028 года | Только для заглушек внешних систем и вспомогательных скриптов, внешних пакетов нет |
 | Python | 3.12 и выше | Системная | Скрипты проверок документов, `requirements-docs.txt` появляется в шаге 3 |
 
