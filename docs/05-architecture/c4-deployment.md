@@ -99,7 +99,7 @@ flowchart TB
         subgraph p-storage["<b>Профиль storage, 192 МБ</b>"]
             object-storage[("<b>Объектное хранилище</b><br/><i>[Контейнер: MinIO]</i><br/>9000")]
         end
-        subgraph p-infra["<b>Профиль infra, 1088 МБ</b>"]
+        subgraph p-infra["<b>Профиль infra, 1184 МБ</b>"]
             postgres[("<b>Реляционные базы</b><br/><i>[Контейнер: PostgreSQL 16]</i><br/>5432")]
             kafka[("<b>Брокер событий</b><br/><i>[Контейнер: Kafka KRaft]</i><br/>9093")]
             redis[("<b>Кэш и таймеры</b><br/><i>[Контейнер: Redis]</i><br/>6379")]

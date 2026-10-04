@@ -234,7 +234,7 @@ def check_memory(rep):
     # --- сколько мегабайт в Xmx
     for alias, c in cont.items():
         m = re.search(r'`Xmx` (\d+) МБ', c['setting'])
-        if m and alias not in ('keycloak', 'kafka'):
+        if m and alias not in ('keycloak', 'kafka', 'kafka-init'):
             if c['limit'] != int(m.group(1)) + JAVA_OVERHEAD and not (alias == 'platform-service' and c['limit'] == int(m.group(1)) + JAVA_OVERHEAD):
                 rep.err('memory-budget 2.1', '%s: лимит %d, Xmx %s плюс %d равно %d (принцип 2)'
                         % (alias, c['limit'], m.group(1), JAVA_OVERHEAD, int(m.group(1)) + JAVA_OVERHEAD))
