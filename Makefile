@@ -56,6 +56,50 @@ pki-status: ## Сколько дней осталось у сертификат�
 pki-test: ## Тесты скрипта сертификатов и секретов
 	python3 -m unittest infra/pki/test_pki.py
 
+# ---------------------------------------------------------------- стенд (Docker Compose)
+# Наборы профилей (c4-deployment.md, раздел 3). Состав сверяет tools/docs-checks/check_compose.py.
+SET             ?= dev-min
+SET_dev-min      := infra,stubs
+SET_dev-platform := infra,stubs,platform,storage
+SET_dev-auth     := infra,stubs,auth,gateway
+SET_dev-purchase := infra,stubs,purchase
+SET_full         := infra,stubs,auth,gateway,purchase,platform,storage
+SET_full-obs     := $(SET_full),obs
+SET_server       := $(SET_full-obs),ops
+ALL_SETS        := dev-min dev-platform dev-auth dev-purchase full full-obs server
+PROFILES         := $(SET_$(SET))
+COMPOSE          := docker compose -f compose.yaml $(if $(DEBUG),-f compose.debug.yaml)
+
+.PHONY: up
+up: certs secrets ## Поднять набор профилей и дождаться готовности: make up SET=dev-min [DEBUG=1]
+	@test -n "$(PROFILES)" || { echo "Неизвестный набор SET=$(SET). Доступны: $(ALL_SETS)"; exit 2; }
+	COMPOSE_PROFILES=$(PROFILES) $(COMPOSE) up -d --remove-orphans
+	python3 tools/stand-checks/wait.py --profiles $(PROFILES)
+
+.PHONY: down
+down: ## Остановить и удалить контейнеры (тома сохраняются)
+	$(COMPOSE) --profile '*' down --remove-orphans
+
+.PHONY: reset
+reset: ## Остановить и удалить контейнеры вместе с томами (данные баз и Kafka пропадут)
+	$(COMPOSE) --profile '*' down --remove-orphans --volumes
+
+.PHONY: ps
+ps: ## Состояние контейнеров
+	$(COMPOSE) --profile '*' ps -a
+
+.PHONY: logs
+logs: ## Журналы: make logs S=kafka
+	$(COMPOSE) --profile '*' logs --tail 100 $(S)
+
+.PHONY: compose-config
+compose-config: ## Проверить и показать итоговую конфигурацию Compose
+	COMPOSE_PROFILES=$(PROFILES) $(COMPOSE) config
+
+.PHONY: kafka-topics
+kafka-topics: ## Пересоздать topics.sh из AsyncAPI
+	python3 infra/kafka/gen_kafka.py
+
 .PHONY: clean
 clean: ## Удалить результаты сборки
 	$(GRADLEW) clean

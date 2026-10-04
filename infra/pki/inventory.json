@@ -20,6 +20,7 @@
     {"name": "object-storage"},
     {"name": "postgres"},
     {"name": "kafka"},
+    {"name": "kafka-init"},
     {"name": "redis"},
     {"name": "external-stubs"},
     {"name": "prometheus"}

@@ -1,0 +1,309 @@
+# Стенд: Docker Compose. Состав контейнеров, профили, сети, лимиты памяти и секреты взяты из документов Ф2 и сверяются с ними
+# скриптом tools/docs-checks/check_compose.py (c4-deployment.md, memory-budget.md, versions.md, infra/pki/inventory.json).
+#
+# Запуск наборов профилей: make up SET=dev-min (список наборов в Makefile и в c4-deployment.md, раздел 3).
+# Секреты и сертификаты создаются заранее: make certs secrets (make up делает это сам).
+name: dgm
+
+# Общие настройки контейнеров. Правила: без лишних прав, файловая система только для чтения, записи только в tmpfs и тома.
+x-common: &common
+  restart: ${DGM_RESTART:-no}
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  read_only: true
+  stop_grace_period: 30s
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  # ------------------------------------------------------------------ профиль infra
+  postgres:
+    <<: *common
+    image: postgres:16.15-trixie
+    profiles: [infra]
+    user: "999:999"
+    entrypoint: ["/bin/bash", "/etc/dgm/postgres/entrypoint.sh"]
+    command: []
+    stop_signal: SIGINT          # быстрая остановка: не ждать закрытия клиентских соединений
+    mem_limit: 512m
+    memswap_limit: 512m
+    networks: [data]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres:/etc/dgm/postgres:ro
+    tmpfs:
+      - /run/dgm:uid=999,gid=999,mode=0700,size=1m
+      - /var/run/postgresql:uid=999,gid=999,mode=2775,size=1m
+      - /tmp:uid=999,gid=999,mode=1777,size=32m
+    secrets:
+      - tls_ca.crt
+      - tls_postgres.key
+      - tls_postgres.crt
+      - db_postgres_admin
+      - db_migrator_catalog
+      - db_migrator_inventory
+      - db_migrator_order
+      - db_migrator_payment
+      - db_migrator_delivery
+      - db_migrator_platform
+      - db_app_seller_onboarding
+      - db_app_catalog
+      - db_app_inventory
+      - db_app_orders
+      - db_app_payments
+      - db_app_delivery
+      - db_app_identity
+      - db_app_support
+      - db_app_notification
+      - db_app_audit_admin
+      - db_app_audit_writer
+      - db_keycloak
+    healthcheck:
+      # Проверка по TCP: на время инициализации сервер слушает только сокет, поэтому готовым считается только настоящий сервер
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U postgres -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  redis:
+    <<: *common
+    image: redis:8.2.10-alpine
+    profiles: [infra]
+    user: "999:1000"
+    entrypoint: ["/bin/sh", "/etc/dgm/redis/entrypoint.sh"]
+    command: []
+    mem_limit: 96m
+    memswap_limit: 96m
+    networks: [data]
+    volumes:
+      - ./infra/redis:/etc/dgm/redis:ro
+    tmpfs:
+      - /run/dgm:uid=999,gid=1000,mode=0700,size=1m
+      - /data:uid=999,gid=1000,mode=0700,size=4m
+    secrets:
+      - tls_ca.crt
+      - tls_redis.key
+      - tls_redis.crt
+      - redis_admin
+      - redis_catalog
+      - redis_inventory
+      - redis_platform
+      - redis_gateway
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$(cat /run/secrets/redis_admin)\" redis-cli --tls --cacert /run/secrets/tls_ca.crt --user admin -h localhost ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 2s
+
+  kafka:
+    <<: *common
+    image: apache/kafka:4.3.1
+    profiles: [infra]
+    user: "1000:1000"
+    entrypoint: ["/bin/bash", "/etc/dgm/kafka/entrypoint.sh"]
+    command: []
+    mem_limit: 448m
+    memswap_limit: 448m
+    networks: [data]
+    volumes:
+      - kafkadata:/var/lib/kafka/data
+      - ./infra/kafka:/etc/dgm/kafka:ro
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=1777,size=64m
+    secrets:
+      - tls_ca.crt
+      - tls_kafka.key
+      - tls_kafka.crt
+    healthcheck:
+      # Рукопожатие TLS на порту клиентов: слушатель начинает отвечать, когда брокер завершил запуск. JVM в проверке не запускается
+      test: ["CMD-SHELL", "timeout 5 openssl s_client -connect localhost:9093 -verify_hostname localhost -verify_return_error -CAfile /run/secrets/tls_ca.crt -cert /run/secrets/tls_kafka.crt -key /run/secrets/tls_kafka.key </dev/null 2>&1 | grep -q 'Verify return code: 0'"]
+      interval: 10s
+      timeout: 8s
+      retries: 30
+      start_period: 15s
+
+  kafka-init:
+    <<: *common
+    image: apache/kafka:4.3.1
+    profiles: [infra]
+    user: "1000:1000"
+    entrypoint: ["/bin/bash", "/etc/dgm/kafka/init.sh"]
+    command: []
+    restart: "no"
+    mem_limit: 128m
+    memswap_limit: 128m
+    networks: [data]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./infra/kafka:/etc/dgm/kafka:ro
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=1777,size=16m
+    secrets:
+      - tls_ca.crt
+      - tls_kafka-init.key
+      - tls_kafka-init.crt
+
+# Сети (c4-deployment.md, раздел 4.2). edge и app подключаются у контейнеров следующих профилей.
+# data и obs закрыты для выхода в интернет. Порты на хост здесь не публикуются: отладочные порты в compose.debug.yaml.
+networks:
+  edge: {}
+  app: {}
+  data:
+    internal: true
+  obs:
+    internal: true
+
+volumes:
+  pgdata: {}
+  kafkadata: {}
+
+secrets:
+  tls_ca.crt:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_ca.crt
+  tls_web-app.key:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_web-app.key
+  tls_web-app.crt:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_web-app.crt
+  tls_api-gateway.key:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_api-gateway.key
+  tls_api-gateway.crt:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_api-gateway.crt
+  tls_keycloak.key:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_keycloak.key
+  tls_keycloak.crt:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_keycloak.crt
+  tls_catalog-service.key:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_catalog-service.key
+  tls_catalog-service.crt:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_catalog-service.crt
+  tls_inventory-service.key:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_inventory-service.key
+  tls_inventory-service.crt:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_inventory-service.crt
+  tls_order-service.key:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_order-service.key
+  tls_order-service.crt:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_order-service.crt
+  tls_payment-service.key:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_payment-service.key
+  tls_payment-service.crt:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_payment-service.crt
+  tls_delivery-service.key:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_delivery-service.key
+  tls_delivery-service.crt:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_delivery-service.crt
+  tls_platform-service.key:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_platform-service.key
+  tls_platform-service.crt:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_platform-service.crt
+  tls_object-storage.key:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_object-storage.key
+  tls_object-storage.crt:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_object-storage.crt
+  tls_postgres.key:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_postgres.key
+  tls_postgres.crt:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_postgres.crt
+  tls_kafka.key:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_kafka.key
+  tls_kafka.crt:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_kafka.crt
+  tls_kafka-init.key:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_kafka-init.key
+  tls_kafka-init.crt:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_kafka-init.crt
+  tls_redis.key:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_redis.key
+  tls_redis.crt:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_redis.crt
+  tls_external-stubs.key:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_external-stubs.key
+  tls_external-stubs.crt:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_external-stubs.crt
+  tls_prometheus.key:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_prometheus.key
+  tls_prometheus.crt:
+    file: ${DGM_SECRETS_DIR:-./secrets}/tls_prometheus.crt
+  inventory_kek:
+    file: ${DGM_SECRETS_DIR:-./secrets}/inventory_kek
+  inventory_hmac:
+    file: ${DGM_SECRETS_DIR:-./secrets}/inventory_hmac
+  payment_gateway_key:
+    file: ${DGM_SECRETS_DIR:-./secrets}/payment_gateway_key
+  payment_webhook_secret:
+    file: ${DGM_SECRETS_DIR:-./secrets}/payment_webhook_secret
+  delivery_email_key:
+    file: ${DGM_SECRETS_DIR:-./secrets}/delivery_email_key
+  delivery_webhook_secret:
+    file: ${DGM_SECRETS_DIR:-./secrets}/delivery_webhook_secret
+  platform_email_key:
+    file: ${DGM_SECRETS_DIR:-./secrets}/platform_email_key
+  platform_sms_key:
+    file: ${DGM_SECRETS_DIR:-./secrets}/platform_sms_key
+  platform_webhook_secret:
+    file: ${DGM_SECRETS_DIR:-./secrets}/platform_webhook_secret
+  platform_audit_hmac:
+    file: ${DGM_SECRETS_DIR:-./secrets}/platform_audit_hmac
+  platform_otp_pepper:
+    file: ${DGM_SECRETS_DIR:-./secrets}/platform_otp_pepper
+  db_postgres_admin:
+    file: ${DGM_SECRETS_DIR:-./secrets}/db_postgres_admin
+  db_migrator_catalog:
+    file: ${DGM_SECRETS_DIR:-./secrets}/db_migrator_catalog
+  db_migrator_inventory:
+    file: ${DGM_SECRETS_DIR:-./secrets}/db_migrator_inventory
+  db_migrator_order:
+    file: ${DGM_SECRETS_DIR:-./secrets}/db_migrator_order
+  db_migrator_payment:
+    file: ${DGM_SECRETS_DIR:-./secrets}/db_migrator_payment
+  db_migrator_delivery:
+    file: ${DGM_SECRETS_DIR:-./secrets}/db_migrator_delivery
+  db_migrator_platform:
+    file: ${DGM_SECRETS_DIR:-./secrets}/db_migrator_platform
+  db_app_seller_onboarding:
+    file: ${DGM_SECRETS_DIR:-./secrets}/db_app_seller_onboarding
+  db_app_catalog:
+    file: ${DGM_SECRETS_DIR:-./secrets}/db_app_catalog
+  db_app_inventory:
+    file: ${DGM_SECRETS_DIR:-./secrets}/db_app_inventory
+  db_app_orders:
+    file: ${DGM_SECRETS_DIR:-./secrets}/db_app_orders
+  db_app_payments:
+    file: ${DGM_SECRETS_DIR:-./secrets}/db_app_payments
+  db_app_delivery:
+    file: ${DGM_SECRETS_DIR:-./secrets}/db_app_delivery
+  db_app_identity:
+    file: ${DGM_SECRETS_DIR:-./secrets}/db_app_identity
+  db_app_support:
+    file: ${DGM_SECRETS_DIR:-./secrets}/db_app_support
+  db_app_notification:
+    file: ${DGM_SECRETS_DIR:-./secrets}/db_app_notification
+  db_app_audit_admin:
+    file: ${DGM_SECRETS_DIR:-./secrets}/db_app_audit_admin
+  db_app_audit_writer:
+    file: ${DGM_SECRETS_DIR:-./secrets}/db_app_audit_writer
+  db_keycloak:
+    file: ${DGM_SECRETS_DIR:-./secrets}/db_keycloak
+  redis_admin:
+    file: ${DGM_SECRETS_DIR:-./secrets}/redis_admin
+  redis_catalog:
+    file: ${DGM_SECRETS_DIR:-./secrets}/redis_catalog
+  redis_inventory:
+    file: ${DGM_SECRETS_DIR:-./secrets}/redis_inventory
+  redis_platform:
+    file: ${DGM_SECRETS_DIR:-./secrets}/redis_platform
+  redis_gateway:
+    file: ${DGM_SECRETS_DIR:-./secrets}/redis_gateway
+  keycloak_admin:
+    file: ${DGM_SECRETS_DIR:-./secrets}/keycloak_admin
+  keycloak_client_platform:
+    file: ${DGM_SECRETS_DIR:-./secrets}/keycloak_client_platform

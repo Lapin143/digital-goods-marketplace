@@ -1,0 +1,15 @@
+# Отладочные порты на хост, только на 127.0.0.1 (c4-deployment.md, раздел 4.3). Подключается ключом DEBUG=1: make up SET=dev-min DEBUG=1.
+# На сервере файл не используется. Сеть data закрыта для выхода наружу (internal), поэтому контейнерам добавляется сеть debug.
+services:
+  postgres:
+    ports: ["127.0.0.1:15432:5432"]
+    networks: [debug]
+  kafka:
+    ports: ["127.0.0.1:19093:19093"]
+    networks: [debug]
+  redis:
+    ports: ["127.0.0.1:16379:6379"]
+    networks: [debug]
+
+networks:
+  debug: {}

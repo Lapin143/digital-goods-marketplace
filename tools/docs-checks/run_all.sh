@@ -35,6 +35,8 @@ run python3 "$HERE/check_security.py"
 run python3 "$HERE/check_strategy.py"
 run python3 "$HERE/check_traceability.py"
 run python3 "$HERE/check_refs.py"
+run python3 "$HERE/check_compose.py"
+run python3 "$REPO/infra/kafka/gen_kafka.py" --check
 if [ "$1" = "--db" ]; then
   run bash "$HERE/db/apply.sh"
   run python3 "$HERE/db/test_db.py"

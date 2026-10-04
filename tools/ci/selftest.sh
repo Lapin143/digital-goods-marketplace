@@ -38,6 +38,31 @@ case "$mode" in
     else
       echo "самопроверка ок: diag.sh печатает аннотацию с причиной падения"
     fi
+    # 3. check_compose.py находит намеренно внесённые ошибки в compose.yaml (лишний порт, неверный лимит, лишние права, чужой секрет, плавающий тег).
+    mutate() {  # название, старое, новое, образец сообщения (контроль должен упасть именно по этой причине)
+      python3 - "$REPO/compose.yaml" "$tmp/compose-bad.yaml" "$2" "$3" <<'PY' || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: не удалось внести ошибку «$1»"; fail=1; return; }
+import sys
+src, dst, old, new = sys.argv[1:5]
+s = open(src, encoding='utf-8').read()
+assert old in s, 'в compose.yaml нет «%s»' % old
+open(dst, 'w', encoding='utf-8').write(s.replace(old, new, 1))
+PY
+      expect_fail "check_compose находит: $1" env DGM_COMPOSE_FILE="$tmp/compose-bad.yaml" python3 "$REPO/tools/docs-checks/check_compose.py"
+      if ! grep -q -- "$4" "$tmp/out.txt"; then
+        echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: «$1»: контроль упал, но не по той причине (нет «$4»)"; tail -n 5 "$tmp/out.txt"; fail=1
+      fi
+    }
+    mutate "лишний порт на хосте" "    profiles: [infra]
+    user: \"999:999\"" "    profiles: [infra]
+    ports: [\"5432:5432\"]
+    user: \"999:999\"" "порт 5432:5432 публикуется"
+    mutate "неверный лимит памяти" "mem_limit: 512m" "mem_limit: 600m" "mem_limit 600 МБ, в memory-budget.md 512"
+    mutate "файловая система не только для чтения" "read_only: true" "read_only: false" "read_only должен быть true"
+    mutate "секрет, которого у контейнера быть не должно" "      - redis_gateway
+    healthcheck:" "      - redis_gateway
+      - db_keycloak
+    healthcheck:" "секрет db_keycloak"
+    mutate "образ с плавающим тегом" "image: redis:8.2.10-alpine" "image: redis:latest" "без точной версии"
     ;;
   security)
     # Фиктивный токен формата GitHub (ghp_ и 36 случайных символов). Он не настоящий и нигде не работает.

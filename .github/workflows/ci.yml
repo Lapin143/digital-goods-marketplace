@@ -101,6 +101,64 @@ jobs:
             tools/ci/diag.sh "Образ $s" tools/ci/check-image.sh "dgm/$s:dev"
           done
 
+  # Образы стенда: теги из versions.md и базовый образ Java существуют в реестрах (versions.md, правило 6).
+  images:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Зависимости Python
+        run: tools/ci/diag.sh "Зависимости Python" python3 -m pip install --break-system-packages --user -r tools/docs-checks/requirements.txt
+
+      - name: Теги образов в реестрах
+        run: tools/ci/diag.sh "Теги образов" tools/ci/check-images.sh
+
+  # Стенд, часть 1: профиль infra (PostgreSQL, Redis, Kafka с TLS и ACL) поднимается набором dev-min и проверяется на шифрование и права.
+  infra:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Версии Docker
+        run: docker version --format 'Docker {{.Server.Version}}' && docker compose version
+
+      - name: Конфигурация Compose корректна
+        run: tools/ci/diag.sh "docker compose config" make compose-config
+
+      - name: Подъём набора dev-min
+        env:
+          DIAG_TAIL: "70"
+        run: tools/ci/diag.sh "make up SET=dev-min" make up SET=dev-min
+
+      - name: Шифрование и права доступа PostgreSQL, Redis, Kafka
+        env:
+          DIAG_FILTER: '^  - |ОШИБКА'
+          DIAG_MAX: "30"
+          DIAG_TAIL: "30"
+        run: tools/ci/diag.sh "Проверки infra" tools/stand-checks/infra_security.sh
+
+      - name: Повторный подъём ничего не ломает (kafka-init пропускает готовое)
+        run: |
+          tools/ci/diag.sh "повторный make up" make up SET=dev-min
+          docker compose --profile '*' logs --no-color kafka-init | tail -n 5
+
+      - name: Память и состояние контейнеров
+        if: always()
+        run: |
+          docker compose --profile '*' ps -a
+          docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}'
+
+      - name: Журналы контейнеров при ошибке
+        if: failure()
+        run: |
+          for s in postgres redis kafka kafka-init; do
+            echo "::group::$s"; docker compose --profile '*' logs --no-color --tail 40 "$s" || true; echo "::endgroup::"
+            msg=$(docker compose --profile '*' logs --no-color --tail 12 "$s" 2>&1 | cut -c1-240 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+            echo "::warning title=журнал $s::$msg"
+          done
+
   # Центр сертификации и секреты (ADR-022): тесты скрипта и полный выпуск с проверкой, как на стенде.
   pki:
     runs-on: ubuntu-24.04
