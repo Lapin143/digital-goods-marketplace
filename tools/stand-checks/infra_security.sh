@@ -101,7 +101,7 @@ kcli() {  # принципал корневой-сертификат коман�
     *) ks='cat /s/tls_'"$who"'.key /s/tls_'"$who"'.crt > $D/ks.pem' ;;
   esac
   [ "$who" = none ] || ks="$ks"'; printf "ssl.keystore.type=PEM\nssl.keystore.location=$D/ks.pem\n" >> $D/c.properties'
-  drun --entrypoint bash -u 1000:1000 --tmpfs /tmp:uid=1000,gid=1000,mode=1777 "$KAFKA_IMAGE" -c "
+  drun --entrypoint bash -u 0:0 "$KAFKA_IMAGE" -c "
 D=/tmp/c; mkdir -p \$D
 printf 'security.protocol=SSL\nssl.truststore.type=PEM\nssl.truststore.location=$ca\ndefault.api.timeout.ms=15000\nrequest.timeout.ms=10000\nmax.block.ms=15000\ndelivery.timeout.ms=15000\nsocket.connection.setup.timeout.max.ms=8000\n' > \$D/c.properties
 $ks
