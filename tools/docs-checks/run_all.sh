@@ -37,6 +37,8 @@ run python3 "$HERE/check_traceability.py"
 run python3 "$HERE/check_refs.py"
 run python3 "$HERE/check_compose.py"
 run python3 "$REPO/infra/kafka/gen_kafka.py" --check
+run python3 "$HERE/db/gen_migrations.py" --check
+run python3 "$HERE/check_db_roles.py"
 if [ "$1" = "--db" ]; then
   run bash "$HERE/db/apply.sh"
   run python3 "$HERE/db/test_db.py"

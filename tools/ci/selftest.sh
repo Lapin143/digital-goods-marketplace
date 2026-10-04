@@ -63,6 +63,33 @@ PY
       - db_keycloak
     healthcheck:" "секрет db_keycloak"
     mutate "образ с плавающим тегом" "image: redis:8.2.10-alpine" "image: redis:latest" "без точной версии"
+    # 4. Миграции Flyway и роли базы: правка миграции, предела соединений и секрета роли ловится контролями шага 7.
+    mkdir -p "$tmp/repo"
+    cp -r "$REPO/docs" "$REPO/infra" "$REPO/services" "$REPO/tools" "$REPO/compose.yaml" "$REPO/Makefile" "$tmp/repo/"
+    mutate_repo() {  # название, файл от корня, старое, новое, образец сообщения, команда от корня...
+      local name="$1" f="$2" old="$3" new="$4" pat="$5"; shift 5
+      python3 - "$tmp/repo/$f" "$old" "$new" <<'PY' || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: не удалось внести ошибку «$name»"; fail=1; return; }
+import sys
+path, old, new = sys.argv[1:4]
+s = open(path, encoding='utf-8').read()
+assert old in s, 'в файле нет «%s»' % old
+open(path, 'w', encoding='utf-8').write(s.replace(old, new, 1))
+PY
+      expect_fail "$name" env REPO="$tmp/repo" python3 "$tmp/repo/$@"
+      if ! grep -q -- "$pat" "$tmp/out.txt"; then
+        echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: «$name»: контроль упал, но не по той причине (нет «$pat»)"; tail -n 5 "$tmp/out.txt"; fail=1
+      fi
+      cp "$REPO/$f" "$tmp/repo/$f"
+    }
+    mutate_repo "gen_migrations находит правку миграции" \
+      "services/order-service/src/main/resources/db/migration/orders/V2__orders.sql" "create schema orders;" "create schema orders; -- правка" \
+      "не соответствует частям DDL" tools/docs-checks/db/gen_migrations.py --check
+    mutate_repo "check_db_roles находит предел соединений сверх пула сервиса" \
+      "infra/postgres/roles.json" '"app_inventory",         "secret": "db_app_inventory",         "limit": 8' '"app_inventory",         "secret": "db_app_inventory",         "limit": 9' \
+      "больше пула сервиса" tools/docs-checks/check_db_roles.py
+    mutate_repo "check_db_roles находит чужой секрет у роли" \
+      "infra/postgres/roles.json" '"secret": "db_app_catalog"' '"secret": "db_app_orders"' \
+      "ожидался db_app_catalog" tools/docs-checks/check_db_roles.py
     ;;
   security)
     # Фиктивный токен формата GitHub (ghp_ и 36 случайных символов). Он не настоящий и нигде не работает.

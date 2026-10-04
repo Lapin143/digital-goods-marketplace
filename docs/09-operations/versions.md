@@ -86,6 +86,7 @@
 | `actions/checkout`, `actions/setup-java`, `actions/upload-artifact` | Базовые шаги | Хеш коммита, шаг 17 |
 | `gradle/actions/setup-gradle` | Кэш и проверка wrapper | Хеш коммита, шаг 17 |
 | `docker/login-action`, `docker/build-push-action` | Публикация образов | Хеш коммита, шаг 17 |
+| `flyway/flyway:13.6.0` | Образ командной строки Flyway для проверки миграций на стенде (`tools/stand-checks/db_migrations.sh`). Не входит в стенд и в образы сервисов, сами сервисы применяют миграции библиотекой Flyway из Spring Boot | Точный тег, существование проверяет задание `images` |
 | Gitleaks | Поиск секретов, ST-14 | Версия бинарного файла в задании `security` |
 | Trivy | Уязвимости зависимостей и образов, ST-14 | Версия бинарного файла в задании `security` |
 | Раннер `ubuntu-24.04` | Среда CI | Метка в workflow. Фактические параметры (4 ядра, 16 ГБ, Docker 28, Compose 2.38) проверены 4 октября 2026 года |

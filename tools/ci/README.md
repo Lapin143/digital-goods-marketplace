@@ -13,7 +13,7 @@
 | `build` | `./gradlew build` на Java 25, сводка тестов, образы всех сервисов, проверка образов | Компиляция с `-Werror`, модульные тесты (в аннотации заметка с числом тестов по модулям), образ запускается от UID 10001 с файловой системой только для чтения и отвечает на `/actuator/health`. Wrapper сверяется с официальной контрольной суммой |
 
 | `images` | `tools/ci/check-images.sh` | Теги образов из `versions.md` (раздел 3) и базовый образ Java существуют в реестрах (`docker manifest inspect`) |
-| `infra` | `make up SET=dev-min`, `tools/stand-checks/wait.py`, `tools/stand-checks/infra_security.sh` | PostgreSQL, Redis и Kafka поднимаются с TLS и ACL, `kafka-init` завершается кодом 0, повторный подъём проходит. Шифрование и права проверяются «плохими» и «хорошими» клиентами. В конце печатается память контейнеров |
+| `infra` | `make up SET=dev-min`, `tools/stand-checks/wait.py`, `tools/stand-checks/infra_security.sh`, `tools/stand-checks/db_migrations.sh` | PostgreSQL, Redis и Kafka поднимаются с TLS и ACL, `kafka-init` завершается кодом 0, повторный подъём проходит. Шифрование и права проверяются «плохими» и «хорошими» клиентами. Образ Flyway применяет миграции всех шести сервисов по TLS, проверяются 44 таблицы, права ролей и запрет изменения журнала аудита. В конце печатается память контейнеров |
 
 Следующие шаги Ф3 добавляют интеграционные тесты на Testcontainers в `build` и задание `stand` (подъём всего набора `full` и дымовой тест).
 

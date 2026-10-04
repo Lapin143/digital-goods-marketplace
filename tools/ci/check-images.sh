@@ -14,6 +14,14 @@ mk = open('Makefile', encoding='utf-8').read()
 m = re.search(r'^JAVA_IMAGE\s*\?=\s*(\S+)', mk, re.M)
 if m:
     imgs.add(m.group(1))
+# Образы инструментов проверки (versions.md, раздел 6): первый столбец таблицы «Инструмент», в нём `репозиторий:тег`
+sys.path.insert(0, 'tools/docs-checks')
+import docslib as L
+t = L.find_table(L.read(C.VER), 'Инструмент', 'Назначение')
+for r in t['rows']:
+    for img in L.backticked(r[0]):
+        if ':' in img and '/' in img:
+            imgs.add(img)
 print('\n'.join(sorted(imgs)))
 PY
 ) || { echo "::error title=check-images::не удалось получить список образов"; exit 2; }

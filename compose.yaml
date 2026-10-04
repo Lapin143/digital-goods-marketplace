@@ -36,6 +36,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./infra/postgres:/etc/dgm/postgres:ro
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro   # базы и роли при первом запуске пустого тома (make db-roles повторяет)
     tmpfs:
       - /run/dgm:uid=999,gid=999,mode=0700,size=1m
       - /var/run/postgresql:uid=999,gid=999,mode=2775,size=1m

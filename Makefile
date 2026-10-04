@@ -100,6 +100,19 @@ compose-config: ## Проверить и показать итоговую ко�
 kafka-topics: ## Пересоздать topics.sh из AsyncAPI
 	python3 infra/kafka/gen_kafka.py
 
+.PHONY: db-roles
+db-roles: ## Повторить создание баз и ролей PostgreSQL (новая роль, смена пароля после замены секрета)
+	$(COMPOSE) exec -T postgres psql -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f /docker-entrypoint-initdb.d/10-databases-and-roles.sql
+
+.PHONY: db-migrations
+db-migrations: ## Пересоздать миграции Flyway из частей DDL (tools/docs-checks/db/parts)
+	python3 tools/docs-checks/db/build.py
+	python3 tools/docs-checks/db/gen_migrations.py
+
+.PHONY: db-check
+db-check: ## Применить миграции Flyway к поднятому PostgreSQL по TLS и проверить права ролей (стенд поднят, набор с infra)
+	tools/stand-checks/db_migrations.sh
+
 .PHONY: clean
 clean: ## Удалить результаты сборки
 	$(GRADLEW) clean

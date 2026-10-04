@@ -1,0 +1,32 @@
+{
+  "_comment": "Базы и роли PostgreSQL стенда. Единственный источник для init/10-databases-and-roles.sql, сверяется с DDL, inventory.json и c4-deployment проверкой tools/docs-checks/check_db_roles.py. Лимит соединений роли это верхняя граница пула сервиса (memory-budget, раздел 6: сервис до 8, Keycloak 10); у миграторов 2, они работают только при старте сервиса.",
+  "databases": [
+    {"name": "catalog_db",   "owner": "migrator_catalog"},
+    {"name": "inventory_db", "owner": "migrator_inventory"},
+    {"name": "order_db",     "owner": "migrator_order"},
+    {"name": "payment_db",   "owner": "migrator_payment"},
+    {"name": "delivery_db",  "owner": "migrator_delivery"},
+    {"name": "platform_db",  "owner": "migrator_platform"},
+    {"name": "keycloak_db",  "owner": "keycloak"}
+  ],
+  "roles": [
+    {"name": "migrator_catalog",   "secret": "db_migrator_catalog",   "limit": 2,  "database": "catalog_db"},
+    {"name": "migrator_inventory", "secret": "db_migrator_inventory", "limit": 2,  "database": "inventory_db"},
+    {"name": "migrator_order",     "secret": "db_migrator_order",     "limit": 2,  "database": "order_db"},
+    {"name": "migrator_payment",   "secret": "db_migrator_payment",   "limit": 2,  "database": "payment_db"},
+    {"name": "migrator_delivery",  "secret": "db_migrator_delivery",  "limit": 2,  "database": "delivery_db"},
+    {"name": "migrator_platform",  "secret": "db_migrator_platform",  "limit": 2,  "database": "platform_db"},
+    {"name": "app_seller_onboarding", "secret": "db_app_seller_onboarding", "limit": 3, "database": "catalog_db"},
+    {"name": "app_catalog",           "secret": "db_app_catalog",           "limit": 5, "database": "catalog_db"},
+    {"name": "app_inventory",         "secret": "db_app_inventory",         "limit": 8, "database": "inventory_db"},
+    {"name": "app_orders",            "secret": "db_app_orders",            "limit": 8, "database": "order_db"},
+    {"name": "app_payments",          "secret": "db_app_payments",          "limit": 8, "database": "payment_db"},
+    {"name": "app_delivery",          "secret": "db_app_delivery",          "limit": 8, "database": "delivery_db"},
+    {"name": "app_identity",          "secret": "db_app_identity",          "limit": 2, "database": "platform_db"},
+    {"name": "app_support",           "secret": "db_app_support",           "limit": 2, "database": "platform_db"},
+    {"name": "app_notification",      "secret": "db_app_notification",      "limit": 2, "database": "platform_db"},
+    {"name": "app_audit_admin",       "secret": "db_app_audit_admin",       "limit": 1, "database": "platform_db"},
+    {"name": "app_audit_writer",      "secret": "db_app_audit_writer",      "limit": 1, "database": "platform_db"},
+    {"name": "keycloak",              "secret": "db_keycloak",              "limit": 10, "database": "keycloak_db"}
+  ]
+}

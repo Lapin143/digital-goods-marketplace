@@ -13,7 +13,8 @@
 # Клиенты запускаются контейнерами тех же образов в сети data. Каталог секретов только для чтения.
 set -uo pipefail
 
-cd "$(dirname "$0")/../.."
+HERE=$(cd "$(dirname "$0")" && pwd)
+cd "$HERE/../.."
 SECRETS=$(cd "${DGM_SECRETS_DIR:-secrets}" && pwd)
 NET=${DGM_DATA_NETWORK:-dgm_data}
 COMPOSE="docker compose -f compose.yaml"
@@ -24,10 +25,7 @@ REDIS_IMAGE=$(image '^redis:')
 KAFKA_IMAGE=$(image '^apache/kafka:')
 [ -n "$PG_IMAGE" ] && [ -n "$REDIS_IMAGE" ] && [ -n "$KAFKA_IMAGE" ] || { echo "::error title=infra_security::не найдены образы в compose.yaml"; exit 2; }
 
-FAILED=()
-PASSED=0
-ok()   { PASSED=$((PASSED+1)); echo "  ok    $1"; }
-bad()  { FAILED+=("$1"); echo "  ОШИБКА $1"; [ -n "${2:-}" ] && echo "$2" | tail -n 6 | sed 's/^/        | /'; }
+source "$HERE/lib.sh"
 
 # Чужой центр сертификации и клиентский сертификат от него (CN как у настоящего сервиса)
 FOREIGN=$(mktemp -d); chmod 755 "$FOREIGN"
@@ -42,18 +40,6 @@ openssl x509 -req -in "$FOREIGN/client.csr" -CA "$FOREIGN/ca.crt" -CAkey "$FOREI
 chmod 644 "$FOREIGN"/*
 
 drun() { docker run --rm --network "$NET" -v "$SECRETS:/s:ro" -v "$FOREIGN:/f:ro" "$@"; }
-
-# Проверки. Команда выполняется в текущей оболочке (подойдёт функция), вывод и код возврата проверяются.
-#   expect_ok      код 0 и в выводе нет признаков ошибки
-#   expect_fail    код не 0 и вывод содержит образец
-#   expect_denied  вывод содержит образец (клиенты Kafka могут вернуть код 0 после сообщения об отказе)
-ERR_RE='not authorized|authorization|exception|error|failed|denied|refused'
-expect_ok()     { local name=$1; shift; OUT=$("$@" 2>&1); RC=$?
-  if [ $RC -eq 0 ] && ! grep -Eqi "$ERR_RE" <<<"$OUT"; then ok "$name"; else bad "$name (код $RC)" "$OUT"; fi; }
-expect_fail()   { local name=$1 pat=$2; shift 2; OUT=$("$@" 2>&1); RC=$?
-  if [ $RC -ne 0 ] && grep -Eqi "$pat" <<<"$OUT"; then ok "$name"; else bad "$name (ожидался отказ «$pat», код $RC)" "$OUT"; fi; }
-expect_denied() { local name=$1 pat=$2; shift 2; OUT=$("$@" 2>&1); RC=$?
-  if grep -Eqi "$pat" <<<"$OUT"; then ok "$name"; else bad "$name (ожидался отказ «$pat», код $RC)" "$OUT"; fi; }
 
 echo "== PostgreSQL"
 PGPW=$(cat "$SECRETS/db_postgres_admin")
@@ -139,9 +125,4 @@ expect_denied "kafka: order-service издатель order.events и не пот
 expect_denied "kafka: catalog-service не читает order.events (ACL)" "$DENY" k_cons_foreign_topic
 expect_denied "kafka: payment-service не читает в чужой группе order-service (ACL)" "$DENY" k_cons_foreign_group
 
-echo
-echo "Проверок успешно: $PASSED, с ошибками: ${#FAILED[@]}"
-if [ ${#FAILED[@]} -ne 0 ]; then
-  printf '  - %s\n' "${FAILED[@]}"
-  exit 1
-fi
+finish

@@ -139,6 +139,13 @@ jobs:
           DIAG_TAIL: "30"
         run: tools/ci/diag.sh "Проверки infra" tools/stand-checks/infra_security.sh
 
+      - name: Миграции Flyway, права ролей PostgreSQL
+        env:
+          DIAG_FILTER: '^  - |ОШИБКА|^ +[|] '
+          DIAG_MAX: "60"
+          DIAG_TAIL: "30"
+        run: tools/ci/diag.sh "Проверки миграций" tools/stand-checks/db_migrations.sh
+
       - name: Повторный подъём ничего не ломает (kafka-init пропускает готовое)
         run: |
           tools/ci/diag.sh "повторный make up" make up SET=dev-min
