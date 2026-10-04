@@ -285,7 +285,7 @@ jobs:
         run: |
           tools/ci/diag.sh "make certs secrets" make certs secrets
           export COMPOSE_PROFILES=infra,stubs,auth
-          tools/ci/diag.sh "compose up keycloak" docker compose -f compose.yaml -f compose.debug.yaml up -d --build
+          DIAG_FILTER='ERROR|failed to|not found|error:|cannot|denied' tools/ci/diag.sh "compose up keycloak" docker compose --progress plain -f compose.yaml -f compose.debug.yaml up -d --build
           tools/ci/diag.sh "ожидание infra,stubs,auth" python3 tools/stand-checks/wait.py --profiles infra,stubs,auth --timeout 420
 
       - name: Контейнер, шифрование, вход по ролям, второй фактор, Argon2 в базе

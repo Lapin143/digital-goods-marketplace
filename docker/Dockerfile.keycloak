@@ -13,6 +13,7 @@ FROM ${UBI_IMAGE} AS ubi-micro-build
 RUN mkdir -p /mnt/rootfs && \
     dnf install --installroot /mnt/rootfs curl --releasever 9 --setopt install_weak_deps=false --nodocs -y && \
     dnf --installroot /mnt/rootfs clean all && \
+    dnf clean all && \
     rpm --root /mnt/rootfs -e --nodocs setup
 
 # 2. Библиотеки Keycloak для компиляции расширения: берутся из того же образа, на котором оно будет работать
@@ -47,6 +48,7 @@ LABEL org.opencontainers.image.title="keycloak" \
       org.opencontainers.image.base.name="${KEYCLOAK_IMAGE}"
 COPY --from=ubi-micro-build /mnt/rootfs /
 COPY --from=builder /opt/keycloak/ /opt/keycloak/
-# Пользователь 1000 и точка входа остаются от базового образа. Compose запускает infra/keycloak/entrypoint.sh (секреты из файлов).
+# Пользователь 1000 (не root) задан явно, точка входа остаётся от базового образа. Compose запускает infra/keycloak/entrypoint.sh (секреты из файлов).
+USER 1000:0
 # 8443 клиентский вход по TLS, 9000 здоровье и метрики по TLS.
 EXPOSE 8443 9000
