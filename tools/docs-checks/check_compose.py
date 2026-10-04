@@ -87,7 +87,7 @@ def parse_dep(rep):
     for t in L.tables(text):
         if t['header'][:2] == ['Среда', 'Порт хоста']:
             for r in t['rows']:
-                if 'отладк' in r[0]:
+                if 'отлад' in r[0]:
                     debug_ports |= set(re.findall(r'\d+', r[1]))
     return cont, sets, data_services, debug_ports
 

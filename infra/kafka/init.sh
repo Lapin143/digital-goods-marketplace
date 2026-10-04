@@ -27,14 +27,15 @@ export KAFKA_JVM_PERFORMANCE_OPTS="-XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:
 hash=$(sed -n 's/^SPEC_HASH=//p' "$SPEC" | head -n 1)
 marker="dgm-init-$hash"
 
-# Ожидание брокера: сам список тем заодно проверяет сертификат и права kafka-init
+# Ожидание брокера: сам список тем заодно проверяет сертификат и права kafka-init (пустой список на новом брокере это успех)
+ready=0
 existing=""
 for i in $(seq 1 30); do
-  if existing=$("$BIN/kafka-topics.sh" --bootstrap-server "$B" --command-config "$C" --list 2>"$D/err"); then break; fi
+  if existing=$("$BIN/kafka-topics.sh" --bootstrap-server "$B" --command-config "$C" --list 2>"$D/err"); then ready=1; break; fi
   echo "ожидание брокера ($i): $(tail -n 1 "$D/err" | cut -c1-160)"
   sleep 3
 done
-[ -n "$existing" ] || { echo "ОШИБКА: брокер не ответил"; cat "$D/err"; exit 1; }
+[ "$ready" = 1 ] || { echo "ОШИБКА: брокер не ответил"; cat "$D/err"; exit 1; }
 
 if grep -qx "$marker" <<<"$existing"; then
   echo "kafka-init: инициализация $hash уже выполнена, тем: $(grep -vc '^dgm-init-' <<<"$existing")"
