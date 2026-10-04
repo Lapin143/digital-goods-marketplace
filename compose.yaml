@@ -153,6 +153,62 @@ services:
       - tls_kafka-init.key
       - tls_kafka-init.crt
 
+  # ------------------------------------------------------------------ профиль storage
+  object-storage:
+    <<: *common
+    image: rustfs/rustfs:1.0.1
+    profiles: [storage]
+    user: "10001:10001"
+    entrypoint: ["/bin/sh", "/etc/dgm/storage/entrypoint.sh"]
+    command: []
+    mem_limit: 192m
+    memswap_limit: 192m
+    networks: [data]
+    volumes:
+      - objectdata:/data
+      - ./infra/storage:/etc/dgm/storage:ro
+    tmpfs:
+      - /run/dgm:uid=10001,gid=10001,mode=0700,size=1m
+      - /logs:uid=10001,gid=10001,mode=0755,size=16m
+      - /tmp:uid=10001,gid=10001,mode=1777,size=32m
+    secrets:
+      - tls_ca.crt
+      - tls_object-storage.key
+      - tls_object-storage.crt
+      - storage_admin
+    healthcheck:
+      # Запрос /health по TLS с проверкой цепочки: сервер отвечает, когда готов принимать S3-запросы
+      test: ["CMD-SHELL", "curl -fsS --cacert /run/secrets/tls_ca.crt https://localhost:9000/health >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 3s
+
+  storage-init:
+    <<: *common
+    image: rustfs/rc:v0.1.36
+    profiles: [storage]
+    user: "100:101"
+    entrypoint: ["/bin/sh", "/etc/dgm/storage/init.sh"]
+    command: []
+    restart: "no"
+    mem_limit: 32m
+    memswap_limit: 32m
+    networks: [data]
+    depends_on:
+      object-storage:
+        condition: service_healthy
+    environment:
+      HOME: /tmp
+    volumes:
+      - ./infra/storage:/etc/dgm/storage:ro
+    tmpfs:
+      - /tmp:uid=100,gid=101,mode=1777,size=8m
+    secrets:
+      - tls_ca.crt
+      - storage_admin
+      - storage_catalog
+
 # Сети (c4-deployment.md, раздел 4.2). edge и app подключаются у контейнеров следующих профилей.
 # data и obs закрыты для выхода в интернет. Порты на хост здесь не публикуются: отладочные порты в compose.debug.yaml.
 networks:
@@ -166,6 +222,7 @@ networks:
 volumes:
   pgdata: {}
   kafkadata: {}
+  objectdata: {}
 
 secrets:
   tls_ca.crt:
@@ -304,6 +361,10 @@ secrets:
     file: ${DGM_SECRETS_DIR:-./secrets}/redis_platform
   redis_gateway:
     file: ${DGM_SECRETS_DIR:-./secrets}/redis_gateway
+  storage_admin:
+    file: ${DGM_SECRETS_DIR:-./secrets}/storage_admin
+  storage_catalog:
+    file: ${DGM_SECRETS_DIR:-./secrets}/storage_catalog
   keycloak_admin:
     file: ${DGM_SECRETS_DIR:-./secrets}/keycloak_admin
   keycloak_client_platform:

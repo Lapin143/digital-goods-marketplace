@@ -166,6 +166,48 @@ jobs:
             echo "::warning title=журнал $s::$msg"
           done
 
+  # Объектное хранилище (ADR-024): запуск профиля storage, учётная запись на один бакет, подписанные ссылки, повторный init.
+  storage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Версии Docker и aws CLI
+        run: docker version --format 'Docker {{.Server.Version}}' && docker compose version && aws --version
+
+      - name: Подъём профиля storage с отладочным портом
+        env:
+          DIAG_TAIL: "70"
+          DEBUG: "1"
+        run: |
+          tools/ci/diag.sh "make certs secrets" make certs secrets
+          export COMPOSE_PROFILES=storage
+          tools/ci/diag.sh "compose up storage" docker compose -f compose.yaml -f compose.debug.yaml up -d
+          tools/ci/diag.sh "ожидание storage" python3 tools/stand-checks/wait.py --profiles storage
+
+      - name: Хранилище объектов, шифрование и права доступа
+        env:
+          DIAG_FILTER: '^  - |ОШИБКА|^ +[|] '
+          DIAG_MAX: "60"
+          DIAG_TAIL: "30"
+        run: tools/ci/diag.sh "Проверки storage" tools/stand-checks/storage_checks.sh
+
+      - name: Память и состояние контейнеров
+        if: always()
+        run: |
+          docker compose --profile '*' ps -a
+          docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}'
+
+      - name: Журналы контейнеров при ошибке
+        if: failure()
+        run: |
+          for s in object-storage storage-init; do
+            echo "::group::$s"; docker compose --profile '*' logs --no-color --tail 40 "$s" || true; echo "::endgroup::"
+            msg=$(docker compose --profile '*' logs --no-color --tail 12 "$s" 2>&1 | cut -c1-240 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+            echo "::warning title=журнал $s::$msg"
+          done
+
   # Центр сертификации и секреты (ADR-022): тесты скрипта и полный выпуск с проверкой, как на стенде.
   pki:
     runs-on: ubuntu-24.04

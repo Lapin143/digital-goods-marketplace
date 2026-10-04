@@ -64,6 +64,9 @@
     {"name": "redis_platform", "kind": "password", "readers": ["platform-service", "redis"], "purpose": "Пользователь Redis служебного сервиса"},
     {"name": "redis_gateway", "kind": "password", "readers": ["api-gateway", "redis"], "purpose": "Пользователь Redis шлюза (ограничение частоты)"},
 
+    {"name": "storage_admin", "kind": "password", "readers": ["object-storage", "storage-init"], "purpose": "Корневая запись объектного хранилища (имя в infra/storage/root_user), только запуск и инициализация (ADR-024)"},
+    {"name": "storage_catalog", "kind": "password", "readers": ["catalog-service", "storage-init"], "purpose": "Учётная запись catalog-service только на бакет seller-documents (ADR-024)"},
+
     {"name": "keycloak_admin", "kind": "password", "readers": ["keycloak"], "purpose": "Начальный администратор Keycloak"},
     {"name": "keycloak_client_platform", "kind": "password", "readers": ["keycloak", "platform-service"], "purpose": "Секрет клиента platform-service для Admin API Keycloak (назначение ролей по событиям)"}
   ]

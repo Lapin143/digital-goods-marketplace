@@ -41,12 +41,13 @@ MB = os.path.join(L.OPS_DIR, 'memory-budget.md')
 VER = os.path.join(L.OPS_DIR, 'versions.md')
 
 R1_PROFILES = ['infra', 'stubs', 'auth', 'gateway', 'purchase', 'platform', 'storage']
-ONE_SHOT = {'kafka-init'}                     # завершаются сами, проверки готовности нет
+ONE_SHOT = {'kafka-init', 'storage-init'}     # завершаются сами, проверки готовности нет
+NO_OWN_CERT = {'storage-init'}                # разовое задание входит в хранилище по паролю из секрета, своего сертификата не имеет
 BUILT_FROM_REPO = {'catalog-service', 'inventory-service', 'order-service', 'payment-service', 'delivery-service',
                    'platform-service', 'api-gateway'}   # образы собираются из репозитория, версии нет в versions.md
 DEFERRED = {'backup-job': 'Ф6', 'certbot': 'Ф6'}          # контейнеры, которых в Ф3 нет
 DEFERRED_VOLUMES = {'pgarchive': 'Ф6, вместе с backup-job', 'backups': 'Ф6', 'letsencrypt': 'Ф6'}
-STORAGE_SERVICES = {'postgres', 'redis', 'kafka', 'kafka-init', 'object-storage'}
+STORAGE_SERVICES = {'postgres', 'redis', 'kafka', 'kafka-init', 'object-storage', 'storage-init'}
 ALLOWED_HOST_PORTS = {'api-gateway': {'8443:8443'}}
 SECRETISH = re.compile(r'(PASSWORD|SECRET|TOKEN|PRIVATE|_KEY)', re.I)
 UNLIMITED = {'ports'}
@@ -329,7 +330,10 @@ def main():
         for name, info in inv_secrets.items():
             if alias in info['readers'] and name not in mounted:
                 rep.err(w, 'секрет %s по inventory.json читает %s, но не подключён' % (name, alias))
-        if alias in inv_containers:
+        if alias in NO_OWN_CERT:
+            if alias in inv_containers:
+                rep.err(w, 'у контейнера нет собственного сертификата (NO_OWN_CERT), а в inventory.json (containers) он есть')
+        elif alias in inv_containers:
             for suffix in ('key', 'crt'):
                 if 'tls_%s.%s' % (alias, suffix) not in mounted:
                     rep.err(w, 'не подключён tls_%s.%s' % (alias, suffix))

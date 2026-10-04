@@ -113,6 +113,14 @@ db-migrations: ## Пересоздать миграции Flyway из часте
 db-check: ## Применить миграции Flyway к поднятому PostgreSQL по TLS и проверить права ролей (стенд поднят, набор с infra)
 	tools/stand-checks/db_migrations.sh
 
+.PHONY: storage-init
+storage-init: ## Повторить инициализацию хранилища: бакет, политика, пароль учётной записи (хранилище поднято, профиль storage)
+	$(COMPOSE) run -T --rm --no-deps storage-init
+
+.PHONY: storage-check
+storage-check: ## Проверить хранилище: TLS, права учётной записи, подписанные ссылки (поднято с DEBUG=1, нужен aws CLI v2)
+	tools/stand-checks/storage_checks.sh
+
 .PHONY: clean
 clean: ## Удалить результаты сборки
 	$(GRADLEW) clean

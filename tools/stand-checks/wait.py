@@ -5,7 +5,7 @@
     python3 tools/stand-checks/wait.py --profiles infra,stubs [--timeout 300]
 
 Контейнер готов, если он healthy (есть проверка готовности) или running (проверки нет) либо это разовое задание,
-завершившееся с кодом 0 (kafka-init). Если контейнер завершился с ошибкой, стал unhealthy или время вышло, скрипт печатает
+завершившееся с кодом 0 (kafka-init, storage-init). Если контейнер завершился с ошибкой, стал unhealthy или время вышло, скрипт печатает
 состояние и последние строки журнала проблемных контейнеров и возвращает код 1. Только стандартная библиотека Python.
 """
 import argparse
@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 
-ONE_SHOT = {'kafka-init'}
+ONE_SHOT = {'kafka-init', 'storage-init'}
 
 
 def run(args, env=None):
