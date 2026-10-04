@@ -61,7 +61,7 @@ jobs:
       - name: Самопроверка контролей
         run: tools/ci/selftest.sh docs
 
-  # Сборка Gradle, модульные тесты, образы сервисов. Интеграционные тесты на Testcontainers добавляются вместе с кодом.
+  # Сборка Gradle, модульные тесты и архитектурные правила, образы сервисов. Интеграционные тесты каркаса и сервисов идут на стенде (задание kit).
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -99,6 +99,52 @@ jobs:
         run: |
           for s in catalog-service inventory-service order-service payment-service delivery-service platform-service api-gateway; do
             tools/ci/diag.sh "Образ $s" tools/ci/check-image.sh "dgm/$s:dev"
+          done
+
+  # Каркас сервисов (шаг 11 Ф3): интеграционные тесты Outbox и потребителя событий на настоящих PostgreSQL и Kafka стенда.
+  # Модульные тесты и архитектурные правила каркаса выполняет задание build. Стенд поднят набором dev-min с отладочными портами,
+  # тесты подключаются к 127.0.0.1:15432 и 127.0.0.1:19093 по TLS с клиентским сертификатом сервиса, Docker на стенде у них не нужен.
+  kit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Версии Docker
+        run: docker version --format 'Docker {{.Server.Version}}' && docker compose version
+
+      - name: Подъём набора dev-min с отладочными портами
+        env:
+          DIAG_TAIL: "70"
+        run: tools/ci/diag.sh "make up SET=dev-min DEBUG=1" make up SET=dev-min DEBUG=1
+
+      - name: Миграции order-service и inventory-service
+        run: tools/ci/diag.sh "Миграции для тестов каркаса" make db-migrate S="order-service inventory-service"
+
+      - name: Интеграционные тесты каркаса
+        env:
+          DGM_SECRETS_DIR: ${{ github.workspace }}/secrets
+          DIAG_FILTER: 'FAILED|error:|warning:|What went wrong|Could not|BUILD FAILED|Caused by|AssertionFailedError|Exception'
+          DIAG_MAX: "40"
+        run: tools/ci/diag.sh "Интеграционные тесты каркаса" ./gradlew --console=plain :libs:service-kit:integrationTest
+
+      - name: Сводка тестов
+        if: always()
+        run: python3 tools/ci/test_summary.py . "Интеграционные тесты каркаса"
+
+      - name: Журналы контейнеров при ошибке
+        if: failure()
+        run: |
+          for s in postgres kafka; do
+            echo "::group::$s"; docker compose --profile '*' logs --no-color --tail 40 "$s" || true; echo "::endgroup::"
+            msg=$(docker compose --profile '*' logs --no-color --tail 12 "$s" 2>&1 | cut -c1-240 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+            echo "::warning title=журнал $s::$msg"
           done
 
   # Образы стенда: теги из versions.md и базовый образ Java существуют в реестрах (versions.md, правило 6).

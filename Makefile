@@ -114,6 +114,14 @@ db-migrations: ## Пересоздать миграции Flyway из часте
 db-check: ## Применить миграции Flyway к поднятому PostgreSQL по TLS и проверить права ролей (стенд поднят, набор с infra)
 	tools/stand-checks/db_migrations.sh
 
+.PHONY: db-migrate
+db-migrate: ## Применить миграции Flyway сервисов к стенду: make db-migrate [S="order-service inventory-service"], без S все шесть
+	tools/stand-checks/migrate_stand.sh $(S)
+
+.PHONY: kit-test
+kit-test: ## Интеграционные тесты каркаса на стенде (make up SET=dev-min DEBUG=1 и make db-migrate S="order-service inventory-service")
+	DGM_SECRETS_DIR=$(CURDIR)/secrets ./gradlew --console=plain :libs:service-kit:integrationTest
+
 .PHONY: storage-init
 storage-init: ## Повторить инициализацию хранилища: бакет, политика, пароль учётной записи (хранилище поднято, профиль storage)
 	$(COMPOSE) run -T --rm --no-deps storage-init

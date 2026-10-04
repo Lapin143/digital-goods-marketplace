@@ -108,7 +108,7 @@ PY
     grep -q 'не совпадает с OpenAPI' "$tmp/out.txt" || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: контракт упал не из-за расхождения схем"; tail -n 5 "$tmp/out.txt"; fail=1; }
     # 4. Миграции Flyway и роли базы: правка миграции, предела соединений и секрета роли ловится контролями шага 7.
     mkdir -p "$tmp/repo"
-    cp -r "$REPO/docs" "$REPO/infra" "$REPO/services" "$REPO/tools" "$REPO/compose.yaml" "$REPO/Makefile" "$tmp/repo/"
+    cp -r "$REPO/docs" "$REPO/infra" "$REPO/services" "$REPO/libs" "$REPO/tools" "$REPO/compose.yaml" "$REPO/Makefile" "$tmp/repo/"
     mutate_repo() {  # название, файл от корня, старое, новое, образец сообщения, команда от корня...
       local name="$1" f="$2" old="$3" new="$4" pat="$5"; shift 5
       python3 - "$tmp/repo/$f" "$old" "$new" <<'PY' || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: не удалось внести ошибку «$name»"; fail=1; return; }
@@ -157,6 +157,16 @@ PY
       "у amr нет default.reference.maxAge" tools/docs-checks/check_realm.py
     mutate_repo "gen_realm --check находит ручную правку realm" "$R" '"verifyEmail": true' '"verifyEmail": true, "x": 1' \
       "не равен результату gen_realm.py" infra/keycloak/gen_realm.py --check
+    # 6. Каркас сервисов: тип проблемы, статус и столбцы Outbox расходятся с документами и DDL, check_kit.py это находит.
+    K=libs/service-kit/src/main/java/dgm/kit
+    mutate_repo "check_kit находит статус типа проблемы не по реестру" "$K/problem/ProblemType.java" 'NOT_FOUND("not-found", 404,' 'NOT_FOUND("not-found", 410,' \
+      "статус в документе 404, в коде 410" tools/docs-checks/check_kit.py
+    mutate_repo "check_kit находит тип проблемы, которого нет в реестре" "docs/05-architecture/conventions.md" '| `forbidden` | 403 |' '| `forbidden-x` | 403 |' \
+      "есть в коде и нет в документе" tools/docs-checks/check_kit.py
+    mutate_repo "check_kit находит запись в Outbox без обязательного столбца" "$K/outbox/OutboxWriter.java" 'event_type, topic, payload' 'event_type, payload' \
+      "не задаёт обязательный столбец topic" tools/docs-checks/check_kit.py
+    mutate_repo "check_kit находит столбец, которого нет в DDL" "$K/outbox/OutboxRelay.java" 'failed_at is null order by id' 'failed_on is null order by id' \
+      "нет в DDL outbox: failed_on" tools/docs-checks/check_kit.py
     ;;
   security)
     # Фиктивный токен формата GitHub (ghp_ и 36 случайных символов). Он не настоящий и нигде не работает.

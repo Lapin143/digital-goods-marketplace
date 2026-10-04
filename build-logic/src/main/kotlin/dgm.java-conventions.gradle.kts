@@ -30,9 +30,28 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 tasks.withType<Test>().configureEach {
-    useJUnitPlatform()
     testLogging {
         events("failed", "skipped")
         exceptionFormat = TestExceptionFormat.FULL
     }
+}
+
+// Модульные тесты идут в задаче test без тега integration. Интеграционные (тег integration) работают с поднятым стендом
+// (make up SET=dev-min DEBUG=1) и запускаются отдельной задачей integrationTest, в check она не входит.
+tasks.named<Test>("test") {
+    useJUnitPlatform {
+        excludeTags("integration")
+    }
+}
+
+val integrationTest = tasks.register<Test>("integrationTest") {
+    description = "Интеграционные тесты на поднятом стенде (тег integration)"
+    group = "verification"
+    val testSources = sourceSets.getByName("test")
+    testClassesDirs = testSources.output.classesDirs
+    classpath = testSources.runtimeClasspath
+    useJUnitPlatform {
+        includeTags("integration")
+    }
+    shouldRunAfter(tasks.named("test"))
 }
