@@ -153,6 +153,59 @@ services:
       - tls_kafka-init.key
       - tls_kafka-init.crt
 
+  # ------------------------------------------------------------------ профиль stubs
+  external-stubs:
+    <<: *common
+    image: dgm/external-stubs:${IMAGE_TAG:-dev}
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.stubs
+      args:
+        NODE_IMAGE: node:24.21.0-alpine3.24
+    profiles: [stubs]
+    user: "10001:10001"
+    mem_limit: 128m
+    memswap_limit: 128m
+    networks: [app]
+    environment:
+      STUBS_PUBLIC_URL: https://external-stubs:8443
+      STUBS_TLS_CERT_FILE: /run/secrets/tls_external-stubs.crt
+      STUBS_TLS_KEY_FILE: /run/secrets/tls_external-stubs.key
+      STUBS_TLS_CA_FILE: /run/secrets/tls_ca.crt
+      PAYMENT_GATEWAY_KEY_FILE: /run/secrets/payment_gateway_key
+      PAYMENT_WEBHOOK_SECRET_FILE: /run/secrets/payment_webhook_secret
+      DELIVERY_EMAIL_KEY_FILE: /run/secrets/delivery_email_key
+      DELIVERY_WEBHOOK_SECRET_FILE: /run/secrets/delivery_webhook_secret
+      PLATFORM_EMAIL_KEY_FILE: /run/secrets/platform_email_key
+      PLATFORM_SMS_KEY_FILE: /run/secrets/platform_sms_key
+      PLATFORM_WEBHOOK_SECRET_FILE: /run/secrets/platform_webhook_secret
+      # Вебхуки идут на публичный вход платформы, как у настоящих провайдеров (пути из OpenAPI, сверяет check_stub_contract.py)
+      STUBS_PAYMENT_WEBHOOK_URL: https://api-gateway:8443/api/v1/webhooks/payment-gateway
+      STUBS_DELIVERY_EMAIL_WEBHOOK_URL: https://api-gateway:8443/api/v1/webhooks/email-provider-keys
+      STUBS_PLATFORM_EMAIL_WEBHOOK_URL: https://api-gateway:8443/api/v1/webhooks/email-provider
+      STUBS_PLATFORM_SMS_WEBHOOK_URL: https://api-gateway:8443/api/v1/webhooks/sms-provider
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=1777,size=8m
+    secrets:
+      - tls_ca.crt
+      - tls_external-stubs.key
+      - tls_external-stubs.crt
+      - payment_gateway_key
+      - payment_webhook_secret
+      - delivery_email_key
+      - delivery_webhook_secret
+      - platform_email_key
+      - platform_sms_key
+      - platform_webhook_secret
+    healthcheck:
+      # busybox wget не проверяет цепочку (ключа --ca-certificate нет), поэтому здесь проверяется только готовность;
+      # цепочку проверяют tools/stand-checks/stubs_checks.sh (curl с --cacert на отладочном порту)
+      test: ["CMD", "wget", "-q", "--no-check-certificate", "-O", "/dev/null", "https://127.0.0.1:8443/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 2s
+
   # ------------------------------------------------------------------ профиль storage
   object-storage:
     <<: *common

@@ -1,0 +1,15 @@
+{
+  "name": "dgm-external-stubs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Управляемые заглушки внешних систем: платёжный шлюз, e-mail, SMS, VK ID, SMTP. Только стандартная библиотека Node.js.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/main.mjs",
+    "test": "node --test \"test/*.test.mjs\""
+  }
+}

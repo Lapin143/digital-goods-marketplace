@@ -4,6 +4,7 @@ SHELL := /bin/bash
 
 SERVICES    := catalog-service inventory-service order-service payment-service delivery-service platform-service api-gateway
 JAVA_IMAGE  ?= eclipse-temurin:25-jre-noble
+NODE_IMAGE  ?= node:24.21.0-alpine3.24
 IMAGE_TAG   ?= dev
 GRADLEW     := ./gradlew --console=plain
 
@@ -73,7 +74,7 @@ COMPOSE          := docker compose -f compose.yaml $(if $(DEBUG),-f compose.debu
 .PHONY: up
 up: certs secrets ## Поднять набор профилей и дождаться готовности: make up SET=dev-min [DEBUG=1]
 	@test -n "$(PROFILES)" || { echo "Неизвестный набор SET=$(SET). Доступны: $(ALL_SETS)"; exit 2; }
-	COMPOSE_PROFILES=$(PROFILES) $(COMPOSE) up -d --remove-orphans
+	COMPOSE_PROFILES=$(PROFILES) $(COMPOSE) up -d --build --remove-orphans
 	python3 tools/stand-checks/wait.py --profiles $(PROFILES)
 
 .PHONY: down
@@ -120,6 +121,14 @@ storage-init: ## Повторить инициализацию хранилищ�
 .PHONY: storage-check
 storage-check: ## Проверить хранилище: TLS, права учётной записи, подписанные ссылки (поднято с DEBUG=1, нужен aws CLI v2)
 	tools/stand-checks/storage_checks.sh
+
+.PHONY: stubs-test
+stubs-test: ## Модульные тесты заглушек внешних систем (Node из того же образа, что в контейнере; нужен только Docker)
+	docker run --rm -v "$(CURDIR)/tools/external-stubs:/app:ro" -w /app $(NODE_IMAGE) node --test --test-reporter=spec "test/*.test.mjs"
+
+.PHONY: stubs-check
+stubs-check: ## Проверить контейнер заглушек: TLS, ключи, SMTP, вебхуки получателю (поднято с DEBUG=1, профиль stubs)
+	tools/stand-checks/stubs_checks.sh
 
 .PHONY: clean
 clean: ## Удалить результаты сборки

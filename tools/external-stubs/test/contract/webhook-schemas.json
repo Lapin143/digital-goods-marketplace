@@ -1,0 +1,213 @@
+{
+  "signature": {
+    "algorithm": "HMAC-SHA-256",
+    "header": "X-Webhook-Signature",
+    "timestampHeader": "X-Webhook-Timestamp",
+    "toleranceSeconds": 300
+  },
+  "webhooks": {
+    "deliveryEmail": {
+      "operationId": "receiveKeyEmailStatus",
+      "path": "/api/v1/webhooks/email-provider-keys",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "messageId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$",
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "address_rejected",
+              "other"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "delivered",
+              "failed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "messageId",
+          "status",
+          "occurredAt"
+        ],
+        "type": "object"
+      }
+    },
+    "payment": {
+      "operationId": "receivePaymentGatewayNotification",
+      "path": "/api/v1/webhooks/payment-gateway",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "amount": {
+                "additionalProperties": false,
+                "properties": {
+                  "amount": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "currency": {
+                    "enum": [
+                      "RUB"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "amount",
+                  "currency"
+                ],
+                "type": "object"
+              },
+              "failureReason": {
+                "enum": [
+                  "declined",
+                  "insufficient_funds",
+                  "authentication_failed",
+                  "other"
+                ],
+                "type": "string"
+              },
+              "orderId": {
+                "format": "uuid",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              },
+              "paymentId": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "refundId": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "paymentId",
+              "orderId",
+              "amount"
+            ],
+            "type": "object"
+          },
+          "eventId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "payment.paid",
+              "payment.declined",
+              "payment.session-expired",
+              "refund.completed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "eventId",
+          "type",
+          "occurredAt",
+          "data"
+        ],
+        "type": "object"
+      }
+    },
+    "platformEmail": {
+      "operationId": "receiveMailStatus",
+      "path": "/api/v1/webhooks/email-provider",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "messageId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$",
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "address_rejected",
+              "other"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "delivered",
+              "failed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "messageId",
+          "status",
+          "occurredAt"
+        ],
+        "type": "object"
+      }
+    },
+    "platformSms": {
+      "operationId": "receiveSmsStatus",
+      "path": "/api/v1/webhooks/sms-provider",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "messageId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "delivered",
+              "failed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "messageId",
+          "status",
+          "occurredAt"
+        ],
+        "type": "object"
+      }
+    }
+  }
+}

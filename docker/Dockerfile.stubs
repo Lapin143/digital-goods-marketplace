@@ -1,0 +1,26 @@
+# syntax=docker/dockerfile:1
+# Образ заглушек внешних систем (tools/external-stubs). Внешних пакетов нет, поэтому нет ни `npm install`, ни слоя зависимостей:
+# образ это базовый образ Node плюс несколько файлов. Сборка из корня репозитория:
+#   docker build -f docker/Dockerfile.stubs -t dgm/external-stubs:dev .
+# Версия Node берётся из docs/09-operations/versions.md; тот же тег записан в аргументе NODE_IMAGE в compose.yaml и Makefile,
+# совпадение сверяет tools/docs-checks/check_compose.py.
+ARG NODE_IMAGE=node:24.21.0-alpine3.24
+FROM ${NODE_IMAGE}
+ARG NODE_IMAGE
+LABEL org.opencontainers.image.title="external-stubs" \
+      org.opencontainers.image.description="Управляемые заглушки платёжного шлюза, e-mail, SMS, VK ID и SMTP" \
+      org.opencontainers.image.source="https://github.com/Lapin143/digital-goods-marketplace" \
+      org.opencontainers.image.base.name="${NODE_IMAGE}"
+
+# Пользователь 10001, как у сервисов и хранилища. Корневая файловая система в Compose только для чтения.
+RUN addgroup -g 10001 -S app && adduser -u 10001 -S -G app -H -s /sbin/nologin app
+
+WORKDIR /opt/stubs
+COPY tools/external-stubs/package.json ./
+COPY tools/external-stubs/src ./src
+
+USER 10001:10001
+ENV NODE_ENV=production
+# 8443 API по TLS, 8444 административный порт (только внутри сети), 1025 SMTP. Куча по бюджету памяти (memory-budget.md).
+EXPOSE 8443 8444 1025
+ENTRYPOINT ["node", "--max-old-space-size=64", "src/main.mjs"]

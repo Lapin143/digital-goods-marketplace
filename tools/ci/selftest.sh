@@ -77,6 +77,35 @@ PY
       - tls_storage-init.key
       - storage_admin
       - storage_catalog" "у разового задания нет своего сертификата"
+    mutate "заглушки читают чужой секрет" "      - platform_webhook_secret
+    healthcheck:" "      - platform_webhook_secret
+      - db_keycloak
+    healthcheck:" "секрет db_keycloak"
+    mutate "админ-порт заглушек опубликован на хост" "    profiles: [stubs]
+    user: \"10001:10001\"" "    profiles: [stubs]
+    ports: [\"8444:8444\"]
+    user: \"10001:10001\"" "порт 8444:8444 публикуется"
+    mutate "база сборки заглушек не равна versions.md" "        NODE_IMAGE: node:24.21.0-alpine3.24" "        NODE_IMAGE: node:latest" "build.args.NODE_IMAGE"
+    # Контракт заглушки: адрес вебхука с другим путём и схема, расходящаяся с OpenAPI, отвергаются check_stub_contract.py.
+    python3 - "$REPO/compose.yaml" "$tmp/compose-contract.yaml" <<'PY' || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: не удалось внести ошибку в адрес вебхука"; fail=1; }
+import sys
+src, dst = sys.argv[1:3]
+s = open(src, encoding='utf-8').read()
+old = 'api-gateway:8443/api/v1/webhooks/payment-gateway'
+assert old in s
+open(dst, 'w', encoding='utf-8').write(s.replace(old, 'api-gateway:8443/api/v1/webhooks/payments', 1))
+PY
+    expect_fail "check_stub_contract находит чужой путь вебхука в compose.yaml" env DGM_COMPOSE_FILE="$tmp/compose-contract.yaml" python3 "$REPO/tools/docs-checks/check_stub_contract.py"
+    grep -q 'STUBS_PAYMENT_WEBHOOK_URL' "$tmp/out.txt" || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: контракт упал не по адресу вебхука"; tail -n 5 "$tmp/out.txt"; fail=1; }
+    python3 - "$REPO/tools/external-stubs/test/contract/webhook-schemas.json" "$tmp/schemas-bad.json" <<'PY' || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: не удалось исказить схему"; fail=1; }
+import sys
+src, dst = sys.argv[1:3]
+s = open(src, encoding='utf-8').read()
+assert '"payment.paid"' in s
+open(dst, 'w', encoding='utf-8').write(s.replace('"payment.paid"', '"payment.settled"', 1))
+PY
+    expect_fail "check_stub_contract находит схему, расходящуюся с OpenAPI" env DGM_STUB_CONTRACT_FILE="$tmp/schemas-bad.json" python3 "$REPO/tools/docs-checks/check_stub_contract.py"
+    grep -q 'не совпадает с OpenAPI' "$tmp/out.txt" || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: контракт упал не из-за расхождения схем"; tail -n 5 "$tmp/out.txt"; fail=1; }
     # 4. Миграции Flyway и роли базы: правка миграции, предела соединений и секрета роли ловится контролями шага 7.
     mkdir -p "$tmp/repo"
     cp -r "$REPO/docs" "$REPO/infra" "$REPO/services" "$REPO/tools" "$REPO/compose.yaml" "$REPO/Makefile" "$tmp/repo/"

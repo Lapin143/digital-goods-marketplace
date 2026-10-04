@@ -43,7 +43,10 @@ VER = os.path.join(L.OPS_DIR, 'versions.md')
 R1_PROFILES = ['infra', 'stubs', 'auth', 'gateway', 'purchase', 'platform', 'storage']
 ONE_SHOT = {'kafka-init', 'storage-init'}     # завершаются сами, проверки готовности нет
 BUILT_FROM_REPO = {'catalog-service', 'inventory-service', 'order-service', 'payment-service', 'delivery-service',
-                   'platform-service', 'api-gateway'}   # образы собираются из репозитория, версии нет в versions.md
+                   'platform-service', 'api-gateway', 'external-stubs'}   # образы собираются из репозитория: dgm/<имя>:${IMAGE_TAG:-dev}
+# Если образ собирается Compose (раздел build), база сборки из versions.md задаётся аргументом сборки; значение по умолчанию в Dockerfile
+# и переменная Makefile (нужна командам вне Compose, например make stubs-test) обязаны совпадать с ним
+BASE_IMAGE_ARG = {'external-stubs': ('NODE_IMAGE', 'docker/Dockerfile.stubs', 'NODE_IMAGE')}
 DEFERRED = {'backup-job': 'Ф6', 'certbot': 'Ф6'}          # контейнеры, которых в Ф3 нет
 DEFERRED_VOLUMES = {'pgarchive': 'Ф6, вместе с backup-job', 'backups': 'Ф6', 'letsencrypt': 'Ф6'}
 STORAGE_SERVICES = {'postgres', 'redis', 'kafka', 'kafka-init', 'object-storage', 'storage-init'}
@@ -229,9 +232,26 @@ def main():
 
         # образ
         img = s.get('image')
-        if not img and alias not in BUILT_FROM_REPO:
+        if not img:
             rep.err(w, 'нет image')
-        if img:
+        if alias in BUILT_FROM_REPO:
+            if img != 'dgm/%s:${IMAGE_TAG:-dev}' % alias:
+                rep.err(w, 'образ собирается из репозитория, ожидалось dgm/%s:${IMAGE_TAG:-dev}, сейчас %s' % (alias, img))
+            if alias in BASE_IMAGE_ARG:
+                arg, dockerfile, make_var = BASE_IMAGE_ARG[alias]
+                base = versions.get(alias)
+                build = s.get('build') or {}
+                if not build:
+                    rep.err(w, 'нет раздела build: образ должен собираться при make up')
+                elif (build.get('args') or {}).get(arg) != base:
+                    rep.err(w, 'build.args.%s = %s, в versions.md %s' % (arg, (build.get('args') or {}).get(arg), base))
+                df = re.search(r'^ARG %s=(\S+)' % arg, L.read(os.path.join(L.REPO, dockerfile)), re.M)
+                if not df or df.group(1) != base:
+                    rep.err(dockerfile, 'значение по умолчанию ARG %s = %s, в versions.md %s' % (arg, df.group(1) if df else None, base))
+                mk_var = re.search(r'^%s\s*\??=\s*(\S+)' % make_var, L.read(MAKEFILE), re.M)
+                if not mk_var or mk_var.group(1) != base:
+                    rep.err('Makefile', 'переменная %s = %s, в versions.md %s' % (make_var, mk_var.group(1) if mk_var else None, base))
+        elif img:
             if img.endswith(':latest') or ':' not in img:
                 rep.err(w, 'образ %s без точной версии' % img)
             want = versions.get(alias)

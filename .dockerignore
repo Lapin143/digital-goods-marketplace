@@ -1,4 +1,6 @@
-# В контекст сборки образов попадают только исполняемые jar сервисов и сами Dockerfile
+# В контекст сборки образов попадают только исполняемые jar сервисов, исходники заглушек (без тестов) и сами Dockerfile
 *
 !services/*/build/libs/*.jar
 !docker/
+!tools/external-stubs/package.json
+!tools/external-stubs/src/

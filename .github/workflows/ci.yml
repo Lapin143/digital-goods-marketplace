@@ -208,6 +208,59 @@ jobs:
             echo "::warning title=журнал $s::$msg"
           done
 
+  # Заглушки внешних систем (ADR-015): модульные тесты, сборка и запуск контейнера, TLS, ключи, SMTP, вебхуки настоящему получателю.
+  stubs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Версии Docker
+        run: docker version --format 'Docker {{.Server.Version}}' && docker compose version
+
+      - name: Модульные и контрактные тесты заглушек (Node из образа стенда)
+        env:
+          DIAG_FILTER: '✖|^ℹ (tests|pass|fail)|AssertionError|expected|actual|error:'
+          DIAG_MAX: "40"
+          DIAG_TAIL: "30"
+          DIAG_LOG: /tmp/stubs-tests.log
+        run: |
+          tools/ci/diag.sh "Модульные тесты заглушек" make stubs-test
+          echo "::notice title=Модульные тесты заглушек::$(grep -E '^ℹ (tests|pass|fail|cancelled)' /tmp/stubs-tests.log | tr '\n' ' ')"
+
+      - name: Подъём профиля stubs с отладочными портами
+        env:
+          DIAG_TAIL: "70"
+          DEBUG: "1"
+        run: |
+          tools/ci/diag.sh "make certs secrets" make certs secrets
+          export COMPOSE_PROFILES=stubs
+          tools/ci/diag.sh "compose up stubs" docker compose -f compose.yaml -f compose.debug.yaml up -d --build
+          tools/ci/diag.sh "ожидание stubs" python3 tools/stand-checks/wait.py --profiles stubs
+
+      - name: Контейнер заглушек, шифрование, ключи, SMTP, вебхуки
+        env:
+          DIAG_FILTER: '^  - |ОШИБКА|^ +[|] '
+          DIAG_MAX: "60"
+          DIAG_TAIL: "30"
+        run: tools/ci/diag.sh "Проверки stubs" tools/stand-checks/stubs_checks.sh
+
+      - name: Память и состояние контейнеров
+        if: always()
+        run: |
+          docker compose --profile '*' ps -a
+          docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}'
+
+      - name: Журналы контейнеров при ошибке
+        if: failure()
+        run: |
+          for s in external-stubs; do
+            echo "::group::$s"; docker compose --profile '*' logs --no-color --tail 40 "$s" || true; echo "::endgroup::"
+            msg=$(docker compose --profile '*' logs --no-color --tail 12 "$s" 2>&1 | cut -c1-240 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+            echo "::warning title=журнал $s::$msg"
+          done
+          docker logs dgm-check-receiver 2>&1 | tail -n 10 || true
+
   # Центр сертификации и секреты (ADR-022): тесты скрипта и полный выпуск с проверкой, как на стенде.
   pki:
     runs-on: ubuntu-24.04
