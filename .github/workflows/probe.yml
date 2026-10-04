@@ -1,0 +1,32 @@
+name: probe
+on:
+  push:
+    branches: ['probe/**']
+jobs:
+  env:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Окружение раннера
+        run: |
+          {
+            echo "cpu: $(nproc)"; free -m | sed -n 2p
+            echo "docker: $(docker --version)"; docker compose version
+            java -version 2>&1 | head -1; mvn -v 2>&1 | head -1; gradle -v 2>&1 | grep Gradle | head -1 || true
+            node -v; python3 --version
+            df -h / | tail -1
+          } > env.txt 2>&1
+          msg=$(sed ':a;N;$!ba;s/\n/%0A/g' env.txt)
+          echo "::notice title=runner-env::${msg}"
+      - name: Доступ к реестрам
+        run: |
+          for u in https://repo.maven.apache.org/maven2/ https://registry-1.docker.io/v2/ https://services.gradle.org/ https://ghcr.io/v2/ https://quay.io/v2/ https://registry.npmjs.org/ https://plugins.gradle.org/m2/ https://mcr.microsoft.com/v2/; do
+            printf "%s %s\n" "$(curl -s -o /dev/null -m 15 -w '%{http_code}' $u)" "$u"
+          done > net.txt
+          msg=$(sed ':a;N;$!ba;s/\n/%0A/g' net.txt)
+          echo "::notice title=registries::${msg}"
+      - name: Тест диагностики ошибки
+        run: |
+          echo "строка 1" > fail.log; echo "строка 2: ошибка сборки" >> fail.log
+          msg=$(tail -n 40 fail.log | sed ':a;N;$!ba;s/\n/%0A/g')
+          echo "::error title=diag-test::${msg}"
