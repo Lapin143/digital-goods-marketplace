@@ -21,7 +21,10 @@ SKIP_DIRS = ('node_modules', '.git')
 FUTURE_MD = {
     'requirements_v1.6.md',                          # решение D-12: версия 1.6 после замечаний Ф2
     'monitoring.md', 'runbook.md', 'deploy.md',      # Ф6, раздел 09-operations
+    'versions.md',                                   # Ф3, шаг 2: версии компонентов
 }
+# скрипты проверок, которые появятся на шагах Ф3 (план: docs/00-phase3-guide.md); после создания файла запись безвредна
+FUTURE_SCRIPTS = {'check_compose.py', 'check_realm.py'}
 
 
 def slug(title):
@@ -137,6 +140,8 @@ def main():
         # ---- скрипты
         for m in set(re.findall(r'\b(check_\w+\.py|validate_docs\.py|run_all\.sh|docslib\.py)\b', body)):
             n_scripts += 1
+            if m in FUTURE_SCRIPTS:
+                continue
             if not glob.glob(os.path.join(TOOLS, '**', m), recursive=True):
                 rep.err(rel, 'скрипт %s не найден в tools/docs-checks' % m)
         # ---- имена файлов в обратных кавычках
