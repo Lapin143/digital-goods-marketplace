@@ -107,7 +107,9 @@ check "паролей в открытом виде в таблице credential 
 echo "== Память после проверок"
 mem_ok() {
   local pct; pct=$(docker stats --no-stream --format '{{.MemPerc}}' "$C" | tr -d '%')
-  echo "использование памяти: $(docker stats --no-stream --format '{{.MemUsage}}' "$C"), $pct%"
+  local usage; usage="$(docker stats --no-stream --format '{{.MemUsage}}' "$C"), $pct%"
+  echo "использование памяти: $usage"
+  [ -n "${GITHUB_ACTIONS:-}" ] && echo "::notice title=keycloak память после проверок::$usage"
   python3 -c "import sys; sys.exit(0 if float('$pct') < 95 else 1)"
 }
 check "память контейнера меньше 95% лимита" mem_ok

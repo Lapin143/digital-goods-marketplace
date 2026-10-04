@@ -299,7 +299,7 @@ jobs:
       - name: Повторный запуск Keycloak не ломает realm (импорт пропускается)
         run: |
           docker compose --profile '*' restart keycloak
-          tools/ci/diag.sh "ожидание после перезапуска" python3 tools/stand-checks/wait.py --profiles auth --timeout 240
+          tools/ci/diag.sh "ожидание после перезапуска" python3 tools/stand-checks/wait.py --profiles infra,stubs,auth --timeout 240
           docker compose --profile '*' logs --no-color keycloak | grep -iE "Realm 'dgm' already exists|import" | tail -n 5 || true
 
       - name: Память и состояние контейнеров

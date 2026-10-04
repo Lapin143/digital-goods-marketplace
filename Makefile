@@ -145,7 +145,7 @@ keycloak-users: ## Создать тестовых пользователей Ke
 keycloak-reimport: ## Применить изменённый realm: удалить realm dgm и перезапустить Keycloak (пользователи пропадут; поднято с DEBUG=1)
 	$(KC_ENV) python3 infra/keycloak/reimport_realm.py
 	$(COMPOSE) --profile '*' restart keycloak
-	python3 tools/stand-checks/wait.py --profiles auth --timeout 240
+	python3 tools/stand-checks/wait.py --profiles infra,stubs,auth --timeout 240
 
 .PHONY: keycloak-test
 keycloak-test: ## Модульные тесты клиента входа Keycloak (сеть не нужна)
