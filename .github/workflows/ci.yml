@@ -61,6 +61,43 @@ jobs:
       - name: Самопроверка контролей
         run: tools/ci/selftest.sh docs
 
+  # Сборка Gradle, модульные тесты, образы сервисов. Интеграционные тесты на Testcontainers добавляются вместе с кодом.
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Проверка jar wrapper по официальной контрольной сумме
+        run: |
+          set -euo pipefail
+          ver=$(sed -n 's/.*gradle-\(.*\)-bin\.zip.*/\1/p' gradle/wrapper/gradle-wrapper.properties)
+          want=$(curl -sSfL "https://services.gradle.org/distributions/gradle-${ver}-wrapper.jar.sha256")
+          have=$(sha256sum gradle/wrapper/gradle-wrapper.jar | cut -d' ' -f1)
+          echo "Gradle $ver, jar wrapper: $have"
+          [ "$want" = "$have" ] || { echo "::error title=Gradle wrapper::контрольная сумма jar не совпала с официальной"; exit 1; }
+
+      - name: Сборка и модульные тесты
+        env:
+          DIAG_FILTER: 'FAILED|error:|warning:|What went wrong|Could not|BUILD FAILED|Caused by'
+          DIAG_MAX: "40"
+        run: tools/ci/diag.sh "Gradle build" ./gradlew --console=plain build
+
+      - name: Образы сервисов
+        run: tools/ci/diag.sh "Сборка образов" make docker-images
+
+      - name: Проверка образов (пользователь без прав, только чтение, health)
+        run: |
+          for s in catalog-service inventory-service order-service payment-service delivery-service platform-service api-gateway; do
+            tools/ci/diag.sh "Образ $s" tools/ci/check-image.sh "dgm/$s:dev"
+          done
+
   # ST-14: поиск секретов и уязвимостей. Бинарные файлы проверяются по контрольным суммам из выпуска.
   security:
     runs-on: ubuntu-24.04

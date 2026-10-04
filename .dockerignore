@@ -1,0 +1,4 @@
+# В контекст сборки образов попадают только исполняемые jar сервисов и сами Dockerfile
+*
+!services/*/build/libs/*.jar
+!docker/

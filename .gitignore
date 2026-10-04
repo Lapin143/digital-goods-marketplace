@@ -27,3 +27,8 @@ secrets/
 # Python
 __pycache__/
 *.pyc
+
+# Gradle и IDE
+.gradle/
+.kotlin/
+*.iml

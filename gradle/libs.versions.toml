@@ -1,0 +1,15 @@
+# Каталог версий: единственное место, где задаются версии библиотек и плагинов Gradle.
+# Библиотеки Spring получают версии из BOM (spring-boot-dependencies, spring-cloud-dependencies), явно здесь
+# заданы только версии BOM и библиотек, которых в BOM нет. Решение: docs/05-architecture/adr/ADR-023-build-and-stack.md.
+# Таблица версий всего стека: docs/09-operations/versions.md.
+
+[versions]
+spring-boot = "4.1.1"
+spring-cloud = "2025.1.3"
+archunit = "1.4.2"
+
+[libraries]
+spring-boot-gradle-plugin = { module = "org.springframework.boot:spring-boot-gradle-plugin", version.ref = "spring-boot" }
+spring-boot-dependencies = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "spring-boot" }
+spring-cloud-dependencies = { module = "org.springframework.cloud:spring-cloud-dependencies", version.ref = "spring-cloud" }
+archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }

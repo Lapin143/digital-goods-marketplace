@@ -1,0 +1,38 @@
+# syntax=docker/dockerfile:1
+# Образ сервиса или шлюза (ADR-023). Сборка из корня репозитория:
+#   ./gradlew bootJar
+#   docker build -f docker/Dockerfile.service --build-arg SERVICE=order-service -t dgm/order-service:dev .
+# Исполняемый jar берётся из services/<SERVICE>/build/libs/<SERVICE>.jar, зависимости лежат в отдельном слое
+# и кэшируются, поэтому пересборка после правки кода занимает секунды.
+ARG JAVA_IMAGE=eclipse-temurin:25-jre-noble
+
+FROM ${JAVA_IMAGE} AS extract
+ARG SERVICE
+WORKDIR /build
+COPY services/${SERVICE}/build/libs/${SERVICE}.jar application.jar
+RUN java -Djarmode=tools -jar application.jar extract --layers --destination extracted \
+ && mkdir -p extracted/dependencies extracted/spring-boot-loader extracted/snapshot-dependencies extracted/application
+
+FROM ${JAVA_IMAGE}
+ARG SERVICE
+ARG BASE_DIGEST=unknown
+LABEL org.opencontainers.image.title="${SERVICE}" \
+      org.opencontainers.image.source="https://github.com/Lapin143/digital-goods-marketplace" \
+      org.opencontainers.image.base.name="${JAVA_IMAGE}" \
+      org.opencontainers.image.base.digest="${BASE_DIGEST}"
+
+# Пользователь без прав. Корневая файловая система в Compose монтируется только для чтения, временные файлы в tmpfs.
+RUN groupadd --gid 10001 app \
+ && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin app
+
+WORKDIR /application
+COPY --from=extract /build/extracted/dependencies/ ./
+COPY --from=extract /build/extracted/spring-boot-loader/ ./
+COPY --from=extract /build/extracted/snapshot-dependencies/ ./
+COPY --from=extract /build/extracted/application/ ./
+
+USER 10001:10001
+# Куча по бюджету памяти (docs/09-operations/memory-budget.md). Compose переопределяет значение для платформенного сервиса.
+ENV JAVA_TOOL_OPTIONS="-Xmx160m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8"
+EXPOSE 8443 8444
+ENTRYPOINT ["java", "-jar", "application.jar"]
