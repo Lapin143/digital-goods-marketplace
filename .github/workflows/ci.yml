@@ -134,7 +134,7 @@ jobs:
 
       - name: Шифрование и права доступа PostgreSQL, Redis, Kafka
         env:
-          DIAG_FILTER: '^  - |ОШИБКА|^ +\\| '
+          DIAG_FILTER: '^  - |ОШИБКА|^ +[|] '
           DIAG_MAX: "60"
           DIAG_TAIL: "30"
         run: tools/ci/diag.sh "Проверки infra" tools/stand-checks/infra_security.sh
