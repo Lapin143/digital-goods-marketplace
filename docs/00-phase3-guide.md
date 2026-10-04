@@ -231,18 +231,18 @@
 
 **Файлы:** `settings.gradle.kts`, `build.gradle.kts`, `gradle/libs.versions.toml`, `gradle/wrapper/*`, `libs/service-kit/`, `services/*/` (пустые модули), `docker/Dockerfile.service`, `Makefile`.
 
-**4.1. Мультипроект.** Модули: `libs:service-kit`, шесть сервисов, `services:api-gateway`. Общие правила сборки в `buildSrc` или соглашениях (Java 25, `-Werror` для своих пакетов, тесты JUnit 5, Testcontainers).
+**4.1. Мультипроект.** Модули: `:libs:service-kit`, шесть сервисов, `:services:api-gateway`. Общие правила сборки в `build-logic` (плагины `dgm.java-conventions`, `dgm.library-conventions`, `dgm.boot-app-conventions`): Java 25, `-Xlint:all -Werror`, JUnit 5, ArchUnit, BOM Spring Boot и Spring Cloud. Версии в `gradle/libs.versions.toml`. Пакеты `dgm.kit` и `dgm.<сервис>`.
 
-**4.2. Wrapper.** Файл `gradlew` и `gradle-wrapper.jar` создаются на раннере, потому что скачать дистрибутив Gradle из облачного рабочего места нельзя. Проверка контрольной суммы wrapper включена.
+**4.2. Wrapper.** Файлы `gradlew` и `gradle-wrapper.jar` создаёт рабочий процесс `wrapper.yml` на раннере (скачать дистрибутив Gradle из облачного рабочего места нельзя), возвращает их коммитом в ветку `ci/wrapper`. Сумма дистрибутива записана в `gradle-wrapper.properties`, jar сверяется с официальной суммой и при каждой сборке в CI.
 
-**4.3. Dockerfile.** Один параметризованный файл для сервисов: сборка в первом этапе, слоистый образ Spring Boot, пользователь без прав, `read_only` файловая система, `JAVA_TOOL_OPTIONS` из `Xmx` ([memory-budget.md](09-operations/memory-budget.md)).
+**4.3. Dockerfile** (`docker/Dockerfile.service`, каталог `docker/`, потому что `build/` в `.gitignore`). Один параметризованный файл для сервисов: слои Spring Boot из исполняемого jar, итоговый образ на `eclipse-temurin:25-jre-noble`, пользователь UID 10001, `Xmx` по бюджету памяти, дайджест базового образа в метке. Контекст сборки ограничен `.dockerignore`.
 
-**4.4. Makefile.** Цели: `help`, `build`, `test`, `certs`, `secrets`, `up SET=…`, `down`, `logs`, `ps`, `smoke`, `clean`. Подсказка выводится по `make` без аргументов.
+**4.4. Makefile.** Цели: `help`, `build`, `test`, `jars`, `docker-images`, `images`, `clean`. Остальные цели (`certs`, `secrets`, `up SET=…`, `down`, `logs`, `ps`, `smoke`) добавляются в своих шагах. Подсказка выводится по `make` без аргументов.
 
 *Что проверить:*
 
-- Задание `build` зелёное: все модули собираются, тесты запускаются.
-- Образ сервиса собирается, запускается от пользователя без прав.
+- Задание `build` зелёное: все модули собираются, запущено 10 тестов (3 в `service-kit`, по одному «контекст поднимается» в каждом сервисе и шлюзе), заметка с числом тестов видна в аннотации запуска.
+- Все семь образов собираются, запускаются от UID 10001 с файловой системой только для чтения и отвечают 200 на `/actuator/health` (`tools/ci/check-image.sh`).
 - `make help` перечисляет цели.
 
 **Commit:** `build: скелет Gradle, Dockerfile и Makefile, сборка в CI`.
