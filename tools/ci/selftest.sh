@@ -63,6 +63,20 @@ PY
       - db_keycloak
     healthcheck:" "секрет db_keycloak"
     mutate "образ с плавающим тегом" "image: redis:8.2.10-alpine" "image: redis:latest" "без точной версии"
+    mutate "порт хранилища объектов опубликован на хост" "    profiles: [storage]
+    user: \"10001:10001\"" "    profiles: [storage]
+    ports: [\"9000:9000\"]
+    user: \"10001:10001\"" "порт 9000:9000 публикуется"
+    mutate "хранилище читает пароль учётной записи сервиса" "      - storage_admin
+    healthcheck:" "      - storage_admin
+      - storage_catalog
+    healthcheck:" "секрет storage_catalog: читатели"
+    mutate "у разового задания появился собственный сертификат" "      - tls_ca.crt
+      - storage_admin
+      - storage_catalog" "      - tls_ca.crt
+      - tls_storage-init.key
+      - storage_admin
+      - storage_catalog" "у разового задания нет своего сертификата"
     # 4. Миграции Flyway и роли базы: правка миграции, предела соединений и секрета роли ловится контролями шага 7.
     mkdir -p "$tmp/repo"
     cp -r "$REPO/docs" "$REPO/infra" "$REPO/services" "$REPO/tools" "$REPO/compose.yaml" "$REPO/Makefile" "$tmp/repo/"

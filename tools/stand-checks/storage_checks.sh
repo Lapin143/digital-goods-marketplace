@@ -109,7 +109,7 @@ check "сертификат сервера выдан нашим центром 
 listeners_ok() {
   local out bad
   out=$(docker exec "$OS" netstat -tln 2>&1) || { echo "$out"; return 1; }
-  bad=$(echo "$out" | awk 'NR>2 {print $4}' | grep -v -E '^(127\.[0-9.]+|\[?::1\]?):' | grep -v -E '^(0\.0\.0\.0|:::|\[::\]):9000$' | grep -v '^$')
+  bad=$(echo "$out" | awk 'NR>2 {print $4}' | grep -v -E '^(127\.[0-9.]+|\[?::1\]?):' | grep -v -E '^(0\.0\.0\.0:9000|:::9000|\[::\]:9000)$' | grep -v '^$')
   [ -z "$bad" ] || { echo "лишние слушающие адреса: $bad"; return 1; }
   echo "$out" | awk 'NR>2 {print $4}' | grep -q -E ':9000$'
 }
