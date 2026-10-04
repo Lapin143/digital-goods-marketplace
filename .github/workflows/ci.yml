@@ -4,7 +4,7 @@ name: ci
 # Ветка ci/sandbox нужна для отладки CI: итерации идут в ней, а main остаётся зелёным (tools/ci/README.md).
 on:
   push:
-    branches: [main, 'ci/**']
+    branches: [main, 'ci/**', '!ci/wrapper']
   pull_request:
     branches: [main]
   workflow_dispatch:
