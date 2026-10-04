@@ -101,6 +101,23 @@ jobs:
             tools/ci/diag.sh "Образ $s" tools/ci/check-image.sh "dgm/$s:dev"
           done
 
+  # Центр сертификации и секреты (ADR-022): тесты скрипта и полный выпуск с проверкой, как на стенде.
+  pki:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Тесты скрипта выпуска
+        run: tools/ci/diag.sh "Тесты PKI" python3 -m unittest infra/pki/test_pki.py -v
+
+      - name: Выпуск и проверка сертификатов и секретов
+        run: |
+          tools/ci/diag.sh "make certs" make certs
+          tools/ci/diag.sh "make secrets" make secrets
+          tools/ci/diag.sh "make pki-verify" make pki-verify
+          make pki-status
+
   # ST-14: поиск секретов и уязвимостей. Бинарные файлы проверяются по контрольным суммам из выпуска.
   security:
     runs-on: ubuntu-24.04
@@ -129,6 +146,9 @@ jobs:
 
       - name: Самопроверка поиска секретов
         run: tools/ci/selftest.sh security
+
+      - name: В Git нет ключей, сертификатов и каталогов секретов
+        run: tools/ci/diag.sh "Файлы секретов в Git" tools/ci/check-no-secrets-in-git.sh
 
       - name: Trivy
         run: |

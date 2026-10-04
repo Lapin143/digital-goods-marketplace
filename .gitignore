@@ -23,6 +23,7 @@ dist/
 *.pem
 *.key
 secrets/
+.pki/
 
 # Python
 __pycache__/

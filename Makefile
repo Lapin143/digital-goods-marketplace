@@ -36,6 +36,26 @@ docker-images: ## Собрать образы из готовых jar (снач�
 .PHONY: images
 images: jars docker-images ## Собрать jar и образы всех сервисов
 
+.PHONY: certs
+certs: ## Центр сертификации (если нет) и сертификаты контейнеров, действующие не перевыпускаются
+	python3 infra/pki/dgm_pki.py certs
+
+.PHONY: secrets
+secrets: ## Создать недостающие секреты (пароли, ключи) по infra/pki/inventory.json
+	python3 infra/pki/dgm_pki.py secrets
+
+.PHONY: pki-verify
+pki-verify: ## Проверить сертификаты и секреты
+	python3 infra/pki/dgm_pki.py verify
+
+.PHONY: pki-status
+pki-status: ## Сколько дней осталось у сертификатов
+	python3 infra/pki/dgm_pki.py status
+
+.PHONY: pki-test
+pki-test: ## Тесты скрипта сертификатов и секретов
+	python3 -m unittest infra/pki/test_pki.py
+
 .PHONY: clean
 clean: ## Удалить результаты сборки
 	$(GRADLEW) clean

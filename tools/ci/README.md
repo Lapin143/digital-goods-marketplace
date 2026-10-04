@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | `docs` | `tools/docs-checks/run_all.sh --db` на раннере с PostgreSQL 16 и Mermaid CLI | Документы, контракты OpenAPI и AsyncAPI, ADR, матрица трассировки, физическая модель БД (DDL с нуля, тесты инвариантов и гонок, планы `EXPLAIN`), отрисовка каждой диаграммы Mermaid |
 | `docs`, шаг «Самопроверка контролей» | `tools/ci/selftest.sh docs` | Намеренно битый документ отвергается, а `diag.sh` печатает аннотацию с причиной |
+| `pki` | `infra/pki/test_pki.py` и полный выпуск `make certs secrets pki-verify` | Центр сертификации ECDSA P-256, сертификаты 90 дней, цепочка, имена, секреты уникальны и длинные, чужой центр отвергается |
 | `security` | Gitleaks по истории и по файлам, Trivy по файлам (уязвимости, секреты, конфигурации) | ST-14: секретов в репозитории нет, критичных уязвимостей в зависимостях нет |
 | `security`, шаг «Самопроверка поиска секретов» | `tools/ci/selftest.sh security` | Подложенный фиктивный секрет (создаётся при запуске из случайных символов) находится Gitleaks |
 
@@ -42,6 +43,7 @@ python3 tools/ci/ci_status.py --all-steps     # печатать все шаги
 | `ci_status.py` | Чтение состояния запусков и аннотаций через REST API GitHub |
 | `selftest.sh` | Проверка самих контролей (`docs` и `security`) |
 | `test_summary.py` | Сводка отчётов JUnit по модулям в аннотацию notice, падает, если тестов нет |
+| `check-no-secrets-in-git.sh` | ST-14: в Git нет файлов ключей, сертификатов и каталогов `secrets/`, `.pki/` |
 | `check-image.sh` | Проверка образа: UID, запуск с `--read-only`, `/actuator/health` |
 | `../../.gitleaks.toml` | Настройки Gitleaks: стандартные правила и исключения проекта |
 | `../docs-checks/requirements.txt` | Зависимости Python проверок документов |
