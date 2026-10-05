@@ -26,7 +26,7 @@ dependencies {
         testImplementation(it)
     }
     testImplementation("org.springframework:spring-test")
-    testRuntimeOnly("ch.qos.logback:logback-classic")
+    testImplementation("ch.qos.logback:logback-classic")
     testRuntimeOnly("org.postgresql:postgresql")
 
     // Фикстуры: правила ArchUnit, часы, токены и сертификаты для тестов, доступ к стенду

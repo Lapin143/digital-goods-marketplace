@@ -108,7 +108,7 @@ PY
     grep -q 'не совпадает с OpenAPI' "$tmp/out.txt" || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: контракт упал не из-за расхождения схем"; tail -n 5 "$tmp/out.txt"; fail=1; }
     # 4. Миграции Flyway и роли базы: правка миграции, предела соединений и секрета роли ловится контролями шага 7.
     mkdir -p "$tmp/repo"
-    cp -r "$REPO/docs" "$REPO/infra" "$REPO/services" "$REPO/libs" "$REPO/tools" "$REPO/compose.yaml" "$REPO/Makefile" "$tmp/repo/"
+    cp -r "$REPO/.github" "$REPO/docs" "$REPO/infra" "$REPO/services" "$REPO/libs" "$REPO/tools" "$REPO/compose.yaml" "$REPO/Makefile" "$tmp/repo/"
     mutate_repo() {  # название, файл от корня, старое, новое, образец сообщения, команда от корня...
       local name="$1" f="$2" old="$3" new="$4" pat="$5"; shift 5
       python3 - "$tmp/repo/$f" "$old" "$new" <<'PY' || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: не удалось внести ошибку «$name»"; fail=1; return; }
@@ -201,6 +201,27 @@ PY
       - grafana_secret_key" "      - tls_ca.crt
       - grafana_admin
       - grafana_secret_key" "подключён tls_ca.crt: сертификат ему не нужен"
+    # 7б. Цепочка поставок: действие без хеша коммита, задание без срока, широкие права токена, небезопасная передача токена и пропавший Dependabot ловятся check_workflows.py.
+    W=".github/workflows/ci.yml"
+    mutate_repo "check_workflows находит действие, закреплённое тегом, а не хешем" "$W" 'uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0' 'uses: actions/checkout@v4' \
+      "закреплено не хешем коммита" tools/docs-checks/check_workflows.py
+    mutate_repo "check_workflows находит задание без timeout-minutes" "$W" '  docs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+' '  docs:
+    runs-on: ubuntu-24.04
+' "нет timeout-minutes" tools/docs-checks/check_workflows.py
+    mutate_repo "check_workflows находит запись в репозиторий в правах токена" "$W" 'permissions:
+  contents: read
+
+concurrency:' 'permissions:
+  contents: write
+
+concurrency:' "права GITHUB_TOKEN на верхнем уровне" tools/docs-checks/check_workflows.py
+    mutate_repo "check_workflows находит сохранённый токен после checkout" "$W" '          persist-credentials: false' '          persist-credentials: true' \
+      "нет persist-credentials: false" tools/docs-checks/check_workflows.py
+    mutate_repo "check_workflows находит пропавший Dependabot для compose" ".github/dependabot.yml" 'package-ecosystem: docker-compose' 'package-ecosystem: pip' \
+      "не описан пакетный менеджер docker-compose" tools/docs-checks/check_workflows.py
     # 8. Контракт сервисов: ответы из интеграционных тестов сверяются со схемами OpenAPI. Образцы собираются из примеров самого OpenAPI:
     #    полный набор проходит, испорченное поле, лишнее поле и пропавший обязательный образец отвергаются.
     REPO="$REPO" python3 - "$tmp/contract" <<'PY' || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: не удалось собрать образцы для контрактной проверки"; fail=1; }

@@ -27,7 +27,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Зависимости Python
         run: tools/ci/diag.sh "Зависимости Python" python3 -m pip install --break-system-packages --user -r tools/docs-checks/requirements.txt
@@ -58,6 +60,10 @@ jobs:
           DIAG_TAIL: "40"
         run: tools/ci/diag.sh "Проверки документов" bash tools/docs-checks/run_all.sh --db
 
+      # Хеш каждого действия сверяется с тегом из комментария: комментарий версии не может врать (цепочка поставок)
+      - name: Закрепление действий по хешу коммита
+        run: tools/ci/diag.sh "Закрепление действий" python3 tools/docs-checks/check_workflows.py --online
+
       - name: Самопроверка контролей
         run: tools/ci/selftest.sh docs
 
@@ -66,9 +72,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: '25'
@@ -109,9 +117,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: '25'
@@ -163,9 +173,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: '25'
@@ -215,9 +227,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: '25'
@@ -255,6 +269,14 @@ jobs:
           DIAG_MAX: "40"
         run: tools/ci/diag.sh "Проверка веб-интерфейса" make web-check
 
+      # NFT-1.3: два экземпляра order-service и catalog-service, второй order-service перезапускается посреди серии запросов
+      - name: NFT-1.3, два экземпляра сервисов
+        env:
+          DIAG_FILTER: '^  - |ОШИБКА|^ +[|] '
+          DIAG_TAIL: "50"
+          DIAG_MAX: "30"
+        run: tools/ci/diag.sh "NFT-1.3 два экземпляра" make stateless-check
+
       - name: Состояние и память контейнеров
         if: always()
         run: |
@@ -283,9 +305,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: '25'
@@ -313,6 +337,25 @@ jobs:
           DIAG_MAX: "40"
           DIAG_TAIL: "50"
         run: tools/ci/diag.sh "Проверка наблюдаемости" make obs-check DEBUG=1
+
+      - name: Тестовые пользователи Keycloak
+        run: tools/ci/diag.sh "Тестовые пользователи" make keycloak-users
+
+      # Дымовой тест: вход, операции через шлюз, ST-03, mTLS, Outbox → Kafka, сквозной идентификатор в журналах и в Loki
+      - name: Дымовой тест
+        env:
+          DIAG_FILTER: '^  - |ОШИБКА|^ +[|] '
+          DIAG_TAIL: "60"
+          DIAG_MAX: "40"
+        run: tools/ci/diag.sh "Дымовой тест" make smoke
+
+      # Проверка проверки: испорченный токен, область и сертификат вызывающего обязаны сделать дымовой тест красным
+      - name: Дымовой тест краснеет от порчи токена, области и сертификата
+        env:
+          DIAG_FILTER: '^  - |ОШИБКА|^ +[|] '
+          DIAG_TAIL: "40"
+          DIAG_MAX: "20"
+        run: tools/ci/diag.sh "Проверка проверки дымового теста" make smoke-sabotage
 
       - name: Состояние и память контейнеров
         if: always()
@@ -348,7 +391,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Версии Docker
         run: docker version --format 'Docker {{.Server.Version}}' && docker compose version
@@ -389,11 +434,106 @@ jobs:
         if: failure()
         run: tools/ci/diag-obs.sh
 
+  # Образы сервисов проекта (шаг 17 Ф3, цепочка поставок): собираются из jar и сканируются Trivy на уязвимости и секреты. HIGH и CRITICAL с исправлением в
+  # реестре блокируют: образ с известной дырой в зависимости не выпускается. Сторонние образы стенда только в отчёте (tools/ci/trivy-third-party.sh).
+  scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Jar и образы сервисов
+        env:
+          DIAG_FILTER: 'ERROR:|FAILED|error:|not found|denied'
+          DIAG_TAIL: "40"
+        run: tools/ci/diag.sh "make images" make images IMAGE_TAG=ci
+
+      - name: Trivy
+        run: |
+          set -euo pipefail
+          base="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
+          cd "$RUNNER_TEMP"
+          curl -sSfL -O "$base/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl -sSfL -O "$base/trivy_${TRIVY_VERSION}_checksums.txt"
+          sha256sum --check --ignore-missing "trivy_${TRIVY_VERSION}_checksums.txt"
+          tar -xzf "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" trivy
+          sudo install trivy /usr/local/bin/trivy
+          trivy --version
+
+      - name: Уязвимости и секреты в образах сервисов
+        env:
+          DIAG_TAIL: "60"
+          DIAG_MAX: "40"
+        run: |
+          services=$(make -s --eval='_services: ; @echo $(SERVICES)' _services)
+          for s in $services; do
+            tools/ci/diag.sh "Trivy образ $s" trivy image --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+              --no-progress --skip-version-check "dgm/$s:ci"
+          done
+
+      - name: Сторонние образы стенда, отчёт
+        run: tools/ci/trivy-third-party.sh
+
+  # Публикация образов сервисов в GHCR: только для push в main и только когда зелёные все остальные задания. Права на запись пакетов есть
+  # только у этого задания. Образы получают теги: короткий хеш коммита и main.
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [docs, build, kit, services, gateway, stand, obs, scan, images, infra, storage, stubs, keycloak, pki, security]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Jar и образы сервисов
+        env:
+          DIAG_TAIL: "40"
+        run: tools/ci/diag.sh "make images" make images IMAGE_TAG=ci IMAGE_SOURCE="https://github.com/${GITHUB_REPOSITORY}"
+
+      - name: Вход в GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Публикация
+        run: |
+          set -euo pipefail
+          owner=$(echo "$GITHUB_REPOSITORY_OWNER" | tr 'A-Z' 'a-z')
+          repo=$(echo "${GITHUB_REPOSITORY#*/}" | tr 'A-Z' 'a-z')
+          for s in $(make -s --eval='_services: ; @echo $(SERVICES)' _services); do
+            for tag in "${GITHUB_SHA::12}" main; do
+              docker tag "dgm/$s:ci" "ghcr.io/$owner/$repo/$s:$tag"
+              docker push -q "ghcr.io/$owner/$repo/$s:$tag"
+            done
+            echo "опубликован ghcr.io/$owner/$repo/$s:${GITHUB_SHA::12}"
+          done
+          echo "::notice title=GHCR::образы сервисов опубликованы: ghcr.io/$owner/$repo/<сервис>:${GITHUB_SHA::12} и :main"
+
   images:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Зависимости Python
         run: tools/ci/diag.sh "Зависимости Python" python3 -m pip install --break-system-packages --user -r tools/docs-checks/requirements.txt
@@ -406,7 +546,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Версии Docker
         run: docker version --format 'Docker {{.Server.Version}}' && docker compose version
@@ -458,7 +600,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Версии Docker и aws CLI
         run: docker version --format 'Docker {{.Server.Version}}' && docker compose version && aws --version
@@ -500,7 +644,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Версии Docker
         run: docker version --format 'Docker {{.Server.Version}}' && docker compose version
@@ -554,7 +700,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Версии Docker
         run: docker version --format 'Docker {{.Server.Version}}' && docker compose version
@@ -609,7 +757,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Тесты скрипта выпуска
         run: tools/ci/diag.sh "Тесты PKI" python3 -m unittest infra/pki/test_pki.py -v
@@ -626,8 +776,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Gitleaks

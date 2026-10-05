@@ -7,6 +7,7 @@ import dgm.kit.security.JwtDecoders;
 import dgm.kit.security.JwtFilter;
 import dgm.kit.security.JwtSettings;
 import dgm.kit.tls.TlsMaterial;
+import dgm.kit.trace.AccessLogFilter;
 import dgm.kit.trace.TraceFilter;
 import java.time.Clock;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -18,7 +19,7 @@ import org.springframework.core.Ordered;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 
 /**
- * Веб-часть каркаса на прикладном порту: сквозной идентификатор, проверка токена по правилам маршрутов, проверка вызывающего
+ * Веб-часть каркаса на прикладном порту: сквозной идентификатор, журнал обращений, проверка токена по правилам маршрутов, проверка вызывающего
  * сервиса, ответы об ошибке по RFC 9457. Фильтры работают только на порту 8443: порт метрик и здоровья живёт в отдельном контексте.
  */
 @AutoConfiguration(after = KitCoreAutoConfiguration.class)
@@ -53,6 +54,15 @@ public class KitWebAutoConfiguration {
     FilterRegistrationBean<TraceFilter> traceFilterRegistration() {
         FilterRegistrationBean<TraceFilter> registration = new FilterRegistrationBean<>(new TraceFilter());
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        registration.addUrlPatterns("/*");
+        return registration;
+    }
+
+    /** Сразу после сквозного идентификатора и до проверки токена: в журнал попадают и отказы фильтров безопасности. */
+    @Bean
+    FilterRegistrationBean<AccessLogFilter> accessLogFilterRegistration(Clock clock) {
+        FilterRegistrationBean<AccessLogFilter> registration = new FilterRegistrationBean<>(new AccessLogFilter(clock));
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 5);
         registration.addUrlPatterns("/*");
         return registration;
     }

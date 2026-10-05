@@ -1,0 +1,50 @@
+# Автоматические запросы на обновление зависимостей (шаг 17 Ф3, цепочка поставок).
+#
+# Версии записаны в docs/09-operations/versions.md, а проверки docs сверяют с ним compose.yaml, Dockerfile и сборку Gradle. Поэтому запрос
+# Dependabot без правки versions.md краснеет в задании docs: это защита, а не поломка. Запрос разбирается вручную: версия вносится в таблицу
+# versions.md, затем CI проверяет остальное (теги образов в реестрах, сборка, тесты, стенд).
+version: 2
+updates:
+  # Действия GitHub закреплены по хешу коммита: Dependabot обновляет хеш и комментарий с версией вместе
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    labels: [dependencies, ci]
+
+  # Библиотеки сервисов: каталог версий gradle/libs.versions.toml и плагины сборки
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+    labels: [dependencies, java]
+
+  # Базовые образы Dockerfile (docker/Dockerfile.*)
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+    labels: [dependencies, docker]
+
+  # Образы сторонних контейнеров в compose.yaml (PostgreSQL, Redis, Kafka, Prometheus, Grafana и другие)
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+    labels: [dependencies, docker]

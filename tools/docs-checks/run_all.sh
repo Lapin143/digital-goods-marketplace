@@ -37,6 +37,8 @@ run python3 "$HERE/check_traceability.py"
 run python3 "$HERE/check_refs.py"
 run python3 "$HERE/check_compose.py"
 run python3 "$HERE/check_obs.py"
+run python3 "$HERE/check_workflows.py"
+run python3 "$HERE/check_nft.py"
 run python3 "$HERE/check_stub_contract.py"
 run python3 "$HERE/check_realm.py"
 run python3 "$REPO/infra/keycloak/gen_realm.py" --check

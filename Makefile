@@ -7,6 +7,7 @@ JAVA_IMAGE  ?= eclipse-temurin:25-jre-noble
 NODE_IMAGE  ?= node:24.21.0-alpine3.24
 NGINX_IMAGE ?= nginx:1.30.5-alpine3.24
 IMAGE_TAG   ?= dev
+IMAGE_SOURCE ?= https://github.com/Lapin143/digital-goods-marketplace
 GRADLEW     := ./gradlew --console=plain
 
 .PHONY: help
@@ -32,7 +33,7 @@ docker-images: ## Собрать образы из готовых jar (снач�
 	for s in $(SERVICES); do \
 	  echo "== образ dgm/$$s:$(IMAGE_TAG)"; \
 	  docker build -q -f docker/Dockerfile.service --build-arg SERVICE=$$s --build-arg JAVA_IMAGE=$(JAVA_IMAGE) \
-	    --build-arg BASE_DIGEST=$$base -t dgm/$$s:$(IMAGE_TAG) . || exit 1; \
+	    --build-arg BASE_DIGEST=$$base --label org.opencontainers.image.source=$(IMAGE_SOURCE) -t dgm/$$s:$(IMAGE_TAG) . || exit 1; \
 	done
 
 .PHONY: images
@@ -203,6 +204,18 @@ obs-validate: ## Проверить конфигурацию стека набл
 .PHONY: obs-check
 obs-check: ## Проверить стек наблюдения: цели Prometheus, Grafana, журнал в Loki, трасса в Tempo, оповещение письмом (make up SET=full-obs DEBUG=1)
 	python3 tools/stand-checks/obs_checks.py
+
+.PHONY: smoke
+smoke: ## Дымовой тест: токен, операции через шлюз, ST-03, mTLS, Outbox → Kafka, сквозной идентификатор (набор full, DEBUG=1, make keycloak-users)
+	$(KC_ENV) python3 tools/stand-checks/smoke.py
+
+.PHONY: smoke-sabotage
+smoke-sabotage: ## Проверка проверки: испорченный токен, область и сертификат делают дымовой тест красным
+	$(KC_ENV) tools/ci/smoke-sabotage.sh
+
+.PHONY: stateless-check
+stateless-check: ## NFT-1.3: два экземпляра order-service и catalog-service, один перезапускается посреди серии (подняты dev-auth и dev-purchase, DEBUG=1)
+	$(KC_ENV) python3 tools/stand-checks/stateless_check.py
 
 .PHONY: clean
 clean: ## Удалить результаты сборки

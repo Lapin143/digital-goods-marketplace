@@ -62,6 +62,11 @@ public final class EntryFilter implements WebFilter, Ordered {
     private static final Duration LOG_PERIOD = Duration.ofSeconds(30);
     private static final Logger LOG = LoggerFactory.getLogger(EntryFilter.class);
 
+    /** Журнал обращений: то же имя, что у сервисов (dgm.access), чтобы запросы всех контейнеров искались одним фильтром в Loki. */
+    private static final Logger ACCESS = LoggerFactory.getLogger("dgm.access");
+
+    private static final int MAX_LOGGED_PATH = 200;
+
     /** Причина последнего отказа ограничителя (тип и сообщение без стека) для предупреждения в журнале. */
     private volatile String lastLimiterError = "нет (ответ Redis с признаком сбоя)";
 
@@ -103,7 +108,25 @@ public final class EntryFilter implements WebFilter, Ordered {
         HttpHeaders headers = request.getHeaders();
         TraceContext trace = TraceContext.incoming(headers.getFirst(TRACEPARENT), headers.getFirst(CORRELATION_ID));
         stampResponse(exchange, trace);
+        long started = clock.millis();
+        return route(exchange, chain, trace).doFinally(signal -> logAccess(exchange, trace, started));
+    }
 
+    /** Строка журнала обращений: метод, путь без строки запроса, статус ответа, время в мс. Сквозной идентификатор печатается в поле. */
+    private void logAccess(ServerWebExchange exchange, TraceContext trace, long started) {
+        if (!ACCESS.isInfoEnabled()) {
+            return;
+        }
+        HttpStatusCode status = exchange.getResponse().getStatusCode();
+        String path = exchange.getRequest().getURI().getRawPath();
+        ACCESS.info("{} {} {} {} мс correlationId={}", exchange.getRequest().getMethod().name(),
+                path.length() > MAX_LOGGED_PATH ? path.substring(0, MAX_LOGGED_PATH) : path, status == null ? 200 : status.value(),
+                clock.millis() - started, trace.correlationId());
+    }
+
+    private Mono<Void> route(ServerWebExchange exchange, WebFilterChain chain, TraceContext trace) {
+        ServerHttpRequest request = exchange.getRequest();
+        HttpHeaders headers = request.getHeaders();
         String path = request.getURI().getRawPath();
         if (!safe(path)) {
             return reject(exchange, trace, ProblemType.BAD_REQUEST, "Путь запроса содержит недопустимые символы.", Map.of(), "bad_request");
