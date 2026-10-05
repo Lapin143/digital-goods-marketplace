@@ -71,6 +71,7 @@ SET_server       := $(SET_full-obs),ops
 ALL_SETS        := dev-min dev-platform dev-auth dev-purchase full full-obs server
 PROFILES         := $(SET_$(SET))
 COMPOSE          := docker compose -f compose.yaml $(if $(DEBUG),-f compose.debug.yaml)
+WAIT_TIMEOUT     ?= 420
 
 .PHONY: up
 up: certs secrets ## Поднять набор профилей и дождаться готовности: make up SET=dev-min [DEBUG=1]
@@ -78,7 +79,7 @@ up: certs secrets ## Поднять набор профилей и дождат�
 	@# Образы сервисов Java собираются из jar (ADR-023), поэтому наборы с сервисами сначала собирают jar и образы
 	@case ",$(PROFILES)," in *,purchase,*|*,platform,*|*,gateway,*) $(MAKE) --no-print-directory images;; esac
 	COMPOSE_PROFILES=$(PROFILES) $(COMPOSE) up -d --build --remove-orphans
-	python3 tools/stand-checks/wait.py --profiles $(PROFILES)
+	python3 tools/stand-checks/wait.py --profiles $(PROFILES) --timeout $(WAIT_TIMEOUT)
 
 .PHONY: down
 down: ## Остановить и удалить контейнеры (тома сохраняются)
@@ -178,6 +179,14 @@ keycloak-check: ## Проверить Keycloak: вход по ролям, вто
 .PHONY: gateway-check
 gateway-check: ## Проверить шлюз: маршруты, токены Keycloak, лимиты, отказ открытым (подняты dev-auth и dev-purchase с DEBUG=1, make keycloak-users)
 	$(KC_ENV) tools/stand-checks/gateway_checks.sh
+
+.PHONY: stand-check
+stand-check: ## Проверить стенд целиком после make up: состав, готовность, порты, сети, секреты, память (SET=full, DEBUG=1 если был)
+	python3 tools/stand-checks/stand_checks.py up $(PROFILES)
+
+.PHONY: stand-down-check
+stand-down-check: ## Остановить стенд и проверить чистое состояние: make down оставляет тома, make reset убирает всё (DEBUG=1 если был)
+	python3 tools/stand-checks/stand_checks.py down
 
 .PHONY: web-check
 web-check: ## Проверить веб-интерфейс: доступ только шлюзу, TLS, заголовки, журнал (поднят набор с профилем gateway с DEBUG=1)

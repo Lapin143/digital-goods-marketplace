@@ -47,7 +47,11 @@ one_worker() { [ "$(docker exec "$C" ps | grep -c 'nginx: worker process')" = 1 
 check "один рабочий процесс nginx" one_worker
 ports_ok() { [ "$(docker port "$C" | tr -d '\r' | grep -v '\[::\]' | sort | tr '\n' ' ')" = "8443/tcp -> 127.0.0.1:18447 " ]; }
 check "на хост опубликован только отладочный 127.0.0.1:18447" ports_ok
-nets_ok() { [ "$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$C" | sort | tr '\n' ' ')" = "dgm_app " ]; }
+nets_ok() {
+  local got
+  got=$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$C" | sort | tr '\n' ' ')
+  [ "$got" = "dgm_app " ] || { echo "сети контейнера: [$got]"; return 1; }
+}
 check "контейнер только в сети app" nets_ok
 check "web-app не перезапускался и не убит по памяти" test "$(insp "$C" '{{.RestartCount}} {{.State.OOMKilled}}')" = "0 false"
 no_secrets_in_env() { ! docker inspect "$C" | grep -qi 'BEGIN .*PRIVATE KEY'; }

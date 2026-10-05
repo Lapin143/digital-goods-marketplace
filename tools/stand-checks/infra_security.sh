@@ -57,7 +57,7 @@ rcli() {  # пользователь пароль [аргументы redis-cli.
   local user=$1 pass=$2; shift 2
   drun -e REDISCLI_AUTH="$pass" "$REDIS_IMAGE" redis-cli --tls --cacert /s/tls_ca.crt -h redis --user "$user" "$@"
 }
-RADMIN=$(cat "$SECRETS/redis_admin"); RCAT=$(cat "$SECRETS/redis_catalog")
+RADMIN=$(cat "$SECRETS/redis_admin"); RCAT=$(cat "$SECRETS/redis_catalog"); RGW=$(cat "$SECRETS/redis_gateway")
 redis_admin_ping() { rcli admin "$RADMIN" ping | grep -qx PONG; }
 redis_catalog_rw() { rcli catalog "$RCAT" set catalog:probe 1 | grep -qx OK && rcli catalog "$RCAT" get catalog:probe | grep -qx 1; }
 redis_plain() { drun "$REDIS_IMAGE" redis-cli -h redis -p 6379 ping; }
@@ -72,6 +72,11 @@ expect_ok     "redis: сервис каталога пишет и читает �
 expect_denied "redis: сервис каталога не читает чужие ключи (platform:*)" 'NOPERM|no permissions' rcli catalog "$RCAT" get platform:probe
 expect_denied "redis: сервис каталога не выполняет FLUSHALL" 'NOPERM|no permissions' rcli catalog "$RCAT" flushall
 expect_denied "redis: сервис каталога не читает настройки (CONFIG)" 'NOPERM|no permissions' rcli catalog "$RCAT" config get maxmemory
+# Скрипт Lua в духе ограничителя Spring Cloud Gateway: читает время сервера и пишет ключ своего префикса
+redis_gateway_lua() { rcli gateway "$RGW" eval "local t = redis.call('TIME'); redis.call('setex', KEYS[1], 10, t[1]); return 1" 1 'request_rate_limiter.{probe}.tokens' | grep -qx 1; }
+expect_ok     "redis: шлюз выполняет скрипт Lua с TIME и записью в свой префикс (request_rate_limiter.*)" redis_gateway_lua
+expect_denied "redis: шлюз не читает чужие ключи (catalog:*)" 'NOPERM|no permissions' rcli gateway "$RGW" get catalog:probe
+expect_denied "redis: сервис каталога не читает время сервера (TIME разрешён только шлюзу)" 'NOPERM|no permissions' rcli catalog "$RCAT" time
 redis_policy() { rcli admin "$RADMIN" config get maxmemory-policy | grep -qx noeviction; }
 redis_maxmem() { rcli admin "$RADMIN" config get maxmemory | grep -qx 67108864; }
 expect_ok     "redis: политика noeviction" redis_policy

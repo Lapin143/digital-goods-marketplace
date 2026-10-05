@@ -276,6 +276,61 @@ jobs:
           done
 
   # Образы стенда: теги из versions.md и базовый образ Java существуют в реестрах (versions.md, правило 6).
+  # Стенд целиком (шаг 15 Ф3): «всё поднимается одной командой». Набор full (все профили R1, 16 контейнеров) поднимает make up, затем проверяются
+  # состав и готовность, порты, сети, секреты и память (stand_checks.py up), а остановка оставляет чистое состояние: make down сохраняет тома,
+  # make reset убирает всё (stand_checks.py down).
+  stand:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Версии Docker
+        run: docker version --format 'Docker {{.Server.Version}}' && docker compose version
+
+      - name: Набор full одной командой
+        env:
+          DIAG_FILTER: 'ERROR:|failed to|not found|denied|unhealthy|dependency failed|COPY|не готов|ОШИБКА'
+          DIAG_MAX: "14"
+          DIAG_TAIL: "40"
+        run: tools/ci/diag.sh "make up SET=full" make up SET=full DEBUG=1
+
+      - name: Проверка стенда целиком
+        env:
+          DIAG_FILTER: '^  - |ОШИБКА|^ +[|] '
+          DIAG_MAX: "30"
+        run: tools/ci/diag.sh "Проверка стенда" make stand-check SET=full DEBUG=1
+
+      - name: Состояние и память контейнеров
+        if: always()
+        run: |
+          docker compose --profile '*' ps -a || true
+          msg=$(docker stats --no-stream --format '{{.Name}} {{.MemUsage}} ({{.MemPerc}})' 2>&1 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+          echo "::notice title=память контейнеров (набор full)::$msg"
+
+      - name: Журналы при ошибке
+        if: failure()
+        run: |
+          for s in $(docker compose --profile '*' ps -a --format '{{.Service}}'); do
+            st=$(docker compose --profile '*' ps -a --format '{{.Service}} {{.State}} {{.Health}}' | grep "^$s " | head -n1)
+            case "$st" in *"running healthy"*|*"exited"*) continue;; esac
+            echo "::group::$s ($st)"; docker compose --profile '*' logs --no-color --tail 40 "$s" || true; echo "::endgroup::"
+            msg=$(docker compose --profile '*' logs --no-color --tail 12 "$s" 2>&1 | cut -c1-240 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+            echo "::warning title=журнал $s ($st)::$msg"
+          done
+
+      - name: Остановка и чистое состояние
+        if: always()
+        env:
+          DIAG_FILTER: '^  - |ОШИБКА|^ +[|] '
+        run: tools/ci/diag.sh "Остановка стенда" make stand-down-check DEBUG=1
+
   images:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
