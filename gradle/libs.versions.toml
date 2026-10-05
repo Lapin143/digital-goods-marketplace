@@ -12,7 +12,7 @@ archunit = "1.4.2"
 tomcat-security-floor = "11.0.25"
 # Нижняя граница версии Jackson 3: BOM Spring Boot 4.1.1 приносит 3.1.5 с пятью уязвимостями HIGH (CVE-2026-89407, -89425, -91776, -91777, -68497),
 # исправлены в 3.1.7 (Trivy, шаг 17 Ф3). Платформа подключается в dgm.boot-app-conventions; убрать, когда BOM Spring Boot принесёт 3.1.7 или выше.
-jackson-security-floor = "3.1.7"
+jackson-security-floor = "3.2.3"
 
 [libraries]
 spring-boot-gradle-plugin = { module = "org.springframework.boot:spring-boot-gradle-plugin", version.ref = "spring-boot" }
