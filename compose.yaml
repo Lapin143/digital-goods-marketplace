@@ -261,7 +261,7 @@ services:
       KC_DB_POOL_INITIAL_SIZE: "2"
       KC_DB_POOL_MIN_SIZE: "2"
       KC_DB_POOL_MAX_SIZE: "10"
-      # Куча 384 МБ из 640 МБ лимита: остальное метаданные, стеки потоков, прямая память и кэш кода (memory-budget.md)
+      # Куча 384 МБ из 672 МБ лимита: остальное метаданные, стеки потоков, прямая память и кэш кода (memory-budget.md)
       JAVA_OPTS_KC_HEAP: -Xms64m -Xmx384m
       JAVA_OPTS_APPEND: -Xss512k -XX:MaxMetaspaceSize=192m -XX:MaxDirectMemorySize=64m -XX:ReservedCodeCacheSize=64m
     volumes:
