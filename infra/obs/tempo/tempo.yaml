@@ -1,0 +1,34 @@
+# Tempo стенда: один процесс, блоки на диске, хранение 3 суток (c4-deployment.md раздел 5, memory-budget.md: 256 МБ).
+# Трассы приходят от Alloy по OTLP gRPC внутри сети obs, запросы читает Grafana. Порт запросов на хост публикуется только
+# отладочным файлом на 127.0.0.1.
+stream_over_http_enabled: true
+
+server:
+  http_listen_port: 3200
+  log_level: warn
+  log_format: json
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "0.0.0.0:4317"
+
+ingester:
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    block_retention: 72h
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+usage_report:
+  reporting_enabled: false

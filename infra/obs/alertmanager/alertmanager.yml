@@ -1,0 +1,29 @@
+# Alertmanager стенда (шаг 16 Ф3). Письма уходят по SMTP через заглушку внешних систем (external-stubs:1025, сеть app): на стенде это
+# проверка маршрута «правило → письмо», на сервере (Ф6) адрес и учётные данные почтового сервиса приходят из окружения сервера.
+# Заглушка принимает SMTP без TLS и без входа, поэтому smtp_require_tls: false и учётных данных нет.
+global:
+  smtp_smarthost: "external-stubs:1025"
+  smtp_from: "alerts@dgm.local"
+  smtp_require_tls: false
+  resolve_timeout: 5m
+
+route:
+  receiver: admin-email
+  group_by: [alertname, service]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # Проверочное оповещение стенда (make obs-check): уходит быстро, чтобы проверка не ждала минуты
+    - matchers:
+        - severity = "test"
+      receiver: admin-email
+      group_wait: 1s
+      group_interval: 1m
+      repeat_interval: 1h
+
+receivers:
+  - name: admin-email
+    email_configs:
+      - to: "admin@dgm.local"
+        send_resolved: true

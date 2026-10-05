@@ -1,0 +1,112 @@
+// Alloy стенда (шаг 16 Ф3): единственный сборщик журналов и приёмник OTLP. Заменяет отдельные OpenTelemetry Collector и сборщик
+// журналов (c4-deployment.md, решение 4).
+//
+//   журналы   стандартный вывод контейнеров проекта dgm, прочитанный через сокет Docker, идут в Loki с метками service и level
+//   трассы    OTLP от сервисов по взаимному TLS (серверный сертификат tls_alloy.crt, клиенты проверяются нашим центром), идут в Tempo
+//
+// Сокет Docker подключён с :ro, но это ограничивает только файл сокета, а не интерфейс Docker: кто читает сокет, может управлять
+// контейнерами. Принято на стенде, промежуточный прокси сокета (только чтение журналов) вынесен в Ф6 (docs/00-phase3-report.md).
+
+logging {
+  level  = "info"
+  format = "json"
+}
+
+// ----------------------------------------------------------------------------------------------- журналы
+discovery.docker "stand" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "10s"
+
+  filter {
+    name   = "label"
+    values = ["com.docker.compose.project=dgm"]
+  }
+}
+
+discovery.relabel "stand" {
+  targets = discovery.docker.stand.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+loki.source.docker "stand" {
+  host             = "unix:///var/run/docker.sock"
+  targets          = discovery.relabel.stand.output
+  forward_to       = [loki.process.stand.receiver]
+  refresh_interval = "10s"
+}
+
+// Уровень журнала становится меткой (несколько значений); идентификаторы запроса остаются в строке JSON: их ищут запросом
+// {service="order-service"} | json | correlationId="..." (метка с идентификатором дала бы миллионы потоков).
+loki.process "stand" {
+  stage.json {
+    expressions = { level = "level" }
+  }
+
+  stage.labels {
+    values = { level = "" }
+  }
+
+  forward_to = [loki.write.stand.receiver]
+}
+
+loki.write "stand" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+// ----------------------------------------------------------------------------------------------- трассы
+otelcol.receiver.otlp "services" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+
+    tls {
+      cert_file      = "/run/secrets/tls_alloy.crt"
+      key_file       = "/run/secrets/tls_alloy.key"
+      client_ca_file = "/run/secrets/tls_ca.crt"
+    }
+  }
+
+  http {
+    endpoint = "0.0.0.0:4318"
+
+    tls {
+      cert_file      = "/run/secrets/tls_alloy.crt"
+      key_file       = "/run/secrets/tls_alloy.key"
+      client_ca_file = "/run/secrets/tls_ca.crt"
+    }
+  }
+
+  output {
+    traces = [otelcol.processor.batch.stand.input]
+  }
+}
+
+otelcol.processor.batch "stand" {
+  timeout = "2s"
+
+  output {
+    traces = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+// Tempo в той же закрытой сети obs, без TLS
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo:4317"
+
+    tls {
+      insecure = true
+    }
+  }
+}

@@ -1,0 +1,59 @@
+# Правила оповещений Ф3 (NFT-6.1): минимальный набор, который не молчит при поломке и не шумит без неё.
+# Проверяются модульными тестами promtool (infra/obs/tests/rules_test.yml, make obs-validate).
+groups:
+  - name: dgm-availability
+    rules:
+      - alert: ServiceDown
+        expr: up{job="services"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Сервис {{ $labels.service }} недоступен"
+          description: "Prometheus не получает метрики с {{ $labels.instance }} больше минуты."
+
+      - alert: ObsComponentDown
+        expr: up{job="obs"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Компонент наблюдения {{ $labels.service }} недоступен"
+          description: "Prometheus не получает метрики с {{ $labels.instance }} больше двух минут."
+
+  - name: dgm-errors
+    rules:
+      # Доля ответов 5xx больше 5% при заметном потоке (больше одного запроса в 10 секунд), чтобы единичная ошибка не будила
+      - alert: HighServerErrorRate
+        expr: |
+          (
+            sum by (service) (rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+              / sum by (service) (rate(http_server_requests_seconds_count[5m]))
+          ) > 0.05
+          and sum by (service) (rate(http_server_requests_seconds_count[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Сервис {{ $labels.service }}: много ответов 5xx"
+          description: "Доля ответов 5xx за 5 минут {{ $value | humanizePercentage }}."
+
+      # Redis недоступен, шлюз пропускает запросы без проверки лимита (ADR-021, отказ открытым): защита от перебора ослаблена
+      - alert: GatewayRateLimiterFailOpen
+        expr: increase(dgm_gateway_ratelimit_failopen_total[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Шлюз пропускает запросы без проверки лимита (группа {{ $labels.group }})"
+          description: "Ограничитель частоты на Redis не отвечает, запросы проходят без проверки лимита."
+
+  - name: dgm-backup
+    rules:
+      # Возраст последней успешной копии: метрику отдаст backup-job в Ф6, до этого правило не срабатывает (нет ряда)
+      - alert: BackupTooOld
+        expr: time() - dgm_backup_last_success_timestamp_seconds > 26 * 3600
+        labels:
+          severity: critical
+        annotations:
+          summary: "Резервная копия старше 26 часов"
+          description: "Новой успешной копии нет больше 26 часов, проверьте backup-job."

@@ -1,0 +1,55 @@
+# Prometheus стенда (шаг 16 Ф3, c4-deployment.md раздел 5). Метрики сервисов собираются по взаимному TLS с порта управления 8444:
+# клиентский сертификат tls_prometheus.crt выдан нашим центром, как у сервисов (ADR-022). Остальные контейнеры стека отдают метрики
+# внутри закрытой сети obs без TLS (сеть internal, снаружи недостижима).
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+  external_labels:
+    stand: dgm
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  # Шесть сервисов и шлюз: метрики Micrometer (метка application уже стоит), здоровье и память JVM
+  - job_name: services
+    scheme: https
+    metrics_path: /actuator/prometheus
+    tls_config:
+      ca_file: /run/secrets/tls_ca.crt
+      cert_file: /run/secrets/tls_prometheus.crt
+      key_file: /run/secrets/tls_prometheus.key
+    static_configs:
+      - targets:
+          - api-gateway:8444
+          - catalog-service:8444
+          - inventory-service:8444
+          - order-service:8444
+          - payment-service:8444
+          - delivery-service:8444
+          - platform-service:8444
+    relabel_configs:
+      # Метка service равна имени контейнера: по ней строятся панели и правила
+      - source_labels: [__address__]
+        regex: '([^:]+):\d+'
+        target_label: service
+
+  # Сам стек наблюдения: недоступность любого его контейнера тоже оповещение
+  - job_name: obs
+    static_configs:
+      - targets: ["prometheus:9090"]
+      - targets: ["alertmanager:9093"]
+      - targets: ["grafana:3000"]
+      - targets: ["loki:3100"]
+      - targets: ["tempo:3200"]
+      - targets: ["alloy:12345"]
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: '([^:]+):\d+'
+        target_label: service

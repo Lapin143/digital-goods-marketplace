@@ -42,6 +42,13 @@ VER = os.path.join(L.OPS_DIR, 'versions.md')
 
 R1_PROFILES = ['infra', 'stubs', 'auth', 'gateway', 'purchase', 'platform', 'storage']
 ONE_SHOT = {'kafka-init', 'storage-init'}     # завершаются сами, проверки готовности нет
+# Образы без оболочки и wget (distroless): проверку готовности Docker задать нечем, готовность проверяет make obs-check по /ready
+NO_HEALTHCHECK = {'loki': 'образ distroless', 'tempo': 'образ distroless'}
+# Контейнеры стека наблюдения без собственного сертификата: говорят только внутри закрытой сети obs, без TLS
+# (c4-deployment.md, решение 22). Сертификат нужен тем, кто пересекает границу: prometheus (клиент mTLS к сервисам) и alloy (приём OTLP).
+OBS_NO_CERT = {'alertmanager', 'grafana', 'loki', 'tempo'}
+JAVA_SERVICES = {'catalog-service', 'inventory-service', 'order-service', 'payment-service', 'delivery-service', 'platform-service',
+                 'api-gateway'}                  # входят в сеть obs: метрики и OTLP (c4-deployment.md 4.2)
 BUILT_FROM_REPO = {'catalog-service', 'inventory-service', 'order-service', 'payment-service', 'delivery-service',
                    'platform-service', 'api-gateway', 'web-app', 'external-stubs', 'keycloak'}   # образы собираются из репозитория: dgm/<имя>:${IMAGE_TAG:-dev}
 # Если образ собирается Compose (раздел build), базы сборки из versions.md задаются аргументами сборки; значение по умолчанию в Dockerfile
@@ -279,7 +286,10 @@ def main():
             rep.err(w, 'нужна security_opt no-new-privileges:true')
         if s.get('privileged') or s.get('network_mode') == 'host' or s.get('pid') == 'host':
             rep.err(w, 'privileged, network_mode host и pid host запрещены')
-        if alias not in ONE_SHOT and not s.get('healthcheck'):
+        if alias in NO_HEALTHCHECK:
+            if s.get('healthcheck'):
+                rep.err(w, 'у контейнера задан healthcheck, а образ без оболочки (%s): проверка не сможет выполниться' % NO_HEALTHCHECK[alias])
+        elif alias not in ONE_SHOT and not s.get('healthcheck'):
             rep.err(w, 'нет healthcheck (c4-deployment.md 2.2, столбец «Проверка готовности»)')
         if not str(s.get('restart', '')).startswith('${DGM_RESTART') and alias not in ONE_SHOT:
             rep.err(w, 'restart должен быть ${DGM_RESTART:-no}: на сервере unless-stopped, на ноутбуке no (c4-deployment.md 7)')
@@ -311,6 +321,10 @@ def main():
             rep.err(w, 'в сети edge только api-gateway (c4-deployment.md 4.2)')
         if alias in STORAGE_SERVICES and set(sn) != {'data'}:
             rep.err(w, 'хранилище должно быть только в сети data, сейчас %s' % sn)
+        if alias in JAVA_SERVICES and 'obs' not in sn:
+            rep.err(w, 'сервис должен быть в сети obs: метрики и OTLP (c4-deployment.md 4.2)')
+        if alias not in JAVA_SERVICES and alias not in OBS_NO_CERT and alias not in ('prometheus', 'alloy') and 'obs' in sn:
+            rep.err(w, 'в сети obs только сервисы Java и контейнеры стека наблюдения (c4-deployment.md 4.2)')
         if alias in BUILT_FROM_REPO and alias != 'api-gateway':
             if 'app' not in sn:
                 rep.err(w, 'сервис должен быть в сети app')
@@ -346,6 +360,9 @@ def main():
             name = sec if isinstance(sec, str) else sec.get('source')
             mounted.add(name)
             m = re.fullmatch(r'tls_(.+)\.(key|crt)', name)
+            if alias in OBS_NO_CERT and (name == 'tls_ca.crt' or m):
+                rep.err(w, 'у контейнера стека наблюдения без TLS подключён %s: сертификат ему не нужен (OBS_NO_CERT)' % name)
+                continue
             if name == 'tls_ca.crt' or m:
                 if m and name != 'tls_ca.crt' and m.group(1) != alias:
                     rep.err(w, 'секрет %s чужого контейнера' % name)
@@ -365,13 +382,16 @@ def main():
             for suffix in ('key', 'crt'):
                 if 'tls_%s.%s' % (alias, suffix) in mounted:
                     rep.err(w, 'у разового задания нет своего сертификата, подключён tls_%s.%s' % (alias, suffix))
+        elif alias in OBS_NO_CERT:
+            if alias in inv_containers:
+                rep.err(w, 'контейнер без TLS (OBS_NO_CERT) не должен быть в inventory.json (containers): сертификат ему не нужен')
         elif alias in inv_containers:
             for suffix in ('key', 'crt'):
                 if 'tls_%s.%s' % (alias, suffix) not in mounted:
                     rep.err(w, 'не подключён tls_%s.%s' % (alias, suffix))
         else:
             rep.err(w, 'контейнера нет в inventory.json (containers), сертификат не будет выпущен')
-        if 'tls_ca.crt' not in mounted:
+        if 'tls_ca.crt' not in mounted and alias not in OBS_NO_CERT:
             rep.err(w, 'не подключён tls_ca.crt')
 
     # --- список секретов compose.yaml равен перечню

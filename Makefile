@@ -71,6 +71,10 @@ SET_server       := $(SET_full-obs),ops
 ALL_SETS        := dev-min dev-platform dev-auth dev-purchase full full-obs server
 PROFILES         := $(SET_$(SET))
 COMPOSE          := docker compose -f compose.yaml $(if $(DEBUG),-f compose.debug.yaml)
+# Alloy (профиль obs) читает журналы контейнеров через сокет Docker и входит в его группу. Номер группы берётся у сокета хоста;
+# в Docker Desktop сокет принадлежит root: задайте DOCKER_GID=0
+DOCKER_GID       ?= $(shell stat -L -c %g /var/run/docker.sock 2>/dev/null || echo 0)
+export DOCKER_GID
 WAIT_TIMEOUT     ?= 420
 
 .PHONY: up
@@ -191,6 +195,14 @@ stand-down-check: ## Остановить стенд и проверить чи�
 .PHONY: web-check
 web-check: ## Проверить веб-интерфейс: доступ только шлюзу, TLS, заголовки, журнал (поднят набор с профилем gateway с DEBUG=1)
 	tools/stand-checks/webapp_checks.sh
+
+.PHONY: obs-validate
+obs-validate: ## Проверить конфигурацию стека наблюдения проверяющими программами образов (promtool, amtool, Loki, Tempo, Alloy) и тесты правил оповещений
+	tools/stand-checks/obs_validate.sh
+
+.PHONY: obs-check
+obs-check: ## Проверить стек наблюдения: цели Prometheus, Grafana, журнал в Loki, трасса в Tempo, оповещение письмом (make up SET=full-obs DEBUG=1)
+	python3 tools/stand-checks/obs_checks.py
 
 .PHONY: clean
 clean: ## Удалить результаты сборки

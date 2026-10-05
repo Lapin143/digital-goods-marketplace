@@ -175,6 +175,32 @@ PY
     # Таблица шлюза (группа лимита и сервис каждого маршрута) создаётся из тех же файлов: правка группы вручную ловится
     mutate_repo "gen_routes --check находит ручную правку таблицы маршрутов шлюза" "services/api-gateway/src/main/resources/dgm/gateway-routes.json" '"limit": "order-create"' '"limit": "buyer"' \
       "не равен результату gen_routes.py" tools/docs-checks/gen_routes.py --check
+    # 7а. Стек наблюдения: цель сбора, срок хранения, источник панели, оповещение без теста и сокет Docker с записью ловятся check_obs.py и check_compose.py.
+    mutate_repo "check_obs находит сервис, которого нет среди целей Prometheus" "infra/obs/prometheus/prometheus.yml" '          - order-service:8444' '          - order-service-x:8444' \
+      "цели .*, а сервисы Java в сети obs дают" tools/docs-checks/check_obs.py
+    mutate_repo "check_obs находит срок хранения журналов не по документу" "infra/obs/loki/loki.yaml" 'retention_period: 168h' 'retention_period: 720h' \
+      "хранение журналов 7 суток" tools/docs-checks/check_obs.py
+    mutate_repo "check_obs находит панель с неизвестным источником данных" "infra/obs/grafana/dashboards/services.json" '"uid": "prometheus"' '"uid": "victoria"' \
+      "не объявлен в datasources.yaml" tools/docs-checks/check_obs.py
+    mutate_repo "check_obs находит оповещение без модульного теста" "infra/obs/prometheus/rules/dgm.yml" '  - name: dgm-backup
+    rules:
+' '  - name: dgm-backup
+    rules:
+      - alert: NewUntested
+        expr: vector(1)
+        labels: {severity: warning}
+        annotations: {summary: a, description: b}
+' \
+      "NewUntested не покрыто модульным тестом" tools/docs-checks/check_obs.py
+    mutate_repo "check_obs находит сокет Docker с правом записи" "compose.yaml" '/var/run/docker.sock:/var/run/docker.sock:ro' '/var/run/docker.sock:/var/run/docker.sock' \
+      "сокет Docker подключается только как" tools/docs-checks/check_obs.py
+    mutate_repo "check_obs находит пароль Grafana в окружении" "compose.yaml" 'GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin' 'GF_SECURITY_ADMIN_PASSWORD: admin' \
+      "GF_SECURITY_ADMIN_PASSWORD" tools/docs-checks/check_obs.py
+    mutate "сервис Java вне сети obs" "    networks: [edge, app, data, obs]" "    networks: [edge, app, data]" "сервис должен быть в сети obs"
+    mutate "стек наблюдения без TLS получил сертификат" "      - grafana_admin
+      - grafana_secret_key" "      - tls_ca.crt
+      - grafana_admin
+      - grafana_secret_key" "подключён tls_ca.crt: сертификат ему не нужен"
     # 8. Контракт сервисов: ответы из интеграционных тестов сверяются со схемами OpenAPI. Образцы собираются из примеров самого OpenAPI:
     #    полный набор проходит, испорченное поле, лишнее поле и пропавший обязательный образец отвергаются.
     REPO="$REPO" python3 - "$tmp/contract" <<'PY' || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: не удалось собрать образцы для контрактной проверки"; fail=1; }

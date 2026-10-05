@@ -23,7 +23,8 @@
     {"name": "kafka-init"},
     {"name": "redis"},
     {"name": "external-stubs"},
-    {"name": "prometheus"}
+    {"name": "prometheus"},
+    {"name": "alloy"}
   ],
   "jobs": [
     {"name": "storage-init", "purpose": "Разовое задание: входит в хранилище по паролю из секрета, своего сертификата не имеет, читает секреты как контейнер из списка выше"}
@@ -69,6 +70,9 @@
 
     {"name": "storage_admin", "kind": "password", "readers": ["object-storage", "storage-init"], "purpose": "Корневая запись объектного хранилища (имя в infra/storage/root_user), только запуск и инициализация (ADR-024)"},
     {"name": "storage_catalog", "kind": "password", "readers": ["catalog-service", "storage-init"], "purpose": "Учётная запись catalog-service только на бакет seller-documents (ADR-024)"},
+
+    {"name": "grafana_admin", "kind": "password", "readers": ["grafana"], "purpose": "Администратор Grafana (имя admin), вход в интерфейс через отладочный порт или SSH-туннель"},
+    {"name": "grafana_secret_key", "kind": "key32", "readers": ["grafana"], "purpose": "Ключ шифрования секретов в базе Grafana"},
 
     {"name": "keycloak_admin", "kind": "password", "readers": ["keycloak"], "purpose": "Начальный администратор Keycloak"},
     {"name": "keycloak_client_platform", "kind": "password", "readers": ["keycloak", "platform-service"], "purpose": "Секрет клиента platform-service для Admin API Keycloak (назначение ролей по событиям)"},

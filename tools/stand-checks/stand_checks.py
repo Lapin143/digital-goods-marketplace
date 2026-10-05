@@ -18,8 +18,10 @@ import sys
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 SECRETS = os.environ.get('DGM_SECRETS_DIR', os.path.join(ROOT, 'secrets'))
 FULL = 'infra,stubs,auth,gateway,purchase,platform,storage'
+FULL_OBS = FULL + ',obs'
 ONE_SHOT = {'kafka-init', 'storage-init'}
-VOLUMES = ['dgm_pgdata', 'dgm_kafkadata', 'dgm_objectdata']
+NO_HEALTH = {'loki', 'tempo'}       # образы без оболочки: проверка готовности Docker невозможна, готовность проверяет make obs-check
+VOLUMES = ['dgm_pgdata', 'dgm_kafkadata', 'dgm_objectdata', 'dgm_promdata', 'dgm_grafanadata', 'dgm_lokidata', 'dgm_tempodata']
 
 PASSED, FAILED = 0, []
 
@@ -99,6 +101,8 @@ def up(profiles):
     expect('все контейнеры набора созданы', not missing, 'нет: %s' % missing)
     if profiles == FULL:
         expect('набор full: 16 контейнеров (14 постоянных и 2 разовых задания)', len(wanted) == 16, '%d: %s' % (len(wanted), wanted))
+    if profiles == FULL_OBS:
+        expect('набор full-obs: 22 контейнера (20 постоянных и 2 разовых задания)', len(wanted) == 22, '%d: %s' % (len(wanted), wanted))
 
     not_ready = []
     for s in wanted:
@@ -112,8 +116,9 @@ def up(profiles):
         if not good:
             not_ready.append('%s: %s/%s/%s' % (s, c.get('State'), c.get('Health'), c.get('ExitCode')))
     expect('каждый постоянный контейнер healthy, разовые задания завершились с кодом 0', not not_ready, not_ready)
-    no_check = [s for s in wanted if s not in ONE_SHOT and have.get(s, {}).get('Health') == '']
-    expect('у каждого постоянного контейнера есть проверка готовности', not no_check, 'без проверки: %s' % no_check)
+    no_check = [s for s in wanted if s not in ONE_SHOT and s not in NO_HEALTH and have.get(s, {}).get('Health') == '']
+    expect('у каждого постоянного контейнера есть проверка готовности (кроме образов без оболочки: %s)' % ', '.join(sorted(NO_HEALTH)),
+           not no_check, 'без проверки: %s' % no_check)
 
     restarts, oom = [], []
     for s in wanted:
@@ -161,6 +166,13 @@ def up(profiles):
     outsiders = [m for m in data_members if m in ('web-app', 'external-stubs')]
     expect('в сети data нет веб-интерфейса и заглушек: %s' % ', '.join(data_members), not outsiders, outsiders)
 
+    obs_net = inspect_network('dgm_obs')       # сеть создаётся, когда запущен хотя бы один сервис Java или контейнер стека наблюдения
+    if obs_net:
+        expect('сеть obs закрыта для выхода наружу (internal)', obs_net.get('Internal') is True, obs_net.get('Internal'))
+        obs_members = sorted({v['Name'].replace('dgm-', '').rsplit('-', 1)[0] for v in (obs_net.get('Containers') or {}).values()})
+        outsiders = [m for m in obs_members if m in ('web-app', 'keycloak', 'external-stubs', 'postgres', 'redis', 'kafka', 'object-storage')]
+        expect('в сети obs только сервисы Java и стек наблюдения: %s' % ', '.join(obs_members), not outsiders, outsiders)
+
     print('== Секреты (NFT-3.2)')
     values = secret_values()
     expect('найдены значения секретов для проверки: %d' % len(values), len(values) >= 20, len(values))
@@ -197,7 +209,7 @@ def up(profiles):
     print('  Всего %.0f МиБ' % total)
     expect('ни один контейнер не занял больше 95%% лимита после запуска', not over, over)
     if os.environ.get('GITHUB_ACTIONS'):
-        print('::notice title=память набора %s::всего %.0f МиБ по docker stats' % (profiles, total))
+        print('::notice title=память набора %s::всего %.0f МиБ по docker stats' % (profiles.replace(',', '+'), total))
 
 
 def inspect_network(name):

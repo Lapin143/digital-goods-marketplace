@@ -5,7 +5,7 @@
 #
 # Что проверяется:
 #   контейнер   готов, запущен с ограничениями стенда (не root, файловая система только для чтения, без привилегий, 320 МБ без свопа),
-#               на хост опубликован порт 8443 и отладочный 127.0.0.1:18446, сети edge, app и data, значения секретов не в окружении и журналах
+#               на хост опубликован порт 8443 и отладочный 127.0.0.1:18446, сети edge, app, data и obs, значения секретов не в окружении и журналах
 #   шифрование  цепочка нашего центра, TLS 1.1 и обычный HTTP отклоняются, TLS 1.2 и 1.3 принимаются, клиентский сертификат не нужен
 #   запросы     tools/stand-checks/gateway_checks.py: маршруты, ошибки Problem, подделки токенов (ST-03), области, 2FA, размер тела, Keycloak за
 #               шлюзом, лимиты частоты на Redis, порт управления по mTLS
@@ -46,9 +46,9 @@ check "на хост опубликованы 8443 и отладочный 127.0
 nets_ok() {
   local got
   got=$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$C" | grep -v '^$' | sort | tr '\n' ' ')
-  [ "$got" = "dgm_app dgm_data dgm_edge " ] || { echo "сети контейнера: [$got]"; return 1; }
+  [ "$got" = "dgm_app dgm_data dgm_edge dgm_obs " ] || { echo "сети контейнера: [$got]"; return 1; }
 }
-check "сети: edge (вход), app (сервисы) и data (только Redis)" nets_ok
+check "сети: edge (вход), app (сервисы), data (только Redis) и obs (метрики и трассы)" nets_ok
 only_gateway_on_edge() {
   local n
   for n in $(docker network inspect dgm_edge -f '{{range $k,$v := .Containers}}{{$v.Name}} {{end}}'); do

@@ -1,0 +1,55 @@
+# Источники данных Grafana как код (шаг 16 Ф3): три сигнала наблюдаемости и связи между ними.
+#   метрики   Prometheus
+#   журналы   Loki; поле traceId в строке журнала становится ссылкой на трассу в Tempo (когда сервисы пишут traceId, Ф4)
+#   трассы    Tempo; из трассы виден журнал тех же сервисов за время трассы
+# Правка источников в интерфейсе запрещена (editable: false), изменения идут через репозиторий.
+apiVersion: 1
+
+deleteDatasources:
+  - name: Prometheus
+  - name: Loki
+  - name: Tempo
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      maxLines: 1000
+      derivedFields:
+        - name: traceId
+          matcherRegex: '"traceId":"(\w+)"'
+          url: "$${__value.raw}"
+          datasourceUid: tempo
+          urlDisplayLabel: Трасса в Tempo
+
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    editable: false
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: "-5m"
+        spanEndTimeShift: "5m"
+        filterByTraceID: false
+        customQuery: true
+        query: '{service="$${__span.tags.service.name}"} | json | traceId="$${__span.traceId}"'
+      nodeGraph:
+        enabled: true

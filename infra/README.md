@@ -10,6 +10,7 @@
 | [`kafka/`](kafka/README.md) | Kafka в режиме KRaft с SSL и ACL, задание `kafka-init`, темы и права из AsyncAPI | [ADR-003](../docs/05-architecture/adr/ADR-003-kafka-events.md) |
 | [`storage/`](storage/README.md) | Объектное хранилище S3 по TLS (RustFS), задание `storage-init`: бакет, политика и учётная запись на один бакет | [ADR-024](../docs/05-architecture/adr/ADR-024-object-storage.md) |
 | [`keycloak/`](keycloak/README.md) | Keycloak 26.8: realm `dgm` как код (генератор и проверка по roles-permissions.md), расширение «вход по SMS», тестовые пользователи | [ADR-021](../docs/05-architecture/adr/ADR-021-api-gateway.md), [ADR-010](../docs/05-architecture/adr/ADR-010-keycloak-sms-codes.md) |
+| [`obs/`](obs/README.md) | Стек наблюдения: Prometheus с правилами и их тестами, Alertmanager, Grafana (источники и панели как код), Loki, Tempo, Alloy | [c4-deployment.md](../docs/05-architecture/c4-deployment.md) (раздел 5, решение 22) |
 
 ## Как поднять
 
@@ -22,7 +23,7 @@ make down                      # остановить, данные сохран
 make reset                     # остановить и удалить данные
 ```
 
-Наборы профилей и память каждого: [c4-deployment.md](../docs/05-architecture/c4-deployment.md) (раздел 3), [memory-budget.md](../docs/09-operations/memory-budget.md). Проверка соответствия `compose.yaml` документам: `python3 tools/docs-checks/check_compose.py`. Проверка шифрования и прав на поднятом стенде: `tools/stand-checks/infra_security.sh` (PostgreSQL, Redis, Kafka), `tools/stand-checks/storage_checks.sh` (хранилище), `tools/stand-checks/keycloak_checks.sh` (Keycloak).
+Наборы профилей и память каждого: [c4-deployment.md](../docs/05-architecture/c4-deployment.md) (раздел 3), [memory-budget.md](../docs/09-operations/memory-budget.md). Проверка соответствия `compose.yaml` документам: `python3 tools/docs-checks/check_compose.py`. Проверка шифрования и прав на поднятом стенде: `tools/stand-checks/infra_security.sh` (PostgreSQL, Redis, Kafka), `tools/stand-checks/storage_checks.sh` (хранилище), `tools/stand-checks/keycloak_checks.sh` (Keycloak), `make obs-validate` и `make obs-check` (стек наблюдения).
 
 ## Принципы, общие для всех контейнеров
 

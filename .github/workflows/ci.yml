@@ -294,25 +294,32 @@ jobs:
       - name: Версии Docker
         run: docker version --format 'Docker {{.Server.Version}}' && docker compose version
 
-      - name: Набор full одной командой
+      - name: Набор full-obs одной командой
         env:
           DIAG_FILTER: 'ERROR:|failed to|not found|denied|unhealthy|dependency failed|COPY|не готов|ОШИБКА'
           DIAG_MAX: "14"
           DIAG_TAIL: "40"
-        run: tools/ci/diag.sh "make up SET=full" make up SET=full DEBUG=1
+        run: tools/ci/diag.sh "make up SET=full-obs" make up SET=full-obs DEBUG=1 WAIT_TIMEOUT=600
 
       - name: Проверка стенда целиком
         env:
           DIAG_FILTER: '^  - |ОШИБКА|^ +[|] '
           DIAG_MAX: "30"
-        run: tools/ci/diag.sh "Проверка стенда" make stand-check SET=full DEBUG=1
+        run: tools/ci/diag.sh "Проверка стенда" make stand-check SET=full-obs DEBUG=1
+
+      - name: Проверка стека наблюдения
+        env:
+          DIAG_FILTER: '^  - |ОШИБКА|^ +[|] '
+          DIAG_MAX: "40"
+          DIAG_TAIL: "50"
+        run: tools/ci/diag.sh "Проверка наблюдаемости" make obs-check DEBUG=1
 
       - name: Состояние и память контейнеров
         if: always()
         run: |
           docker compose --profile '*' ps -a || true
           msg=$(docker stats --no-stream --format '{{.Name}} {{.MemUsage}} ({{.MemPerc}})' 2>&1 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
-          echo "::notice title=память контейнеров (набор full)::$msg"
+          echo "::notice title=память контейнеров (набор full-obs)::$msg"
 
       - name: Журналы при ошибке
         if: failure()
@@ -325,11 +332,62 @@ jobs:
             echo "::warning title=журнал $s ($st)::$msg"
           done
 
+      - name: Диагностика стека наблюдения при ошибке
+        if: failure()
+        run: tools/ci/diag-obs.sh
+
       - name: Остановка и чистое состояние
         if: always()
         env:
           DIAG_FILTER: '^  - |ОШИБКА|^ +[|] '
         run: tools/ci/diag.sh "Остановка стенда" make stand-down-check DEBUG=1
+
+  # Стенд, шаг 16: конфигурация стека наблюдения проверяется программами из образов (promtool, amtool, Loki, Tempo, Alloy), затем
+  # поднимаются заглушки и стек без сервисов Java: приём журналов и трасс, Grafana, оповещение письмом. Полный набор с сервисами проверяет задание stand.
+  obs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Версии Docker
+        run: docker version --format 'Docker {{.Server.Version}}' && docker compose version
+
+      - name: Конфигурация стека наблюдения
+        env:
+          DIAG_FILTER: '^  - |ОШИБКА|^ +[|] |rror|FAIL'
+          DIAG_MAX: "30"
+          DIAG_TAIL: "50"
+        run: tools/ci/diag.sh "obs-validate" make obs-validate
+
+      - name: Подъём заглушек и стека наблюдения с отладочными портами
+        env:
+          DIAG_TAIL: "60"
+          DEBUG: "1"
+        run: |
+          tools/ci/diag.sh "make certs secrets" make certs secrets
+          export DOCKER_GID=$(stat -L -c %g /var/run/docker.sock)
+          export COMPOSE_PROFILES=stubs,obs
+          tools/ci/diag.sh "compose up stubs,obs" docker compose -f compose.yaml -f compose.debug.yaml up -d --build
+          tools/ci/diag.sh "ожидание stubs,obs" python3 tools/stand-checks/wait.py --profiles stubs,obs --timeout 240
+
+      - name: Проверка стека наблюдения без сервисов Java
+        env:
+          DIAG_FILTER: '^  - |ОШИБКА|^ +[|] '
+          DIAG_MAX: "40"
+          DIAG_TAIL: "50"
+        run: tools/ci/diag.sh "Проверка наблюдаемости (набор без сервисов)" python3 tools/stand-checks/obs_checks.py --light
+
+      - name: Состояние и память контейнеров
+        if: always()
+        run: |
+          docker compose --profile '*' ps -a || true
+          msg=$(docker stats --no-stream --format '{{.Name}} {{.MemUsage}} ({{.MemPerc}})' 2>&1 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+          echo "::notice title=память контейнеров (stubs и obs)::$msg"
+
+      - name: Диагностика стека наблюдения при ошибке
+        if: failure()
+        run: tools/ci/diag-obs.sh
 
   images:
     runs-on: ubuntu-24.04

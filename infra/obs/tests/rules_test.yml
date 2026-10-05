@@ -1,0 +1,113 @@
+# Модульные тесты правил оповещений: promtool test rules infra/obs/tests/rules_test.yml (make obs-validate).
+rule_files:
+  - ../prometheus/rules/dgm.yml
+
+evaluation_interval: 1m
+
+tests:
+  # Сервис пропал на 4 минуты: до минуты «для» оповещения нет, после есть
+  - interval: 1m
+    input_series:
+      - series: 'up{job="services", service="order-service", instance="order-service:8444"}'
+        values: '1 1 1 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: ServiceDown
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: services
+              service: order-service
+              instance: "order-service:8444"
+            exp_annotations:
+              summary: "Сервис order-service недоступен"
+              description: "Prometheus не получает метрики с order-service:8444 больше минуты."
+
+  # Компонент стека пропал меньше двух минут (нет оповещения) и дольше (есть)
+  - interval: 1m
+    input_series:
+      - series: 'up{job="obs", service="loki", instance="loki:3100"}'
+        values: '1 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: ObsComponentDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: ObsComponentDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: obs
+              service: loki
+              instance: "loki:3100"
+            exp_annotations:
+              summary: "Компонент наблюдения loki недоступен"
+              description: "Prometheus не получает метрики с loki:3100 больше двух минут."
+
+  # Здоровый поток без ошибок и малый поток с ошибками не дают оповещения; 10% ошибок при потоке 1 запрос в секунду дают
+  - interval: 1m
+    input_series:
+      - series: 'http_server_requests_seconds_count{service="catalog-service", status="200"}'
+        values: '0+60x20'
+      - series: 'http_server_requests_seconds_count{service="catalog-service", status="500"}'
+        values: '0+0x20'
+      - series: 'http_server_requests_seconds_count{service="order-service", status="200"}'
+        values: '0+54x20'
+      - series: 'http_server_requests_seconds_count{service="order-service", status="500"}'
+        values: '0+6x20'
+      - series: 'http_server_requests_seconds_count{service="payment-service", status="200"}'
+        values: '0+0.5x20'
+      - series: 'http_server_requests_seconds_count{service="payment-service", status="500"}'
+        values: '0+0.5x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: HighServerErrorRate
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: order-service
+            exp_annotations:
+              summary: "Сервис order-service: много ответов 5xx"
+              description: "Доля ответов 5xx за 5 минут 10%."
+
+  # Отказ открытым: счётчик растёт, оповещение есть, остановился, оповещения нет
+  - interval: 1m
+    input_series:
+      - series: 'dgm_gateway_ratelimit_failopen_total{service="api-gateway", group="public"}'
+        values: '0 0 3 6 9 9 9 9 9 9 9 9 9'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: GatewayRateLimiterFailOpen
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: api-gateway
+              group: public
+            exp_annotations:
+              summary: "Шлюз пропускает запросы без проверки лимита (группа public)"
+              description: "Ограничитель частоты на Redis не отвечает, запросы проходят без проверки лимита."
+      - eval_time: 12m
+        alertname: GatewayRateLimiterFailOpen
+        exp_alerts: []
+
+  # Возраст копии (Ф6): метка времени последней копии не меняется, через 2 часа оповещения нет, через 27 часов есть
+  - interval: 1h
+    input_series:
+      - series: 'dgm_backup_last_success_timestamp_seconds{service="backup-job"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: BackupTooOld
+        exp_alerts: []
+      - eval_time: 27h
+        alertname: BackupTooOld
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              service: backup-job
+            exp_annotations:
+              summary: "Резервная копия старше 26 часов"
+              description: "Новой успешной копии нет больше 26 часов, проверьте backup-job."
