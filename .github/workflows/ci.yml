@@ -95,12 +95,11 @@ jobs:
       - name: Образы сервисов
         run: tools/ci/diag.sh "Сборка образов" make docker-images
 
-      - name: Проверка образов (пользователь без прав, Java 25, только чтение; здоровье шлюза)
+      - name: Проверка образов (пользователь без прав, Java 25, только чтение; здоровье сервисов и шлюза проверяет стенд)
         run: |
-          for s in catalog-service inventory-service order-service payment-service delivery-service platform-service; do
+          for s in catalog-service inventory-service order-service payment-service delivery-service platform-service api-gateway; do
             tools/ci/diag.sh "Образ $s" tools/ci/check-image.sh "dgm/$s:dev" 8443 static
           done
-          tools/ci/diag.sh "Образ api-gateway" tools/ci/check-image.sh "dgm/api-gateway:dev"
 
   # Каркас сервисов и сервисы (шаги 11 и 12 Ф3): интеграционные тесты на настоящих PostgreSQL и Kafka стенда: Outbox и потребитель событий каркаса,
   # затем сервисы каталога и заказов целиком (миграции с тестовыми данными, mTLS, токены, ограничение по владельцу).

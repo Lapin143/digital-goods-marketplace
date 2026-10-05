@@ -1,3 +1,158 @@
+# API Gateway (ADR-021, c4-deployment.md, решение 20). Шлюз не использует каркас service-kit-boot (у него нет базы и Kafka), поэтому общие
+# значения сервисов (порты 8443 и 8444, TLS, журнал JSON, метрики) заданы здесь же. Адреса и секреты приходят от Compose: переменные DGM_*
+# и каталог /run/secrets. Профиль notls существует только для модульных тестов: без TLS, без отдельного порта управления.
 spring:
   application:
     name: api-gateway
+  main:
+    banner-mode: "off"
+  web:
+    resources:
+      add-mappings: false
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  cloud:
+    gateway:
+      server:
+        webflux:
+          httpclient:
+            pool:
+              type: FIXED
+              max-connections: 256
+              acquire-timeout: 2000
+              # Меньше времени простоя соединения у Tomcat сервисов (20 с): шлюз не берёт из пула уже закрытое соединение
+              max-idle-time: 15s
+
+server:
+  port: 8443
+  shutdown: graceful
+  max-http-request-header-size: 16KB
+  netty:
+    connection-timeout: 5s
+    idle-timeout: 60s
+  error:
+    include-message: never
+    include-stacktrace: never
+
+dgm:
+  service: ${spring.application.name}
+  security:
+    jwt:
+      issuer: ${DGM_JWT_ISSUER:https://localhost:8443/auth/realms/dgm}
+      jwks-uri: ${DGM_JWKS_URI:https://keycloak:8443/auth/realms/dgm/protocol/openid-connect/certs}
+  gateway:
+    # Получатели: сервисы по mTLS на 8443, Keycloak, хранилище, веб-интерфейс и заглушки внешних систем (только стенд)
+    upstreams:
+      catalog-service: https://catalog-service:8443
+      inventory-service: https://inventory-service:8443
+      order-service: https://order-service:8443
+      payment-service: https://payment-service:8443
+      delivery-service: https://delivery-service:8443
+      platform-service: https://platform-service:8443
+      keycloak: https://keycloak:8443
+      object-storage: https://object-storage:9000
+      web-app: https://web-app:8443
+      external-stubs: https://external-stubs:8443
+    max-body: 2MB
+    webhook-max-body: 64KB
+    connect-timeout: 2s
+    response-timeout: 15s
+    limiter-timeout: 200ms
+    # Группы лимитов (ADR-021): per-minute запросов в минуту, burst запас (пик), key ip или user (пользователь из токена)
+    limits:
+      public: {per-minute: 60, burst: 120, key: ip}
+      web: {per-minute: 300, burst: 300, key: ip}
+      files: {per-minute: 60, burst: 60, key: ip}
+      auth: {per-minute: 30, burst: 30, key: ip}
+      webhook: {per-minute: 300, burst: 300, key: ip}
+      buyer: {per-minute: 120, burst: 120, key: user}
+      order-create: {per-minute: 10, burst: 10, key: user}
+      account: {per-minute: 30, burst: 30, key: user}
+      seller-apply: {per-minute: 30, burst: 30, key: user}
+      seller: {per-minute: 60, burst: 60, key: user}
+      staff: {per-minute: 120, burst: 120, key: user}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  health:
+    # Redis шлюзу не обязателен (отказ открытым), поэтому его состояние на готовность не влияет
+    redis:
+      enabled: false
+  metrics:
+    tags:
+      application: ${dgm.service}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+
+# Журнал одной строкой JSON; идентификаторы запроса шлюз пишет в ответах и в сообщениях об ошибках
+logging:
+  structured:
+    format:
+      console: logstash
+
+---
+# Рабочий режим: TLS на входе без клиентского сертификата (браузеры), mTLS на порту управления, Redis по TLS
+spring:
+  config:
+    activate:
+      on-profile: "!notls"
+  ssl:
+    bundle:
+      pem:
+        dgm:
+          keystore:
+            certificate: file:${dgm.secrets.dir:/run/secrets}/tls_${dgm.service}.crt
+            private-key: file:${dgm.secrets.dir:/run/secrets}/tls_${dgm.service}.key
+          truststore:
+            certificate: file:${dgm.secrets.dir:/run/secrets}/tls_ca.crt
+          reload-on-update: true
+  data:
+    redis:
+      host: ${DGM_REDIS_HOST:redis}
+      port: 6379
+      username: gateway
+      connect-timeout: 1s
+      ssl:
+        enabled: true
+        bundle: dgm
+
+server:
+  ssl:
+    bundle: dgm
+    client-auth: none
+    enabled-protocols: TLSv1.3,TLSv1.2
+
+management:
+  server:
+    port: 8444
+    ssl:
+      bundle: dgm
+      client-auth: need
+
+dgm:
+  probe:
+    port: 8081
+
+---
+# Модульные тесты: обычный HTTP, свободный порт задаёт тест, порта управления нет
+spring:
+  config:
+    activate:
+      on-profile: notls
+
+management:
+  server:
+    port: -1
+
+dgm:
+  probe:
+    port: 0

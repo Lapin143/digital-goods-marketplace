@@ -1,0 +1,2 @@
+# Пароль Redis из файла секрета подключается до создания компонентов, см. GatewaySecretsListener
+org.springframework.context.ApplicationListener=dgm.gateway.GatewaySecretsListener

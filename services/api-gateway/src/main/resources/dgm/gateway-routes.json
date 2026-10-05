@@ -1,0 +1,872 @@
+{
+  "_comment": "СОЗДАН СКРИПТОМ tools/docs-checks/gen_routes.py ИЗ docs/06-api/openapi/*.yaml. РУКАМИ НЕ ПРАВИТЬ. Чего нет в этом файле (и в правилах веб-интерфейса, /files, /auth, /vkid), шлюз закрывает ответом 404.",
+  "service": "api-gateway",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/v1/orders",
+      "operationId": "listOrders",
+      "service": "order-service",
+      "auth": "token",
+      "limit": "buyer",
+      "scopes": [
+        "orders.read"
+      ],
+      "roles": [
+        "buyer"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/orders",
+      "operationId": "createOrder",
+      "service": "order-service",
+      "auth": "token",
+      "limit": "order-create",
+      "scopes": [
+        "orders.create"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/orders/{orderId}",
+      "operationId": "getOrder",
+      "service": "order-service",
+      "auth": "token",
+      "limit": "buyer",
+      "scopes": [
+        "orders.read"
+      ],
+      "roles": [
+        "buyer"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/orders/{orderId}/payment-session",
+      "operationId": "getOrderPaymentSession",
+      "service": "order-service",
+      "auth": "token",
+      "limit": "buyer",
+      "scopes": [
+        "orders.create"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/phone-confirmations",
+      "operationId": "createPhoneConfirmation",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "account",
+      "scopes": [
+        "account.manage"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/phone-confirmations/{confirmationId}/verify",
+      "operationId": "verifyPhoneConfirmation",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "account",
+      "scopes": [
+        "account.manage"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/products",
+      "operationId": "listStorefrontProducts",
+      "service": "catalog-service",
+      "auth": "public",
+      "limit": "public",
+      "scopes": [],
+      "roles": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/products/{productId}",
+      "operationId": "getStorefrontProduct",
+      "service": "catalog-service",
+      "auth": "public",
+      "limit": "public",
+      "scopes": [],
+      "roles": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller-applications",
+      "operationId": "createSellerApplication",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "seller-apply",
+      "scopes": [
+        "seller.apply"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/seller-applications/current",
+      "operationId": "getCurrentSellerApplication",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "seller-apply",
+      "scopes": [
+        "seller.apply"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/seller-applications/current",
+      "operationId": "replaceSellerApplicationDraft",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "seller-apply",
+      "scopes": [
+        "seller.apply"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller-applications/current/documents",
+      "operationId": "uploadSellerDocument",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "seller-apply",
+      "scopes": [
+        "seller.apply"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/seller-applications/current/documents/{documentId}",
+      "operationId": "deleteSellerDocument",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "seller-apply",
+      "scopes": [
+        "seller.apply"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/seller-applications/current/documents/{documentId}/link",
+      "operationId": "getSellerDocumentLink",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "seller-apply",
+      "scopes": [
+        "seller.apply"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller-applications/current/submit",
+      "operationId": "submitSellerApplication",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "seller-apply",
+      "scopes": [
+        "seller.apply"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/seller/products",
+      "operationId": "listSellerProducts",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "seller",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller/products",
+      "operationId": "createSellerProduct",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "seller",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/seller/products/{productId}",
+      "operationId": "getSellerProduct",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "seller",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/seller/products/{productId}",
+      "operationId": "replaceSellerProduct",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "seller",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller/products/{productId}/archive",
+      "operationId": "archiveSellerProduct",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "seller",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller/products/{productId}/key-batches",
+      "operationId": "uploadKeyBatch",
+      "service": "inventory-service",
+      "auth": "token",
+      "limit": "seller",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller/products/{productId}/key-files",
+      "operationId": "uploadKeyFile",
+      "service": "inventory-service",
+      "auth": "token",
+      "limit": "seller",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller/products/{productId}/restore",
+      "operationId": "restoreSellerProduct",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "seller",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/seller/products/{productId}/stock",
+      "operationId": "getProductStock",
+      "service": "inventory-service",
+      "auth": "token",
+      "limit": "seller",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller/products/{productId}/submit",
+      "operationId": "submitSellerProduct",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "seller",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/audit-records",
+      "operationId": "listAuditRecords",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.audit"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/manual-refunds",
+      "operationId": "listManualRefunds",
+      "service": "payment-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.admin"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/manual-refunds/{paymentId}/complete",
+      "operationId": "completeManualRefund",
+      "service": "payment-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.admin"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/parameters",
+      "operationId": "listPlatformParameters",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.admin"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/staff/parameters/{key}",
+      "operationId": "setPlatformParameter",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.admin"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/products",
+      "operationId": "listProductModerationQueue",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.moderation"
+      ],
+      "roles": [
+        "moderator"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/products/{productId}",
+      "operationId": "getProductForModeration",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.moderation"
+      ],
+      "roles": [
+        "moderator"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/products/{productId}/approve",
+      "operationId": "approveProduct",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.moderation"
+      ],
+      "roles": [
+        "moderator"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/products/{productId}/block",
+      "operationId": "blockProduct",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.moderation"
+      ],
+      "roles": [
+        "moderator"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/products/{productId}/reject",
+      "operationId": "rejectProduct",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.moderation"
+      ],
+      "roles": [
+        "moderator"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/seller-applications",
+      "operationId": "listSellerApplicationQueue",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.moderation"
+      ],
+      "roles": [
+        "moderator"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/seller-applications/{sellerId}",
+      "operationId": "getSellerApplicationCard",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.moderation"
+      ],
+      "roles": [
+        "moderator"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/seller-applications/{sellerId}/approve",
+      "operationId": "approveSellerApplication",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.moderation"
+      ],
+      "roles": [
+        "moderator"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/seller-applications/{sellerId}/reject",
+      "operationId": "rejectSellerApplication",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.moderation"
+      ],
+      "roles": [
+        "moderator"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/seller-applications/{sellerId}/return",
+      "operationId": "returnSellerApplication",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.moderation"
+      ],
+      "roles": [
+        "moderator"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/support-tickets",
+      "operationId": "listSupportTicketQueue",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.support"
+      ],
+      "roles": [
+        "support-operator"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/support-tickets/{ticketId}",
+      "operationId": "getStaffSupportTicket",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.support"
+      ],
+      "roles": [
+        "support-operator"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/support-tickets/{ticketId}/email-change",
+      "operationId": "getEmailChangeState",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.support"
+      ],
+      "roles": [
+        "support-operator"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/support-tickets/{ticketId}/email-change",
+      "operationId": "startEmailChange",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.support"
+      ],
+      "roles": [
+        "support-operator"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/support-tickets/{ticketId}/release",
+      "operationId": "releaseSupportTicket",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.support"
+      ],
+      "roles": [
+        "support-operator"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/support-tickets/{ticketId}/resend",
+      "operationId": "resendKeyForTicket",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.support"
+      ],
+      "roles": [
+        "support-operator"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/support-tickets/{ticketId}/take",
+      "operationId": "takeSupportTicket",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.support"
+      ],
+      "roles": [
+        "support-operator"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/users",
+      "operationId": "listStaffUsers",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.admin"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/users/{userId}/anonymize",
+      "operationId": "anonymizeUser",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.admin"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/users/{userId}/change-role",
+      "operationId": "changeUserRole",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.admin"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/users/{userId}/deactivate",
+      "operationId": "deactivateUser",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "staff",
+      "scopes": [
+        "staff.admin"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/support-tickets",
+      "operationId": "listSupportTickets",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "buyer",
+      "scopes": [
+        "support.write"
+      ],
+      "roles": [
+        "buyer",
+        "system"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/support-tickets",
+      "operationId": "createSupportTicket",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "buyer",
+      "scopes": [
+        "support.write"
+      ],
+      "roles": [
+        "buyer",
+        "system"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/support-tickets/{ticketId}",
+      "operationId": "getSupportTicket",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "buyer",
+      "scopes": [
+        "support.write"
+      ],
+      "roles": [
+        "buyer",
+        "system"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/support-tickets/{ticketId}/email-change/codes",
+      "operationId": "requestEmailChangeCode",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "buyer",
+      "scopes": [
+        "support.write"
+      ],
+      "roles": [
+        "buyer"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/support-tickets/{ticketId}/email-change/verifications",
+      "operationId": "verifyEmailChangeCode",
+      "service": "platform-service",
+      "auth": "token",
+      "limit": "buyer",
+      "scopes": [
+        "support.write"
+      ],
+      "roles": [
+        "buyer"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/webhooks/email-provider",
+      "operationId": "receiveMailStatus",
+      "service": "platform-service",
+      "auth": "webhook",
+      "limit": "webhook",
+      "scopes": [],
+      "roles": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/webhooks/email-provider-keys",
+      "operationId": "receiveKeyEmailStatus",
+      "service": "delivery-service",
+      "auth": "webhook",
+      "limit": "webhook",
+      "scopes": [],
+      "roles": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/webhooks/payment-gateway",
+      "operationId": "receivePaymentGatewayNotification",
+      "service": "payment-service",
+      "auth": "webhook",
+      "limit": "webhook",
+      "scopes": [],
+      "roles": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/webhooks/sms-provider",
+      "operationId": "receiveSmsStatus",
+      "service": "platform-service",
+      "auth": "webhook",
+      "limit": "webhook",
+      "scopes": [],
+      "roles": []
+    }
+  ]
+}

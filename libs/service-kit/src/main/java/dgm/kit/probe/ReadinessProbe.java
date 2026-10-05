@@ -1,4 +1,4 @@
-package dgm.kit.boot;
+package dgm.kit.probe;
 
 import java.io.BufferedReader;
 import java.io.IOException;

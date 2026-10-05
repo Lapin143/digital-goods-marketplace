@@ -1,5 +1,6 @@
 package dgm.kit.boot;
 
+import dgm.kit.probe.ReadinessProbe;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;

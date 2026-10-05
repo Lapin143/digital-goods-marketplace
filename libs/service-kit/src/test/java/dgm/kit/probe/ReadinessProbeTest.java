@@ -1,4 +1,4 @@
-package dgm.kit.boot;
+package dgm.kit.probe;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;

@@ -6,9 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import dgm.kit.boot.ReadinessProbe;
 import dgm.kit.boot.testing.StandHttp;
 import dgm.kit.boot.testing.StandHttp.Response;
+import dgm.kit.probe.ReadinessProbe;
 import dgm.kit.route.RoutePolicy;
 import dgm.kit.route.RouteRule;
 import dgm.kit.testing.TestTokens;
