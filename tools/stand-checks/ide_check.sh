@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Проверка рецепта «сервис из IDE при инфраструктуре в Compose» (шаг 19 Ф3; developer-guide.md, раздел 10).
 #
-#   make ide-check     стенд поднят набором dev-min с отладочными портами (make up SET=dev-min DEBUG=1), миграции order-service применены
-#                      (make db-migrate S=order-service), нужен JDK 25
+#   make ide-check     стенд поднят набором dev-min с отладочными портами (make up SET=dev-min DEBUG=1), нужен JDK 25.
+#                      Миграции сервис применяет сам при старте, как в контейнере. В CI база уже наполнена тестами (миграция 1000
+#                      тестовых данных), а сервис запускается без профиля testdata: именно этот случай проверка и закрывает
 #
 # Что делает: запускает order-service на стороне хоста задачей Gradle bootRun, как это делает IDE, с переменными из руководства
 # (DGM_SECRETS_DIR, DGM_PG_HOST, DGM_PG_PORT, DGM_KAFKA_BOOTSTRAP и свободные порты вместо 8443 и 8444), и проверяет по mTLS с сертификатом шлюза:
@@ -45,7 +46,10 @@ done
 if [ -n "$UP" ]; then
   ok "порт управления отвечает UP (база и Kafka стенда достигнуты с хоста)"
 else
-  bad "сервис не стал готовым за $WAIT с" "$(grep -vE '^\s*$' "$LOG" | tail -n 25)"
+  # Причина падения: цепочка «Caused by», строки о проверке миграций и хвост журнала (журнал шага без входа в аккаунт не читается)
+  why=$( { grep -oE 'Caused by: .{0,200}' "$LOG" | head -n 8; grep -m1 -A10 -E 'failed validation|Validate failed' "$LOG" | grep -vE '^\s*(at |\.\.\.)'; tail -n 6 "$LOG"; } | cut -c1-220 )
+  echo "$why" | sed 's/^/        | /'
+  bad "сервис не стал готовым (процесс $(kill -0 "$PID" 2>/dev/null && echo работает || echo завершился), ждали до $WAIT с)" "$(echo "$why" | head -n 3)"
 fi
 
 if [ -n "$UP" ]; then

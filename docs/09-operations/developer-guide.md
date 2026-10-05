@@ -3,7 +3,7 @@
 | Поле | Содержание |
 | --- | --- |
 | Документ | Как поставить среду на Windows 11, поднять стенд Docker Compose, войти под тестовым пользователем, проверить стенд и запустить сервис из IDE при инфраструктуре в Compose |
-| Статус | Версия 1. Команды сверяет с `Makefile` и `compose.debug.yaml` скрипт `check_guide_commands.py` (раздел 12), рецепты раздела 3, 7 и 10 выполняет CI (`make demo`, `make ide-check`). Установка Windows и WSL проверена по документации поставщиков, на ноутбуке автора не выполнялась |
+| Статус | Версия 1. Команды сверяет с `Makefile` и `compose.debug.yaml` скрипт `check_guide_commands.py` (раздел 12), рецепты раздела 3, 7 и 10 выполняет CI (`make demo`, `make ide-check`). Установка Windows, WSL и Docker Desktop описана по документации поставщиков (у автора они стоят с Ф0, на чистой машине порядок не проверялся) |
 | Фаза | Ф3, шаг 19 |
 | Основание | [memory-budget.md](memory-budget.md) (наборы и лимиты), [c4-deployment.md](../05-architecture/c4-deployment.md) (профили, порты, сети), [ADR-022](../05-architecture/adr/ADR-022-internal-traffic-encryption.md) (центр сертификации), [infra/pki/README.md](../../infra/pki/README.md), [infra/keycloak/README.md](../../infra/keycloak/README.md) |
 | Читатель | Разработчик проекта: аналитик, который ведёт проект, и любой, кто клонирует репозиторий. Операционные сбои и порядок действий при них в [runbook.md](runbook.md) |
@@ -15,10 +15,10 @@
 | Компонент | Версия | Где нужен |
 | --- | --- | --- |
 | Windows 11 | Home подходит, 8 ГБ памяти | Основная система |
-| WSL2 с Ubuntu | Ubuntu 24.04 | Все команды `make` выполняются в Ubuntu, а не в PowerShell |
+| WSL2 с Ubuntu | Ubuntu 24.04 или новее (у автора 26.04) | Все команды `make` выполняются в Ubuntu, а не в PowerShell |
 | Docker Desktop | Движок WSL 2, интеграция с Ubuntu | Контейнеры стенда |
 | `make`, `git`, `curl`, `openssl` 3 и `python3` 3.12 или новее | Из пакетов Ubuntu 24.04 | Команды проекта, сертификаты, проверки (внешние пакеты Python не нужны, кроме проверок документов) |
-| JDK 25 (Temurin) | 25 | Только для наборов с Java: `purchase`, `platform`, `gateway`, и для `make build`, `make test`, `make kit-test`. Наборы `dev-min` и `dev-auth` без шлюза собираются без Java |
+| JDK 25 (Temurin) | 25 | Только для наборов с Java: `purchase`, `platform`, `gateway`, и для `make build`, `make test`, `make kit-test`. Наборы `dev-min` и `dev-auth` без шлюза собираются без Java. В Ф1 записано «JDK локально не ставим»: с Ф3 это не так, Gradle запускается на хосте (в отчёте Ф3 предложена сборка в контейнере для Ф4) |
 | Node.js | Не нужен | Заглушки внешних систем собираются из образа Node 24 |
 | AWS CLI v2 | Любая | Только для `make storage-check` |
 
@@ -28,13 +28,13 @@
 
 ### 2.1. WSL2 и Ubuntu
 
-В PowerShell от имени администратора:
+Если WSL2 и Ubuntu уже стоят (`wsl -l -v` показывает Ubuntu с версией 2), этот пункт пропускается. Иначе в PowerShell от имени администратора:
 
 ```powershell
-wsl --install -d Ubuntu-24.04
+wsl --install -d Ubuntu
 ```
 
-После перезагрузки Ubuntu попросит имя пользователя и пароль. Проверка: `wsl -l -v` показывает Ubuntu-24.04 с версией 2.
+После перезагрузки Ubuntu попросит имя пользователя и пароль. Проверка: `wsl -l -v` показывает Ubuntu с версией 2.
 
 ### 2.2. Лимит памяти WSL2
 
@@ -44,15 +44,17 @@ wsl --install -d Ubuntu-24.04
 [wsl2]
 memory=3GB
 processors=4
+swap=4GB
 ```
 
-Число процессоров подберите по машине. После правки в PowerShell: `wsl --shutdown`, затем открыть Ubuntu заново. Лимит относится ко всем контейнерам вместе: Docker Desktop с движком WSL 2 работает внутри этой же виртуальной машины.
+Число процессоров подберите по машине (у автора 3 ГБ памяти и 4 ГБ подкачки). Подкачка WSL общая для всех процессов, а контейнеры стенда свопа не используют (`memswap_limit` равен `mem_limit`). После правки в PowerShell: `wsl --shutdown`, затем открыть Ubuntu заново. Лимит относится ко всем контейнерам вместе: Docker Desktop с движком WSL 2 работает внутри этой же виртуальной машины.
 
 ### 2.3. Docker Desktop
 
 1. Установить Docker Desktop, в настройках General включить «Use the WSL 2 based engine».
-2. Settings, Resources, WSL integration: включить для Ubuntu-24.04.
+2. Settings, Resources, WSL integration: включить для вашего дистрибутива Ubuntu.
 3. В Ubuntu проверить: `docker version` и `docker compose version` отвечают без `sudo`.
+4. Автозапуск Docker Desktop при входе в Windows лучше выключить (Settings, General, «Start Docker Desktop when you sign in»): он держит память, пока стенд не нужен.
 
 Если `docker` отвечает «permission denied» на `/var/run/docker.sock`, интеграция с Ubuntu выключена (пункт 2) или Docker Desktop не запущен.
 
@@ -63,7 +65,7 @@ sudo apt update
 sudo apt install -y make git curl openssl python3 unzip
 ```
 
-JDK 25 нужен для наборов с Java и сборки. Проще всего поставить Temurin 25 через SDKMAN (`sdk list java`, выбрать строку 25.x с `tem`, `sdk install java <идентификатор>`) или из пакетов Adoptium. Сборка Gradle сама JDK не скачивает: в каталоге версий требуется ровно 25 (`dgm.java-conventions`).
+JDK 25 нужен для наборов с Java и сборки. Проще всего поставить Temurin 25 через SDKMAN (`sdk list java`, выбрать строку 25.x с `tem`, `sdk install java <идентификатор>`) или из пакетов Adoptium. Сборка Gradle сама JDK не скачивает: в `dgm.java-conventions` требуется ровно 25. Если JDK 25 нет, Gradle отвечает «No matching toolchains found» (runbook, раздел 4).
 
 ### 2.5. Клон внутри файловой системы WSL
 
@@ -113,12 +115,12 @@ make down                   # остановить, данные сохраня�
 
 | Набор | Что поднимает | Лимиты, МБ | Замер, МБ | Для чего |
 | --- | --- | --- | --- | --- |
-| `dev-min` | PostgreSQL, Kafka, Redis, заглушки | 1344 | 589 | Работа с базой, миграциями и событиями, интеграционные тесты каркаса (`make kit-test`), сервис из IDE (раздел 10) |
-| `dev-platform` | `dev-min`, `platform-service`, объектное хранилище | 1920 | 877 | Служебный сервис, файлы и подписанные ссылки |
-| `dev-auth` | `dev-min`, Keycloak, шлюз, веб-интерфейс | 2432 | 1463 | Вход, токены, страница через шлюз; запросы API без сервисов шлюз отклонит ошибкой |
-| `dev-purchase` | `dev-min`, пять сервисов покупки | 3008 | 1753 | Контейнеры сервисов (`make services-check`). На пределе по лимитам: закройте лишнее в Windows |
+| `dev-min` | PostgreSQL, Kafka, Redis, заглушки | 1344 | 590 | Работа с базой, миграциями и событиями, интеграционные тесты каркаса (`make kit-test`), сервис из IDE (раздел 10) |
+| `dev-platform` | `dev-min`, `platform-service`, объектное хранилище | 1920 | 886 | Служебный сервис, файлы и подписанные ссылки |
+| `dev-auth` | `dev-min`, Keycloak, шлюз, веб-интерфейс | 2432 | 1464 | Вход, токены, страница через шлюз; запросы API без сервисов шлюз отклонит ошибкой |
+| `dev-purchase` | `dev-min`, пять сервисов покупки | 3008 | 1783 | Контейнеры сервисов (`make services-check`). На пределе по лимитам: закройте лишнее в Windows |
 | `full` | Все профили без наблюдаемости | 4672 | около 2400 в конце проверок (оценка: снимок `full-obs` без шести контейнеров `obs`) | Показ цели вехи M3 (`make demo`, `make smoke`). На ноутбуке с лимитом 3 ГБ не проверялся |
-| `full-obs` | `full` и стек наблюдаемости | 5920 | 3591 (сумма пиков), около 3000 в конце проверок | Сервер и CI |
+| `full-obs` | `full` и стек наблюдаемости | 5920 | 3667 (сумма пиков), около 3000 в конце проверок | Сервер и CI |
 
 «Лимиты» это сумма `mem_limit` контейнеров, «замер» это сумма наибольших значений контейнеров за время проверок CI ([memory-measurements.md](memory-measurements.md), раздел 4). Решение о том, помещается ли набор, принимается по лимитам: так он гарантированно не выйдет за память.
 
@@ -253,8 +255,9 @@ Gradle берёт 1 ГБ кучи (`gradle.properties`). Если стенд у�
 
 ```bash
 make up SET=dev-min DEBUG=1
-make db-migrate S="order-service"
 ```
+
+Миграции сервис применяет сам при старте под ролью-мигратором, как в контейнере: пароль роли он берёт из `secrets/`. Отдельно `make db-migrate` для этого не нужен. Если в базе остались тестовые данные (профиль `testdata`, миграция 1000), а сервис запущен без профиля, это не ошибка: проверка миграций такие данные пропускает.
 
 Сервис читает адреса и секреты из переменных окружения. Значения в таблице получены на стенде `dev-min` с отладочными портами:
 
@@ -285,8 +288,8 @@ curl --cacert secrets/tls_ca.crt --cert secrets/tls_api-gateway.crt --key secret
 
 | Вариант | Как | Что учесть |
 | --- | --- | --- |
-| IDE подключается к WSL | IntelliJ IDEA: открыть проект по пути `\\wsl$\Ubuntu-24.04\home\<имя>\dev\digital-goods-marketplace`, JDK 25 внутри WSL; VS Code: расширение WSL | JVM сервиса работает в WSL и занимает около 250–300 МБ из лимита WSL. Путь к секретам обычный, как в командах выше |
-| JVM на стороне Windows | JDK 25 в Windows, проект открыт по сетевому пути `\\wsl$\...` | JVM не занимает память WSL (принцип 6 бюджета). `DGM_SECRETS_DIR` задаётся путём `\\wsl$\Ubuntu-24.04\home\<имя>\dev\digital-goods-marketplace\secrets`, порты контейнеров Docker Desktop публикует и для Windows на `localhost`. Этот вариант в Ф3 не проверялся |
+| IDE подключается к WSL | IntelliJ IDEA: открыть проект по пути `\\wsl$\<дистрибутив>\home\<имя>\dev\digital-goods-marketplace`, JDK 25 внутри WSL; VS Code: расширение WSL | JVM сервиса работает в WSL и занимает около 250–300 МБ из лимита WSL. Путь к секретам обычный, как в командах выше |
+| JVM на стороне Windows | JDK 25 в Windows, проект открыт по сетевому пути `\\wsl$\...` | JVM не занимает память WSL (принцип 6 бюджета). `DGM_SECRETS_DIR` задаётся путём `\\wsl$\<дистрибутив>\home\<имя>\dev\digital-goods-marketplace\secrets`, порты контейнеров Docker Desktop публикует и для Windows на `localhost`. Этот вариант в Ф3 не проверялся |
 
 Один сервис из IDE работает вместе с остальным стендом, только если им нужен общий набор: шлюз в Compose обращается к сервисам по именам контейнеров и сервис на хосте не найдёт. Поэтому запуск сервиса из IDE это режим разработки и интеграционных тестов, а не сквозной показ: сквозной путь проверяет набор `full` в контейнерах.
 
