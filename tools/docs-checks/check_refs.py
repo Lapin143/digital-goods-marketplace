@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import docslib as L
 
 TOOLS = os.path.join(L.REPO, 'tools', 'docs-checks')
+STAND_TOOLS = os.path.join(L.REPO, 'tools', 'stand-checks')   # проверки стенда (check_services.py, check_contract.py) тоже упоминаются в документах
 SKIP_DIRS = ('node_modules', '.git')
 # документы, которые появятся на следующих шагах плана; ссылки на них пока допустимы только в виде имени в кавычках
 FUTURE_MD = {
@@ -142,8 +143,8 @@ def main():
             n_scripts += 1
             if m in FUTURE_SCRIPTS:
                 continue
-            if not glob.glob(os.path.join(TOOLS, '**', m), recursive=True):
-                rep.err(rel, 'скрипт %s не найден в tools/docs-checks' % m)
+            if not glob.glob(os.path.join(TOOLS, '**', m), recursive=True) and not glob.glob(os.path.join(STAND_TOOLS, '**', m), recursive=True):
+                rep.err(rel, 'скрипт %s не найден в tools/docs-checks и tools/stand-checks' % m)
         # ---- имена файлов в обратных кавычках
         if f.endswith('.md'):
             for m in set(re.findall(r'`([\w][\w.-]*\.md)`', body)):

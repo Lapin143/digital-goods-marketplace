@@ -195,6 +195,9 @@ jobs:
         run: |
           docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}' || true
           free -m | head -n 2
+          # те же цифры заметкой задания: журнал запуска без входа в аккаунт недоступен, заметки читаются через API (замеры для бюджета памяти)
+          msg=$(docker stats --no-stream --format '{{.Name}} {{.MemUsage}} ({{.MemPerc}})' 2>&1 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+          echo "::notice title=память контейнеров::$msg"
 
       - name: Журналы сервисов при ошибке
         if: failure()

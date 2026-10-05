@@ -98,8 +98,8 @@ public final class StandHttp {
     private static void record(String path, HttpResponse<String> response) {
         String type = response.headers().firstValue("Content-Type").orElse("");
         String body = response.body();
-        if (body == null || body.isBlank() || !type.contains("json")) {
-            return;
+        if (body == null || body.isBlank() || !type.contains("json") || path.startsWith("/actuator")) {
+            return;   // служебные маршруты порта управления в OpenAPI не описываются
         }
         try {
             Path dir = Path.of(System.getProperty("dgm.contract.samples", "build/contract-samples"));
