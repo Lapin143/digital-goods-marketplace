@@ -595,7 +595,7 @@ services:
   # не убивается по памяти.
   prometheus:
     <<: *common
-    image: prom/prometheus:v3.14.0
+    image: prom/prometheus:v3.15.0
     profiles: [obs]
     user: "65534:65534"
     command:
