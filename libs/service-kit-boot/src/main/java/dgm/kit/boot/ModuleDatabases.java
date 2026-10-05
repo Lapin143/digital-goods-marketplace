@@ -68,6 +68,9 @@ public final class ModuleDatabases implements AutoCloseable {
                 .dataSource(url, settings.migratorRole(), secrets.read("db_" + settings.migratorRole()).reveal())
                 .locations(settings.locations().toArray(new String[0]))
                 .cleanDisabled(true)
+                // Тестовые данные (профиль testdata) остаются в базе, если профиль выключили: отсутствие их файлов не ошибка,
+                // а изменённые или новые миграции проверяются как обычно
+                .ignoreMigrationPatterns("*:missing")
                 .connectRetries(10)
                 .load();
         int applied = flyway.migrate().migrationsExecuted;

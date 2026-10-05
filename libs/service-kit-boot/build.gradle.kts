@@ -15,6 +15,10 @@ dependencies {
     runtimeOnly("org.postgresql:postgresql")
     runtimeOnly("io.micrometer:micrometer-registry-prometheus")
 
+    // Фикстуры для интеграционных тестов сервисов на стенде: клиент по mTLS, свойства подключения, проверка токена с тестовым ключом
+    testFixturesApi(testFixtures(project(":libs:service-kit")))
+    testFixturesApi("org.springframework:spring-test")
+
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation(testFixtures(project(":libs:service-kit")))
 }

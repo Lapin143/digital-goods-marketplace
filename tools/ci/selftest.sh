@@ -172,6 +172,44 @@ PY
       "не равен результату gen_routes.py" tools/docs-checks/gen_routes.py --check
     mutate_repo "gen_routes --check находит правку прав в OpenAPI без перегенерации" "docs/06-api/openapi/order-service.yaml" '        - orders.read' '        - orders.create' \
       "не равен результату gen_routes.py" tools/docs-checks/gen_routes.py --check
+    # 8. Контракт сервисов: ответы из интеграционных тестов сверяются со схемами OpenAPI. Образцы собираются из примеров самого OpenAPI:
+    #    полный набор проходит, испорченное поле, лишнее поле и пропавший обязательный образец отвергаются.
+    REPO="$REPO" python3 - "$tmp/contract" <<'PY' || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: не удалось собрать образцы для контрактной проверки"; fail=1; }
+import json, os, sys, yaml
+root = sys.argv[1]
+repo = os.environ.get('REPO') or os.getcwd()
+def example(service, path, status='200'):
+    doc = yaml.safe_load(open(os.path.join(repo, 'docs', '06-api', 'openapi', service + '.yaml'), encoding='utf-8'))
+    return doc['paths'][path]['get']['responses'][status]['content']['application/json']['example']
+def problem(status, code):
+    return {'type': 'https://api.marketplace.example/problems/' + code, 'title': 'Проблема', 'status': status, 'detail': 'Пояснение', 'code': code,
+            'correlationId': '0199e0a0-0000-7000-8000-0000000000c1'}
+def put(service, name, path, status, body):
+    d = os.path.join(root, 'services', service, 'build', 'contract-samples')
+    os.makedirs(d, exist_ok=True)
+    json.dump({'method': 'GET', 'path': path, 'status': status, 'body': body}, open(os.path.join(d, name + '.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+put('catalog-service', 'list', '/api/v1/products', 200, example('catalog-service', '/api/v1/products'))
+put('catalog-service', 'list422', '/api/v1/products', 422, problem(422, 'validation-failed'))
+put('catalog-service', 'card', '/internal/v1/products/0199e0a0-0000-7000-8000-000000000201', 200, example('catalog-service', '/internal/v1/products/{productId}'))
+put('catalog-service', 'card404', '/internal/v1/products/0199e0a0-0000-7000-8000-000000000999', 404, problem(404, 'not-found'))
+put('order-service', 'orders', '/api/v1/orders', 200, example('order-service', '/api/v1/orders'))
+put('order-service', 'orders422', '/api/v1/orders', 422, problem(422, 'validation-failed'))
+PY
+    C="$REPO/tools/stand-checks/check_contract.py"
+    if (cd "$tmp/contract" && python3 "$C" "$tmp/contract/services/catalog-service/build/contract-samples" "$tmp/contract/services/order-service/build/contract-samples") >"$tmp/out.txt" 2>&1; then
+      echo "самопроверка ок: check_contract принимает ответы, совпадающие с OpenAPI"
+    else
+      echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: check_contract отверг ответы, взятые из примеров OpenAPI"; tail -n 8 "$tmp/out.txt"; fail=1
+    fi
+    sed -i 's/"issuedAt": "2026-10-03T12:00:00.123Z"/"issuedAt": "03.10.2026"/' "$tmp/contract/services/order-service/build/contract-samples/orders.json"
+    expect_fail "check_contract находит поле ответа не по схеме OpenAPI" python3 "$C" "$tmp/contract/services/order-service/build/contract-samples"
+    grep -q 'issuedAt' "$tmp/out.txt" || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: контракт упал не из-за issuedAt"; tail -n 5 "$tmp/out.txt"; fail=1; }
+    sed -i 's/"issuedAt": "03.10.2026"/"issuedAt": "2026-10-03T12:00:00.123Z", "sellerCommission": 1500/' "$tmp/contract/services/order-service/build/contract-samples/orders.json"
+    expect_fail "check_contract находит лишнее поле, которого нет в OpenAPI" python3 "$C" "$tmp/contract/services/order-service/build/contract-samples"
+    grep -q 'sellerCommission' "$tmp/out.txt" || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: контракт упал не из-за лишнего поля"; tail -n 5 "$tmp/out.txt"; fail=1; }
+    rm -f "$tmp/contract/services/catalog-service/build/contract-samples/card404.json"
+    expect_fail "check_contract находит пропавший образец обязательной операции" python3 "$C" "$tmp/contract/services/catalog-service/build/contract-samples"
+    grep -q 'getProductCard' "$tmp/out.txt" || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: контракт упал не из-за пропавшего образца"; tail -n 5 "$tmp/out.txt"; fail=1; }
     ;;
   security)
     # Фиктивный токен формата GitHub (ghp_ и 36 случайных символов). Он не настоящий и нигде не работает.

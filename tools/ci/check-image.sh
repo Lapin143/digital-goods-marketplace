@@ -17,7 +17,8 @@ uid=$(docker run --rm --entrypoint id "$image" -u)
 echo "ок: образ $image запускается от UID $uid"
 
 if [ "$mode" = "static" ]; then
-  ver=$(docker run --rm --read-only --tmpfs /tmp --cap-drop ALL --entrypoint java "$image" -version 2>&1 | head -n 1)
+  ver=$(docker run --rm --read-only --tmpfs /tmp --cap-drop ALL --entrypoint java "$image" -version 2>&1)
+  ver=${ver%%$'\n'*}
   case "$ver" in *'"25'*) echo "ок: $ver";; *) echo "в образе $image Java не 25: $ver"; exit 1;; esac
   docker run --rm --read-only --tmpfs /tmp --cap-drop ALL --entrypoint test "$image" -f /application/application.jar \
     || { echo "в образе $image нет /application/application.jar"; exit 1; }

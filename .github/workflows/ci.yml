@@ -102,7 +102,8 @@ jobs:
           done
           tools/ci/diag.sh "Образ api-gateway" tools/ci/check-image.sh "dgm/api-gateway:dev"
 
-  # Каркас сервисов (шаг 11 Ф3): интеграционные тесты Outbox и потребителя событий на настоящих PostgreSQL и Kafka стенда.
+  # Каркас сервисов и сервисы (шаги 11 и 12 Ф3): интеграционные тесты на настоящих PostgreSQL и Kafka стенда: Outbox и потребитель событий каркаса,
+  # затем сервисы каталога и заказов целиком (миграции с тестовыми данными, mTLS, токены, ограничение по владельцу).
   # Модульные тесты и архитектурные правила каркаса выполняет задание build. Стенд поднят набором dev-min с отладочными портами,
   # тесты подключаются к 127.0.0.1:15432 и 127.0.0.1:19093 по TLS с клиентским сертификатом сервиса, Docker на стенде у них не нужен.
   kit:
@@ -128,21 +129,77 @@ jobs:
       - name: Миграции order-service и inventory-service
         run: tools/ci/diag.sh "Миграции для тестов каркаса" make db-migrate S="order-service inventory-service"
 
-      - name: Интеграционные тесты каркаса
+      - name: Интеграционные тесты каркаса и сервисов
         env:
           DGM_SECRETS_DIR: ${{ github.workspace }}/secrets
           DIAG_FILTER: 'FAILED|error:|warning:|What went wrong|Could not|BUILD FAILED|Caused by|AssertionFailedError|Exception'
           DIAG_MAX: "40"
-        run: tools/ci/diag.sh "Интеграционные тесты каркаса" ./gradlew --console=plain :libs:service-kit:integrationTest
+        run: |
+          tools/ci/diag.sh "Интеграционные тесты каркаса и сервисов" ./gradlew --console=plain --continue \
+            :libs:service-kit:integrationTest :services:catalog-service:integrationTest :services:order-service:integrationTest
+
+      - name: Зависимости Python
+        run: tools/ci/diag.sh "Зависимости Python" python3 -m pip install --break-system-packages --user -r tools/docs-checks/requirements.txt
+
+      - name: Контракт сервисов с OpenAPI
+        run: tools/ci/diag.sh "Контракт сервисов с OpenAPI" python3 tools/stand-checks/check_contract.py
 
       - name: Сводка тестов
         if: always()
-        run: python3 tools/ci/test_summary.py . "Интеграционные тесты каркаса"
+        run: python3 tools/ci/test_summary.py . "Интеграционные тесты каркаса и сервисов"
 
       - name: Журналы контейнеров при ошибке
         if: failure()
         run: |
           for s in postgres kafka; do
+            echo "::group::$s"; docker compose --profile '*' logs --no-color --tail 40 "$s" || true; echo "::endgroup::"
+            msg=$(docker compose --profile '*' logs --no-color --tail 12 "$s" 2>&1 | cut -c1-240 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+            echo "::warning title=журнал $s::$msg"
+          done
+
+  # Контейнеры сервисов (шаг 12 Ф3): образы собираются из jar, сервисы стартуют на стенде в Compose с настоящими секретами, mTLS, лимитами
+  # памяти и файловой системой только для чтения, миграции применяются при старте. Здесь проверяется то, что не видно из интеграционных
+  # тестов в процессе Gradle: пользователь без прав, tmpfs, память, журнал JSON, порты.
+  services:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Версии Docker
+        run: docker version --format 'Docker {{.Server.Version}}' && docker compose version
+
+      - name: Набор dev-purchase (сборка образов, пять сервисов)
+        env:
+          DIAG_TAIL: "70"
+        run: tools/ci/diag.sh "make up SET=dev-purchase" make up SET=dev-purchase
+
+      - name: Профиль platform (служебный сервис)
+        env:
+          DIAG_TAIL: "70"
+        run: tools/ci/diag.sh "make up SET=dev-platform" make up SET=dev-platform
+
+      - name: Проверка контейнеров сервисов
+        env:
+          DIAG_TAIL: "70"
+        run: tools/ci/diag.sh "Проверка сервисов" make services-check
+
+      - name: Состояние и память контейнеров
+        if: always()
+        run: |
+          docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}' || true
+          free -m | head -n 2
+
+      - name: Журналы сервисов при ошибке
+        if: failure()
+        run: |
+          for s in catalog-service inventory-service order-service payment-service delivery-service platform-service; do
             echo "::group::$s"; docker compose --profile '*' logs --no-color --tail 40 "$s" || true; echo "::endgroup::"
             msg=$(docker compose --profile '*' logs --no-color --tail 12 "$s" 2>&1 | cut -c1-240 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
             echo "::warning title=журнал $s::$msg"

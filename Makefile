@@ -74,6 +74,8 @@ COMPOSE          := docker compose -f compose.yaml $(if $(DEBUG),-f compose.debu
 .PHONY: up
 up: certs secrets ## Поднять набор профилей и дождаться готовности: make up SET=dev-min [DEBUG=1]
 	@test -n "$(PROFILES)" || { echo "Неизвестный набор SET=$(SET). Доступны: $(ALL_SETS)"; exit 2; }
+	@# Образы сервисов Java собираются из jar (ADR-023), поэтому наборы с сервисами сначала собирают jar и образы
+	@case ",$(PROFILES)," in *,purchase,*|*,platform,*|*,gateway,*) $(MAKE) --no-print-directory images;; esac
 	COMPOSE_PROFILES=$(PROFILES) $(COMPOSE) up -d --build --remove-orphans
 	python3 tools/stand-checks/wait.py --profiles $(PROFILES)
 
@@ -119,8 +121,17 @@ db-migrate: ## Применить миграции Flyway сервисов к с
 	tools/stand-checks/migrate_stand.sh $(S)
 
 .PHONY: kit-test
-kit-test: ## Интеграционные тесты каркаса на стенде (make up SET=dev-min DEBUG=1 и make db-migrate S="order-service inventory-service")
-	DGM_SECRETS_DIR=$(CURDIR)/secrets ./gradlew --console=plain :libs:service-kit:integrationTest
+kit-test: ## Интеграционные тесты каркаса, каталога и заказов на стенде (make up SET=dev-min DEBUG=1 и make db-migrate S="order-service inventory-service")
+	DGM_SECRETS_DIR=$(CURDIR)/secrets ./gradlew --console=plain --continue :libs:service-kit:integrationTest \
+	  :services:catalog-service:integrationTest :services:order-service:integrationTest
+
+.PHONY: contract-check
+contract-check: ## Сверить ответы сервисов, записанные интеграционными тестами (make kit-test), со схемами OpenAPI
+	python3 tools/stand-checks/check_contract.py
+
+.PHONY: services-check
+services-check: ## Проверить контейнеры сервисов Java: здоровье, память, журнал JSON, порты (подняты наборы dev-purchase и dev-platform)
+	python3 tools/stand-checks/check_services.py
 
 .PHONY: storage-init
 storage-init: ## Повторить инициализацию хранилища: бакет, политика, пароль учётной записи (хранилище поднято, профиль storage)
