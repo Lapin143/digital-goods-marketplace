@@ -126,8 +126,8 @@ services:
     user: "1000:1000"
     entrypoint: ["/bin/bash", "/etc/dgm/kafka/entrypoint.sh"]
     command: []
-    mem_limit: 448m
-    memswap_limit: 448m
+    mem_limit: 480m
+    memswap_limit: 480m
     networks: [data]
     volumes:
       - kafkadata:/var/lib/kafka/data
@@ -237,8 +237,8 @@ services:
     user: "1000:0"
     entrypoint: ["/bin/bash", "/etc/dgm/keycloak/entrypoint.sh"]
     command: []
-    mem_limit: 640m
-    memswap_limit: 640m
+    mem_limit: 672m
+    memswap_limit: 672m
     networks: [app, data]
     depends_on:
       postgres:
@@ -350,8 +350,8 @@ services:
     image: dgm/catalog-service:${IMAGE_TAG:-dev}
     profiles: [purchase]
     user: "10001:10001"
-    mem_limit: 320m
-    memswap_limit: 320m
+    mem_limit: 352m
+    memswap_limit: 352m
     networks: [app, data, obs]
     depends_on:
       postgres:
@@ -362,6 +362,8 @@ services:
       <<: *service-env
       # Тестовые данные ходячего скелета (миграции db/testdata). На сервере переменная пустая: DGM_SPRING_PROFILES=
       SPRING_PROFILES_ACTIVE: ${DGM_SPRING_PROFILES-testdata}
+      # Куча 192 МБ из лимита 352 МБ: под нагрузкой пик занимал 85-90% прежних 320 МБ (memory-measurements.md)
+      JAVA_TOOL_OPTIONS: -Xmx192m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED
     tmpfs:
       - /tmp:uid=10001,gid=10001,mode=1777,size=48m
     secrets:
@@ -410,8 +412,8 @@ services:
     image: dgm/order-service:${IMAGE_TAG:-dev}
     profiles: [purchase]
     user: "10001:10001"
-    mem_limit: 320m
-    memswap_limit: 320m
+    mem_limit: 352m
+    memswap_limit: 352m
     networks: [app, data, obs]
     depends_on:
       postgres:
@@ -422,6 +424,8 @@ services:
       <<: *service-env
       # Тестовые данные ходячего скелета (миграции db/testdata). На сервере переменная пустая: DGM_SPRING_PROFILES=
       SPRING_PROFILES_ACTIVE: ${DGM_SPRING_PROFILES-testdata}
+      # Куча 192 МБ из лимита 352 МБ: под нагрузкой пик занимал 85-90% прежних 320 МБ (memory-measurements.md)
+      JAVA_TOOL_OPTIONS: -Xmx192m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED
     tmpfs:
       - /tmp:uid=10001,gid=10001,mode=1777,size=48m
     secrets:
@@ -659,8 +663,8 @@ services:
     image: grafana/grafana:13.2.3
     profiles: [obs]
     user: "472:0"
-    mem_limit: 512m
-    memswap_limit: 512m
+    mem_limit: 384m
+    memswap_limit: 384m
     networks: [obs]
     environment:
       GF_SERVER_HTTP_ADDR: 0.0.0.0
@@ -683,7 +687,7 @@ services:
       GF_LOG_MODE: console
       GF_LOG_CONSOLE_FORMAT: json
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
-      GOMEMLIMIT: 430MiB
+      GOMEMLIMIT: 320MiB
     volumes:
       - grafanadata:/var/lib/grafana
       - ./infra/obs/grafana/provisioning:/etc/grafana/provisioning:ro

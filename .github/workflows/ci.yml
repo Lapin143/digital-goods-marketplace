@@ -281,10 +281,14 @@ jobs:
           DIAG_MAX: "30"
         run: tools/ci/diag.sh "NFT-1.3 два экземпляра" make stateless-check
 
+      # Итог замеров: пик каждого контейнера за всё время задания против лимита; красный шаг, если пик выше 90 % лимита (лимиты назначены по правилу 85 %)
+      - name: Замеры памяти, итог
+        if: always()
+        run: python3 tools/stand-checks/memory.py stop "$RUNNER_TEMP/mem.jsonl" --label "шлюз и сервисы покупки, два экземпляра на время NFT-1.3" --strict --fail 90
+
       - name: Состояние и память контейнеров
         if: always()
         run: |
-          python3 tools/stand-checks/memory.py stop "$RUNNER_TEMP/mem.jsonl" --label "шлюз и сервисы покупки, два экземпляра на время NFT-1.3" || true
           docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}' || true
           msg=$(docker stats --no-stream --format '{{.Name}} {{.MemUsage}} ({{.MemPerc}})' 2>&1 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
           echo "::notice title=память контейнеров (шлюз)::$msg"
@@ -373,10 +377,14 @@ jobs:
           DIAG_MAX: "20"
         run: tools/ci/diag.sh "Короткая нагрузка" make load
 
+      # Итог замеров: пик каждого контейнера за всё время задания против лимита; красный шаг, если пик выше 90 % лимита (лимиты назначены по правилу 85 %)
+      - name: Замеры памяти, итог
+        if: always()
+        run: python3 tools/stand-checks/memory.py stop "$RUNNER_TEMP/mem.jsonl" --label "набор full-obs" --strict --fail 90
+
       - name: Состояние и память контейнеров
         if: always()
         run: |
-          python3 tools/stand-checks/memory.py stop "$RUNNER_TEMP/mem.jsonl" --label "набор full-obs" || true
           docker compose --profile '*' ps -a || true
           msg=$(docker stats --no-stream --format '{{.Name}} {{.MemUsage}} ({{.MemPerc}})' 2>&1 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
           echo "::notice title=память контейнеров (набор full-obs)::$msg"

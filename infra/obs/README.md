@@ -1,6 +1,6 @@
 # infra/obs
 
-Конфигурация стека наблюдения (профиль Compose `obs`, шаг 16 Ф3). Три сигнала: **метрики** (Prometheus), **журналы** (Loki), **трассы** (Tempo); собирает Alloy, показывает Grafana, о неполадках сообщает Alertmanager. Архитектура: [c4-deployment.md](../../docs/05-architecture/c4-deployment.md), разделы 2, 4.2, 5 и решение 22; память: [memory-budget.md](../../docs/09-operations/memory-budget.md) (1376 МБ на шесть контейнеров); версии: [versions.md](../../docs/09-operations/versions.md).
+Конфигурация стека наблюдения (профиль Compose `obs`, шаг 16 Ф3). Три сигнала: **метрики** (Prometheus), **журналы** (Loki), **трассы** (Tempo); собирает Alloy, показывает Grafana, о неполадках сообщает Alertmanager. Архитектура: [c4-deployment.md](../../docs/05-architecture/c4-deployment.md), разделы 2, 4.2, 5 и решение 22; память: [memory-budget.md](../../docs/09-operations/memory-budget.md) (1248 МБ на шесть контейнеров); версии: [versions.md](../../docs/09-operations/versions.md).
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"edgeLabelBackground":"#ffffff","lineColor":"#444444"}}}%%

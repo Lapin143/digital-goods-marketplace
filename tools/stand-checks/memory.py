@@ -7,8 +7,10 @@
     python3 tools/stand-checks/memory.py report ФАЙЛ [ключи]   итог по уже записанному файлу
 
     ключи итога:  --rule 85      доля лимита, выше которой пик считается нарушением правила (по умолчанию 85)
+                  --fail 90      порог для --strict, если он выше правила: лимиты назначаются по правилу, а CI краснеет позже, чтобы разброс между запусками
+                                 (на 1-3 процента) не делал его нестабильным
                   --label ТЕКСТ  подпись набора в аннотации CI
-                  --strict       код выхода 1, если у какого-либо контейнера пик выше правила
+                  --strict       код выхода 1, если у какого-либо контейнера пик выше порога (--fail, по умолчанию правило)
                   --md ФАЙЛ      таблица в формате Markdown для документа замеров
 
 Что измеряется. docker stats показывает рабочий набор контейнера: использование памяти cgroup минус неактивный кэш файлов. Это то, что ядро не может
@@ -176,7 +178,7 @@ def aggregate(path):
     return result, len(rows), (rows[-1]['t'] - first if rows else 0)
 
 
-def report(path, rule, label, strict, md):
+def report(path, rule, label, strict, md, fail=None):
     if not os.path.exists(path):
         return failed('нет файла замеров %s' % path)
     data, count, span = aggregate(path)
@@ -221,7 +223,16 @@ def report(path, rule, label, strict, md):
                 n, s['peak'], s['limit'], needed(s['peak'], rule)) for n, s, _ in over)))
     for name, s, pct in over:
         print('  выше правила: %s, пик %.0f МБ из %.0f, лимит по правилу не меньше %d МБ' % (name, s['peak'], s['limit'], needed(s['peak'], rule)))
-    return 1 if (strict and over) else 0
+    # Лимиты назначаются по правилу (85 %), а CI краснеет позже (по умолчанию правило): между ними запас на разброс между запусками
+    limit_pct = fail if fail is not None else rule
+    broken = [n for n, s, pct in table_pct(table) if pct > limit_pct]
+    if strict and broken:
+        print('  пик выше порога CI (%d %% лимита): %s' % (limit_pct, ', '.join(broken)))
+    return 1 if (strict and broken) else 0
+
+
+def table_pct(table):
+    return [(name, s, pct) for name, s, pct, _ in table]
 
 
 def failed(text):
@@ -254,7 +265,7 @@ def main(argv):
     if cmd == 'stop':
         stop(path)
     try:
-        return report(path, int(opt('--rule', 85)), opt('--label', ''), '--strict' in opts, opt('--md'))
+        return report(path, int(opt('--rule', 85)), opt('--label', ''), '--strict' in opts, opt('--md'), int(opt('--fail')) if opt('--fail') else None)
     except Exception as e:  # noqa: BLE001 итог не должен ронять задание CI молча
         return failed('итог замеров не получен: %s: %s' % (type(e).__name__, e))
 
