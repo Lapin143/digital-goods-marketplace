@@ -44,9 +44,15 @@ tasks.named<Test>("test") {
     }
 }
 
+// Один стенд на все проекты: интеграционные задачи идут по одной (StandLock), остальные задачи сборки параллельны
+val standLock = gradle.sharedServices.registerIfAbsent("standLock", StandLock::class.java) {
+    maxParallelUsages.set(1)
+}
+
 val integrationTest = tasks.register<Test>("integrationTest") {
     description = "Интеграционные тесты на поднятом стенде (тег integration)"
     group = "verification"
+    usesService(standLock)
     val testSources = sourceSets.getByName("test")
     testClassesDirs = testSources.output.classesDirs
     classpath = testSources.runtimeClasspath
