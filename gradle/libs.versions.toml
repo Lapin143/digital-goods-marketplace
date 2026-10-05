@@ -10,9 +10,13 @@ archunit = "1.4.2"
 # Нижняя граница версии Tomcat: BOM Spring Boot 4.1.1 приносит 11.0.24, в ней найдены CVE-2026-65182 (обход ограничений доступа, CRITICAL) и ещё
 # уязвимости HIGH, исправлены в 11.0.25 (Trivy, шаг 17 Ф3). Ограничение в dgm.boot-app-conventions можно убрать, когда BOM принесёт 11.0.25 или выше.
 tomcat-security-floor = "11.0.25"
+# Нижняя граница версии Jackson 3: BOM Spring Boot 4.1.1 приносит 3.1.5 с пятью уязвимостями HIGH (CVE-2026-89407, -89425, -91776, -91777, -68497),
+# исправлены в 3.1.7 (Trivy, шаг 17 Ф3). Платформа подключается в dgm.boot-app-conventions; убрать, когда BOM Spring Boot принесёт 3.1.7 или выше.
+jackson-security-floor = "3.1.7"
 
 [libraries]
 spring-boot-gradle-plugin = { module = "org.springframework.boot:spring-boot-gradle-plugin", version.ref = "spring-boot" }
 spring-boot-dependencies = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "spring-boot" }
+jackson-bom = { module = "tools.jackson:jackson-bom", version.ref = "jackson-security-floor" }
 spring-cloud-dependencies = { module = "org.springframework.cloud:spring-cloud-dependencies", version.ref = "spring-cloud" }
 archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }

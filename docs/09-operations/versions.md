@@ -31,6 +31,7 @@
 | Gradle | 9.8.0 | Текущая линейка 9.x | Spring Boot 4.1 поддерживает Gradle 8.14 и выше и 9.x. Файлы wrapper создаёт рабочий процесс `wrapper.yml` на раннере CI (ADR-023, правило 7) |
 | ArchUnit | 1.4.2 | Пока развивается | Поддерживает Java 26. Версия задаётся в каталоге, в BOM Spring её нет |
 | Tomcat (встроенный в сервисы) | Не ниже 11.0.25 | Вместе с Spring Boot | BOM Spring Boot 4.1.1 приносит 11.0.24 с CVE-2026-65182 (CRITICAL) и другими уязвимостями HIGH. Нижняя граница задана в каталоге (`tomcat-security-floor`) ограничением Gradle в `dgm.boot-app-conventions`; когда BOM догонит, ограничение убирается |
+| Jackson 3 | Не ниже 3.1.7 | Вместе с Spring Boot | BOM Spring Boot 4.1.1 приносит 3.1.5 с пятью CVE уровня HIGH (jackson-core и jackson-databind). Нижняя граница задана платформой `jackson-bom` в `dgm.boot-app-conventions` (`jackson-security-floor` в каталоге); когда BOM Spring Boot догонит, платформа убирается |
 | Остальные библиотеки (Flyway, драйвер PostgreSQL, клиент Kafka, Lettuce, Micrometer, Nimbus JOSE) | Из BOM Spring Boot 4.1.1 | Вместе с Spring Boot | Явных версий нет, это правило 4 |
 | Node.js | 24.21.0 LTS | Апрель 2028 года | Только для заглушек внешних систем и вспомогательных скриптов, внешних пакетов нет |
 | Python | 3.12 и выше | Системная | Скрипты проверок документов, `requirements-docs.txt` появляется в шаге 3 |

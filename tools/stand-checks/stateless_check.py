@@ -60,7 +60,7 @@ function one(target) {
     await Promise.all(targets.map(one));
     await new Promise(r => setTimeout(r, Number(step)));
   }
-  console.log(JSON.stringify(log));
+  console.log(JSON.stringify({started, log}));
 })();
 """
 
@@ -117,11 +117,12 @@ def main():
         G.expect('второй экземпляр order-service перезапущен посреди серии', r.returncode == 0, r.stderr[-200:])
         out, err = series.communicate(timeout=SERIES_SECONDS + 120)
         try:
-            log = json.loads(out.strip().splitlines()[-1])
-        except (ValueError, IndexError):
+            result = json.loads(out.strip().splitlines()[-1])
+            log, restart_t = result['log'], restarted - result['started'] / 1000.0
+        except (ValueError, IndexError, KeyError):
             G.expect('серия выполнена', False, (out + err)[-300:])
             return finish()
-        evaluate(log, orders, catalogs, restarted)
+        evaluate(log, orders, catalogs, restart_t)
     finally:
         r = scale(1, 1)
         if r.returncode != 0:
@@ -129,17 +130,20 @@ def main():
     return finish()
 
 
-def evaluate(log, orders, catalogs, restarted_after):
-    print('== Результаты серии: %d запросов' % len(log))
+def evaluate(log, orders, catalogs, restart_t):
+    """restart_t: когда команда перезапуска была выдана, в секундах от начала серии (часы клиента серии и этого скрипта общие, это один раннер)."""
+    print('== Результаты серии: %d запросов, перезапуск на %.1f-й секунде' % (len(log), restart_t))
     by = {h: [e for e in log if e['host'] == h] for h in orders + catalogs}
     first, second = by[orders[0]], by[orders[1]]
     bad1 = [e for e in first if e.get('status') != 200]
     G.expect('экземпляр 1 order-service: %d ответов, все 200, в том числе пока экземпляр 2 перезапускается' % len(first), first and not bad1, str(bad1[:2]))
-    before = [e for e in second if e['t'] < RESTART_AT - 1]
+    margin = 1.0  # контейнер перестаёт принимать соединения сразу после команды, запрос чуть раньше команды ещё успевает пройти
+    before = [e for e in second if e['t'] < restart_t - margin]
     G.expect('экземпляр 2 до перезапуска: %d ответов, все 200' % len(before), before and all(e.get('status') == 200 for e in before), str([e for e in before if e.get('status') != 200][:2]))
-    down = [e for e in second if RESTART_AT + 1 <= e['t'] and e.get('status') != 200]
+    down = [e for e in second if restart_t - margin <= e['t'] and e.get('status') != 200]
     G.expect('экземпляр 2 во время перезапуска недоступен (%d неудачных попыток): перезапуск действительно был' % len(down), len(down) > 0)
-    recovered = [e for e in second if e.get('status') == 200 and e['t'] > RESTART_AT + 1]
+    first_down = min((e['t'] for e in down), default=restart_t)
+    recovered = [e for e in second if e.get('status') == 200 and e['t'] > first_down]
     back_at = min((e['t'] for e in recovered), default=None)
     G.expect('экземпляр 2 снова отвечает 200 тем же токеном, выданным до перезапуска (вернулся на %s-й секунде)' % ('%.0f' % back_at if back_at else '?'), back_at is not None)
     tail = [e for e in second if back_at is not None and e['t'] >= back_at]

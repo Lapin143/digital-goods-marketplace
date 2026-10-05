@@ -12,6 +12,10 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
 
+    // Jackson 3 не ниже версии с исправлениями (jackson-security-floor): платформа с более высокой версией побеждает BOM Spring Boot, а когда
+    // BOM новее, побеждает он. Одна платформа держит согласованными jackson-core, databind и остальные модули.
+    implementation(platform(catalog.findLibrary("jackson-bom").get()))
+
     // Tomcat не ниже версии с исправлением уязвимостей (gradle/libs.versions.toml, tomcat-security-floor). Ограничение побеждает версию из BOM,
     // если она ниже, и не мешает, когда BOM новее. Шлюз на Netty эти библиотеки не использует, для него ограничение ничего не меняет.
     constraints {
