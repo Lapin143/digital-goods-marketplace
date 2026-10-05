@@ -16,4 +16,8 @@ jobs:
           java-version: '25'
           cache: gradle
       - name: Сигнатуры классов
-        run: bash tools/ci/probe_jars.sh
+        run: bash tools/ci/probe_jars.sh 1
+      - name: Классы и автонастройка
+        run: bash tools/ci/probe_jars.sh 2
+      - name: Ключи настроек
+        run: bash tools/ci/probe_jars.sh 3
