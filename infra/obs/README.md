@@ -57,7 +57,7 @@ make obs-validate                  # только файлы конфигура�
 | `http://127.0.0.1:13100`, `13200` | Loki, Tempo (запросы по HTTP; Grafana ходит к ним по имени контейнера) |
 | `https://127.0.0.1:14318` | Приём OTLP/HTTP в Alloy по взаимному TLS (клиентский сертификат из `secrets/`) |
 
-На ноутбуке с 8 ГБ и пределом Docker 3 ГБ набор `full-obs` не помещается (сумма лимитов 5888 МБ, [memory-budget.md](../../docs/09-operations/memory-budget.md)): стек поднимается отдельно от сервисов, например `COMPOSE_PROFILES=stubs,obs docker compose -f compose.yaml -f compose.debug.yaml up -d` (1,2 ГБ), а полный набор проверяется в CI и на сервере.
+На ноутбуке с 8 ГБ и пределом Docker 3 ГБ набор `full-obs` не помещается (сумма лимитов 5920 МБ, [memory-budget.md](../../docs/09-operations/memory-budget.md)): стек поднимается отдельно от сервисов, например `COMPOSE_PROFILES=stubs,obs docker compose -f compose.yaml -f compose.debug.yaml up -d` (1,2 ГБ), а полный набор проверяется в CI и на сервере.
 
 ## Решения и ограничения
 

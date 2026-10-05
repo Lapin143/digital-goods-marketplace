@@ -542,8 +542,8 @@ services:
     image: dgm/api-gateway:${IMAGE_TAG:-dev}
     profiles: [gateway]
     user: "10001:10001"
-    mem_limit: 320m
-    memswap_limit: 320m
+    mem_limit: 352m
+    memswap_limit: 352m
     networks: [edge, app, data, obs]
     ports:
       - "8443:8443"
@@ -554,6 +554,8 @@ services:
       DGM_JWT_ISSUER: ${DGM_PUBLIC_ORIGIN:-https://localhost:8443}/auth/realms/dgm
       DGM_JWKS_URI: https://keycloak:8443/auth/realms/dgm/protocol/openid-connect/certs
       DGM_REDIS_HOST: redis
+      # Куча 192 МБ из лимита 352 МБ: пик 274 МБ при проверках лимитов частоты и отказов занимал 86% прежних 320 МБ (memory-measurements.md)
+      JAVA_TOOL_OPTIONS: -Xmx192m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED
     tmpfs:
       - /tmp:uid=10001,gid=10001,mode=1777,size=48m
     secrets:
