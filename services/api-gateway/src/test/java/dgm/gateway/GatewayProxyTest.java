@@ -203,6 +203,10 @@ class GatewayProxyTest {
         String forwardedFor = seen.headers().getFirst("X-Forwarded-For");
         assertNotNull(forwardedFor, "адрес источника выставляет шлюз");
         assertFalse(forwardedFor.contains("1.2.3.4"), "присланный клиентом адрес не принимается: " + forwardedFor);
+        assertFalse(forwardedFor.contains(","), "одно значение, а не цепочка: " + forwardedFor);
+        assertEquals("http", seen.headers().getFirst("X-Forwarded-Proto"));
+        assertEquals("localhost:" + GATEWAY_PORT, seen.headers().getFirst("X-Forwarded-Host"));
+        assertEquals(Integer.toString(GATEWAY_PORT), seen.headers().getFirst("X-Forwarded-Port"));
     }
 
     @Test

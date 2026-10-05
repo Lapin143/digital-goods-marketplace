@@ -181,8 +181,8 @@ def routes_and_tokens(kc, kc_gateway, people):
     cid = str(uuid.uuid4())
     r = call('GET', '/api/v1/products', headers={'X-Correlation-Id': cid})
     expect('присланный X-Correlation-Id сохраняется', r.header('X-Correlation-Id') == cid and r.count('X-Correlation-Id') == 1, str(r.headers))
-    r = call('GET', '/api/v1/products', headers={'X-Correlation-Id': 'не-uuid', 'X-Seller-Id': 'x', 'X-Forwarded-For': '6.6.6.6'})
-    expect('чужой X-Correlation-Id заменяется, лишние заголовки не мешают', r.status == 200 and r.header('X-Correlation-Id') != 'не-uuid', '%s %s' % (r.status, r.headers))
+    r = call('GET', '/api/v1/products', headers={'X-Correlation-Id': 'not-a-uuid', 'X-Seller-Id': 'x', 'X-Forwarded-For': '6.6.6.6'})
+    expect('чужой X-Correlation-Id заменяется, лишние заголовки не мешают', r.status == 200 and r.header('X-Correlation-Id') != 'not-a-uuid', '%s %s' % (r.status, r.headers))
 
     r = call('GET', '/api/v1/unknown')
     expect('неизвестный маршрут: 404 Problem с correlationId из заголовка', r.status == 404 and r.code() == 'not-found' and r.header('Content-Type') == 'application/problem+json'
@@ -200,7 +200,7 @@ def routes_and_tokens(kc, kc_gateway, people):
 
     r = call('GET', '/api/v1/orders')
     expect('защищённый маршрут без токена: 401 unauthenticated с WWW-Authenticate', r.status == 401 and r.code() == 'unauthenticated' and r.header('WWW-Authenticate') == 'Bearer', '%s %s' % (r.status, r.text[:200]))
-    r = call('GET', '/api/v1/orders', headers=bearer('мусор'))
+    r = call('GET', '/api/v1/orders', headers=bearer('garbage'))
     expect('мусор вместо токена: 401', r.status == 401, str(r.status))
 
     buyer = login(kc, people['buyer-1'])
@@ -376,7 +376,8 @@ def main():
     print()
     print('Проверок успешно: %d, с ошибками: %d' % (PASSED, len(FAILED)))
     if os.environ.get('GITHUB_ACTIONS'):
-        print('::notice title=gateway_checks %s::Проверок успешно: %d, с ошибками: %d' % (mode, PASSED, len(FAILED)))
+        print('::notice title=gateway_checks %s::Проверок успешно: %d, с ошибками: %d%s' % (
+            mode, PASSED, len(FAILED), ('; не прошли: ' + ' | '.join(FAILED)) if FAILED else ''))
     for f in FAILED:
         print('  - %s' % f)
     return 1 if FAILED else 0

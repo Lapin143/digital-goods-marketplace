@@ -43,7 +43,7 @@ hardened() {
 check "пользователь 10001, файловая система только для чтения, без привилегий, 320 МБ без свопа" hardened
 ports_ok() { [ "$(docker port "$C" | tr -d '\r' | grep -v '\[::\]' | sort | tr '\n' ' ')" = "8443/tcp -> 0.0.0.0:8443 8444/tcp -> 127.0.0.1:18446 " ]; }
 check "на хост опубликованы 8443 и отладочный 127.0.0.1:18446 (порт управления), больше ничего" ports_ok
-nets_ok() { [ "$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$C" | tr ' ' '\n' | sort | tr '\n' ' ')" = "dgm_app dgm_data dgm_edge " ]; }
+nets_ok() { [ "$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$C" | sort | tr '\n' ' ')" = "dgm_app dgm_data dgm_edge " ]; }
 check "сети: edge (вход), app (сервисы) и data (только Redis)" nets_ok
 only_gateway_on_edge() {
   local n

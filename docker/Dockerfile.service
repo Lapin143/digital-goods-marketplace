@@ -33,6 +33,6 @@ COPY --from=extract /build/extracted/application/ ./
 
 USER 10001:10001
 # Куча по бюджету памяти (docs/09-operations/memory-budget.md). Compose переопределяет значение для платформенного сервиса.
-ENV JAVA_TOOL_OPTIONS="-Xmx160m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8"
+ENV JAVA_TOOL_OPTIONS="-Xmx160m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED"
 EXPOSE 8443 8444
 ENTRYPOINT ["java", "-jar", "application.jar"]

@@ -31,7 +31,7 @@
 ## Команды
 
 ```bash
-make up SET=dev-auth DEBUG=1      # PostgreSQL, заглушки, Keycloak (и шлюз, когда он появится); порт 127.0.0.1:18445
+make up SET=dev-auth DEBUG=1      # PostgreSQL, Redis, заглушки, Keycloak и шлюз; порт Keycloak 127.0.0.1:18445, шлюз https://localhost:8443
 make keycloak-users               # тестовые пользователи, пароли в secrets/test_users.json
 make keycloak-check               # вход по ролям, второй фактор, сроки, перебор, VK ID, Argon2 в базе (около 3 минут)
 make keycloak-test                # модульные тесты клиента входа, сеть не нужна

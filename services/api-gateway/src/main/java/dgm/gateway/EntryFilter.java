@@ -193,10 +193,26 @@ public final class EntryFilter implements WebFilter, Ordered {
         }
     }
 
+    /**
+     * Запрос сервису: присланные клиентом заголовки с внутренним смыслом убираются, адрес источника и исходный адрес запроса
+     * выставляет сам шлюз (цепочку {@code X-Forwarded-For} не продолжает: перед шлюзом нет доверенного прокси), сквозной контекст
+     * заменяется нашим. Заголовки {@code X-Forwarded-*} нужны Keycloak за шлюзом ({@code KC_PROXY_HEADERS=xforwarded}).
+     */
     private static Mono<Void> forward(ServerWebExchange exchange, WebFilterChain chain, TraceContext trace) {
-        ServerHttpRequest sanitized = exchange.getRequest().mutate().headers(h -> {
+        ServerHttpRequest request = exchange.getRequest();
+        String host = request.getHeaders().getFirst(HttpHeaders.HOST);
+        InetSocketAddress local = request.getLocalAddress();
+        ServerHttpRequest sanitized = request.mutate().headers(h -> {
             for (String name : NOT_FROM_CLIENT) {
                 h.remove(name);
+            }
+            h.set("X-Forwarded-For", clientAddress(request));
+            h.set("X-Forwarded-Proto", request.getURI().getScheme() == null ? "https" : request.getURI().getScheme());
+            if (host != null) {
+                h.set("X-Forwarded-Host", host);
+            }
+            if (local != null) {
+                h.set("X-Forwarded-Port", Integer.toString(local.getPort()));
             }
             h.set(TRACEPARENT, trace.traceparent());
             h.set(CORRELATION_ID, trace.correlationId());

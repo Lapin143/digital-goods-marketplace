@@ -506,7 +506,7 @@ services:
     environment:
       <<: *service-env
       # Куча 192 МБ из лимита 352 МБ (memory-budget.md)
-      JAVA_TOOL_OPTIONS: -Xmx192m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8
+      JAVA_TOOL_OPTIONS: -Xmx192m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED
     tmpfs:
       - /tmp:uid=10001,gid=10001,mode=1777,size=48m
     secrets:

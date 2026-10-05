@@ -53,6 +53,10 @@ val integrationTest = tasks.register<Test>("integrationTest") {
     description = "Интеграционные тесты на поднятом стенде (тег integration)"
     group = "verification"
     usesService(standLock)
+    // Результат зависит от стенда, а не только от входов задачи; образцы ответов (build/contract-samples) в выходы не входят.
+    // Поэтому задача не бывает актуальной и не берётся из кэша сборки.
+    outputs.upToDateWhen { false }
+    outputs.doNotCacheIf("тесты идут на живом стенде") { true }
     val testSources = sourceSets.getByName("test")
     testClassesDirs = testSources.output.classesDirs
     classpath = testSources.runtimeClasspath
