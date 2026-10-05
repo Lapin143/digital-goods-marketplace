@@ -49,7 +49,7 @@ ports_ok() { [ "$(docker port "$C" | tr -d '\r' | grep -v '\[::\]' | sort | tr '
 check "на хост опубликован только отладочный 127.0.0.1:18447" ports_ok
 nets_ok() {
   local got
-  got=$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$C" | sort | tr '\n' ' ')
+  got=$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$C" | grep -v '^$' | sort | tr '\n' ' ')
   [ "$got" = "dgm_app " ] || { echo "сети контейнера: [$got]"; return 1; }
 }
 check "контейнер только в сети app" nets_ok
@@ -100,7 +100,8 @@ check "Referrer-Policy: no-referrer" test "$(header Referrer-Policy)" = no-refer
 check "страница не кэшируется (Cache-Control: no-cache)" test "$(header Cache-Control)" = no-cache
 check "версия nginx в заголовке Server не раскрывается" test "$(header Server)" = nginx
 type_of() { gw_curl -o /dev/null -w '%{content_type}' "$WEB/$1"; }
-check "styles.css: text/css" test "$(type_of styles.css)" = "text/css"
+css_ok() { type_of styles.css | grep -Eq '^text/css(;|$)'; }
+check "styles.css: text/css" css_ok
 js_ok() { type_of status.js | grep -Eq '^(text|application)/javascript'; }
 check "status.js: javascript" js_ok
 check "favicon.svg: image/svg+xml" test "$(type_of favicon.svg)" = "image/svg+xml"
