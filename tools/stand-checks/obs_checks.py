@@ -19,7 +19,7 @@
 
 Только стандартная библиотека Python. Переменные: DGM_SECRETS_DIR (каталог секретов), OBS_WAIT (предельное ожидание, секунд, по умолчанию 120).
 """
-import http.client
+import http.client as httpclient
 import json
 import os
 import ssl
@@ -281,13 +281,13 @@ def check_tempo():
     try:
         code, _ = http('POST', ALLOY_OTLP + '/v1/traces', body=span, client_cert=False)
         refused = code in (400, 401, 403)
-    except (urllib.error.URLError, ssl.SSLError, ConnectionError, OSError, http.client.HTTPException):
+    except (urllib.error.URLError, ssl.SSLError, ConnectionError, OSError, httpclient.HTTPException):
         refused = True     # рукопожатие TLS без клиентского сертификата не завершилось
     expect('без клиентского сертификата Alloy трассу не принимает (NFT-3.3)', refused)
     try:
         code, _ = http('POST', ALLOY_OTLP.replace('https://', 'http://') + '/v1/traces', body=span)
         plain = code >= 400
-    except (urllib.error.URLError, ConnectionError, OSError, http.client.HTTPException):
+    except (urllib.error.URLError, ConnectionError, OSError, httpclient.HTTPException):
         plain = True
     expect('по открытому HTTP Alloy трассу не принимает (NFT-3.3)', plain)
 
