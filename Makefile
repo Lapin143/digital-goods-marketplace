@@ -8,6 +8,7 @@ NODE_IMAGE  ?= node:24.21.0-alpine3.24
 NGINX_IMAGE ?= nginx:1.30.5-alpine3.24
 IMAGE_TAG   ?= dev
 IMAGE_SOURCE ?= https://github.com/Lapin143/digital-goods-marketplace
+MEM_FILE ?= /tmp/dgm-mem.jsonl
 GRADLEW     := ./gradlew --console=plain
 
 .PHONY: help
@@ -216,6 +217,17 @@ smoke-sabotage: ## Проверка проверки: испорченный т�
 .PHONY: stateless-check
 stateless-check: ## NFT-1.3: два экземпляра order-service и catalog-service, один перезапускается посреди серии (подняты dev-auth и dev-purchase, DEBUG=1)
 	$(KC_ENV) python3 tools/stand-checks/stateless_check.py
+
+.PHONY: load
+load: ## Короткая нагрузка на catalog-service и order-service напрямую (60 с, LOAD_SECONDS, LOAD_CONNECTIONS) для замеров памяти (набор full, DEBUG=1, make keycloak-users)
+	$(KC_ENV) python3 tools/stand-checks/load.py
+
+.PHONY: memory-start memory-stop
+memory-start: ## Замеры памяти контейнеров в фоне (docker stats раз в 3 с) в файл MEM_FILE, по умолчанию /tmp/dgm-mem.jsonl
+	python3 tools/stand-checks/memory.py start $(MEM_FILE)
+
+memory-stop: ## Остановить замеры и напечатать пики против лимитов (правило 85 %)
+	python3 tools/stand-checks/memory.py stop $(MEM_FILE)
 
 .PHONY: clean
 clean: ## Удалить результаты сборки

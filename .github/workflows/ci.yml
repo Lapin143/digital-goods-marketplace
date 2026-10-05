@@ -240,6 +240,10 @@ jobs:
       - name: Версии Docker
         run: docker version --format 'Docker {{.Server.Version}}' && docker compose version
 
+      # Замеры памяти (шаг 18): docker stats раз в 3 секунды от запуска стенда до последней проверки, итог «пик против лимита» в конце задания
+      - name: Замеры памяти, начало
+        run: python3 tools/stand-checks/memory.py start "$RUNNER_TEMP/mem.jsonl"
+
       - name: Набор dev-auth (Keycloak и шлюз), отладочные порты
         env:
           DIAG_FILTER: 'ERROR:|failed to|not found|denied|unhealthy|dependency failed|COPY'
@@ -280,6 +284,7 @@ jobs:
       - name: Состояние и память контейнеров
         if: always()
         run: |
+          python3 tools/stand-checks/memory.py stop "$RUNNER_TEMP/mem.jsonl" --label "шлюз и сервисы покупки, два экземпляра на время NFT-1.3" || true
           docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}' || true
           msg=$(docker stats --no-stream --format '{{.Name}} {{.MemUsage}} ({{.MemPerc}})' 2>&1 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
           echo "::notice title=память контейнеров (шлюз)::$msg"
@@ -317,6 +322,9 @@ jobs:
 
       - name: Версии Docker
         run: docker version --format 'Docker {{.Server.Version}}' && docker compose version
+
+      - name: Замеры памяти, начало
+        run: python3 tools/stand-checks/memory.py start "$RUNNER_TEMP/mem.jsonl"
 
       - name: Набор full-obs одной командой
         env:
@@ -357,9 +365,18 @@ jobs:
           DIAG_MAX: "20"
         run: tools/ci/diag.sh "Проверка проверки дымового теста" make smoke-sabotage
 
+      # Короткая нагрузка (60 с): сервисы за работой, чтобы замер памяти видел заполненные пулы и сборки мусора, а не пустой стенд
+      - name: Короткая нагрузка на сервисы
+        env:
+          DIAG_FILTER: '^  - |ОШИБКА|^ +[|] '
+          DIAG_TAIL: "30"
+          DIAG_MAX: "20"
+        run: tools/ci/diag.sh "Короткая нагрузка" make load
+
       - name: Состояние и память контейнеров
         if: always()
         run: |
+          python3 tools/stand-checks/memory.py stop "$RUNNER_TEMP/mem.jsonl" --label "набор full-obs" || true
           docker compose --profile '*' ps -a || true
           msg=$(docker stats --no-stream --format '{{.Name}} {{.MemUsage}} ({{.MemPerc}})' 2>&1 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
           echo "::notice title=память контейнеров (набор full-obs)::$msg"
