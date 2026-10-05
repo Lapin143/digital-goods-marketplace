@@ -85,7 +85,7 @@ jobs:
 
       - name: Сборка и модульные тесты
         env:
-          DIAG_FILTER: 'FAILED|error:|warning:|What went wrong|Could not|BUILD FAILED|Caused by'
+          DIAG_FILTER: 'FAILED|error:|warning:|What went wrong|Could not|BUILD FAILED|Caused by|AssertionFailedError|Exception'
           DIAG_MAX: "40"
         run: tools/ci/diag.sh "Gradle build" ./gradlew --console=plain build
 
@@ -228,12 +228,16 @@ jobs:
 
       - name: Набор dev-auth (Keycloak и шлюз), отладочные порты
         env:
-          DIAG_TAIL: "70"
+          DIAG_FILTER: 'ERROR:|failed to|not found|denied|unhealthy|dependency failed|COPY'
+          DIAG_MAX: "12"
+          DIAG_TAIL: "40"
         run: tools/ci/diag.sh "make up SET=dev-auth" make up SET=dev-auth DEBUG=1
 
       - name: Сервисы покупки за шлюзом
         env:
-          DIAG_TAIL: "70"
+          DIAG_FILTER: 'ERROR:|failed to|not found|denied|unhealthy|dependency failed|COPY'
+          DIAG_MAX: "12"
+          DIAG_TAIL: "40"
         run: tools/ci/diag.sh "make up SET=dev-purchase" make up SET=dev-purchase DEBUG=1
 
       - name: Тестовые пользователи Keycloak

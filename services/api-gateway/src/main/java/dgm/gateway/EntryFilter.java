@@ -202,8 +202,8 @@ public final class EntryFilter implements WebFilter, Ordered {
 
     /**
      * Запрос сервису: присланные клиентом заголовки с внутренним смыслом убираются, сквозной контекст заменяется нашим. Адрес источника
-     * и {@code X-Forwarded-*} выставляет Spring Cloud Gateway (фильтры {@code XForwardedHeadersFilter}, включены свойством
-     * {@code trusted-proxies}), клиентские значения он не принимает.
+     * и {@code X-Forwarded-*} затем выставляет Spring Cloud Gateway ({@code XForwardedHeadersFilter}, включён свойством
+     * {@code trusted-proxies}): он видит уже очищенный запрос, поэтому клиентским значениям не верит никто.
      */
     private static Mono<Void> forward(ServerWebExchange exchange, WebFilterChain chain, TraceContext trace) {
         ServerHttpRequest sanitized = exchange.getRequest().mutate().headers(h -> {
