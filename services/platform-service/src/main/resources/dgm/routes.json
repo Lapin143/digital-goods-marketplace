@@ -1,0 +1,313 @@
+{
+  "_comment": "СОЗДАН СКРИПТОМ tools/docs-checks/gen_routes.py ИЗ docs/06-api/openapi/platform-service.yaml. РУКАМИ НЕ ПРАВИТЬ. Чего нет в этом файле, фильтр каркаса закрывает ответом 404.",
+  "service": "platform-service",
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/api/v1/phone-confirmations",
+      "operationId": "createPhoneConfirmation",
+      "scopes": [
+        "account.manage"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/phone-confirmations/{confirmationId}/verify",
+      "operationId": "verifyPhoneConfirmation",
+      "scopes": [
+        "account.manage"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/audit-records",
+      "operationId": "listAuditRecords",
+      "scopes": [
+        "staff.audit"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/parameters",
+      "operationId": "listPlatformParameters",
+      "scopes": [
+        "staff.admin"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/staff/parameters/{key}",
+      "operationId": "setPlatformParameter",
+      "scopes": [
+        "staff.admin"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/support-tickets",
+      "operationId": "listSupportTicketQueue",
+      "scopes": [
+        "staff.support"
+      ],
+      "roles": [
+        "support-operator"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/support-tickets/{ticketId}",
+      "operationId": "getStaffSupportTicket",
+      "scopes": [
+        "staff.support"
+      ],
+      "roles": [
+        "support-operator"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/support-tickets/{ticketId}/email-change",
+      "operationId": "getEmailChangeState",
+      "scopes": [
+        "staff.support"
+      ],
+      "roles": [
+        "support-operator"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/support-tickets/{ticketId}/email-change",
+      "operationId": "startEmailChange",
+      "scopes": [
+        "staff.support"
+      ],
+      "roles": [
+        "support-operator"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/support-tickets/{ticketId}/release",
+      "operationId": "releaseSupportTicket",
+      "scopes": [
+        "staff.support"
+      ],
+      "roles": [
+        "support-operator"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/support-tickets/{ticketId}/resend",
+      "operationId": "resendKeyForTicket",
+      "scopes": [
+        "staff.support"
+      ],
+      "roles": [
+        "support-operator"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/support-tickets/{ticketId}/take",
+      "operationId": "takeSupportTicket",
+      "scopes": [
+        "staff.support"
+      ],
+      "roles": [
+        "support-operator"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/users",
+      "operationId": "listStaffUsers",
+      "scopes": [
+        "staff.admin"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/users/{userId}/anonymize",
+      "operationId": "anonymizeUser",
+      "scopes": [
+        "staff.admin"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/users/{userId}/change-role",
+      "operationId": "changeUserRole",
+      "scopes": [
+        "staff.admin"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/users/{userId}/deactivate",
+      "operationId": "deactivateUser",
+      "scopes": [
+        "staff.admin"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/support-tickets",
+      "operationId": "listSupportTickets",
+      "scopes": [
+        "support.write"
+      ],
+      "roles": [
+        "buyer",
+        "system"
+      ],
+      "callers": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/support-tickets",
+      "operationId": "createSupportTicket",
+      "scopes": [
+        "support.write"
+      ],
+      "roles": [
+        "buyer",
+        "system"
+      ],
+      "callers": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/support-tickets/{ticketId}",
+      "operationId": "getSupportTicket",
+      "scopes": [
+        "support.write"
+      ],
+      "roles": [
+        "buyer",
+        "system"
+      ],
+      "callers": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/support-tickets/{ticketId}/email-change/codes",
+      "operationId": "requestEmailChangeCode",
+      "scopes": [
+        "support.write"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "callers": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/support-tickets/{ticketId}/email-change/verifications",
+      "operationId": "verifyEmailChangeCode",
+      "scopes": [
+        "support.write"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "callers": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/webhooks/email-provider",
+      "operationId": "receiveMailStatus",
+      "scopes": [],
+      "roles": [],
+      "callers": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/webhooks/sms-provider",
+      "operationId": "receiveSmsStatus",
+      "scopes": [],
+      "roles": [],
+      "callers": []
+    },
+    {
+      "method": "POST",
+      "path": "/internal/v1/otp-codes",
+      "operationId": "issueOtpCode",
+      "scopes": [],
+      "roles": [],
+      "callers": [
+        "keycloak"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/internal/v1/otp-verifications",
+      "operationId": "verifyOtpCode",
+      "scopes": [],
+      "roles": [],
+      "callers": [
+        "keycloak"
+      ]
+    }
+  ]
+}

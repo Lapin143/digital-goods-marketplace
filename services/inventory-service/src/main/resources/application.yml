@@ -1,3 +1,27 @@
+# Сервис «inventory». Общие значения (порты 8443 и 8444 с mTLS, журнал JSON, метрики) задаёт каркас: dgm-kit-defaults.properties.
+# Адреса и секреты приходят от Compose: переменные DGM_* и каталог /run/secrets.
 spring:
   application:
     name: inventory-service
+
+dgm:
+  security:
+    jwt:
+      issuer: ${DGM_JWT_ISSUER:https://localhost:8443/auth/realms/dgm}
+      jwks-uri: ${DGM_JWKS_URI:https://keycloak:8443/auth/realms/dgm/protocol/openid-connect/certs}
+  db:
+    host: ${DGM_PG_HOST:postgres}
+    port: ${DGM_PG_PORT:5432}
+    database: inventory_db
+    migrator-role: migrator_inventory
+    modules:
+      # Предел соединений роли app_inventory 8: пул 7 и одно соединение публикатора Outbox
+      inventory:
+        role: app_inventory
+        pool-size: 7
+  kafka:
+    bootstrap: ${DGM_KAFKA_BOOTSTRAP:kafka:9093}
+  outbox:
+    module: inventory
+  consumer:
+    module: inventory

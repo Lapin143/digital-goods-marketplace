@@ -1,0 +1,50 @@
+{
+  "_comment": "СОЗДАН СКРИПТОМ tools/docs-checks/gen_routes.py ИЗ docs/06-api/openapi/payment-service.yaml. РУКАМИ НЕ ПРАВИТЬ. Чего нет в этом файле, фильтр каркаса закрывает ответом 404.",
+  "service": "payment-service",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/manual-refunds",
+      "operationId": "listManualRefunds",
+      "scopes": [
+        "staff.admin"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/manual-refunds/{paymentId}/complete",
+      "operationId": "completeManualRefund",
+      "scopes": [
+        "staff.admin"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/webhooks/payment-gateway",
+      "operationId": "receivePaymentGatewayNotification",
+      "scopes": [],
+      "roles": [],
+      "callers": []
+    },
+    {
+      "method": "POST",
+      "path": "/internal/v1/payment-sessions",
+      "operationId": "openPaymentSession",
+      "scopes": [],
+      "roles": [],
+      "callers": [
+        "order-service"
+      ]
+    }
+  ]
+}

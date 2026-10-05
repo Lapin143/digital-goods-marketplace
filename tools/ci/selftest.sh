@@ -167,6 +167,11 @@ PY
       "не задаёт обязательный столбец topic" tools/docs-checks/check_kit.py
     mutate_repo "check_kit находит столбец, которого нет в DDL" "$K/outbox/OutboxRelay.java" 'failed_at is null order by id' 'failed_on is null order by id' \
       "нет в DDL outbox: failed_on" tools/docs-checks/check_kit.py
+    # 7. Правила маршрутов сервисов создаются из OpenAPI: ручная правка файла и правка прав в контракте без перегенерации ловятся.
+    mutate_repo "gen_routes --check находит ручную правку правил маршрутов" "services/order-service/src/main/resources/dgm/routes.json" '"orders.read"' '"orders.write"' \
+      "не равен результату gen_routes.py" tools/docs-checks/gen_routes.py --check
+    mutate_repo "gen_routes --check находит правку прав в OpenAPI без перегенерации" "docs/06-api/openapi/order-service.yaml" '        - orders.read' '        - orders.create' \
+      "не равен результату gen_routes.py" tools/docs-checks/gen_routes.py --check
     ;;
   security)
     # Фиктивный токен формата GitHub (ghp_ и 36 случайных символов). Он не настоящий и нигде не работает.

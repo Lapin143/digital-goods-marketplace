@@ -1,0 +1,14 @@
+{
+  "_comment": "СОЗДАН СКРИПТОМ tools/docs-checks/gen_routes.py ИЗ docs/06-api/openapi/delivery-service.yaml. РУКАМИ НЕ ПРАВИТЬ. Чего нет в этом файле, фильтр каркаса закрывает ответом 404.",
+  "service": "delivery-service",
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/api/v1/webhooks/email-provider-keys",
+      "operationId": "receiveKeyEmailStatus",
+      "scopes": [],
+      "roles": [],
+      "callers": []
+    }
+  ]
+}

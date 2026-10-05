@@ -3,6 +3,8 @@ plugins {
 }
 
 dependencies {
-    implementation(project(":libs:service-kit"))
-    implementation("org.springframework.boot:spring-boot-starter-webmvc")
+    implementation(project(":libs:service-kit-boot"))
+
+    testImplementation(testFixtures(project(":libs:service-kit")))
+    testImplementation(testFixtures(project(":libs:service-kit-boot")))
 }

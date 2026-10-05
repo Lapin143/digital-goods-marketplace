@@ -1,0 +1,2 @@
+# Значения каркаса по умолчанию подключаются до настройки журнала, см. KitDefaultsListener
+org.springframework.context.ApplicationListener=dgm.kit.boot.KitDefaultsListener

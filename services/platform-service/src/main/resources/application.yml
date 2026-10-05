@@ -1,3 +1,40 @@
+# Сервис платформы: идентификация, поддержка, уведомления, аудит. Общие значения (порты 8443 и 8444 с mTLS, журнал JSON, метрики)
+# задаёт каркас: dgm-kit-defaults.properties. Адреса и секреты приходят от Compose: переменные DGM_* и каталог /run/secrets.
 spring:
   application:
     name: platform-service
+
+dgm:
+  security:
+    jwt:
+      issuer: ${DGM_JWT_ISSUER:https://localhost:8443/auth/realms/dgm}
+      jwks-uri: ${DGM_JWKS_URI:https://keycloak:8443/auth/realms/dgm/protocol/openid-connect/certs}
+  db:
+    host: ${DGM_PG_HOST:postgres}
+    port: ${DGM_PG_PORT:5432}
+    database: platform_db
+    migrator-role: migrator_platform
+    modules:
+      # У каждого модуля своя роль и свой предел соединений (infra/postgres/roles.json); публикатор Outbox берёт
+      # одно соединение роли identity, поэтому её пул на единицу меньше предела
+      identity:
+        role: app_identity
+        pool-size: 1
+      support:
+        role: app_support
+        pool-size: 2
+      notification:
+        role: app_notification
+        pool-size: 2
+      audit-admin:
+        role: app_audit_admin
+        pool-size: 1
+      audit-writer:
+        role: app_audit_writer
+        pool-size: 1
+  kafka:
+    bootstrap: ${DGM_KAFKA_BOOTSTRAP:kafka:9093}
+  outbox:
+    module: identity
+  consumer:
+    module: identity

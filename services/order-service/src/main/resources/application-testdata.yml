@@ -1,0 +1,7 @@
+# Профиль testdata: к миграциям добавляются тестовые данные для проверок ходячего скелета (каталог db/testdata).
+# Продуктовый код данных не создаёт. Профиль включается переменной SPRING_PROFILES_ACTIVE=testdata (наборы Compose для разработки).
+dgm:
+  db:
+    locations:
+      - classpath:db/migration
+      - classpath:db/testdata

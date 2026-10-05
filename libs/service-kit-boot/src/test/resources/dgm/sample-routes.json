@@ -1,0 +1,8 @@
+{
+  "service": "sample-service",
+  "routes": [
+    {"method": "GET", "path": "/api/v1/things", "operationId": "listThings", "scopes": ["things.read"], "roles": ["buyer"], "callers": []},
+    {"method": "POST", "path": "/api/v1/things/{thingId}/close", "operationId": "closeThing", "scopes": ["things.write"], "roles": ["buyer"], "callers": []},
+    {"method": "GET", "path": "/internal/v1/things/{thingId}", "operationId": "getThing", "scopes": [], "roles": [], "callers": ["order-service"]}
+  ]
+}

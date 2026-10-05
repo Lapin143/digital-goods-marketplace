@@ -1,0 +1,75 @@
+{
+  "_comment": "СОЗДАН СКРИПТОМ tools/docs-checks/gen_routes.py ИЗ docs/06-api/openapi/inventory-service.yaml. РУКАМИ НЕ ПРАВИТЬ. Чего нет в этом файле, фильтр каркаса закрывает ответом 404.",
+  "service": "inventory-service",
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/api/v1/seller/products/{productId}/key-batches",
+      "operationId": "uploadKeyBatch",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller/products/{productId}/key-files",
+      "operationId": "uploadKeyFile",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/seller/products/{productId}/stock",
+      "operationId": "getProductStock",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/internal/v1/keys",
+      "operationId": "getKeyValues",
+      "scopes": [],
+      "roles": [],
+      "callers": [
+        "delivery-service"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/internal/v1/reservations",
+      "operationId": "reserveKeys",
+      "scopes": [],
+      "roles": [],
+      "callers": [
+        "order-service"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/internal/v1/reservations/{reservationId}/confirm",
+      "operationId": "confirmReservation",
+      "scopes": [],
+      "roles": [],
+      "callers": [
+        "order-service"
+      ]
+    }
+  ]
+}

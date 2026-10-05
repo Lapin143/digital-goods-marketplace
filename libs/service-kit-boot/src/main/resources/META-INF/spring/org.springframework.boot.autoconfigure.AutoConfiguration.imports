@@ -1,0 +1,5 @@
+dgm.kit.boot.KitCoreAutoConfiguration
+dgm.kit.boot.KitWebAutoConfiguration
+dgm.kit.boot.KitDatabaseAutoConfiguration
+dgm.kit.boot.KitMessagingAutoConfiguration
+dgm.kit.boot.KitProbeAutoConfiguration

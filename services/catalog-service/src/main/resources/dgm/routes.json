@@ -1,0 +1,344 @@
+{
+  "_comment": "СОЗДАН СКРИПТОМ tools/docs-checks/gen_routes.py ИЗ docs/06-api/openapi/catalog-service.yaml. РУКАМИ НЕ ПРАВИТЬ. Чего нет в этом файле, фильтр каркаса закрывает ответом 404.",
+  "service": "catalog-service",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/v1/products",
+      "operationId": "listStorefrontProducts",
+      "scopes": [],
+      "roles": [],
+      "callers": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/products/{productId}",
+      "operationId": "getStorefrontProduct",
+      "scopes": [],
+      "roles": [],
+      "callers": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller-applications",
+      "operationId": "createSellerApplication",
+      "scopes": [
+        "seller.apply"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/seller-applications/current",
+      "operationId": "getCurrentSellerApplication",
+      "scopes": [
+        "seller.apply"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/seller-applications/current",
+      "operationId": "replaceSellerApplicationDraft",
+      "scopes": [
+        "seller.apply"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller-applications/current/documents",
+      "operationId": "uploadSellerDocument",
+      "scopes": [
+        "seller.apply"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/seller-applications/current/documents/{documentId}",
+      "operationId": "deleteSellerDocument",
+      "scopes": [
+        "seller.apply"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/seller-applications/current/documents/{documentId}/link",
+      "operationId": "getSellerDocumentLink",
+      "scopes": [
+        "seller.apply"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller-applications/current/submit",
+      "operationId": "submitSellerApplication",
+      "scopes": [
+        "seller.apply"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/seller/products",
+      "operationId": "listSellerProducts",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller/products",
+      "operationId": "createSellerProduct",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/seller/products/{productId}",
+      "operationId": "getSellerProduct",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/seller/products/{productId}",
+      "operationId": "replaceSellerProduct",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller/products/{productId}/archive",
+      "operationId": "archiveSellerProduct",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller/products/{productId}/restore",
+      "operationId": "restoreSellerProduct",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller/products/{productId}/submit",
+      "operationId": "submitSellerProduct",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/products",
+      "operationId": "listProductModerationQueue",
+      "scopes": [
+        "staff.moderation"
+      ],
+      "roles": [
+        "moderator"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/products/{productId}",
+      "operationId": "getProductForModeration",
+      "scopes": [
+        "staff.moderation"
+      ],
+      "roles": [
+        "moderator"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/products/{productId}/approve",
+      "operationId": "approveProduct",
+      "scopes": [
+        "staff.moderation"
+      ],
+      "roles": [
+        "moderator"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/products/{productId}/block",
+      "operationId": "blockProduct",
+      "scopes": [
+        "staff.moderation"
+      ],
+      "roles": [
+        "moderator"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/products/{productId}/reject",
+      "operationId": "rejectProduct",
+      "scopes": [
+        "staff.moderation"
+      ],
+      "roles": [
+        "moderator"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/seller-applications",
+      "operationId": "listSellerApplicationQueue",
+      "scopes": [
+        "staff.moderation"
+      ],
+      "roles": [
+        "moderator"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/staff/seller-applications/{sellerId}",
+      "operationId": "getSellerApplicationCard",
+      "scopes": [
+        "staff.moderation"
+      ],
+      "roles": [
+        "moderator"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/seller-applications/{sellerId}/approve",
+      "operationId": "approveSellerApplication",
+      "scopes": [
+        "staff.moderation"
+      ],
+      "roles": [
+        "moderator"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/seller-applications/{sellerId}/reject",
+      "operationId": "rejectSellerApplication",
+      "scopes": [
+        "staff.moderation"
+      ],
+      "roles": [
+        "moderator"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/staff/seller-applications/{sellerId}/return",
+      "operationId": "returnSellerApplication",
+      "scopes": [
+        "staff.moderation"
+      ],
+      "roles": [
+        "moderator"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/internal/v1/products/{productId}",
+      "operationId": "getProductCard",
+      "scopes": [],
+      "roles": [],
+      "callers": [
+        "order-service"
+      ]
+    }
+  ]
+}

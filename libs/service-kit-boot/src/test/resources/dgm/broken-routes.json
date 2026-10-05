@@ -1,0 +1,9 @@
+{
+  "service": "other-service",
+  "routes": [
+    {"method": "GET", "path": "/internal/v1/open", "operationId": "openInternal", "scopes": [], "roles": [], "callers": []},
+    {"method": "GET", "path": "/internal/v1/user", "operationId": "userInternal", "scopes": ["x.read"], "roles": ["buyer"], "callers": ["order-service"]},
+    {"method": "GET", "path": "/v1/lost", "operationId": "lostPrefix", "scopes": [], "roles": [], "callers": []},
+    {"method": "GET", "path": "/api/v1/mixed", "operationId": "mixed", "scopes": ["x.read"], "roles": ["buyer"], "callers": ["order-service"]}
+  ]
+}

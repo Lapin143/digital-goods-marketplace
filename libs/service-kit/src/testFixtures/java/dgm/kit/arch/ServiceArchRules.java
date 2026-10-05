@@ -47,7 +47,7 @@ public final class ServiceArchRules {
     }
 
     /** Пакеты, где разрешено читать значение {@link SecretValue}: каркас, модули шифрования, клиенты, сборка писем (c4-components.md, раздел 2). */
-    static final String[] SECRET_REVEAL_PACKAGES = {"dgm.kit.secret..", "dgm.kit.tls..", "..crypto..", "..client..", "..letter.."};
+    static final String[] SECRET_REVEAL_PACKAGES = {"dgm.kit.secret..", "dgm.kit.tls..", "dgm.kit.boot..", "..crypto..", "..client..", "..letter.."};
 
     private static final Set<String> TIME_TYPES = Set.of("java.time.Instant", "java.time.LocalDate", "java.time.LocalDateTime",
             "java.time.LocalTime", "java.time.ZonedDateTime", "java.time.OffsetDateTime", "java.time.OffsetTime", "java.time.Year",

@@ -1,0 +1,66 @@
+{
+  "_comment": "СОЗДАН СКРИПТОМ tools/docs-checks/gen_routes.py ИЗ docs/06-api/openapi/order-service.yaml. РУКАМИ НЕ ПРАВИТЬ. Чего нет в этом файле, фильтр каркаса закрывает ответом 404.",
+  "service": "order-service",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/v1/orders",
+      "operationId": "listOrders",
+      "scopes": [
+        "orders.read"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "callers": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/orders",
+      "operationId": "createOrder",
+      "scopes": [
+        "orders.create"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/orders/{orderId}",
+      "operationId": "getOrder",
+      "scopes": [
+        "orders.read"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "callers": []
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/orders/{orderId}/payment-session",
+      "operationId": "getOrderPaymentSession",
+      "scopes": [
+        "orders.create"
+      ],
+      "roles": [
+        "buyer"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/internal/v1/orders/{orderId}/update-delivery-address",
+      "operationId": "updateDeliveryAddress",
+      "scopes": [],
+      "roles": [],
+      "callers": [
+        "platform-service"
+      ]
+    }
+  ]
+}

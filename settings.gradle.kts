@@ -20,6 +20,7 @@ rootProject.name = "digital-goods-marketplace"
 
 include(
     ":libs:service-kit",
+    ":libs:service-kit-boot",
     ":services:api-gateway",
     ":services:catalog-service",
     ":services:inventory-service",

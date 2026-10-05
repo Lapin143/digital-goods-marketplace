@@ -95,11 +95,12 @@ jobs:
       - name: Образы сервисов
         run: tools/ci/diag.sh "Сборка образов" make docker-images
 
-      - name: Проверка образов (пользователь без прав, только чтение, health)
+      - name: Проверка образов (пользователь без прав, Java 25, только чтение; здоровье шлюза)
         run: |
-          for s in catalog-service inventory-service order-service payment-service delivery-service platform-service api-gateway; do
-            tools/ci/diag.sh "Образ $s" tools/ci/check-image.sh "dgm/$s:dev"
+          for s in catalog-service inventory-service order-service payment-service delivery-service platform-service; do
+            tools/ci/diag.sh "Образ $s" tools/ci/check-image.sh "dgm/$s:dev" 8443 static
           done
+          tools/ci/diag.sh "Образ api-gateway" tools/ci/check-image.sh "dgm/api-gateway:dev"
 
   # Каркас сервисов (шаг 11 Ф3): интеграционные тесты Outbox и потребителя событий на настоящих PostgreSQL и Kafka стенда.
   # Модульные тесты и архитектурные правила каркаса выполняет задание build. Стенд поднят набором dev-min с отладочными портами,

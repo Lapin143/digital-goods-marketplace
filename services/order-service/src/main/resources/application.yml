@@ -1,3 +1,27 @@
+# Сервис заказов. Общие значения (порты 8443 и 8444 с mTLS, журнал JSON, метрики) задаёт каркас: dgm-kit-defaults.properties.
+# Адреса и секреты приходят от Compose: переменные DGM_* и каталог /run/secrets.
 spring:
   application:
     name: order-service
+
+dgm:
+  security:
+    jwt:
+      issuer: ${DGM_JWT_ISSUER:https://localhost:8443/auth/realms/dgm}
+      jwks-uri: ${DGM_JWKS_URI:https://keycloak:8443/auth/realms/dgm/protocol/openid-connect/certs}
+  db:
+    host: ${DGM_PG_HOST:postgres}
+    port: ${DGM_PG_PORT:5432}
+    database: order_db
+    migrator-role: migrator_order
+    modules:
+      # Предел соединений роли app_orders 8: пул 7 и одно соединение публикатора Outbox
+      orders:
+        role: app_orders
+        pool-size: 7
+  kafka:
+    bootstrap: ${DGM_KAFKA_BOOTSTRAP:kafka:9093}
+  outbox:
+    module: orders
+  consumer:
+    module: orders
