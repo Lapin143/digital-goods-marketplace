@@ -4,7 +4,7 @@
 
     python3 tools/stand-checks/check_services.py [сервис ...]
 
-Для каждого сервиса: контейнер работает и здоров, не перезапускался и не убит из-за памяти, порты 8443 и 8444 приняли соединение,
+Имя api-gateway принимается тоже (шлюз без базы: миграции не проверяются). Для каждого сервиса: контейнер работает и здоров, не перезапускался и не убит из-за памяти, порты 8443 и 8444 приняли соединение,
 журнал это строки JSON с полем message, миграции базы применены. Печатает расход памяти относительно лимита (вход для замеров шага 18).
 Только стандартная библиотека Python.
 """
@@ -62,8 +62,8 @@ def check(service):
         problems.append('в журнале %d строк не в формате JSON (допустимы строки JVM до запуска приложения): %s' % (len(other), other[:2]))
     if any('message' not in o for o in parsed):
         problems.append('есть строки JSON без поля message')
-    if not any('Миграции базы' in str(o.get('message', '')) for o in parsed):
-        problems.append('в журнале нет записи о применённых миграциях')
+    if service in SERVICES and not any('Миграции базы' in str(o.get('message', '')) for o in parsed):
+        problems.append('в журнале нет записи о применённых миграциях')   # у шлюза нет базы и миграций
     errors = [o for o in parsed if str(o.get('log.level', o.get('level', ''))).upper() == 'ERROR']
     if errors:
         problems.append('в журнале %d записей уровня ERROR, первая: %s' % (len(errors), str(errors[0].get('message', ''))[:200]))

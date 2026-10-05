@@ -181,7 +181,7 @@ class EntryFilterTest {
     @Test
     void trickyPathsAreRejectedAsBadRequest() {
         for (String path : List.of("/api/v1/orders/%2e%2e/x", "/api/v1/orders;jsessionid=1", "/api//v1/orders", "/internal/%2e/v1/x",
-                "/assets/../secret", "/files/a%2Fb")) {
+                "/assets/../secret", "/files/a%2Fb", "/auth/realms/%6daster/x", "/auth/realms/master;x", "/auth/realms//master")) {
             Result r = run(MockServerHttpRequest.method(HttpMethod.GET, URI.create(path)).build());
             assertFalse(r.passed(), path);
             assertEquals(400, r.status(), path);
@@ -199,6 +199,8 @@ class EntryFilterTest {
         assertFalse(EntryFilter.safe("/api/v1/orders/%41"));
         assertFalse(EntryFilter.safe("/assets/%2E%2E/x"));
         assertFalse(EntryFilter.safe("/assets/.."));
+        assertFalse(EntryFilter.safe("/auth/realms/%6daster"));
+        assertTrue(EntryFilter.safe("/auth/realms/dgm/protocol/openid-connect/auth"));
         assertFalse(EntryFilter.safe("/a\\b"));
         assertFalse(EntryFilter.safe(""));
         assertFalse(EntryFilter.safe("api"));
@@ -374,7 +376,7 @@ class EntryFilterTest {
 
     @Test
     void failOpenDecisionFromTheLimiterIsCountedToo() {
-        limiter.next = () -> Mono.just(RequestLimiter.Decision.failOpen());
+        limiter.next = () -> Mono.just(RequestLimiter.Decision.unchecked());
         assertTrue(get("/api/v1/products", null).passed());
         assertEquals(1.0, meters.counter("dgm.gateway.ratelimit.failopen", "group", "public").count());
     }

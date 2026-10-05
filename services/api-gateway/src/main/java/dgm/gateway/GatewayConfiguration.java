@@ -7,11 +7,11 @@ import dgm.kit.time.Clocks;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.netty.channel.ChannelOption;
-import io.netty.handler.ssl.ClientAuth;
-import io.netty.handler.ssl.JdkSslContext;
 import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.SslHandler;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.List;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLParameters;
@@ -20,6 +20,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.availability.ApplicationAvailability;
 import org.springframework.boot.availability.ReadinessState;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.ssl.SslBundle;
 import org.springframework.boot.ssl.SslBundles;
 import org.springframework.cloud.gateway.config.HttpClientCustomizer;
 import org.springframework.cloud.gateway.filter.ratelimit.RedisRateLimiter;
@@ -109,7 +110,17 @@ class GatewayConfiguration {
     @Bean
     @Profile("!notls")
     HttpClientCustomizer upstreamTls(SslBundles bundles, GatewayProperties properties) {
-        SslContext context = new JdkSslContext(bundles.getBundle(BUNDLE).createSslContext(), true, ClientAuth.NONE);
+        SslBundle bundle = bundles.getBundle(BUNDLE);
+        SslContext context;
+        try {
+            context = SslContextBuilder.forClient()
+                    .keyManager(bundle.getManagers().getKeyManagerFactory())
+                    .trustManager(bundle.getManagers().getTrustManagerFactory())
+                    .protocols("TLSv1.3", "TLSv1.2")
+                    .build();
+        } catch (javax.net.ssl.SSLException e) {
+            throw new UncheckedIOException("Контекст TLS для соединений с сервисами не создан", e);
+        }
         return client -> client
                 .secure(spec -> spec.sslContext(context).handlerConfigurator(GatewayConfiguration::verifyHostname))
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) properties.getConnectTimeout().toMillis())

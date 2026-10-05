@@ -20,7 +20,7 @@ import java.util.Set;
  * и не входит в список ниже, закрыто (ответ 404). Внутренние маршруты {@code /internal/**} и служебные {@code /actuator/**} снаружи
  * недоступны никогда: метрики и здоровье шлюз отдаёт только на порту управления.
  *
- * <p>Маршруты вне OpenAPI: вход и токены Keycloak ({@code /auth}), документы продавцов из хранилища ({@code /files}), заглушки внешних
+ * <p>Маршруты вне OpenAPI: вход и токены Keycloak ({@code /auth/realms}, кроме realm master), документы продавцов из хранилища ({@code /files}), заглушки внешних
  * систем стенда ({@code /vkid}, {@code /payment/pay}: только если адрес заглушки задан) и веб-интерфейс (всё остальное, только чтение).
  */
 public final class RouteTable {
@@ -55,8 +55,14 @@ public final class RouteTable {
         }
     }
 
+    /**
+     * Keycloak открыт только для входа: страницы и токены realm ({@code /auth/realms}) и статические файлы страниц ({@code /auth/resources}).
+     * Консоль и Admin API ({@code /auth/admin}), метрики, здоровье и начальная страница закрыты, а realm {@code master} (вход
+     * администратора Keycloak) закрыт целиком: администратор ходит на отладочный порт или по SSH-туннелю, не через интернет.
+     */
     private static final List<Prefix> PREFIXES = List.of(
-            new Prefix("/auth", "keycloak", "auth", Set.of("GET", "HEAD", "POST")),
+            new Prefix("/auth/realms", "keycloak", "auth", Set.of("GET", "HEAD", "POST")),
+            new Prefix("/auth/resources", "keycloak", "web", Set.of("GET", "HEAD")),
             new Prefix("/files", "object-storage", "files", Set.of("GET", "HEAD")),
             new Prefix("/vkid", "external-stubs", "auth", Set.of("GET")),
             new Prefix("/payment/pay", "external-stubs", "web", Set.of("GET", "POST")));
@@ -130,6 +136,9 @@ public final class RouteTable {
                 return new Target(extra.service(), extra.kind(), extra.limit(), rule);
             });
         }
+        if (isUnder(path, "/auth")) {
+            return resolveKeycloak(verb, path);
+        }
         for (Prefix prefix : PREFIXES) {
             if (prefix.matches(path)) {
                 return upstreams.contains(prefix.service()) && prefix.methods().contains(verb)
@@ -141,6 +150,20 @@ public final class RouteTable {
             return Optional.empty();
         }
         return Optional.of(new Target("web-app", Kind.PUBLIC, "web", null));
+    }
+
+    private Optional<Target> resolveKeycloak(String verb, String path) {
+        if (isUnder(path, "/auth/realms/master")) {
+            return Optional.empty();
+        }
+        for (Prefix prefix : PREFIXES) {
+            if (prefix.service().equals("keycloak") && prefix.matches(path)) {
+                return upstreams.contains("keycloak") && prefix.methods().contains(verb)
+                        ? Optional.of(new Target("keycloak", Kind.PUBLIC, prefix.limit(), null))
+                        : Optional.empty();
+            }
+        }
+        return Optional.empty();
     }
 
     private static boolean isUnder(String path, String prefix) {

@@ -92,13 +92,27 @@ class RouteTableTest {
     }
 
     @Test
-    void keycloakIsReachedOnlyThroughAuthPrefix() {
+    void keycloakIsOpenOnlyForLogin() {
         RouteTable.Target t = found("GET", "/auth/realms/dgm/protocol/openid-connect/certs");
         assertEquals("keycloak", t.service());
         assertEquals("auth", t.limit());
         assertEquals("keycloak", found("POST", "/auth/realms/dgm/protocol/openid-connect/token").service());
+        assertEquals("keycloak", found("POST", "/auth/realms/dgm/login-actions/authenticate").service());
+        RouteTable.Target resources = found("GET", "/auth/resources/26.8/login/keycloak/css/login.css");
+        assertEquals("keycloak", resources.service());
+        assertEquals("web", resources.limit(), "статические файлы страницы входа считаются как веб-интерфейс, а не как вход");
+        closed("POST", "/auth/resources/x");
         closed("DELETE", "/auth/realms/dgm");
-        closed("PUT", "/auth/admin/realms/dgm");
+        closed("PUT", "/auth/realms/dgm");
+        // консоль, Admin API, метрики, здоровье, начальная страница и realm master наружу не открываются
+        closed("GET", "/auth/admin/realms/dgm/users");
+        closed("GET", "/auth/admin/master/console/");
+        closed("GET", "/auth/realms/master/protocol/openid-connect/auth");
+        closed("POST", "/auth/realms/master/protocol/openid-connect/token");
+        closed("GET", "/auth/metrics");
+        closed("GET", "/auth/health/ready");
+        closed("GET", "/auth/");
+        closed("GET", "/auth");
         // «/authors» не начинается с «/auth/»: это обычный путь веб-интерфейса
         assertEquals("web-app", found("GET", "/authors").service());
     }
@@ -136,7 +150,7 @@ class RouteTableTest {
     void routesToAbsentUpstreamsAreClosed() {
         RouteTable api = RouteTable.fromClasspath("dgm/gateway-routes.json", Set.of("catalog-service"));
         assertTrue(api.resolve("GET", "/").isEmpty(), "без web-app веб-интерфейса нет");
-        assertTrue(api.resolve("GET", "/auth/x").isEmpty(), "без keycloak /auth закрыт: путь не уходит в веб-интерфейс");
+        assertTrue(api.resolve("GET", "/auth/realms/dgm").isEmpty(), "без keycloak /auth закрыт: путь не уходит в веб-интерфейс");
         assertTrue(api.resolve("GET", "/api/v1/products").isPresent());
     }
 }

@@ -529,6 +529,37 @@ services:
     healthcheck:
       <<: *service-health
 
+  # ------------------------------------------------------------------ профиль gateway
+  # Единая точка входа (ADR-021): TLS 1.2 и выше без клиентского сертификата (браузеры), к сервисам по mTLS, к Redis по TLS как пользователь gateway.
+  # Единственный контейнер в сети edge и единственный с портом на хосте (8443 на ноутбуке, 443 на сервере). Keycloak при старте не нужен:
+  # ключи токенов запрашиваются лениво. Redis тоже не обязателен для работы (отказ открытым), но при старте шлюз ждёт его для полного набора.
+  api-gateway:
+    <<: *common
+    image: dgm/api-gateway:${IMAGE_TAG:-dev}
+    profiles: [gateway]
+    user: "10001:10001"
+    mem_limit: 320m
+    memswap_limit: 320m
+    networks: [edge, app, data]
+    ports:
+      - "8443:8443"
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      DGM_JWT_ISSUER: ${DGM_PUBLIC_ORIGIN:-https://localhost:8443}/auth/realms/dgm
+      DGM_JWKS_URI: https://keycloak:8443/auth/realms/dgm/protocol/openid-connect/certs
+      DGM_REDIS_HOST: redis
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=1777,size=48m
+    secrets:
+      - tls_ca.crt
+      - tls_api-gateway.key
+      - tls_api-gateway.crt
+      - redis_gateway
+    healthcheck:
+      <<: *service-health
+
 networks:
   edge: {}
   app: {}

@@ -21,7 +21,8 @@ public interface RequestLimiter {
             return new Decision(true, 0, false);
         }
 
-        public static Decision failOpen() {
+        /** Запрос пропущен без проверки лимита, потому что ограничитель не ответил. */
+        public static Decision unchecked() {
             return new Decision(true, 0, true);
         }
 

@@ -57,7 +57,7 @@ public final class RedisRequestLimiter implements RequestLimiter {
     static Decision decision(RateLimiter.Response response, RedisRateLimiter.Config config) {
         long left = parse(response.getHeaders().get(RedisRateLimiter.REMAINING_HEADER));
         if (left < 0) {
-            return Decision.failOpen();
+            return Decision.unchecked();
         }
         if (response.isAllowed()) {
             return Decision.allow();

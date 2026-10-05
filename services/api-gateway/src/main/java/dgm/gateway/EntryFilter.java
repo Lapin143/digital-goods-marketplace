@@ -171,7 +171,7 @@ public final class EntryFilter implements WebFilter, Ordered {
         String key = limit.perUser() && user != null ? "u:" + user.subject() : "ip:" + clientAddress(exchange.getRequest());
         return limiter.check(target.limit(), key)
                 .timeout(properties.getLimiterTimeout())
-                .onErrorResume(e -> Mono.just(RequestLimiter.Decision.failOpen()))
+                .onErrorResume(e -> Mono.just(RequestLimiter.Decision.unchecked()))
                 .flatMap(decision -> {
                     if (decision.failOpen()) {
                         noteFailOpen(target.limit());
@@ -247,7 +247,7 @@ public final class EntryFilter implements WebFilter, Ordered {
 
     /** Путь без хитростей: для API строго (PathGuard каркаса), для остального без выхода из каталога и обратных косых. */
     static boolean safe(String path) {
-        if (path.equals("/api") || path.startsWith("/api/") || path.equals("/internal") || path.startsWith("/internal/")) {
+        if (strict(path, "/api") || strict(path, "/internal") || strict(path, "/auth") || strict(path, "/actuator")) {
             return PathGuard.isSafe(path);
         }
         if (path.isEmpty() || path.charAt(0) != '/' || path.indexOf('\\') >= 0) {
@@ -260,6 +260,14 @@ public final class EntryFilter implements WebFilter, Ordered {
             }
         }
         return !(lower.contains("/../") || lower.endsWith("/..") || lower.contains("%2e") || lower.contains("%2f") || lower.contains("%5c"));
+    }
+
+    /**
+     * Пути, по префиксу которых шлюз принимает решение о доступе, проверяются строго: любая запись символа иначе ({@code %6d} вместо
+     * {@code m}, {@code ;параметр}, {@code //}) могла бы пройти мимо правила шлюза, а сервис за ним разобрал бы путь по-своему.
+     */
+    private static boolean strict(String path, String prefix) {
+        return path.equals(prefix) || path.startsWith(prefix + "/");
     }
 
     /** Токен из {@code Authorization: Bearer ...}; без заголовка, с другой схемой и пустой токен дают {@code null}. */

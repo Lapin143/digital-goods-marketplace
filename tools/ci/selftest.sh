@@ -172,6 +172,9 @@ PY
       "не равен результату gen_routes.py" tools/docs-checks/gen_routes.py --check
     mutate_repo "gen_routes --check находит правку прав в OpenAPI без перегенерации" "docs/06-api/openapi/order-service.yaml" '        - orders.read' '        - orders.create' \
       "не равен результату gen_routes.py" tools/docs-checks/gen_routes.py --check
+    # Таблица шлюза (группа лимита и сервис каждого маршрута) создаётся из тех же файлов: правка группы вручную ловится
+    mutate_repo "gen_routes --check находит ручную правку таблицы маршрутов шлюза" "services/api-gateway/src/main/resources/dgm/gateway-routes.json" '"limit": "order-create"' '"limit": "buyer"' \
+      "не равен результату gen_routes.py" tools/docs-checks/gen_routes.py --check
     # 8. Контракт сервисов: ответы из интеграционных тестов сверяются со схемами OpenAPI. Образцы собираются из примеров самого OpenAPI:
     #    полный набор проходит, испорченное поле, лишнее поле и пропавший обязательный образец отвергаются.
     REPO="$REPO" python3 - "$tmp/contract" <<'PY' || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: не удалось собрать образцы для контрактной проверки"; fail=1; }
