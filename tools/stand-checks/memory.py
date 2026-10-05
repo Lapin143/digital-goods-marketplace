@@ -52,7 +52,8 @@ def snapshot():
         except (ValueError, KeyError):
             continue
         u, l = mib(used), mib(limit)
-        if u is not None and l is not None and l < NO_LIMIT_MIB:
+        # только контейнеры стенда (проект dgm), с заданным лимитом; остановленные разовые задания показывают «0B / 0B»
+        if row['Name'].startswith('dgm-') and u is not None and l is not None and 0 < l < NO_LIMIT_MIB:
             out[row['Name']] = [round(u, 1), round(l, 1)]
     return out
 
