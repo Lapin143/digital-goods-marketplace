@@ -43,12 +43,13 @@ VER = os.path.join(L.OPS_DIR, 'versions.md')
 R1_PROFILES = ['infra', 'stubs', 'auth', 'gateway', 'purchase', 'platform', 'storage']
 ONE_SHOT = {'kafka-init', 'storage-init'}     # завершаются сами, проверки готовности нет
 BUILT_FROM_REPO = {'catalog-service', 'inventory-service', 'order-service', 'payment-service', 'delivery-service',
-                   'platform-service', 'api-gateway', 'external-stubs', 'keycloak'}   # образы собираются из репозитория: dgm/<имя>:${IMAGE_TAG:-dev}
+                   'platform-service', 'api-gateway', 'web-app', 'external-stubs', 'keycloak'}   # образы собираются из репозитория: dgm/<имя>:${IMAGE_TAG:-dev}
 # Если образ собирается Compose (раздел build), базы сборки из versions.md задаются аргументами сборки; значение по умолчанию в Dockerfile
 # и переменная Makefile (нужна командам вне Compose, например make stubs-test; None, если такой переменной нет) обязаны совпадать с ним.
 # Элемент: (аргумент сборки, Dockerfile, переменная Makefile, строка versions.md, в которой записан образ)
 BASE_IMAGE_ARGS = {
     'external-stubs': [('NODE_IMAGE', 'docker/Dockerfile.stubs', 'NODE_IMAGE', 'external-stubs')],
+    'web-app': [('NGINX_IMAGE', 'docker/Dockerfile.web', 'NGINX_IMAGE', 'web-app')],
     'keycloak': [('KEYCLOAK_IMAGE', 'docker/Dockerfile.keycloak', None, 'keycloak'),
                  ('JDK_IMAGE', 'docker/Dockerfile.keycloak', None, 'keycloak-spi'),
                  ('UBI_IMAGE', 'docker/Dockerfile.keycloak', None, 'keycloak-curl')],

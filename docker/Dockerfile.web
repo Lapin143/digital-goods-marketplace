@@ -1,0 +1,25 @@
+# syntax=docker/dockerfile:1
+# Образ веб-интерфейса (frontend/web-app): nginx и статические файлы. Внешних пакетов нет. Сборка из корня репозитория:
+#   docker build -f docker/Dockerfile.web -t dgm/web-app:dev .
+# Версия nginx берётся из docs/09-operations/versions.md; тот же тег записан в аргументе NGINX_IMAGE в compose.yaml и Makefile,
+# совпадение сверяет tools/docs-checks/check_compose.py.
+ARG NGINX_IMAGE=nginx:1.30.5-alpine3.24
+FROM ${NGINX_IMAGE}
+ARG NGINX_IMAGE
+LABEL org.opencontainers.image.title="web-app" \
+      org.opencontainers.image.description="Веб-интерфейс стенда: заглушка Ф3 на nginx, настоящий интерфейс React в Ф4" \
+      org.opencontainers.image.source="https://github.com/Lapin143/digital-goods-marketplace" \
+      org.opencontainers.image.base.name="${NGINX_IMAGE}"
+
+# Скрипты запуска базового образа и его конфигурация по умолчанию не нужны: они правят файлы под root и пишут строки не в формате JSON
+RUN rm -rf /docker-entrypoint.sh /docker-entrypoint.d /etc/nginx/conf.d /usr/share/nginx/html/*
+COPY frontend/web-app/nginx.conf /etc/nginx/nginx.conf
+COPY frontend/web-app/public/ /usr/share/nginx/html/
+RUN chmod -R a+rX /etc/nginx /usr/share/nginx/html
+
+# Пользователь 10001, как у сервисов. Корневая файловая система в Compose только для чтения, запись в /tmp (tmpfs).
+USER 10001:10001
+EXPOSE 8443
+# -e: журнал ошибок до чтения конфигурации тоже в stderr (иначе nginx пытается открыть /var/log/nginx/error.log и жалуется на права)
+ENTRYPOINT ["nginx", "-e", "/dev/stderr"]
+CMD ["-g", "daemon off;"]

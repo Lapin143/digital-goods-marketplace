@@ -209,7 +209,8 @@ jobs:
 
   # Шлюз (шаг 13 Ф3): единая точка входа на стенде с настоящими Keycloak, Redis и сервисами покупки. Проверяются маршруты и ошибки Problem,
   # подделки токенов (ST-03), области и второй фактор, размеры тел, лимиты частоты на Redis, вход через шлюз, порт управления по mTLS,
-  # отказ открытым при остановке Redis и возврат лимитов после его запуска (gateway_checks.sh).
+  # отказ открытым при остановке Redis и возврат лимитов после его запуска (gateway_checks.sh). Там же веб-интерфейс (шаг 14 Ф3):
+  # контейнер web-app входит в профиль gateway, страницу получает только шлюз (webapp_checks.sh).
   gateway:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -244,6 +245,12 @@ jobs:
           DIAG_MAX: "60"
         run: tools/ci/diag.sh "Проверка шлюза" make gateway-check
 
+      - name: Проверка веб-интерфейса
+        env:
+          DIAG_TAIL: "60"
+          DIAG_MAX: "40"
+        run: tools/ci/diag.sh "Проверка веб-интерфейса" make web-check
+
       - name: Состояние и память контейнеров
         if: always()
         run: |
@@ -251,10 +258,14 @@ jobs:
           msg=$(docker stats --no-stream --format '{{.Name}} {{.MemUsage}} ({{.MemPerc}})' 2>&1 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
           echo "::notice title=память контейнеров (шлюз)::$msg"
 
+      - name: Диагностика шлюза и Redis при ошибке
+        if: failure()
+        run: tools/ci/diag-gateway.sh
+
       - name: Журналы шлюза при ошибке
         if: failure()
         run: |
-          for s in api-gateway keycloak; do
+          for s in api-gateway web-app keycloak; do
             echo "::group::$s"; docker compose --profile '*' logs --no-color --tail 60 "$s" || true; echo "::endgroup::"
             msg=$(docker compose --profile '*' logs --no-color --tail 25 "$s" 2>&1 | cut -c1-300 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
             echo "::warning title=журнал $s::$msg"

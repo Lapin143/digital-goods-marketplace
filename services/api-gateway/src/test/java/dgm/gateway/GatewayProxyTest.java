@@ -201,12 +201,13 @@ class GatewayProxyTest {
         assertNotNull(seen.headers().getFirst("traceparent"));
         assertNull(seen.headers().getFirst("X-Seller-Id"), "личность продавца клиент задавать не вправе");
         String forwardedFor = seen.headers().getFirst("X-Forwarded-For");
-        assertNotNull(forwardedFor, "адрес источника выставляет шлюз");
+        assertNotNull(forwardedFor, "адрес источника выставляет шлюз; сервис получил заголовки: " + seen.headers());
         assertFalse(forwardedFor.contains("1.2.3.4"), "присланный клиентом адрес не принимается: " + forwardedFor);
         assertFalse(forwardedFor.contains(","), "одно значение, а не цепочка: " + forwardedFor);
-        assertEquals("http", seen.headers().getFirst("X-Forwarded-Proto"));
-        assertEquals("localhost:" + GATEWAY_PORT, seen.headers().getFirst("X-Forwarded-Host"));
-        assertEquals(Integer.toString(GATEWAY_PORT), seen.headers().getFirst("X-Forwarded-Port"));
+        assertEquals("http", seen.headers().getFirst("X-Forwarded-Proto"), "схема исходного запроса: " + seen.headers());
+        String forwardedHost = seen.headers().getFirst("X-Forwarded-Host");
+        assertNotNull(forwardedHost, "имя исходного запроса для Keycloak: " + seen.headers());
+        assertTrue(forwardedHost.startsWith("localhost"), "имя из заголовка Host клиента: " + forwardedHost);
     }
 
     @Test

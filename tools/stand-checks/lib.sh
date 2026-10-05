@@ -27,7 +27,8 @@ finish() {
   echo
   echo "Проверок успешно: $PASSED, с ошибками: ${#FAILED[@]}"
   # В GitHub Actions число проверок попадает в аннотацию: по ней видно, сколько проверок выполнено, без доступа к журналу
-  [ -n "${GITHUB_ACTIONS:-}" ] && echo "::notice title=$(basename "$0" .sh)::Проверок успешно: $PASSED, с ошибками: ${#FAILED[@]}"
+  # Имена непрошедших проверок идут в ту же аннотацию: журнал шага длинный и обрезается, аннотация доходит целиком
+  [ -n "${GITHUB_ACTIONS:-}" ] && echo "::notice title=$(basename "$0" .sh)::Проверок успешно: $PASSED, с ошибками: ${#FAILED[@]}$([ ${#FAILED[@]} -ne 0 ] && printf '; не прошли: %s' "$(IFS='|'; echo "${FAILED[*]}")")"
   if [ ${#FAILED[@]} -ne 0 ]; then
     printf '  - %s\n' "${FAILED[@]}"
     return 1

@@ -12,11 +12,15 @@ import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.SslHandler;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.time.Duration;
 import java.util.List;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLParameters;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.availability.ApplicationAvailability;
 import org.springframework.boot.availability.ReadinessState;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -29,6 +33,7 @@ import org.springframework.cloud.gateway.route.builder.RouteLocatorBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 
 /**
@@ -38,6 +43,8 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(GatewayProperties.class)
 class GatewayConfiguration {
+
+    private static final Logger LOG = LoggerFactory.getLogger(GatewayConfiguration.class);
 
     /** Имя пакета сертификатов (spring.ssl.bundle.pem.dgm): сертификат и ключ шлюза, центр сертификации стенда. */
     static final String BUNDLE = "dgm";
@@ -86,6 +93,19 @@ class GatewayConfiguration {
     @Bean(initMethod = "start", destroyMethod = "close")
     ReadinessProbe readinessProbe(@Value("${dgm.probe.port:8081}") int port, ApplicationAvailability availability) throws IOException {
         return new ReadinessProbe(port, List.of(() -> availability.getReadinessState() == ReadinessState.ACCEPTING_TRAFFIC));
+    }
+
+    /**
+     * Соединение с Redis (TLS, вход пользователем {@code gateway}) устанавливается при старте, а не на первом запросе: иначе оно
+     * укладывается в срок ожидания ограничителя (200 мс) хуже, чем рабочий вызов, и первые запросы проходят без проверки лимита.
+     * Redis не обязателен: при ошибке шлюз пишет предупреждение и работает дальше.
+     */
+    @Bean
+    @Profile("!notls")
+    ApplicationRunner redisWarmup(ReactiveStringRedisTemplate redis) {
+        return args -> redis.execute(connection -> connection.ping()).next().timeout(Duration.ofSeconds(5)).subscribe(
+                pong -> LOG.info("Соединение с Redis установлено: {}", pong),
+                e -> LOG.warn("Redis при старте не ответил, ограничитель частоты пропускает запросы без проверки: {}", e.toString()));
     }
 
     /** Ограничитель частоты на Redis; в тестах вместо него подставляется свой {@link RequestLimiter}. */

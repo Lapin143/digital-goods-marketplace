@@ -184,6 +184,18 @@ def routes_and_tokens(kc, kc_gateway, people):
     r = call('GET', '/api/v1/products', headers={'X-Correlation-Id': 'not-a-uuid', 'X-Seller-Id': 'x', 'X-Forwarded-For': '6.6.6.6'})
     expect('чужой X-Correlation-Id заменяется, лишние заголовки не мешают', r.status == 200 and r.header('X-Correlation-Id') != 'not-a-uuid', '%s %s' % (r.status, r.headers))
 
+    page = call('GET', '/', headers={'Accept': 'text/html'})
+    expect('страница / через шлюз: 200 text/html от web-app', page.status == 200 and (page.header('Content-Type') or '').startswith('text/html')
+           and 'Маркетплейс цифровых товаров' in page.text, '%s %s' % (page.status, page.text[:120]))
+    expect('страница через шлюз: HSTS шлюза и политика содержимого nginx, по одному разу', page.count('Strict-Transport-Security') == 1
+           and page.count('Content-Security-Policy') == 1 and page.count('X-Content-Type-Options') == 1, str(page.headers))
+    r = call('GET', '/styles.css')
+    expect('файл страницы через шлюз: /styles.css 200 text/css', r.status == 200 and (r.header('Content-Type') or '').startswith('text/css'), '%s %s' % (r.status, r.headers))
+    r = call('GET', '/no-such-page.html')
+    expect('неизвестный файл страницы: 404 от nginx (HTML, не Problem)', r.status == 404 and 'json' not in (r.header('Content-Type') or ''), '%s %s' % (r.status, r.text[:120]))
+    r = call('POST', '/', body=b'x=1', headers={'Content-Type': 'application/x-www-form-urlencoded'})
+    expect('POST / через шлюз: 404 Problem (у страницы только GET и HEAD)', r.status == 404 and r.code() == 'not-found', '%s %s' % (r.status, r.text[:120]))
+
     r = call('GET', '/api/v1/unknown')
     expect('неизвестный маршрут: 404 Problem с correlationId из заголовка', r.status == 404 and r.code() == 'not-found' and r.header('Content-Type') == 'application/problem+json'
            and r.json().get('correlationId') == r.header('X-Correlation-Id'), '%s %s' % (r.status, r.text[:200]))
@@ -272,7 +284,8 @@ def limits(kc, people):
 
     codes = [order(buyer1) for _ in range(14)]
     allowed = len([c for c in codes if c != 429])
-    expect('POST /orders: 10 в минуту на пользователя, остальные 429 (получено %d пропущенных из 14)' % allowed, 10 <= allowed <= 11 and 429 in codes, str(codes))
+    expect('POST /orders: 10 в минуту на пользователя, остальные 429 (получено %d пропущенных из 14)' % allowed, 10 <= allowed <= 11 and 429 in codes,
+           '%s; отказов открытым по метрике: %g' % (codes, metric_sum(metrics(), 'dgm_gateway_ratelimit_failopen_total')))
     r = call('POST', '/api/v1/orders', headers=dict(bearer(buyer1), **{'Content-Type': 'application/json'}), body=body)
     retry = r.header('Retry-After')
     expect('429: Problem rate-limited и Retry-After в секундах (1..60)', r.status == 429 and r.code() == 'rate-limited' and retry and retry.isdigit() and 1 <= int(retry) <= 60

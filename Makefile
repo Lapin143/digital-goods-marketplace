@@ -5,6 +5,7 @@ SHELL := /bin/bash
 SERVICES    := catalog-service inventory-service order-service payment-service delivery-service platform-service api-gateway
 JAVA_IMAGE  ?= eclipse-temurin:25-jre-noble
 NODE_IMAGE  ?= node:24.21.0-alpine3.24
+NGINX_IMAGE ?= nginx:1.30.5-alpine3.24
 IMAGE_TAG   ?= dev
 GRADLEW     := ./gradlew --console=plain
 
@@ -177,6 +178,10 @@ keycloak-check: ## Проверить Keycloak: вход по ролям, вто
 .PHONY: gateway-check
 gateway-check: ## Проверить шлюз: маршруты, токены Keycloak, лимиты, отказ открытым (подняты dev-auth и dev-purchase с DEBUG=1, make keycloak-users)
 	$(KC_ENV) tools/stand-checks/gateway_checks.sh
+
+.PHONY: web-check
+web-check: ## Проверить веб-интерфейс: доступ только шлюзу, TLS, заголовки, журнал (поднят набор с профилем gateway с DEBUG=1)
+	tools/stand-checks/webapp_checks.sh
 
 .PHONY: clean
 clean: ## Удалить результаты сборки

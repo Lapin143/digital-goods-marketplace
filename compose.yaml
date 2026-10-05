@@ -560,6 +560,35 @@ services:
     healthcheck:
       <<: *service-health
 
+  # Веб-интерфейс (шаг 14 Ф3): заглушка на nginx, настоящий интерфейс React появится в Ф4. Доступен только шлюзу (mTLS, сертификат
+  # api-gateway), на хост не публикуется: браузер ходит на 8443 шлюза, шлюз за страницей к web-app.
+  web-app:
+    <<: *common
+    image: dgm/web-app:${IMAGE_TAG:-dev}
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+      args:
+        NGINX_IMAGE: nginx:1.30.5-alpine3.24
+    profiles: [gateway]
+    user: "10001:10001"
+    mem_limit: 64m
+    memswap_limit: 64m
+    networks: [app]
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=1777,size=8m
+    secrets:
+      - tls_ca.crt
+      - tls_web-app.key
+      - tls_web-app.crt
+    healthcheck:
+      # Порт готовности 8081 слушает только 127.0.0.1 внутри контейнера, без TLS (в образе есть busybox wget, curl нет)
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 2s
+
 networks:
   edge: {}
   app: {}

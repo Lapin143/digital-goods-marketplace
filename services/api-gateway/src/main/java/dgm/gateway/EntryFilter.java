@@ -62,6 +62,9 @@ public final class EntryFilter implements WebFilter, Ordered {
     private static final Duration LOG_PERIOD = Duration.ofSeconds(30);
     private static final Logger LOG = LoggerFactory.getLogger(EntryFilter.class);
 
+    /** Причина последнего отказа ограничителя (тип и сообщение без стека) для предупреждения в журнале. */
+    private volatile String lastLimiterError = "нет (ответ Redis с признаком сбоя)";
+
     private final RouteTable routes;
     private final TokenVerifier tokens;
     private final RequestLimiter limiter;
@@ -171,7 +174,10 @@ public final class EntryFilter implements WebFilter, Ordered {
         String key = limit.perUser() && user != null ? "u:" + user.subject() : "ip:" + clientAddress(exchange.getRequest());
         return limiter.check(target.limit(), key)
                 .timeout(properties.getLimiterTimeout())
-                .onErrorResume(e -> Mono.just(RequestLimiter.Decision.unchecked()))
+                .onErrorResume(e -> {
+                    lastLimiterError = e.getClass().getSimpleName() + ": " + e.getMessage();
+                    return Mono.just(RequestLimiter.Decision.unchecked());
+                })
                 .flatMap(decision -> {
                     if (decision.failOpen()) {
                         noteFailOpen(target.limit());
@@ -189,30 +195,20 @@ public final class EntryFilter implements WebFilter, Ordered {
         long now = clock.millis();
         long last = lastFailOpenLog.get();
         if ((last == Long.MIN_VALUE || now - last >= LOG_PERIOD.toMillis()) && lastFailOpenLog.compareAndSet(last, now)) {
-            LOG.warn("Ограничитель частоты (Redis) не отвечает, запросы пропускаются без проверки лимита, группа {}", group);
+            LOG.warn("Ограничитель частоты (Redis) не отвечает, запросы пропускаются без проверки лимита, группа {}, последняя ошибка: {}", group,
+                    lastLimiterError);
         }
     }
 
     /**
-     * Запрос сервису: присланные клиентом заголовки с внутренним смыслом убираются, адрес источника и исходный адрес запроса
-     * выставляет сам шлюз (цепочку {@code X-Forwarded-For} не продолжает: перед шлюзом нет доверенного прокси), сквозной контекст
-     * заменяется нашим. Заголовки {@code X-Forwarded-*} нужны Keycloak за шлюзом ({@code KC_PROXY_HEADERS=xforwarded}).
+     * Запрос сервису: присланные клиентом заголовки с внутренним смыслом убираются, сквозной контекст заменяется нашим. Адрес источника
+     * и {@code X-Forwarded-*} выставляет Spring Cloud Gateway (фильтры {@code XForwardedHeadersFilter}, включены свойством
+     * {@code trusted-proxies}), клиентские значения он не принимает.
      */
     private static Mono<Void> forward(ServerWebExchange exchange, WebFilterChain chain, TraceContext trace) {
-        ServerHttpRequest request = exchange.getRequest();
-        String host = request.getHeaders().getFirst(HttpHeaders.HOST);
-        InetSocketAddress local = request.getLocalAddress();
-        ServerHttpRequest sanitized = request.mutate().headers(h -> {
+        ServerHttpRequest sanitized = exchange.getRequest().mutate().headers(h -> {
             for (String name : NOT_FROM_CLIENT) {
                 h.remove(name);
-            }
-            h.set("X-Forwarded-For", clientAddress(request));
-            h.set("X-Forwarded-Proto", request.getURI().getScheme() == null ? "https" : request.getURI().getScheme());
-            if (host != null) {
-                h.set("X-Forwarded-Host", host);
-            }
-            if (local != null) {
-                h.set("X-Forwarded-Port", Integer.toString(local.getPort()));
             }
             h.set(TRACEPARENT, trace.traceparent());
             h.set(CORRELATION_ID, trace.correlationId());

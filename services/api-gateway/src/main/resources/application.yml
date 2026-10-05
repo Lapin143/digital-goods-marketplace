@@ -15,11 +15,10 @@ spring:
     gateway:
       server:
         webflux:
-          # Заголовки X-Forwarded-* и Forwarded выставляет EntryFilter сам (одно значение, без цепочки); фильтры Spring их не дописывают
-          x-forwarded:
-            enabled: false
-          forwarded:
-            enabled: false
+          # Фильтры X-Forwarded-* и Forwarded в Spring Cloud Gateway работают, только если задан список доверенных прокси. Перед шлюзом их нет
+          # (браузер подключается напрямую), поэтому образец не совпадает ни с одним адресом: присланным клиентом заголовкам не верят, а адрес
+          # источника, схему, имя и порт для сервисов и Keycloak шлюз выставляет сам из соединения
+          trusted-proxies: "^$"
           httpclient:
             pool:
               type: FIXED
@@ -103,9 +102,6 @@ logging:
   structured:
     format:
       console: logstash
-  level:
-    # Без Redis библиотека пишет ERROR со стеком на каждый запрос. Шлюз сам пишет одно предупреждение раз в 30 секунд и считает метрику
-    org.springframework.cloud.gateway.filter.ratelimit.RedisRateLimiter: "OFF"
 
 ---
 # Рабочий режим: TLS на входе без клиентского сертификата (браузеры), mTLS на порту управления, Redis по TLS

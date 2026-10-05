@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Маркетплейс цифровых товаров</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main>
+    <h1>Маркетплейс цифровых товаров</h1>
+    <p class="lead">Заглушка веб-интерфейса. Настоящий интерфейс на React появится в четвёртой фазе проекта. Сейчас эта страница показывает, что стенд
+      работает: её отдал контейнер <code>web-app</code> через единую точку входа, шлюз, по HTTPS.</p>
+
+    <section>
+      <h2>Состояние</h2>
+      <ul class="checks">
+        <li id="check-gateway" data-state="wait">Страница получена через шлюз по HTTPS</li>
+        <li id="check-storefront" data-state="wait">Витрина отвечает через шлюз: проверяется…</li>
+      </ul>
+      <noscript><p>Для проверки витрины нужен JavaScript.</p></noscript>
+    </section>
+
+    <section>
+      <h2>Интерфейс API</h2>
+      <ul>
+        <li><a href="/api/v1/products">Витрина: список опубликованных товаров (JSON)</a></li>
+        <li><a href="/api/v1/products?limit=3">Витрина: первые три товара</a></li>
+      </ul>
+      <p class="note">Остальные операции требуют входа (Keycloak) и токена доступа. Описание всех операций лежит в репозитории проекта, папка
+        <code>docs/06-api/openapi</code>.</p>
+    </section>
+  </main>
+  <script src="/status.js"></script>
+</body>
+</html>
