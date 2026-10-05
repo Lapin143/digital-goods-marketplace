@@ -24,7 +24,10 @@ import signal
 import subprocess
 import sys
 import time
+import urllib.parse
+import urllib.request
 
+PROMETHEUS = os.environ.get('PROMETHEUS_URL', 'http://127.0.0.1:9090')
 INTERVAL = 3.0
 UNITS = {'b': 1, 'kib': 1024, 'mib': 1024 ** 2, 'gib': 1024 ** 3, 'kb': 1000, 'mb': 1000 ** 2, 'gb': 1000 ** 3}
 NO_LIMIT_MIB = 64 * 1024        # лимит больше этого значения это лимит хоста, то есть лимит не задан
@@ -127,6 +130,30 @@ def cgroup_peaks():
     return peaks
 
 
+JVM_QUERIES = {
+    'heap': 'max_over_time(sum by (application) (jvm_memory_used_bytes{area="heap"})[2h:15s])',
+    'nonheap': 'max_over_time(sum by (application) (jvm_memory_used_bytes{area="nonheap"})[2h:15s])',
+    'direct': 'max_over_time(sum by (application) (jvm_buffer_memory_used_bytes{id="direct"})[2h:15s])',
+    'threads': 'max_over_time(sum by (application) (jvm_threads_live_threads)[2h:15s])',
+}
+
+
+def jvm_peaks():
+    """Пики JVM из Prometheus за всё время его работы: {сервис: {'heap': МБ, 'nonheap': МБ, 'direct': МБ, 'threads': число}}. Пусто, если Prometheus не отвечает
+    (набор без профиля obs). Шаг сбора 15 секунд, поэтому пик с точностью до одного шага."""
+    result = {}
+    for kind, query in JVM_QUERIES.items():
+        try:
+            url = '%s/api/v1/query?%s' % (PROMETHEUS, urllib.parse.urlencode({'query': query}))
+            data = json.load(urllib.request.urlopen(url, timeout=10))
+            for item in data['data']['result']:
+                value = float(item['value'][1])
+                result.setdefault(item['metric'].get('application', '?'), {})[kind] = value if kind == 'threads' else round(value / 1024 ** 2, 1)
+        except (OSError, ValueError, KeyError):
+            return {}
+    return result
+
+
 def aggregate(path):
     """{сервис: {'peak', 'limit', 'at', 'n', 'avg'}} по файлу замеров; at секунды от первого замера."""
     rows = []
@@ -156,6 +183,7 @@ def report(path, rule, label, strict, md):
     if not data:
         errors = open(path + '.err', encoding='utf-8').read()[-300:] if os.path.exists(path + '.err') else ''
         return failed('в файле %s замеров с данными нет (строк %d). Ошибки сборщика: %s' % (path, count, errors or 'нет'))
+    jvm = jvm_peaks()
     cg = cgroup_peaks()
     cg_by_service = {}
     for name, value in cg.items():
@@ -173,6 +201,13 @@ def report(path, rule, label, strict, md):
         print('%-20s %8.0f %8.1f %8.1f %7.1f%% %10s  %s' % (name, s['limit'], s['peak'], s['avg'], pct, '%.0f' % peak_cg if peak_cg else 'н/д', verdict))
         lines.append('%s: пик %.0f из %.0f МБ (%.0f%%)%s' % (name, s['peak'], s['limit'], pct, ', выше %d%%' % rule if pct > rule else ''))
         table.append((name, s, pct, peak_cg))
+    if jvm:
+        print('JVM по Prometheus (пик за время работы стека, шаг 15 с): куча, вне кучи, прямые буферы, потоков')
+        for name in sorted(jvm):
+            j = jvm[name]
+            line = '%s: куча %.0f МБ, вне кучи %.0f МБ, буферы %.0f МБ, потоков %.0f' % (name, j.get('heap', 0), j.get('nonheap', 0), j.get('direct', 0), j.get('threads', 0))
+            print('  ' + line)
+            lines.append('JVM ' + line)
     if md:
         with open(md, 'w', encoding='utf-8') as f:
             f.write('| Контейнер | Лимит, МБ | Пик, МБ | В среднем, МБ | Пик, % лимита | memory.peak cgroup, МБ |\n| --- | --- | --- | --- | --- | --- |\n')
