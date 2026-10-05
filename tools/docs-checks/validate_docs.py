@@ -2,7 +2,7 @@
 """Проверка документов Ф1: ID требований, ссылки, Mermaid, стиль.
 Запуск: python3 validate_docs.py <файл или папка> [...]
 """
-import os, re, subprocess, sys, tempfile, glob
+import os, re, subprocess, sys, tempfile, glob, time
 
 REPO = os.environ.get('REPO') or os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 REQ = os.path.join(REPO, 'docs/02-requirements/requirements_v1.5.md')
@@ -86,7 +86,15 @@ def check_file(f, mermaid=True):
     if mermaid and '```mermaid' in text and os.path.basename(f) not in MERMAID_SKIP:
         with tempfile.TemporaryDirectory() as tmp:
             out = os.path.join(tmp, 'o.md')
-            r = subprocess.run(['mmdc'] + (['-p', PCFG] if os.path.exists(PCFG) else []) + ['-i', f, '-o', out, '-e', 'svg'], capture_output=True, text=True, timeout=600)
+            cmd = ['mmdc'] + (['-p', PCFG] if os.path.exists(PCFG) else []) + ['-i', f, '-o', out, '-e', 'svg']
+            # Сбой запуска браузера (раннер перегружен) не ошибка документа: до трёх попыток. Ошибка разбора диаграммы повторов не требует
+            for attempt in range(3):
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+                failed = r.returncode != 0 or 'rror' in r.stderr
+                launcher = re.search(r'BrowserLauncher|Failed to launch|WS endpoint|Target closed|Protocol error|TargetCloseError', r.stderr)
+                if not (failed and launcher):
+                    break
+                time.sleep(3)
             if r.returncode != 0 or 'rror' in r.stderr:
                 err(f, 'Mermaid: ' + (r.stderr or r.stdout).strip()[-600:])
             else:
