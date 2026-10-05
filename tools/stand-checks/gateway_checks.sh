@@ -45,7 +45,7 @@ ports_ok() { [ "$(docker port "$C" | tr -d '\r' | grep -v '\[::\]' | sort | tr '
 check "на хост опубликованы 8443 и отладочный 127.0.0.1:18446 (порт управления), больше ничего" ports_ok
 nets_ok() {
   local got
-  got=$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$C" | sort | tr '\n' ' ')
+  got=$(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$C" | grep -v '^$' | sort | tr '\n' ' ')
   [ "$got" = "dgm_app dgm_data dgm_edge " ] || { echo "сети контейнера: [$got]"; return 1; }
 }
 check "сети: edge (вход), app (сервисы) и data (только Redis)" nets_ok
