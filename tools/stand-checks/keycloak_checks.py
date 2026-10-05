@@ -105,7 +105,7 @@ def main():
         expect('%s: области равны %s' % (name, sorted(want_scopes)), scopes_of(a) == want_scopes, a.get('scope'))
         expect('%s: одна роль %s' % (name, u['role']), (a.get('realm_access') or {}).get('roles') == [u['role']], str(a.get('realm_access')))
         expect('%s: в access-токене нет e-mail и имени' % name, not ({'email', 'name', 'preferred_username', 'given_name'} & set(a)), str(sorted(a)))
-        expect('%s: refresh-токен есть, простой %d минут' % (name, idle // 60), r.tokens.get('refresh_expires_in') == idle, str(r.tokens.get('refresh_expires_in')))
+        expect('%s: refresh-токен есть, простой %d минут' % (name, idle // 60), idle - 3 <= (r.tokens.get('refresh_expires_in') or 0) <= idle, str(r.tokens.get('refresh_expires_in')))   # Keycloak считает остаток срока на момент ответа, на границе секунды он на единицу меньше
         amr = a.get('amr')
         if u['otp_secret']:
             expect('%s: amr содержит pwd и otp' % name, sorted(amr or []) == ['otp', 'pwd'], str(amr))
