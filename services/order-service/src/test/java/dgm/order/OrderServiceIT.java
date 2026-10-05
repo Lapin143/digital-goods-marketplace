@@ -5,9 +5,13 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dgm.kit.boot.KitProperties;
+import dgm.kit.boot.ModuleDatabases;
+import dgm.kit.boot.SecretsDirectory;
 import dgm.kit.boot.testing.StandHttp;
 import dgm.kit.boot.testing.StandHttp.Response;
 import dgm.kit.testing.TestTokens;
+import dgm.kit.tls.TlsMaterial;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
@@ -17,6 +21,7 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -84,6 +89,27 @@ class OrderServiceIT {
 
     private static Map<?, ?> first(Response response) {
         return (Map<?, ?>) ((List<?>) response.json().get("items")).get(0);
+    }
+
+    @Autowired
+    private KitProperties properties;
+    @Autowired
+    private SecretsDirectory secrets;
+    @Autowired
+    private TlsMaterial tls;
+
+    /**
+     * Тестовые данные (миграция 1000) уже в базе, сервис стартует без профиля testdata, как из IDE поверх наполненного стенда:
+     * проверка миграций не должна падать на «применённой миграции, которой нет локально».
+     */
+    @Test
+    void startWithoutTestdataOverFilledDatabaseValidates() {
+        KitProperties.Db db = properties.db();
+        KitProperties.Db plain = new KitProperties.Db(db.host(), db.port(), db.database(), db.migratorRole(), true,
+                List.of("classpath:db/migration"), Map.of());
+        try (ModuleDatabases opened = ModuleDatabases.open(plain, secrets, tls, properties.service())) {
+            assertTrue(opened.modules().isEmpty());
+        }
     }
 
     @Test

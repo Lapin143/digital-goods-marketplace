@@ -69,8 +69,10 @@ public final class ModuleDatabases implements AutoCloseable {
                 .locations(settings.locations().toArray(new String[0]))
                 .cleanDisabled(true)
                 // Тестовые данные (профиль testdata) остаются в базе, если профиль выключили: отсутствие их файлов не ошибка,
-                // а изменённые или новые миграции проверяются как обычно
-                .ignoreMigrationPatterns("*:missing")
+                // а изменённые или новые миграции проверяются как обычно. Версия тестовых данных (1000) выше всех рабочих,
+                // поэтому Flyway называет её не «missing», а «future»; явный список заменяет прежний по умолчанию («*:future»),
+                // так что в нём нужны оба. Так сервис стартует из IDE без профиля поверх базы, которую тесты или стенд наполнили данными
+                .ignoreMigrationPatterns("*:missing", "*:future")
                 .connectRetries(10)
                 .load();
         int applied = flyway.migrate().migrationsExecuted;
