@@ -11,7 +11,10 @@
 FAILED=()
 PASSED=0
 ok()   { PASSED=$((PASSED+1)); echo "  ok    $1"; }
-bad()  { FAILED+=("$1"); echo "  ОШИБКА $1"; [ -n "${2:-}" ] && echo "$2" | tail -n 6 | sed 's/^/        | /'; }
+bad()  { local d=""
+  # Две последние строки вывода идут и в имя непрошедшей проверки: в аннотации CI видно причину без доступа к журналу шага
+  [ -n "${2:-}" ] && d=$(echo "$2" | tail -n 2 | tr '\n\r' '  ' | cut -c1-200)
+  FAILED+=("$1${d:+ [$d]}"); echo "  ОШИБКА $1"; [ -n "${2:-}" ] && echo "$2" | tail -n 6 | sed 's/^/        | /'; return 0; }
 
 check()         { local name=$1; shift; OUT=$("$@" 2>&1); RC=$?
   if [ $RC -eq 0 ]; then ok "$name"; else bad "$name (код $RC)" "$OUT"; fi; }
