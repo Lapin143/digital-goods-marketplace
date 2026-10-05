@@ -178,9 +178,9 @@ def operations(buyer, buyer2, people):
             r = req('GET', '/api/v1/orders', buyer)
             items = r.json().get('items', []) if r.status == 200 else []
             G.expect('GET /api/v1/orders с токеном: 200, покупатель 1 видит свой служебный заказ (шлюз, mTLS, токен проверен, база)',
-                     any(i.get('id') == oid for i in items), '%s %s' % (r.status, r.text[:200]))
+                     any(i.get('orderId') == oid for i in items), '%s %s' % (r.status, r.text[:200]))
             r2 = req('GET', '/api/v1/orders', buyer2)
-            G.expect('U1: покупатель 2 этот заказ не видит, владелец берётся из токена', r2.status == 200 and not any(i.get('id') == oid for i in r2.json().get('items', [])),
+            G.expect('U1: покупатель 2 этот заказ не видит, владелец берётся из токена', r2.status == 200 and not any(i.get('orderId') == oid for i in r2.json().get('items', [])),
                      '%s %s' % (r2.status, r2.text[:200]))
     finally:
         psql('order_db', "delete from orders.orders where id = '%s'" % oid)

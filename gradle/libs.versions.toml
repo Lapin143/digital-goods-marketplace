@@ -7,6 +7,9 @@
 spring-boot = "4.1.1"
 spring-cloud = "2025.1.3"
 archunit = "1.4.2"
+# Нижняя граница версии Tomcat: BOM Spring Boot 4.1.1 приносит 11.0.24, в ней найдены CVE-2026-65182 (обход ограничений доступа, CRITICAL) и ещё
+# уязвимости HIGH, исправлены в 11.0.25 (Trivy, шаг 17 Ф3). Ограничение в dgm.boot-app-conventions можно убрать, когда BOM принесёт 11.0.25 или выше.
+tomcat-security-floor = "11.0.25"
 
 [libraries]
 spring-boot-gradle-plugin = { module = "org.springframework.boot:spring-boot-gradle-plugin", version.ref = "spring-boot" }

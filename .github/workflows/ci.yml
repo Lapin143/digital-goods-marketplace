@@ -469,15 +469,7 @@ jobs:
           trivy --version
 
       - name: Уязвимости и секреты в образах сервисов
-        env:
-          DIAG_TAIL: "60"
-          DIAG_MAX: "40"
-        run: |
-          services=$(make -s --eval='_services: ; @echo $(SERVICES)' _services)
-          for s in $services; do
-            tools/ci/diag.sh "Trivy образ $s" trivy image --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
-              --no-progress --skip-version-check "dgm/$s:ci"
-          done
+        run: tools/ci/trivy-services.sh ci
 
       - name: Сторонние образы стенда, отчёт
         run: tools/ci/trivy-third-party.sh
