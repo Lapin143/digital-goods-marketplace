@@ -47,8 +47,11 @@ check "Loki -verify-config" $RUN -v "$OBS/loki:/etc/loki:ro" "$LOKI" -config.fil
 OUT=$($RUN -v "$OBS/tempo:/etc/tempo:ro" "$TEMPO" -config.file=/etc/tempo/tempo.yaml -config.verify 2>&1); RC=$?
 if [ $RC -eq 0 ]; then
   ok "Tempo -config.verify: конфигурация верна"
-elif grep -qi 'flag provided but not defined' <<<"$OUT"; then
-  echo "  пропущено: в образе $TEMPO нет флага -config.verify ($(grep -i 'not defined' <<<"$OUT" | head -n1)), файл проверит запуск стенда"
+elif [ $RC -eq 2 ]; then
+  # Код 2 у Go означает ошибку разбора флагов (ошибки конфигурации дают код 1): образ не знает -config.verify. Первые строки вывода идут в аннотацию CI
+  head3=$(head -n 3 <<<"$OUT" | cut -c1-160 | tr '\n' ' ')
+  echo "  пропущено: в образе $TEMPO нет флага -config.verify, файл проверит запуск стенда"
+  [ -n "${GITHUB_ACTIONS:-}" ] && echo "::notice title=obs_validate Tempo пропущен::$head3"
 else
   bad "Tempo -config.verify (код $RC)" "$OUT"
 fi

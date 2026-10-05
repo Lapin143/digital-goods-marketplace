@@ -659,8 +659,8 @@ services:
     image: grafana/grafana:13.2.3
     profiles: [obs]
     user: "472:0"
-    mem_limit: 256m
-    memswap_limit: 256m
+    mem_limit: 512m
+    memswap_limit: 512m
     networks: [obs]
     environment:
       GF_SERVER_HTTP_ADDR: 0.0.0.0
@@ -683,7 +683,7 @@ services:
       GF_LOG_MODE: console
       GF_LOG_CONSOLE_FORMAT: json
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
-      GOMEMLIMIT: 216MiB
+      GOMEMLIMIT: 430MiB
     volumes:
       - grafanadata:/var/lib/grafana
       - ./infra/obs/grafana/provisioning:/etc/grafana/provisioning:ro
