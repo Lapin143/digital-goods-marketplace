@@ -108,7 +108,7 @@ PY
     grep -q 'не совпадает с OpenAPI' "$tmp/out.txt" || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: контракт упал не из-за расхождения схем"; tail -n 5 "$tmp/out.txt"; fail=1; }
     # 4. Миграции Flyway и роли базы: правка миграции, предела соединений и секрета роли ловится контролями шага 7.
     mkdir -p "$tmp/repo"
-    cp -r "$REPO/.github" "$REPO/docs" "$REPO/infra" "$REPO/services" "$REPO/libs" "$REPO/tools" "$REPO/compose.yaml" "$REPO/Makefile" "$tmp/repo/"
+    cp -r "$REPO/.github" "$REPO/docs" "$REPO/infra" "$REPO/services" "$REPO/libs" "$REPO/tools" "$REPO/compose.yaml" "$REPO/compose.debug.yaml" "$REPO/gradle.properties" "$REPO/docker" "$REPO/gradle" "$REPO/build-logic" "$REPO/Makefile" "$tmp/repo/"
     mutate_repo() {  # название, файл от корня, старое, новое, образец сообщения, команда от корня...
       local name="$1" f="$2" old="$3" new="$4" pat="$5"; shift 5
       python3 - "$tmp/repo/$f" "$old" "$new" <<'PY' || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: не удалось внести ошибку «$name»"; fail=1; return; }
@@ -222,6 +222,23 @@ concurrency:' "права GITHUB_TOKEN на верхнем уровне" tools/d
       "нет persist-credentials: false" tools/docs-checks/check_workflows.py
     mutate_repo "check_workflows находит пропавший Dependabot для compose" ".github/dependabot.yml" 'package-ecosystem: docker-compose' 'package-ecosystem: pip' \
       "не описан пакетный менеджер docker-compose" tools/docs-checks/check_workflows.py
+    # 7в. Руководство разработчика и runbook (шаг 19): пропавшая цель Makefile, неверный набор, лишний порт, несуществующий файл, неверная сумма
+    #     набора, несуществующая переменная и недокументированная цель ловятся check_guide_commands.py.
+    G="docs/09-operations/developer-guide.md"
+    mutate_repo "check_guide_commands находит цель, которой нет в Makefile" "Makefile" 'stand-check: ## Проверить стенд целиком' 'stand-checkx: ## Проверить стенд целиком' \
+      "цели make stand-check нет в Makefile" tools/docs-checks/check_guide_commands.py
+    mutate_repo "check_guide_commands находит несуществующий набор SET" "$G" 'make up SET=dev-min         # PostgreSQL' 'make up SET=dev-mini        # PostgreSQL' \
+      "набор SET=dev-mini" tools/docs-checks/check_guide_commands.py
+    mutate_repo "check_guide_commands находит порт, которого нет в compose.debug.yaml" "compose.debug.yaml" '127.0.0.1:19094:9093' '127.0.0.1:19095:9093' \
+      "порт 19095 из compose.debug.yaml не описан" tools/docs-checks/check_guide_commands.py
+    mutate_repo "check_guide_commands находит несуществующий файл в руководстве" "$G" '`tools/docs-checks/check_guide_commands.py`' '`tools/docs-checks/check_guide_commandz.py`' \
+      "check_guide_commandz.py нет в репозитории" tools/docs-checks/check_guide_commands.py
+    mutate_repo "check_guide_commands находит расхождение суммы набора с memory-budget.md" "$G" '| `dev-min` | PostgreSQL, Kafka, Redis, заглушки | 1344 |' '| `dev-min` | PostgreSQL, Kafka, Redis, заглушки | 1345 |' \
+      "лимиты набора dev-min 1345" tools/docs-checks/check_guide_commands.py
+    mutate_repo "check_guide_commands находит переменную, которой нет в коде" "$G" '`DGM_PG_HOST`, `DGM_PG_PORT`' '`DGM_PG_HOSTX`, `DGM_PG_PORT`' \
+      "переменной DGM_PG_HOSTX нет" tools/docs-checks/check_guide_commands.py
+    mutate_repo "check_guide_commands находит недокументированную цель Makefile" "Makefile" 'otp: ## Текущий код' 'otp2: ## Текущий код' \
+      "цель make otp2 не описана" tools/docs-checks/check_guide_commands.py
     # 8. Контракт сервисов: ответы из интеграционных тестов сверяются со схемами OpenAPI. Образцы собираются из примеров самого OpenAPI:
     #    полный набор проходит, испорченное поле, лишнее поле и пропавший обязательный образец отвергаются.
     REPO="$REPO" python3 - "$tmp/contract" <<'PY' || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: не удалось собрать образцы для контрактной проверки"; fail=1; }

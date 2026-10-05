@@ -9,6 +9,7 @@ NGINX_IMAGE ?= nginx:1.30.5-alpine3.24
 IMAGE_TAG   ?= dev
 IMAGE_SOURCE ?= https://github.com/Lapin143/digital-goods-marketplace
 MEM_FILE ?= /tmp/dgm-mem.jsonl
+WHO      ?= buyer-1
 GRADLEW     := ./gradlew --console=plain
 
 .PHONY: help
@@ -209,6 +210,22 @@ obs-check: ## Проверить стек наблюдения: цели Prometh
 .PHONY: smoke
 smoke: ## Дымовой тест: токен, операции через шлюз, ST-03, mTLS, Outbox → Kafka, сквозной идентификатор (набор full, DEBUG=1, make keycloak-users)
 	$(KC_ENV) python3 tools/stand-checks/smoke.py
+
+.PHONY: demo
+demo: ## Показать цель вехи M3: вход тестового пользователя (WHO=buyer-1) и запросы через шлюз с токеном и без (набор full, DEBUG=1, make keycloak-users)
+	$(KC_ENV) python3 tools/stand-checks/demo.py $(WHO)
+
+.PHONY: token
+token: ## Напечатать токен доступа тестового пользователя (WHO=buyer-1) для curl: make -s token WHO=seller-1 (подняты dev-auth и сервисы, DEBUG=1)
+	@$(KC_ENV) python3 tools/stand-checks/demo.py token $(WHO)
+
+.PHONY: otp
+otp: ## Текущий код второго фактора (TOTP) тестового пользователя для входа в браузере: make otp WHO=seller-1 (секрет в secrets/test_users.json)
+	@python3 tools/stand-checks/demo.py otp $(WHO)
+
+.PHONY: ide-check
+ide-check: ## Проверить рецепт запуска сервиса из IDE: order-service из Gradle при инфраструктуре в Compose (make up SET=dev-min DEBUG=1, make db-migrate S=order-service, JDK 25)
+	tools/stand-checks/ide_check.sh
 
 .PHONY: smoke-sabotage
 smoke-sabotage: ## Проверка проверки: испорченный токен, область и сертификат делают дымовой тест красным
