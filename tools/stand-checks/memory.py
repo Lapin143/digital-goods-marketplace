@@ -68,8 +68,9 @@ def sample(path):
                 row = {'t': round(started, 1), 'm': snapshot()}
                 f.write(json.dumps(row) + '\n')
                 f.flush()
-            except (subprocess.SubprocessError, OSError):
-                pass
+            except (subprocess.SubprocessError, OSError) as e:
+                with open(path + '.err', 'a', encoding='utf-8') as err:
+                    err.write('%s: %s\n' % (type(e).__name__, str(e)[:200]))
             time.sleep(max(0.2, INTERVAL - (time.time() - started)))
     return 0
 
@@ -80,7 +81,14 @@ def start(path):
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     with open(path + '.pid', 'w') as f:
         f.write(str(p.pid))
-    print('замеры памяти запущены (pid %d), файл %s' % (p.pid, path))
+    for _ in range(100):
+        time.sleep(0.2)
+        if os.path.getsize(path) > 0 or p.poll() is not None:
+            break
+    state = 'работает' if p.poll() is None else 'завершился с кодом %s' % p.returncode
+    first = open(path, encoding='utf-8').readline()
+    count = len(json.loads(first)['m']) if first.strip() else 0
+    print('замеры памяти запущены (pid %d, %s), файл %s, в первом замере контейнеров: %d' % (p.pid, state, path, count))
     return 0
 
 
@@ -142,12 +150,11 @@ def aggregate(path):
 
 def report(path, rule, label, strict, md):
     if not os.path.exists(path):
-        print('нет файла замеров %s' % path)
-        return 1
+        return failed('нет файла замеров %s' % path)
     data, count, span = aggregate(path)
     if not data:
-        print('замеров нет')
-        return 1
+        errors = open(path + '.err', encoding='utf-8').read()[-300:] if os.path.exists(path + '.err') else ''
+        return failed('в файле %s замеров с данными нет (строк %d). Ошибки сборщика: %s' % (path, count, errors or 'нет'))
     cg = cgroup_peaks()
     cg_by_service = {}
     for name, value in cg.items():
@@ -172,13 +179,20 @@ def report(path, rule, label, strict, md):
                 f.write('| `%s` | %.0f | %.0f | %.0f | %.0f | %s |\n' % (name, s['limit'], s['peak'], s['avg'], pct, '%.0f' % peak_cg if peak_cg else 'н/д'))
     if os.environ.get('GITHUB_ACTIONS'):
         msg = '%0A'.join(lines)
-        print('::notice title=память%s, пик за %d с (%d замеров)::%s' % (' ' + label.replace(',', ';').replace(':', ' ') if label else '', span, count, msg))
+        print('::notice title=память%s; пик за %d с (%d замеров)::%s' % (' ' + label.replace(',', ';').replace(':', ' ') if label else '', span, count, msg))
         if over:
             print('::warning title=память выше правила %d%%::%s' % (rule, '%0A'.join('%s: пик %.0f из %.0f МБ, нужен лимит не меньше %d МБ' % (
                 n, s['peak'], s['limit'], needed(s['peak'], rule)) for n, s, _ in over)))
     for name, s, pct in over:
         print('  выше правила: %s, пик %.0f МБ из %.0f, лимит по правилу не меньше %d МБ' % (name, s['peak'], s['limit'], needed(s['peak'], rule)))
     return 1 if (strict and over) else 0
+
+
+def failed(text):
+    print(text)
+    if os.environ.get('GITHUB_ACTIONS'):
+        print('::warning title=memory.py::%s' % text.replace('%', '%25').replace('\n', '%0A'))
+    return 1
 
 
 def needed(peak, rule):
@@ -203,7 +217,10 @@ def main(argv):
         return start(path)
     if cmd == 'stop':
         stop(path)
-    return report(path, int(opt('--rule', 85)), opt('--label', ''), '--strict' in opts, opt('--md'))
+    try:
+        return report(path, int(opt('--rule', 85)), opt('--label', ''), '--strict' in opts, opt('--md'))
+    except Exception as e:  # noqa: BLE001 итог не должен ронять задание CI молча
+        return failed('итог замеров не получен: %s: %s' % (type(e).__name__, e))
 
 
 if __name__ == '__main__':
