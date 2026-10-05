@@ -181,6 +181,16 @@ def main():
     inv_secrets = {s['name']: s for s in inv['secrets']}
     inv_containers = {c['name'] for c in inv['containers']}
     inv_jobs = {j['name'] for j in inv.get('jobs', [])}   # разовые задания без собственного сертификата (входят по паролю из секрета)
+    inv_nocert = {r['name'] for r in inv.get('readers_without_cert', [])}   # читают секреты, но сертификата у них нет (стек наблюдения без TLS)
+    for n in sorted(inv_nocert):
+        if n not in OBS_NO_CERT:
+            rep.err('inventory.json', 'readers_without_cert: %s не входит в OBS_NO_CERT (контейнеры стека наблюдения без TLS)' % n)
+        if n in inv_containers or n in inv_jobs:
+            rep.err('inventory.json', 'readers_without_cert: %s одновременно в containers или jobs' % n)
+    for name, info in inv_secrets.items():
+        for r in info['readers']:
+            if r not in inv_containers and r not in inv_jobs and r not in inv_nocert:
+                rep.err('inventory.json', 'секрет %s: читатель %s не описан ни в containers, ни в jobs, ни в readers_without_cert' % (name, r))
     versions = images_from_versions()
 
     # --- наборы Makefile и документа

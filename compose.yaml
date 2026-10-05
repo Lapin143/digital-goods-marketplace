@@ -659,8 +659,8 @@ services:
     image: grafana/grafana:13.2.3
     profiles: [obs]
     user: "472:0"
-    mem_limit: 192m
-    memswap_limit: 192m
+    mem_limit: 256m
+    memswap_limit: 256m
     networks: [obs]
     environment:
       GF_SERVER_HTTP_ADDR: 0.0.0.0
@@ -676,11 +676,14 @@ services:
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
       GF_PLUGINS_PLUGIN_ADMIN_ENABLED: "false"
       GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_UNIFIED_ALERTING_ENABLED: "false"
+      GF_LIVE_MAX_CONNECTIONS: "0"
       GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
       GF_LOG_MODE: console
       GF_LOG_CONSOLE_FORMAT: json
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
-      GOMEMLIMIT: 160MiB
+      GOMEMLIMIT: 216MiB
     volumes:
       - grafanadata:/var/lib/grafana
       - ./infra/obs/grafana/provisioning:/etc/grafana/provisioning:ro

@@ -7,7 +7,7 @@
 #               infra/obs/tests/rules_test.yml: каждое оповещение срабатывает при условии и молчит без него
 #   Alertmanager amtool check-config
 #   Loki        -verify-config
-#   Tempo       -config.verify
+#   Tempo       -config.verify (если такого флага в образе нет, проверка пропускается с пометкой, как у Alloy)
 #   Alloy       validate (если такой команды в образе нет, проверка пропускается с пометкой: запуск стенда проверит файл в любом случае)
 # Образы берутся из compose.yaml, поэтому проверка идёт той же версией, что и стенд.
 set -uo pipefail
@@ -44,7 +44,14 @@ check "amtool check-config: маршруты и приёмники" \
 
 echo "== Loki и Tempo"
 check "Loki -verify-config" $RUN -v "$OBS/loki:/etc/loki:ro" "$LOKI" -config.file=/etc/loki/loki.yaml -verify-config
-check "Tempo -config.verify" $RUN -v "$OBS/tempo:/etc/tempo:ro" "$TEMPO" -config.file=/etc/tempo/tempo.yaml -config.verify
+OUT=$($RUN -v "$OBS/tempo:/etc/tempo:ro" "$TEMPO" -config.file=/etc/tempo/tempo.yaml -config.verify 2>&1); RC=$?
+if [ $RC -eq 0 ]; then
+  ok "Tempo -config.verify: конфигурация верна"
+elif grep -qi 'flag provided but not defined' <<<"$OUT"; then
+  echo "  пропущено: в образе $TEMPO нет флага -config.verify ($(grep -i 'not defined' <<<"$OUT" | head -n1)), файл проверит запуск стенда"
+else
+  bad "Tempo -config.verify (код $RC)" "$OUT"
+fi
 
 echo "== Alloy"
 OUT=$($RUN -v "$OBS/alloy:/etc/alloy:ro" -v "$SECRETS:/run/secrets:ro" "$ALLOY" validate /etc/alloy/config.alloy 2>&1); RC=$?

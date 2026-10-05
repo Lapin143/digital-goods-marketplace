@@ -125,7 +125,8 @@ class PkiTest(unittest.TestCase):
         self.assertNotEqual(read_text(self.path('db_app_orders')), before)
 
     def test_every_reader_is_a_known_container_or_postgres_like_service(self):
-        known = {c['name'] for c in self.inv['containers']} | {j['name'] for j in self.inv.get('jobs', [])}
+        known = ({c['name'] for c in self.inv['containers']} | {j['name'] for j in self.inv.get('jobs', [])}
+                 | {r['name'] for r in self.inv.get('readers_without_cert', [])})
         for s in self.inv['secrets']:
             for r in s['readers']:
                 self.assertIn(r, known, '%s читает неизвестный контейнер %s' % (s['name'], r))

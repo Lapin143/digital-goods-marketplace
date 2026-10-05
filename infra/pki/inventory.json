@@ -29,6 +29,9 @@
   "jobs": [
     {"name": "storage-init", "purpose": "Разовое задание: входит в хранилище по паролю из секрета, своего сертификата не имеет, читает секреты как контейнер из списка выше"}
   ],
+  "readers_without_cert": [
+    {"name": "grafana", "purpose": "Стек наблюдения без TLS внутри закрытой сети obs (c4-deployment.md, решение 22): читает секреты, сертификата не имеет"}
+  ],
   "secrets": [
     {"name": "inventory_kek", "kind": "key32", "readers": ["inventory-service"], "purpose": "Мастер-ключ шифрования ключей AES-256 (ADR-009)"},
     {"name": "inventory_hmac", "kind": "key32", "readers": ["inventory-service"], "purpose": "HMAC для проверки дублей ключей (ADR-009)"},

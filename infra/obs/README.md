@@ -1,6 +1,6 @@
 # infra/obs
 
-Конфигурация стека наблюдения (профиль Compose `obs`, шаг 16 Ф3). Три сигнала: **метрики** (Prometheus), **журналы** (Loki), **трассы** (Tempo); собирает Alloy, показывает Grafana, о неполадках сообщает Alertmanager. Архитектура: [c4-deployment.md](../../docs/05-architecture/c4-deployment.md), разделы 2, 4.2, 5 и решение 22; память: [memory-budget.md](../../docs/09-operations/memory-budget.md) (1056 МБ на шесть контейнеров); версии: [versions.md](../../docs/09-operations/versions.md).
+Конфигурация стека наблюдения (профиль Compose `obs`, шаг 16 Ф3). Три сигнала: **метрики** (Prometheus), **журналы** (Loki), **трассы** (Tempo); собирает Alloy, показывает Grafana, о неполадках сообщает Alertmanager. Архитектура: [c4-deployment.md](../../docs/05-architecture/c4-deployment.md), разделы 2, 4.2, 5 и решение 22; память: [memory-budget.md](../../docs/09-operations/memory-budget.md) (1120 МБ на шесть контейнеров); версии: [versions.md](../../docs/09-operations/versions.md).
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"edgeLabelBackground":"#ffffff","lineColor":"#444444"}}}%%
@@ -57,7 +57,7 @@ make obs-validate                  # только файлы конфигура�
 | `http://127.0.0.1:13100`, `13200` | Loki, Tempo (запросы по HTTP; Grafana ходит к ним по имени контейнера) |
 | `https://127.0.0.1:14318` | Приём OTLP/HTTP в Alloy по взаимному TLS (клиентский сертификат из `secrets/`) |
 
-На ноутбуке с 8 ГБ и пределом Docker 3 ГБ набор `full-obs` не помещается (сумма лимитов 5568 МБ, [memory-budget.md](../../docs/09-operations/memory-budget.md)): стек поднимается отдельно от сервисов, например `COMPOSE_PROFILES=stubs,obs docker compose -f compose.yaml -f compose.debug.yaml up -d` (1,2 ГБ), а полный набор проверяется в CI и на сервере.
+На ноутбуке с 8 ГБ и пределом Docker 3 ГБ набор `full-obs` не помещается (сумма лимитов 5632 МБ, [memory-budget.md](../../docs/09-operations/memory-budget.md)): стек поднимается отдельно от сервисов, например `COMPOSE_PROFILES=stubs,obs docker compose -f compose.yaml -f compose.debug.yaml up -d` (1,2 ГБ), а полный набор проверяется в CI и на сервере.
 
 ## Решения и ограничения
 
