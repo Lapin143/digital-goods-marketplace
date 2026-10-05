@@ -115,7 +115,7 @@ class StorefrontControllerTest {
     @Test
     void reversedPriceRangeIsRejected() throws Exception {
         mvc.perform(get("/api/v1/products?priceFrom=500&priceTo=100"))
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
                 .andExpect(jsonPath("$.code").value("validation-failed"))
                 .andExpect(jsonPath("$.errors[0].parameter").value("priceFrom"))
@@ -125,7 +125,7 @@ class StorefrontControllerTest {
     @Test
     void unknownParameterIsRejected() throws Exception {
         mvc.perform(get("/api/v1/products?color=red"))
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.errors[0].parameter").value("color"))
                 .andExpect(jsonPath("$.errors[0].code").value("unknown_value"));
     }
@@ -133,7 +133,7 @@ class StorefrontControllerTest {
     @Test
     void unknownProductTypeIsRejected() throws Exception {
         mvc.perform(get("/api/v1/products?productType=game_key,toaster"))
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.errors[0].parameter").value("productType"))
                 .andExpect(jsonPath("$.errors[0].code").value("unknown_value"));
     }
@@ -141,7 +141,7 @@ class StorefrontControllerTest {
     @Test
     void limitAboveMaximumIsRejected() throws Exception {
         mvc.perform(get("/api/v1/products?limit=101"))
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.errors[0].parameter").value("limit"))
                 .andExpect(jsonPath("$.errors[0].code").value("out_of_range"));
     }
@@ -149,7 +149,7 @@ class StorefrontControllerTest {
     @Test
     void lowercaseRegionIsRejected() throws Exception {
         mvc.perform(get("/api/v1/products?region=ru"))
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.errors[0].parameter").value("region"))
                 .andExpect(jsonPath("$.errors[0].code").value("invalid_format"));
     }
@@ -158,7 +158,7 @@ class StorefrontControllerTest {
     void cursorWithGarbageInsideIsRejected() throws Exception {
         String cursor = PageCursor.encode(Map.of("p", "вчера", "i", "не-uuid"));
         mvc.perform(get("/api/v1/products?cursor=" + cursor))
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.errors[0].parameter").value("cursor"))
                 .andExpect(jsonPath("$.errors[0].code").value("invalid_format"));
     }
@@ -166,7 +166,7 @@ class StorefrontControllerTest {
     @Test
     void allErrorsAreReportedTogether() throws Exception {
         mvc.perform(get("/api/v1/products?limit=0&region=ru&foo=1"))
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.errors.length()").value(3));
     }
 }

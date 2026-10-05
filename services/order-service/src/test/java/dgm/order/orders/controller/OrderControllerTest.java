@@ -95,7 +95,7 @@ class OrderControllerTest {
                 .andExpect(jsonPath("$.items.length()").value(1))
                 .andExpect(jsonPath("$.items[0].orderId").value(id(4).toString()));
         mvc.perform(as(buyer(BOB, "pwd"), "/api/v1/orders?buyerId=" + ALICE))
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.errors[0].code").value("unknown_value"));
     }
 
@@ -149,7 +149,7 @@ class OrderControllerTest {
     @Test
     void unknownStatusIsRejected() throws Exception {
         mvc.perform(as(buyer(ALICE, "pwd"), "/api/v1/orders?status=lost"))
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.errors[0].parameter").value("status"))
                 .andExpect(jsonPath("$.errors[0].code").value("unknown_value"));
     }
@@ -157,7 +157,7 @@ class OrderControllerTest {
     @Test
     void periodMustBeOrdered() throws Exception {
         mvc.perform(as(buyer(ALICE, "pwd"), "/api/v1/orders?createdFrom=2026-10-02T00:00:00Z&createdTo=2026-10-01T00:00:00Z"))
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.errors[0].parameter").value("createdFrom"))
                 .andExpect(jsonPath("$.errors[0].code").value("out_of_range"));
     }
@@ -165,7 +165,7 @@ class OrderControllerTest {
     @Test
     void badInstantIsRejected() throws Exception {
         mvc.perform(as(buyer(ALICE, "pwd"), "/api/v1/orders?createdFrom=вчера"))
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.errors[0].code").value("invalid_format"));
     }
 
@@ -187,7 +187,7 @@ class OrderControllerTest {
     @Test
     void cursorWithGarbageIsRejected() throws Exception {
         mvc.perform(as(buyer(ALICE, "pwd"), "/api/v1/orders?cursor=AAAA"))
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.errors[0].parameter").value("cursor"));
     }
 }
