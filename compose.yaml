@@ -90,7 +90,7 @@ services:
 
   redis:
     <<: *common
-    image: redis:8.2.10-alpine
+    image: redis:8.10.2-alpine
     profiles: [infra]
     user: "999:1000"
     entrypoint: ["/bin/sh", "/etc/dgm/redis/entrypoint.sh"]
