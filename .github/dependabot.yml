@@ -48,3 +48,11 @@ updates:
     commit-message:
       prefix: "build"
     labels: [dependencies, docker]
+    # Основную версию меняют отдельным решением (docs/09-operations/versions.md, раздел 5), поэтому такие запросы не нужны:
+    #  - PostgreSQL: DDL Ф2 и проверки Ф3 выполнены на 16.15; другая основная версия требует повторной проверки DDL, сортировки и миграции тома
+    #  - Tempo: версия 3 с новой архитектурой приёма данных на очереди для одного узла избыточна, одноузловой режим 3.x не проверялся
+    ignore:
+      - dependency-name: postgres
+        update-types: ["version-update:semver-major"]
+      - dependency-name: grafana/tempo
+        update-types: ["version-update:semver-major"]

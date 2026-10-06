@@ -62,7 +62,7 @@ PY
     healthcheck:" "      - redis_gateway
       - db_keycloak
     healthcheck:" "секрет db_keycloak"
-    mutate "образ с плавающим тегом" "image: redis:8.2.10-alpine" "image: redis:latest" "без точной версии"
+    mutate "образ с плавающим тегом" "image: redis:8.10.2-alpine" "image: redis:latest" "без точной версии"
     mutate "порт хранилища объектов опубликован на хост" "    profiles: [storage]
     user: \"10001:10001\"" "    profiles: [storage]
     ports: [\"9000:9000\"]

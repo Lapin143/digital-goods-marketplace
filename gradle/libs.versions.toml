@@ -6,13 +6,14 @@
 [versions]
 spring-boot = "4.1.1"
 spring-cloud = "2025.1.3"
-archunit = "1.4.2"
+archunit = "1.5.1"
 # Нижняя граница версии Tomcat: BOM Spring Boot 4.1.1 приносит 11.0.24, в ней найдены CVE-2026-65182 (обход ограничений доступа, CRITICAL) и ещё
 # уязвимости HIGH, исправлены в 11.0.25 (Trivy, шаг 17 Ф3). Ограничение в dgm.boot-app-conventions можно убрать, когда BOM принесёт 11.0.25 или выше.
 tomcat-security-floor = "11.0.25"
 # Нижняя граница версии Jackson 3: BOM Spring Boot 4.1.1 приносит 3.1.5 с пятью уязвимостями HIGH (CVE-2026-89407, -89425, -91776, -91777, -68497),
-# исправлены в 3.1.7 (Trivy, шаг 17 Ф3). Платформа подключается в dgm.boot-app-conventions; убрать, когда BOM Spring Boot принесёт 3.1.7 или выше.
-jackson-security-floor = "3.1.7"
+# исправлены в 3.1.7 (Trivy, шаг 17 Ф3); 6 октября 2026 года граница поднята до 3.2.3 по запросу Dependabot после зелёного CI.
+# Платформа подключается в dgm.boot-app-conventions; убрать, когда BOM Spring Boot принесёт эту версию или выше.
+jackson-security-floor = "3.2.3"
 
 [libraries]
 spring-boot-gradle-plugin = { module = "org.springframework.boot:spring-boot-gradle-plugin", version.ref = "spring-boot" }
