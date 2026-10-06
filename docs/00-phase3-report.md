@@ -17,7 +17,7 @@
 
 | Артефакт | Что получилось | Где лежит |
 | --- | --- | --- |
-| Версии и стек (D-4) | Java 25 LTS, Spring Boot 4.1.1, Spring Cloud 2025.1.3, Gradle 9.8.0, PostgreSQL 16.15, Redis 8.2.10, Kafka 4.3.1, Keycloak 26.8.0, Node 24. Тег каждого образа проверяет задание `images`. Нижние границы Tomcat 11.0.25 и Jackson 3.1.7 из-за уязвимостей в BOM Spring Boot | [versions.md](09-operations/versions.md), [ADR-023](05-architecture/adr/ADR-023-build-and-stack.md) |
+| Версии и стек (D-4) | Java 25 LTS, Spring Boot 4.1.1, Spring Cloud 2025.1.3, Gradle 9.8.0, PostgreSQL 16.15, Redis 8.2.10 (с 6 октября 2026 года 8.10.2), Kafka 4.3.1, Keycloak 26.8.0, Node 24. Тег каждого образа проверяет задание `images`. Нижние границы Tomcat 11.0.25 и Jackson 3.1.7 из-за уязвимостей в BOM Spring Boot | [versions.md](09-operations/versions.md), [ADR-023](05-architecture/adr/ADR-023-build-and-stack.md) |
 | CI | GitHub Actions: 16 заданий (`docs`, `build`, `pki`, `infra`, `storage`, `stubs`, `keycloak`, `services`, `kit`, `gateway`, `stand`, `obs`, `security`, `scan`, `images`, `publish`), диагностика через аннотации, самопроверки контролей, Dependabot, отдельный процесс для Gradle wrapper | [.github/workflows](../.github/workflows), [tools/ci/README.md](../tools/ci/README.md) |
 | Центр сертификации и секреты | Частный центр ECDSA P-256, сертификаты 90 дней, секреты случайные и уникальные, создаются командой `make certs secrets`, в Git не попадают | [infra/pki](../infra/pki), [ADR-022](05-architecture/adr/ADR-022-internal-traffic-encryption.md) |
 | Compose, профили, наборы | 22 контейнера, 8 профилей, 7 наборов (`dev-min`, `dev-platform`, `dev-auth`, `dev-purchase`, `full`, `full-obs`, `server`), отладочные порты отдельным файлом, `check_compose.py` сверяет файл с документами | [compose.yaml](../compose.yaml), [c4-deployment.md](05-architecture/c4-deployment.md) |
@@ -67,7 +67,7 @@
 
 | Решение | Суть | Почему так |
 | --- | --- | --- |
-| Версии (D-4) | Java 25 LTS, Spring Boot 4.1.1, Gradle 9.8.0, образы с точным тегом. Нижние границы Tomcat 11.0.25 и Jackson 3.1.7 заданы в каталоге версий | BOM Spring Boot 4.1.1 приносит Tomcat 11.0.24 (CVE-2026-65182, CRITICAL) и Jackson 3.1.5 (пять HIGH). Trivy блокирует образ с такой дырой, поэтому границы подняты, а не исключения |
+| Версии (D-4) | Java 25 LTS, Spring Boot 4.1.1, Gradle 9.8.0, образы с точным тегом. Нижние границы Tomcat 11.0.25 и Jackson 3.1.7 (с 6 октября 2026 года 3.2.3) заданы в каталоге версий | BOM Spring Boot 4.1.1 приносит Tomcat 11.0.24 (CVE-2026-65182, CRITICAL) и Jackson 3.1.5 (пять HIGH). Trivy блокирует образ с такой дырой, поэтому границы подняты, а не исключения |
 | Gradle, а не Maven | Kotlin DSL, `build-logic`, каталог версий, `-Werror`, один wrapper | В документах Ф2 сборщик назван по-разному ([ADR-023](05-architecture/adr/ADR-023-build-and-stack.md)). Gradle даёт кэш сборки и каталог версий как одну точку правды, общая логика сборки лежит в `build-logic` |
 | Код проверяет GitHub Actions | Песочница не запускает Docker и не достаёт Maven Central, поэтому компиляция, тесты и стенд проверяются только в CI, причина красного запуска читается из аннотаций | Единственный надёжный судья тут CI. Контроли сами проверяются самопроверками (`tools/ci/selftest.sh`): проверка, которая ни разу не сработала, ничего не гарантирует |
 | RustFS вместо MinIO | Один контейнер `object-storage` с тем же S3 API | MinIO архивирован в апреле 2026. Три кандидата сравнены спайком на раннере CI, запасной вариант SeaweedFS 4.48 ([ADR-024](05-architecture/adr/ADR-024-object-storage.md)) |
@@ -121,7 +121,8 @@
 | F3-14 | Образ `ubi9:9.8` (для curl в образе Keycloak) проверен только в CI, реестр `registry.access.redhat.com` недоступен из песочницы | Тег проверяет задание `images` (`docker manifest inspect`) |
 | F3-15 | Сторонние образы стенда содержат известные уязвимости (Kafka HIGH 25, PostgreSQL CRITICAL 1 и HIGH 28, Tempo HIGH 12 и другие) | Отчёт без блокировки: образы берутся точными тегами из линеек с поддержкой, обновляет Dependabot |
 | F3-16 | Сбои раннеров GitHub: запуск браузера для Mermaid в задании `docs` и «job was not acquired by Runner» | В проверку документов добавлено до трёх попыток при сбое запуска браузера, задание перезапускается кнопкой «Re-run failed jobs» |
-| F3-17 | Запрос Dependabot меняет версию образа в `compose.yaml`, а `versions.md` остаётся прежним, поэтому `check_compose.py` и задание `docs` на таком запросе краснеют по замыслу. Часть запросов меняет линейку (PostgreSQL 16 на 18, Tempo 2 на 3, Redis 8.2 на 8.10, Jackson 3.1 на 3.2) | Каждый запрос разбирается вручную: версия вносится в `versions.md` вместе с проверкой совместимости (раздел 8) |
+| F3-17 | Запрос Dependabot меняет версию образа в `compose.yaml`, а `versions.md` остаётся прежним, поэтому `check_compose.py` и задание `docs` на таком запросе краснеют по замыслу. Часть запросов меняет линейку (PostgreSQL 16 на 18, Tempo 2 на 3, Redis 8.2 на 8.10, Jackson 3.1 на 3.2) | Разобрано 6 октября 2026 (коммиты 64040ac, a5a62d6): шесть небольших обновлений (Redis 8.2.10 на 8.10.2, Prometheus 3.14.0 на 3.15.0, ArchUnit 1.5.1, Jackson 3.2.3, `actions/checkout` 7.0.1, `actions/setup-java` 6.0.1) внесены одним коммитом вместе с `versions.md`, полный CI зелёный (run 37428933804). Основные версии PostgreSQL 18 и Tempo 3 отклонены правилами `ignore` в `.github/dependabot.yml`. Дальше каждый запрос разбирается так же: версия вносится в `versions.md` и проходит полный CI |
+| F3-20 | Alertmanager один раз дошёл до 32 из 32 МБ (99%, правило 85%) в прогоне 37425133602, в повторном прогоне пик 20 МБ (62%), обычно 22–24 МБ. Контейнер не перезапускался | Замер на раннере шумит у малых лимитов. Если повторится, поднять лимит до 48 МБ и пересчитать бюджет набора `full-obs` в `memory-budget.md` |
 
 ### 5.2. Замечания для требований v1.6
 
@@ -228,7 +229,7 @@ X-Correlation-Id: тот же идентификатор в журналах ш�
 | 2 | Удалить из проекта Claude старый `Требования_маркетплейс_цифровых_товаров.docx` (v1.3) и `requirements_v1.4.md`, утвердить `requirements_v1.5.md` | Проект Claude |
 | 3 | Решить D-12: выпускать ли требования v1.6 (замечания в отчётах Ф1, Ф2 и раздел 5.2) | Ваше решение |
 | 4 | Удалить на GitHub ветки `probe/ci-feedback`, `ci/spike`, `ci/wrapper`, `ci/sandbox`, `probe/jars` | GitHub, Branches |
-| 5 | Разобрать 8 запросов Dependabot: `docs` на запросах с образами красный по замыслу (версия не внесена в `versions.md`), часть запросов меняет линейку (F3-17) | GitHub, Pull requests |
+| 5 | Закрыть на GitHub запросы Dependabot, если они не закрылись сами: шесть внесены в `main` (6 октября 2026), запросы на PostgreSQL 18 и Tempo 3 отклонены (F3-17). Ветки `dependabot/*` удаляются вместе с запросами | GitHub, Pull requests |
 | 6 | Сделать пакеты образов в GHCR публичными, если хотите, чтобы их мог скачать любой | GitHub, Packages |
 | 7 | Проверить процедуры runbook на стенде: первый администратор, сброс второго фактора в консоли Keycloak. Они описаны, но не выполнялись | [runbook.md](09-operations/runbook.md), раздел 2 |
 | 8 | Если нужен запуск сервиса из IDE на стороне Windows (JVM в Windows, проект по `\\wsl$`), проверить вариант: в Ф3 проверен вариант внутри WSL | [developer-guide.md](09-operations/developer-guide.md), раздел 10 |
