@@ -203,7 +203,8 @@ PY
       - grafana_secret_key" "подключён tls_ca.crt: сертификат ему не нужен"
     # 7б. Цепочка поставок: действие без хеша коммита, задание без срока, широкие права токена, небезопасная передача токена и пропавший Dependabot ловятся check_workflows.py.
     W=".github/workflows/ci.yml"
-    mutate_repo "check_workflows находит действие, закреплённое тегом, а не хешем" "$W" 'uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0' 'uses: actions/checkout@v4' \
+    # Строку с хешем берём из файла: версия действия меняется запросами Dependabot, и запись в самопроверке не должна отставать
+    mutate_repo "check_workflows находит действие, закреплённое тегом, а не хешем" "$W" "$(grep -m1 -oE 'uses: actions/checkout@[0-9a-f]{40} # v[0-9.]+' "$REPO/$W")" 'uses: actions/checkout@v4' \
       "закреплено не хешем коммита" tools/docs-checks/check_workflows.py
     mutate_repo "check_workflows находит задание без timeout-minutes" "$W" '  docs:
     runs-on: ubuntu-24.04
