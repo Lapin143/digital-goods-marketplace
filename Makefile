@@ -139,8 +139,8 @@ contract-check: ## Сверить ответы сервисов, записан�
 	python3 tools/stand-checks/check_contract.py
 
 .PHONY: services-check
-services-check: ## Проверить контейнеры сервисов Java: здоровье, память, журнал JSON, порты (подняты наборы dev-purchase и dev-platform)
-	python3 tools/stand-checks/check_services.py
+services-check: ## Проверить контейнеры сервисов Java: здоровье, память, журнал JSON, порты (подняты dev-purchase и dev-platform; с одним набором: make services-check S="catalog-service order-service")
+	python3 tools/stand-checks/check_services.py $(S)
 
 .PHONY: storage-init
 storage-init: ## Повторить инициализацию хранилища: бакет, политика, пароль учётной записи (хранилище поднято, профиль storage)
