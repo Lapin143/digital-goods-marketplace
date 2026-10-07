@@ -207,7 +207,7 @@ def up(profiles):
         if pct > 95:
             over.append('%s %.0f%%' % (o['Name'], pct))
     print('  Всего %.0f МиБ' % total)
-    expect('ни один контейнер не занял больше 95%% лимита после запуска', not over, over)
+    expect('ни один контейнер не занял больше 95% лимита после запуска', not over, over)
     if os.environ.get('GITHUB_ACTIONS'):
         print('::notice title=память набора %s::всего %.0f МиБ по docker stats' % (profiles.replace(',', '+'), total))
 
