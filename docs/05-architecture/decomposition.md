@@ -5,7 +5,7 @@
 | Документ | Как 12 контекстов Ф1 раскладываются по сервисам релиза R1 и что добавляют R2 и R3 |
 | Фаза | Ф2, шаг 2 |
 | Решение | [ADR-002](adr/ADR-002-microservices-consolidation.md) |
-| Входные данные | [bounded-contexts.md](../04-domain/bounded-contexts.md), [domain-model.md](../04-domain/domain-model.md), [требования v1.5](../02-requirements/requirements_v1.5.md): разделы 2.1, 2.2, 5, 8.1 и 8.2 |
+| Входные данные | [bounded-contexts.md](../04-domain/bounded-contexts.md), [domain-model.md](../04-domain/domain-model.md), [требования v1.6](../02-requirements/requirements_v1.6.md): разделы 2.1, 2.2, 5, 8.1 и 8.2 |
 | Следующий документ | [c4-containers.md](c4-containers.md): диаграммы контейнеров |
 
 ## 1. Что решаем

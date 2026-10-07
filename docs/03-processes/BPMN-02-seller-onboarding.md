@@ -93,6 +93,6 @@
 
 ## Связанные документы
 
-- [Требования v1.5](../02-requirements/requirements_v1.5.md), разделы 4.1, 4.2
+- [Требования v1.6](../02-requirements/requirements_v1.6.md), разделы 4.1, 4.2
 - [Глоссарий](../01-vision/glossary.md)
 - [Видение](../01-vision/vision.md): цели BG-02 и BG-05

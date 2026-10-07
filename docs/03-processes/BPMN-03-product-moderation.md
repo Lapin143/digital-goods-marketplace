@@ -92,6 +92,6 @@
 
 ## Связанные документы
 
-- [Требования v1.5](../02-requirements/requirements_v1.5.md), разделы 4.3, 4.4, 4.11
+- [Требования v1.6](../02-requirements/requirements_v1.6.md), разделы 4.3, 4.4, 4.11
 - [Глоссарий](../01-vision/glossary.md)
 - [Видение](../01-vision/vision.md): цель BG-05

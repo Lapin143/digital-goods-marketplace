@@ -26,7 +26,7 @@
 
 ## С чего начать читать
 
-1. [Требования v1.5](02-requirements/requirements_v1.5.md): что и зачем строим.
+1. [Требования v1.6](02-requirements/requirements_v1.6.md): что и зачем строим.
 2. [План проекта](00-project-plan.md): в каком порядке и какими средствами.
 3. Процессы и статусные модели в `03-processes/`: как работает бизнес.
 4. Архитектура и ADR в `05-architecture/`: как устроена система и почему именно так. Начать удобно с [c4-containers.md](05-architecture/c4-containers.md) и [ADR-002](05-architecture/adr/ADR-002-microservices-consolidation.md).

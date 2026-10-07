@@ -3,7 +3,7 @@
 | Поле | Содержание |
 | --- | --- |
 | Документ | Логическая ER-диаграмма маркетплейса цифровых товаров |
-| Источники | [Доменная модель](domain-model.md), раздел 6.1 [требований v1.5](../02-requirements/requirements_v1.5.md), статусные модели SM-01 … SM-11 |
+| Источники | [Доменная модель](domain-model.md), раздел 6.1 [требований v1.6](../02-requirements/requirements_v1.6.md), статусные модели SM-01 … SM-11 |
 | Релиз | R1 полностью, сущности R2 и R3 помечены в доменной модели |
 | Связанные документы | [Bounded contexts](bounded-contexts.md), [Доменная модель](domain-model.md) |
 
@@ -491,5 +491,5 @@ erDiagram
 
 - [Доменная модель](domain-model.md): атрибуты, инварианты, решения
 - [Bounded contexts](bounded-contexts.md): границы, события, вызовы
-- [Требования v1.5](../02-requirements/requirements_v1.5.md): раздел 6.1
+- [Требования v1.6](../02-requirements/requirements_v1.6.md): раздел 6.1
 - [Статусные модели](../03-processes/README.md)
