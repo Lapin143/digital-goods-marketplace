@@ -18,6 +18,7 @@
 erDiagram
     ORDERS {
         uuid id PK
+        bigint number UK
         uuid buyer_id
         uuid seller_id
         uuid product_id
@@ -69,6 +70,7 @@ erDiagram
 | Столбец | Тип | Обязателен | По умолчанию | Описание |
 | --- | --- | --- | --- | --- |
 | `id` | `uuid` | да |  | OrderID |
+| `number` | `bigint` | да | `автонумерация` | Короткий номер заказа для людей (FT-5.0, F10-5): целое число из последовательности базы, растёт по порядку, начинается с 1001, уникален; пропуски возможны. Его называют покупатель и оператор поддержки. Раскрывает общее число заказов, поэтому доступ к заказу проверяется по владельцу, а не по номеру; в адресах API остаётся OrderID |
 | `buyer_id` | `uuid` | да |  | BuyerID (пользователь, sub из Keycloak), чужая база, внешнего ключа нет |
 | `seller_id` | `uuid` | да |  | SellerID (профиль продавца) |
 | `product_id` | `uuid` | да |  | ProductID |
@@ -97,6 +99,7 @@ erDiagram
 | Имя | Вид | Определение |
 | --- | --- | --- |
 | `pk_orders` | первичный ключ | `PRIMARY KEY (id)` |
+| `uq_orders_number` | уникальность | `UNIQUE (number)` |
 | `ck_orders_amount` | проверка | `CHECK (((amount = (unit_price * quantity)) AND (amount <= '9007199254740991'::bigint)))` |
 | `ck_orders_awaiting_payment` | проверка | `CHECK (((status <> 'awaiting_payment'::text) OR ((reserve_until IS NOT NULL) AND (session_until IS NOT NULL) AND (payment_session_url IS NOT NULL))))` |
 | `ck_orders_cancel_reason` | проверка | `CHECK ((cancel_reason = ANY (ARRAY['out_of_stock'::text, 'payment_declined'::text, 'reservation_expired'::text, 'payment_session_failed'::text, 'system_error'::text, 'seller_api_timeout'::text])))` |

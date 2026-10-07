@@ -237,8 +237,8 @@ select md5('u' || i)::uuid, 'user' || i || '@example.com',
        case when i <= 40 then (array['moderator', 'support-operator', 'admin', 'seller'])[1 + i % 4] else 'buyer' end,
        i <= 40, decode(md5('salt' || i), 'hex'), 'active', now() - i * interval '5 minutes', now()
 from generate_series(1, {nu}) i;
-insert into support.order_view (order_id, buyer_id, order_status, issued_at, delivery_status, delivery_updated_at, updated_at)
-select md5('o' || i)::uuid, md5('u' || (1 + i % 30000))::uuid, 'issued', now() - i * interval '3 minutes', 'delivered', now(), now()
+insert into support.order_view (order_id, order_number, buyer_id, order_status, issued_at, delivery_status, delivery_updated_at, updated_at)
+select md5('o' || i)::uuid, 1000 + i, md5('u' || (1 + i % 30000))::uuid, 'issued', now() - i * interval '3 minutes', 'delivered', now(), now()
 from generate_series(1, {nv}) i;
 insert into support.ticket (id, order_id, buyer_id, source, reason, operator_id, status, taken_at, resolved_at, resolved_by,
     created_at, updated_at)
@@ -392,6 +392,9 @@ def build_queries():
       "select id from orders.orders where status = 'awaiting_payment' and reserve_until < now() - interval '5 minutes'", ['ix_orders_awaiting_reserve_until'])
     Q(o, 'O-06', 'INV-44 замена адресов покупателя при анонимизации',
       "update orders.orders set delivery_address = 'anonymized@invalid' where buyer_id = %s" % U('u', 700), ['ix_orders_buyer_id'])
+    Q(o, 'O-07', 'FT-5.1 число неоплаченных заказов покупателя (лимит orders.max-unpaid)',
+      "select count(*) from orders.orders where buyer_id = %s and status in ('created', 'awaiting_payment')" % U('u', 700), ['ix_orders_buyer_id'])
+    Q(o, 'O-08', 'FT-5.0 заказ по короткому номеру (оператор поддержки)', "select * from orders.orders where number = 1001 + 12345", ['uq_orders_number'])
 
     p = 'payment_db'
     Q(p, 'P-01', 'FT-6.1 платёж по заказу', "select * from payments.payment where order_id = %s" % U('o', 12345), ['uq_payment_order_id'])
@@ -458,6 +461,7 @@ def build_queries():
     Q(f, 'F-12', 'INV-21 открытое обращение по заказу',
       "select id from support.ticket where order_id = %s and status in ('created', 'in_progress')" % U('o', 700), ['uq_ticket_order_id_open', 'ix_ticket_order_id'])
     Q(f, 'F-13', 'INV-22 заказ в модели чтения поддержки', "select * from support.order_view where order_id = %s" % U('o', 700), ['pk_order_view'])
+    Q(f, 'F-25', 'FT-5.0 заказ в модели чтения поддержки по короткому номеру', "select * from support.order_view where order_number = 1700", ['uq_order_view_order_number'])
     Q(f, 'F-14', 'Отправитель уведомлений',
       "select id from notification.notification where status = 'queued' and next_attempt_at <= now() order by next_attempt_at, id limit 50 for update skip locked",
       ['ix_notification_dispatch'], True)

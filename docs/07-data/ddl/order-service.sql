@@ -131,6 +131,7 @@ comment on schema orders is 'Модуль orders: заказ и его сним�
 
 create table orders.orders (
     id                  uuid        not null,
+    number              bigint      generated always as identity (start with 1001),
     buyer_id            uuid        not null,
     seller_id           uuid        not null,
     product_id          uuid        not null,
@@ -154,6 +155,8 @@ create table orders.orders (
     created_at          timestamptz not null default now(),
     updated_at          timestamptz not null default now(),
     constraint pk_orders primary key (id),
+    -- FT-5.0: короткий номер для людей, уникален; пропуски допустимы (откат транзакции не возвращает номер)
+    constraint uq_orders_number unique (number),
     constraint ck_orders_status check (status in ('created', 'awaiting_payment', 'paid', 'issued', 'cancelled', 'refunded')),
     -- INV-10
     constraint ck_orders_quantity check (quantity between 1 and 10),
@@ -192,6 +195,7 @@ create table orders.orders (
 );
 comment on table orders.orders is 'Заказ: покупка одного товара одного продавца в количестве 1..10, оплачивается одним платежом (INV-11). Хранит снимки цены, комиссии, названия, адреса';
 comment on column orders.orders.id is 'OrderID';
+comment on column orders.orders.number is 'Короткий номер заказа для людей (FT-5.0, F10-5): целое число из последовательности базы, растёт по порядку, начинается с 1001, уникален; пропуски возможны. Его называют покупатель и оператор поддержки. Раскрывает общее число заказов, поэтому доступ к заказу проверяется по владельцу, а не по номеру; в адресах API остаётся OrderID';
 comment on column orders.orders.buyer_id is 'BuyerID (пользователь, sub из Keycloak), чужая база, внешнего ключа нет';
 comment on column orders.orders.seller_id is 'SellerID (профиль продавца)';
 comment on column orders.orders.product_id is 'ProductID';
@@ -234,7 +238,7 @@ create trigger trg_orders_status_transition before update of status on orders.or
         'created>awaiting_payment', 'created>cancelled', 'awaiting_payment>paid', 'awaiting_payment>cancelled',
         'cancelled>paid', 'cancelled>refunded', 'paid>issued');
 
--- Снимки неизменны (INV-12, INV-13), первая выдача фиксируется один раз (INV-17)
+-- Снимки и номер неизменны (INV-12, INV-13), первая выдача фиксируется один раз (INV-17)
 create function orders.orders_immutable() returns trigger
 language plpgsql as
 $fn$
@@ -242,6 +246,7 @@ begin
     if new.id is distinct from old.id
        or new.buyer_id is distinct from old.buyer_id
        or new.seller_id is distinct from old.seller_id
+       or new.number is distinct from old.number
        or new.product_id is distinct from old.product_id
        or new.product_title is distinct from old.product_title
        or new.quantity is distinct from old.quantity
@@ -251,7 +256,7 @@ begin
        or new.commission is distinct from old.commission
        or new.currency is distinct from old.currency
        or new.created_at is distinct from old.created_at then
-        raise exception 'снимки заказа (товар, цена, количество, комиссия) не меняются' using errcode = '23514', constraint = 'ck_orders_snapshot_immutable';
+        raise exception 'снимки заказа (номер, товар, цена, количество, комиссия) не меняются' using errcode = '23514', constraint = 'ck_orders_snapshot_immutable';
     end if;
     if old.issued_at is not null and new.issued_at is distinct from old.issued_at then
         raise exception 'дата первой выдачи фиксируется один раз' using errcode = '23514', constraint = 'ck_orders_issued_at_once';

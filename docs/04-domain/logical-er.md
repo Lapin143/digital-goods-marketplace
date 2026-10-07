@@ -205,6 +205,7 @@ erDiagram
     }
     ORDER["Заказ"] {
         id id PK "идентификатор"
+        number number UK "короткий номер заказа для людей (FT-5.0)"
         id buyer_id FK "покупатель"
         id seller_id FK "продавец"
         id product_id FK "товар"

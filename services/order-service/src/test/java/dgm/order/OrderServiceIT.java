@@ -133,6 +133,7 @@ class OrderServiceIT {
         Response response = gateway.get("/api/v1/orders?status=issued", StandHttp.bearer(buyer(BUYER_A)));
         Map<?, ?> order = first(response);
         assertEquals(O301, order.get("orderId"));
+        assertEquals(1001, ((Number) order.get("orderNumber")).intValue());   // первый заказ тестовых данных получает первый номер последовательности (FT-5.0)
         assertEquals("issued", order.get("status"));
         assertEquals(2, ((Number) order.get("quantity")).intValue());
         assertEquals(149_900, ((Number) ((Map<?, ?>) order.get("unitPrice")).get("amount")).intValue());

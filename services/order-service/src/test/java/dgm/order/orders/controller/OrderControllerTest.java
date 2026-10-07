@@ -51,9 +51,9 @@ class OrderControllerTest {
 
     @BeforeEach
     void setUp() {
-        Order paid = new Order(id(3), id(1003), "Игра", 1, 1_499_00L, 1_499_00L, "RUB", "paid", Optional.empty(), "email", "buyer@mail.example",
+        Order paid = new Order(id(3), 1003L, id(1003), "Игра", 1, 1_499_00L, 1_499_00L, "RUB", "paid", Optional.empty(), "email", "buyer@mail.example",
                 Optional.empty(), Optional.empty(), T0.plusSeconds(120), Optional.of(T0.plusSeconds(150)), Optional.empty());
-        Order cancelled = new Order(id(2), id(1002), "Подписка", 2, 500_00L, 1_000_00L, "RUB", "cancelled", Optional.of("payment_timeout"), "email",
+        Order cancelled = new Order(id(2), 1002L, id(1002), "Подписка", 2, 500_00L, 1_000_00L, "RUB", "cancelled", Optional.of("payment_timeout"), "email",
                 "buyer@mail.example", Optional.of(T0.plusSeconds(900)), Optional.of(T0.plusSeconds(1800)), T0.plusSeconds(60), Optional.empty(),
                 Optional.empty());
         orders = new FakeOrders().with(ALICE, order(1, "issued", T0), cancelled, paid).with(BOB, order(4, "paid", T0.plusSeconds(30)));
@@ -68,6 +68,7 @@ class OrderControllerTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.items.length()").value(3))
                 .andExpect(jsonPath("$.items[0].orderId").value(id(3).toString()))
+                .andExpect(jsonPath("$.items[0].orderNumber").value(1003))
                 .andExpect(jsonPath("$.items[0].status").value("paid"))
                 .andExpect(jsonPath("$.items[0].total.amount").value(149_900))
                 .andExpect(jsonPath("$.items[0].unitPrice.currency").value("RUB"))

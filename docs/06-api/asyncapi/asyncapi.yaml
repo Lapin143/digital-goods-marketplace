@@ -3493,6 +3493,7 @@ components:
           correlationid: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
           data:
             orderId: 0199c2a4-5e10-7a3b-9c1d-2f4e6a8b0c1d
+            orderNumber: 1042
             buyerId: 3f8e1d52-7b6a-4c90-8d21-5a9b0e7c4f13
             sellerId: 0199b7e0-1a22-7f10-8b3c-6d5e4f3a2b10
             productId: 0199b8f1-2c33-7a20-9c4d-7e6f5a4b3c21
@@ -3568,6 +3569,7 @@ components:
           correlationid: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
           data:
             orderId: 0199c2a4-5e10-7a3b-9c1d-2f4e6a8b0c1d
+            orderNumber: 1042
             buyerId: 3f8e1d52-7b6a-4c90-8d21-5a9b0e7c4f13
             sellerId: 0199b7e0-1a22-7f10-8b3c-6d5e4f3a2b10
             productId: 0199b8f1-2c33-7a20-9c4d-7e6f5a4b3c21
@@ -3706,6 +3708,7 @@ components:
           correlationid: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
           data:
             orderId: 0199c2a4-5e10-7a3b-9c1d-2f4e6a8b0c1d
+            orderNumber: 1042
             buyerId: 3f8e1d52-7b6a-4c90-8d21-5a9b0e7c4f13
             sellerId: 0199b7e0-1a22-7f10-8b3c-6d5e4f3a2b10
             productId: 0199b8f1-2c33-7a20-9c4d-7e6f5a4b3c21
@@ -6919,6 +6922,7 @@ components:
       additionalProperties: false
       required:
       - orderId
+      - orderNumber
       - buyerId
       - sellerId
       - productId
@@ -6933,6 +6937,11 @@ components:
           type: string
           format: uuid
           description: Идентификатор заказа
+        orderNumber:
+          type: integer
+          format: int64
+          minimum: 1001
+          description: Короткий номер заказа для людей и оператора поддержки (FT-5.0), не идентификатор
         buyerId:
           type: string
           format: uuid
@@ -6985,6 +6994,7 @@ components:
       additionalProperties: false
       required:
       - orderId
+      - orderNumber
       - buyerId
       - sellerId
       - productId
@@ -7000,6 +7010,11 @@ components:
           type: string
           format: uuid
           description: Идентификатор заказа
+        orderNumber:
+          type: integer
+          format: int64
+          minimum: 1001
+          description: Короткий номер заказа для людей и оператора поддержки (FT-5.0), не идентификатор
         buyerId:
           type: string
           format: uuid
@@ -7109,6 +7124,7 @@ components:
       additionalProperties: false
       required:
       - orderId
+      - orderNumber
       - buyerId
       - sellerId
       - productId
@@ -7121,6 +7137,11 @@ components:
           type: string
           format: uuid
           description: Идентификатор заказа
+        orderNumber:
+          type: integer
+          format: int64
+          minimum: 1001
+          description: Короткий номер заказа для людей и оператора поддержки (FT-5.0), не идентификатор
         buyerId:
           type: string
           format: uuid

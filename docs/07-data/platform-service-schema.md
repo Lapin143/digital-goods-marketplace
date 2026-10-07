@@ -97,6 +97,7 @@ erDiagram
     }
     ORDER_VIEW {
         uuid order_id PK
+        bigint order_number UK
         uuid buyer_id
         text order_status
         timestamptz issued_at
@@ -417,13 +418,14 @@ erDiagram
 
 ### support.order_view
 
-Копия данных заказа для поддержки: покупатель, время первичной выдачи (окно 72 часа, INV-22) и статус выдачи. Источник истины: order-service и delivery-service.
+Копия данных заказа для поддержки: номер заказа, покупатель, время первичной выдачи (окно 72 часа, INV-22) и статус выдачи. Источник истины: order-service и delivery-service.
 
 **Столбцы**
 
 | Столбец | Тип | Обязателен | По умолчанию | Описание |
 | --- | --- | --- | --- | --- |
 | `order_id` | `uuid` | да |  | OrderID |
+| `order_number` | `bigint` | да |  | Короткий номер заказа из события order.issued (FT-5.0): по нему оператор находит обращение, не вводя UUID. Уникален, как в order-service |
 | `buyer_id` | `uuid` | да |  | BuyerID: обращение создаёт только покупатель заказа |
 | `order_status` | `text` | да |  | Статус заказа по SM-01 из последнего события |
 | `issued_at` | `timestamp with time zone` | нет |  | Время первичной выдачи из order.issued: от него считается окно 72 часа |
@@ -436,7 +438,9 @@ erDiagram
 | Имя | Вид | Определение |
 | --- | --- | --- |
 | `pk_order_view` | первичный ключ | `PRIMARY KEY (order_id)` |
+| `uq_order_view_order_number` | уникальность | `UNIQUE (order_number)` |
 | `ck_order_view_delivery_status` | проверка | `CHECK ((delivery_status = ANY (ARRAY['queued'::text, 'sent'::text, 'delivered'::text, 'failed'::text])))` |
+| `ck_order_view_order_number` | проверка | `CHECK ((order_number >= 1))` |
 | `ck_order_view_order_status` | проверка | `CHECK ((order_status = ANY (ARRAY['created'::text, 'awaiting_payment'::text, 'paid'::text, 'issued'::text, 'cancelled'::text, 'refunded'::text])))` |
 
 ### support.ticket

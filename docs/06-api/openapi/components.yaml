@@ -262,6 +262,7 @@ components:
           - request-in-progress
           - product-unavailable
           - insufficient-stock
+          - unpaid-orders-limit
           - ticket-window-closed
           - ticket-already-open
           - application-pause-active
@@ -308,7 +309,7 @@ components:
           minimum: 0
         limit:
           type: integer
-          description: Предел, для `pool-limit-exceeded`
+          description: Предел, для `pool-limit-exceeded` (ключей в пуле) и `unpaid-orders-limit` (неоплаченных заказов)
           minimum: 0
       required:
       - type
@@ -994,8 +995,8 @@ components:
                 detail: Подтвердите номер телефона перед первым заказом.
                 code: phone-not-confirmed
                 correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
-    E409RequestInProgressProductUnavailableInsufficientStock:
-      description: Запрос уже выполняется; Товар недоступен; Недостаточно ключей
+    E409RequestInProgressProductUnavailableInsufficientStockUnpaidOrdersLimit:
+      description: Запрос уже выполняется; Товар недоступен; Недостаточно ключей; Слишком много неоплаченных заказов
       headers:
         X-Correlation-Id:
           $ref: '#/components/headers/CorrelationId'
@@ -1034,6 +1035,16 @@ components:
                 code: insufficient-stock
                 correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
                 available: 2
+            unpaid-orders-limit:
+              summary: Слишком много неоплаченных заказов
+              value:
+                type: https://api.marketplace.example/problems/unpaid-orders-limit
+                title: Слишком много неоплаченных заказов
+                status: 409
+                detail: Оплатите или отмените прежние заказы, затем оформите новый.
+                code: unpaid-orders-limit
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                limit: 3
     E503PaymentSessionUnavailableDependencyUnavailable:
       description: Не удалось открыть оплату; Сервис временно недоступен
       headers:

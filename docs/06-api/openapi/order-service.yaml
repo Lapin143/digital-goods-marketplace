@@ -24,7 +24,7 @@ paths:
       operationId: createOrder
       summary: Оформить заказ
       description: |-
-        Создаёт заказ одного товара и ведёт покупателя к оплате: запрашивает карточку товара у каталога, резервирует ключи (по умолчанию 15 минут), фиксирует цену, комиссию и снимок e-mail, открывает платёжную сессию (по умолчанию 12 минут). Всё выполняется в одном запросе, цель 1 секунда при 95-м перцентиле (US-5.1). Ответ 201 содержит заказ в статусе `awaiting_payment` и платёжную сессию. Количество от 1 до 10 (INV-10), иначе 422. Нужен подтверждённый телефон (U2): иначе 403 `phone-not-confirmed`, и интерфейс запускает подтверждение (US-1.6). Товар не опубликован или заблокирован даёт 409 `product-unavailable`, нехватка ключей 409 `insufficient-stock` с `available`. Если платёжный шлюз не ответил за 7 секунд, резерв снимается, заказ отменяется с причиной `payment_session_failed`, ответ 503 `payment-session-unavailable` (E12). Повтор с тем же `Idempotency-Key` возвращает тот же заказ и ту же платёжную сессию. Ограничение шлюза: 10 запросов в минуту на пользователя.
+        Создаёт заказ одного товара и ведёт покупателя к оплате: запрашивает карточку товара у каталога, резервирует ключи (по умолчанию 15 минут), фиксирует цену, комиссию и снимок e-mail, открывает платёжную сессию (по умолчанию 12 минут). Всё выполняется в одном запросе, цель 1 секунда при 95-м перцентиле (US-5.1). Ответ 201 содержит заказ в статусе `awaiting_payment` и платёжную сессию. Количество от 1 до 10 (INV-10), иначе 422. Нужен подтверждённый телефон (U2): иначе 403 `phone-not-confirmed`, и интерфейс запускает подтверждение (US-1.6). Товар не опубликован или заблокирован даёт 409 `product-unavailable`, нехватка ключей 409 `insufficient-stock` с `available`. Если у покупателя уже столько неоплаченных заказов («создан» и «ожидает оплаты»), сколько задаёт параметр платформы `orders.max-unpaid` (по умолчанию 3), ответ 409 `unpaid-orders-limit` с `limit`, заказ не создаётся и резерв не берётся (FT-5.1, T-12). Если платёжный шлюз не ответил за 7 секунд, резерв снимается, заказ отменяется с причиной `payment_session_failed`, ответ 503 `payment-session-unavailable` (E12). Повтор с тем же `Idempotency-Key` возвращает тот же заказ и ту же платёжную сессию. Ограничение шлюза: 10 запросов в минуту на пользователя.
 
         Матрица прав: OP-50. Истории: US-5.1, US-4.6.
       tags:
@@ -71,6 +71,7 @@ paths:
                 $ref: '#/components/schemas/OrderWithPaymentSession'
               example:
                 orderId: 0199e0a0-0000-7000-8000-000000000301
+                orderNumber: 1042
                 productId: 0199e0a0-0000-7000-8000-000000000201
                 productTitle: 'Лунная тропа: ключ Steam'
                 quantity: 2
@@ -101,7 +102,7 @@ paths:
         '403':
           $ref: components.yaml#/components/responses/E403ForbiddenFullLoginRequiredPhoneNotConfirmed
         '409':
-          $ref: components.yaml#/components/responses/E409RequestInProgressProductUnavailableInsufficientStock
+          $ref: components.yaml#/components/responses/E409RequestInProgressProductUnavailableInsufficientStockUnpaidOrdersLimit
         '415':
           $ref: components.yaml#/components/responses/E415UnsupportedMediaType
         '422':
@@ -174,6 +175,7 @@ paths:
               example:
                 items:
                 - orderId: 0199e0a0-0000-7000-8000-000000000301
+                  orderNumber: 1042
                   productId: 0199e0a0-0000-7000-8000-000000000201
                   productTitle: 'Лунная тропа: ключ Steam'
                   quantity: 2
@@ -327,6 +329,7 @@ paths:
                 $ref: '#/components/schemas/Order'
               example:
                 orderId: 0199e0a0-0000-7000-8000-000000000301
+                orderNumber: 1042
                 productId: 0199e0a0-0000-7000-8000-000000000201
                 productTitle: 'Лунная тропа: ключ Steam'
                 quantity: 2
@@ -482,6 +485,11 @@ components:
       properties:
         orderId:
           $ref: components.yaml#/components/schemas/Id
+        orderNumber:
+          type: integer
+          format: int64
+          description: 'Короткий номер заказа для людей (FT-5.0): растёт по порядку, уникален, с пропусками. Его называют покупатель и оператор поддержки. Раскрывает общее число заказов, поэтому доступ к заказу проверяется по владельцу, а в путях API остаётся `orderId`'
+          minimum: 1001
         productId:
           $ref: components.yaml#/components/schemas/Id
         productTitle:
@@ -532,6 +540,7 @@ components:
           - type: 'null'
       required:
       - orderId
+      - orderNumber
       - productId
       - productTitle
       - quantity

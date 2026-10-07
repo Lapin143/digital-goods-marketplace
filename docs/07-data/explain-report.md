@@ -57,7 +57,7 @@
 | C-03b | `catalog_db` | US-3.10 фильтр по редкому типу (подписки) | Index Scan по ix_product_published_type; Index Scan по pk_stock_view | верно |
 | C-04 | `catalog_db` | US-3.10 фильтр по редкой платформе | Index Scan по ix_product_published_platform; Index Scan по pk_stock_view | верно |
 | C-05 | `catalog_db` | US-3.10 фильтр по частой платформе | Index Scan по ix_product_published; Index Scan по pk_stock_view | верно |
-| C-06 | `catalog_db` | US-3.11 узкий диапазон цены | Sort 47 строк; Bitmap Index Scan по ix_product_published_price; Index Scan по pk_stock_view | верно |
+| C-06 | `catalog_db` | US-3.11 узкий диапазон цены | Sort 50 строк; Bitmap Index Scan по ix_product_published_price; Index Scan по pk_stock_view | верно |
 | C-07 | `catalog_db` | US-3.11 широкий диапазон цены | Index Scan по ix_product_published; Index Scan по pk_stock_view | верно |
 | C-08 | `catalog_db` | US-3.10 регион, частый (РФ, плюс товары без ограничений) | Index Scan по ix_product_published; Index Scan по pk_stock_view | верно |
 | C-09 | `catalog_db` | US-3.10 регион, редкий (Исландия, плюс товары без ограничений) | Index Scan по ix_product_published; Index Scan по pk_stock_view | верно |
@@ -79,7 +79,7 @@
 | I-06 | `inventory_db` | Подтверждение резерва по заказу | Index Scan по uq_reservation_order_id_active | верно |
 | I-07 | `inventory_db` | Сверка раз в минуту: резервы с прошедшим сроком | Index Scan по ix_reservation_expires_at_active | верно |
 | I-08 | `inventory_db` | ADR-013 последний резерв заказа | Index Scan по ix_reservation_order_id | верно |
-| I-09 | `inventory_db` | ADR-009 перешифровка значений старой версии ключа данных | Sort 1630 строк; Index Scan по ix_key_dek_id | верно |
+| I-09 | `inventory_db` | ADR-009 перешифровка значений старой версии ключа данных | Sort 1450 строк; Index Scan по ix_key_dek_id | верно |
 | I-10 | `inventory_db` | FT-4.1 проверка дублей при загрузке пачки | Index Only Scan по uq_key_product_id_hmac | верно |
 | I-11 | `inventory_db` | Реестр товара: владелец и способ выдачи | Index Scan по pk_product_copy | верно |
 | O-01 | `order_db` | US-5.9 история заказов покупателя | Sort 5 строк; Bitmap Index Scan по ix_orders_buyer_id | верно |
@@ -88,6 +88,8 @@
 | O-04 | `order_db` | Сторож: заказы created старше 60 секунд | Index Scan по ix_orders_created_watchdog | верно |
 | O-05 | `order_db` | Сторож: заказы awaiting_payment с истёкшим резервом | Index Scan по ix_orders_awaiting_reserve_until | верно |
 | O-06 | `order_db` | INV-44 замена адресов покупателя при анонимизации | Bitmap Index Scan по ix_orders_buyer_id | верно |
+| O-07 | `order_db` | FT-5.1 число неоплаченных заказов покупателя (лимит orders.max-unpaid) | Bitmap Index Scan по ix_orders_buyer_id | верно |
+| O-08 | `order_db` | FT-5.0 заказ по короткому номеру (оператор поддержки) | Index Scan по uq_orders_number | верно |
 | P-01 | `payment_db` | FT-6.1 платёж по заказу | Index Scan по uq_payment_order_id | верно |
 | P-02 | `payment_db` | FT-6.2 платёж по идентификатору из уведомления шлюза | Index Scan по uq_payment_gateway_payment_id | верно |
 | P-03 | `payment_db` | FT-6.4 платёж по идентификатору возврата | Index Scan по uq_payment_gateway_refund_id | верно |
@@ -104,7 +106,7 @@
 | D-03 | `delivery_db` | Выдачи заказа | Index Scan по ix_delivery_order_id | верно |
 | D-04 | `delivery_db` | INV-18 первичная выдача заказа | Index Scan по uq_delivery_order_id_primary | верно |
 | D-05 | `delivery_db` | INV-44 выдачи покупателя при анонимизации | Bitmap Index Scan по ix_delivery_buyer_id | верно |
-| D-06 | `delivery_db` | NFT-2.4 контроль доставки 30 минут | Sort 25 строк; Bitmap Index Scan по ix_delivery_watch_due | верно |
+| D-06 | `delivery_db` | NFT-2.4 контроль доставки 30 минут | Sort 15 строк; Bitmap Index Scan по ix_delivery_watch_due | верно |
 | D-07 | `delivery_db` | Попытки отправки выдачи | Index Scan по pk_delivery_attempt | верно |
 | D-08 | `delivery_db` | Статус письма от провайдера | Index Only Scan по pk_provider_status_event | верно |
 | F-01 | `platform_db` | US-8.1 пользователи, фильтр роли и статуса | Index Scan по ix_user_account_role | верно |
@@ -120,14 +122,15 @@
 | F-11 | `platform_db` | Обращения заказа | Index Scan по ix_ticket_order_id | верно |
 | F-12 | `platform_db` | INV-21 открытое обращение по заказу | Index Scan по uq_ticket_order_id_open | верно |
 | F-13 | `platform_db` | INV-22 заказ в модели чтения поддержки | Index Scan по pk_order_view | верно |
-| F-14 | `platform_db` | Отправитель уведомлений | Sort 6 строк; Bitmap Index Scan по ix_notification_dispatch | верно |
+| F-25 | `platform_db` | FT-5.0 заказ в модели чтения поддержки по короткому номеру | Index Scan по uq_order_view_order_number | верно |
+| F-14 | `platform_db` | Отправитель уведомлений | Index Scan по ix_notification_dispatch | верно |
 | F-15 | `platform_db` | Недоставленные письма | Index Scan по ix_notification_dead_queue | верно |
 | F-16 | `platform_db` | Уведомления пользователя | Index Scan по ix_notification_user_id | верно |
 | F-17 | `platform_db` | ADR-006 одно событие, одно письмо | Index Only Scan по uq_notification_source_event_id_template | верно |
 | F-18 | `platform_db` | US-8.7 журнал аудита без фильтров | Index Scan по audit_log_2026_10_occurred_at_id_idx; Index Scan по audit_log_2026_11_occurred_at_id_idx; Index Scan по audit_log_2026_12_occurred_at_id_idx; Index Scan по audit_log_2027_01_occurred_at_id_idx; Index Scan по audit_log_2027_02_occurred_at_id_idx; Index Scan по audit_log_2027_03_occurred_at_id_idx; Index Scan по audit_log_default_occurred_at_id_idx | верно |
 | F-19 | `platform_db` | US-8.7 журнал аудита за период | Index Scan по audit_log_2026_11_occurred_at_id_idx | верно |
 | F-20 | `platform_db` | US-8.7 журнал аудита по сотруднику | Index Scan по audit_log_2026_10_actor_id_occurred_at_id_idx; Index Scan по audit_log_2026_11_actor_id_occurred_at_id_idx; Index Scan по audit_log_2026_12_actor_id_occurred_at_id_idx; Index Scan по audit_log_2027_01_actor_id_occurred_at_id_idx; Index Scan по audit_log_2027_02_actor_id_occurred_at_id_idx; Index Scan по audit_log_2027_03_actor_id_occurred_at_id_idx; Index Scan по audit_log_default_actor_id_occurred_at_id_idx | верно |
-| F-21 | `platform_db` | US-8.7 журнал аудита по объекту | Index Scan по audit_log_2026_10_object_type_object_id_occurred_at_id_idx; Index Scan по audit_log_2026_11_object_type_object_id_occurred_at_id_idx; Index Scan по audit_log_2026_12_object_type_object_id_occurred_at_id_idx; Index Scan по audit_log_2027_01_object_type_object_id_occurred_at_id_idx; Index Scan по audit_log_2027_02_object_type_object_id_occurred_at_id_idx; Index Scan по audit_log_2027_03_object_type_object_id_occurred_at_id_idx; Index Scan по audit_log_default_object_type_object_id_occurred_at_id_idx | верно |
+| F-21 | `platform_db` | US-8.7 журнал аудита по объекту | Sort 13 строк; Index Scan по audit_log_2026_10_object_type_object_id_occurred_at_id_idx; Index Scan по audit_log_2026_11_object_type_object_id_occurred_at_id_idx; Index Scan по audit_log_2026_12_object_type_object_id_occurred_at_id_idx; Index Scan по audit_log_2027_01_object_type_object_id_occurred_at_id_idx; Index Scan по audit_log_2027_02_object_type_object_id_occurred_at_id_idx; Index Scan по audit_log_2027_03_object_type_object_id_occurred_at_id_idx; Seq Scan по audit_log_default | верно |
 | F-22 | `platform_db` | US-8.7 журнал аудита по виду действия | Index Scan по audit_log_2026_10_action_occurred_at_id_idx; Index Scan по audit_log_2026_11_action_occurred_at_id_idx; Index Scan по audit_log_2026_12_action_occurred_at_id_idx; Index Scan по audit_log_2027_01_action_occurred_at_id_idx; Index Scan по audit_log_2027_02_action_occurred_at_id_idx; Index Scan по audit_log_2027_03_action_occurred_at_id_idx; Index Scan по audit_log_default_action_occurred_at_id_idx | верно |
 | F-23 | `platform_db` | ADR-014 дубль события аудита | Index Only Scan по audit_log_2026_10_event_id_occurred_at_key | верно |
 | S-11 | `catalog_db` | ADR-005 публикатор outbox (catalog_db) | Index Scan по ix_outbox_unpublished | верно |

@@ -96,6 +96,7 @@ public class OrderController {
         delivery.put("masked", maskAddress);
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("orderId", o.id().toString());
+        row.put("orderNumber", o.number());
         row.put("productId", o.productId().toString());
         row.put("productTitle", o.productTitle());
         row.put("quantity", o.quantity());

@@ -28,7 +28,7 @@ public final class FakeOrders implements OrderRepository {
     }
 
     public static Order order(int n, String status, Instant createdAt) {
-        return new Order(id(n), id(1000 + n), "Товар " + n, 1, 1_000_00L, 1_000_00L, "RUB", status, Optional.empty(), "email", "buyer@mail.example",
+        return new Order(id(n), 1000L + n, id(1000 + n), "Товар " + n, 1, 1_000_00L, 1_000_00L, "RUB", status, Optional.empty(), "email", "buyer@mail.example",
                 Optional.empty(), Optional.empty(), createdAt, Optional.empty(), Optional.empty());
     }
 

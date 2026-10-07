@@ -126,6 +126,7 @@ entities:
     table: orders.orders
     attributes:
       id: id
+      number: number
       buyer_id: buyer_id
       seller_id: seller_id
       product_id: product_id

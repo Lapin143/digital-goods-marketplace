@@ -25,6 +25,7 @@ public enum ProblemType {
     REQUEST_IN_PROGRESS("request-in-progress", 409, "Запрос уже выполняется"),
     PRODUCT_UNAVAILABLE("product-unavailable", 409, "Товар недоступен"),
     INSUFFICIENT_STOCK("insufficient-stock", 409, "Недостаточно ключей"),
+    UNPAID_ORDERS_LIMIT("unpaid-orders-limit", 409, "Слишком много неоплаченных заказов"),
     TICKET_WINDOW_CLOSED("ticket-window-closed", 409, "Срок обращения истёк"),
     TICKET_ALREADY_OPEN("ticket-already-open", 409, "Обращение уже открыто"),
     APPLICATION_PAUSE_ACTIVE("application-pause-active", 409, "Повторная заявка пока недоступна"),

@@ -28,7 +28,7 @@ public final class JdbcOrderRepository implements OrderRepository {
 
     @Override
     public List<Order> findByBuyer(OrderFilter f) {
-        StringBuilder sql = new StringBuilder("select id, product_id, product_title, quantity, unit_price, amount, currency, status, "
+        StringBuilder sql = new StringBuilder("select id, number, product_id, product_title, quantity, unit_price, amount, currency, status, "
                 + "cancel_reason, delivery_channel, delivery_address, reserve_until, session_until, created_at, paid_at, issued_at "
                 + "from orders.orders where buyer_id = ?");
         List<Object> args = new ArrayList<>();
@@ -58,6 +58,7 @@ public final class JdbcOrderRepository implements OrderRepository {
     private static Order map(ResultSet rs) throws SQLException {
         return new Order(
                 rs.getObject("id", UUID.class),
+                rs.getLong("number"),
                 rs.getObject("product_id", UUID.class),
                 rs.getString("product_title"),
                 rs.getInt("quantity"),

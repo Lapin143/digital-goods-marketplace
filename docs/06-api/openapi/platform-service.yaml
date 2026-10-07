@@ -567,7 +567,7 @@ paths:
       operationId: listSupportTicketQueue
       summary: Очередь обращений оператора
       description: |-
-        Общая очередь двух источников (покупатель и система): обращения в статусе `created`, старые выше. Фильтр `status` принимает `created`, `in_progress` (свои обращения оператор находит по `operatorId`). Значений ключей в очереди нет. Число обращений в статусах `created` и `in_progress` совпадает с метрикой очереди (US-7.2, сценарий 5).
+        Общая очередь двух источников (покупатель и система): обращения в статусе `created`, старые выше. Фильтр `status` принимает `created`, `in_progress` (свои обращения оператор находит по `operatorId`), фильтр `orderNumber` находит обращения заказа по короткому номеру, который называет покупатель (US-7.2). Значений ключей в очереди нет. Число обращений в статусах `created` и `in_progress` совпадает с метрикой очереди (US-7.2, сценарий 5).
 
         Матрица прав: OP-71. Истории: US-7.2.
       tags:
@@ -599,6 +599,14 @@ paths:
         description: Обращения этого оператора
         schema:
           $ref: components.yaml#/components/schemas/Id
+      - name: orderNumber
+        in: query
+        required: false
+        description: Обращения заказа с этим коротким номером (FT-5.0), с любым статусом, если `status` не задан. Неизвестный номер даёт пустую страницу
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
       - $ref: components.yaml#/components/parameters/Limit
       - $ref: components.yaml#/components/parameters/Cursor
       responses:
@@ -617,6 +625,7 @@ paths:
                 items:
                 - ticketId: 0199e0a0-0000-7000-8000-000000000501
                   orderId: 0199e0a0-0000-7000-8000-000000000301
+                  orderNumber: 1042
                   buyerId: 7e1c3a95-2d4f-4b68-9a0c-8b6d4f2a1e53
                   source: buyer
                   reason: key_not_received
@@ -688,6 +697,7 @@ paths:
               example:
                 ticketId: 0199e0a0-0000-7000-8000-000000000501
                 orderId: 0199e0a0-0000-7000-8000-000000000301
+                orderNumber: 1042
                 buyerId: 7e1c3a95-2d4f-4b68-9a0c-8b6d4f2a1e53
                 source: buyer
                 reason: key_not_received
@@ -759,6 +769,7 @@ paths:
               example:
                 ticketId: 0199e0a0-0000-7000-8000-000000000501
                 orderId: 0199e0a0-0000-7000-8000-000000000301
+                orderNumber: 1042
                 buyerId: 7e1c3a95-2d4f-4b68-9a0c-8b6d4f2a1e53
                 source: buyer
                 reason: key_not_received
@@ -834,6 +845,7 @@ paths:
               example:
                 ticketId: 0199e0a0-0000-7000-8000-000000000501
                 orderId: 0199e0a0-0000-7000-8000-000000000301
+                orderNumber: 1042
                 buyerId: 7e1c3a95-2d4f-4b68-9a0c-8b6d4f2a1e53
                 source: buyer
                 reason: key_not_received
@@ -1453,6 +1465,16 @@ paths:
                   defaultValue: 720
                   minValue: 60
                   maxValue: 3599
+                  version: 3
+                  updatedAt: '2026-10-03T11:00:00.456Z'
+                  updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
+                - key: orders.max-unpaid
+                  description: 'Число одновременно неоплаченных заказов пользователя: «создан» и «ожидает оплаты» (FT-5.1, T-12)'
+                  unit: count
+                  value: 3
+                  defaultValue: 3
+                  minValue: 1
+                  maxValue: 20
                   version: 3
                   updatedAt: '2026-10-03T11:00:00.456Z'
                   updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
@@ -2152,6 +2174,11 @@ components:
           $ref: components.yaml#/components/schemas/Id
         orderId:
           $ref: components.yaml#/components/schemas/Id
+        orderNumber:
+          type: integer
+          format: int64
+          description: 'Короткий номер заказа из модели чтения поддержки (FT-5.0): по нему оператор находит заказ и обращение'
+          minimum: 1001
         buyerId:
           $ref: components.yaml#/components/schemas/Id
         source:
@@ -2201,6 +2228,7 @@ components:
       required:
       - ticketId
       - orderId
+      - orderNumber
       - buyerId
       - source
       - reason

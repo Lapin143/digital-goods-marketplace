@@ -251,6 +251,7 @@ comment on column support.email_change.updated_at is 'Последнее изм�
 -- Модель чтения заказа для окна 72 часа и статуса выдачи (по событиям order.issued и delivery.*)
 create table support.order_view (
     order_id            uuid        not null,
+    order_number        bigint      not null,
     buyer_id            uuid        not null,
     order_status        text        not null,
     issued_at           timestamptz,
@@ -258,11 +259,14 @@ create table support.order_view (
     delivery_updated_at timestamptz,
     updated_at          timestamptz not null default now(),
     constraint pk_order_view primary key (order_id),
+    constraint uq_order_view_order_number unique (order_number),
+    constraint ck_order_view_order_number check (order_number >= 1),
     constraint ck_order_view_order_status check (order_status in ('created', 'awaiting_payment', 'paid', 'issued', 'cancelled', 'refunded')),
     constraint ck_order_view_delivery_status check (delivery_status in ('queued', 'sent', 'delivered', 'failed'))
 );
-comment on table support.order_view is 'Копия данных заказа для поддержки: покупатель, время первичной выдачи (окно 72 часа, INV-22) и статус выдачи. Источник истины: order-service и delivery-service';
+comment on table support.order_view is 'Копия данных заказа для поддержки: номер заказа, покупатель, время первичной выдачи (окно 72 часа, INV-22) и статус выдачи. Источник истины: order-service и delivery-service';
 comment on column support.order_view.order_id is 'OrderID';
+comment on column support.order_view.order_number is 'Короткий номер заказа из события order.issued (FT-5.0): по нему оператор находит обращение, не вводя UUID. Уникален, как в order-service';
 comment on column support.order_view.buyer_id is 'BuyerID: обращение создаёт только покупатель заказа';
 comment on column support.order_view.order_status is 'Статус заказа по SM-01 из последнего события';
 comment on column support.order_view.issued_at is 'Время первичной выдачи из order.issued: от него считается окно 72 часа';
@@ -549,6 +553,7 @@ insert into audit_admin.platform_parameter (key, description, unit, value, defau
     ('commission.default-rate-bp',        'Комиссия по умолчанию, базисные пункты (200 это 2%). Фиксируется в заказе при создании', 'basis_points', 200, 200, 1, 3000),
     ('reservation.ttl-seconds',           'Время резерва ключей', 'seconds', 900, 900, 300, 3600),
     ('payment-session.ttl-seconds',       'Срок платёжной сессии, строго короче резерва (INV-07)', 'seconds', 720, 720, 60, 3599),
+    ('orders.max-unpaid',                 'Число одновременно неоплаченных заказов пользователя: «создан» и «ожидает оплаты» (FT-5.1, T-12)', 'count', 3, 3, 1, 20),
     ('support.window-seconds',            'Окно обращения «Не получил ключ» от первичной выдачи (FT-7.2)', 'seconds', 259200, 259200, 3600, 2592000),
     ('seller.reapplication-pause-seconds', 'Пауза после отказа продавцу перед новой заявкой (FT-2.4)', 'seconds', 86400, 86400, 3600, 604800),
     ('otp.requests-per-10-minutes',       'Запросов кода на учётную запись и номер за 10 минут (NFT-3.5)', 'count', 3, 3, 1, 20),

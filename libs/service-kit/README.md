@@ -6,7 +6,7 @@
 
 | Пакет `dgm.kit.` | Что делает | Основание |
 | --- | --- | --- |
-| `problem` | Реестр из 38 типов проблем (`ProblemType`), ответ `application/problem+json` (RFC 9457), `@ControllerAdvice` | conventions, раздел 9. Реестр сверяет `tools/docs-checks/check_kit.py` |
+| `problem` | Реестр из 39 типов проблем (`ProblemType`), ответ `application/problem+json` (RFC 9457), `@ControllerAdvice` | conventions, раздел 9. Реестр сверяет `tools/docs-checks/check_kit.py` |
 | `route` | Правила маршрутов из JSON (метод, путь, области, роли, запрет сессии по SMS, разрешённые вызывающие), `PathGuard` | Маршрута нет в контракте: 404. Пути с `;`, `%`, `//`, `\`, `..` и не ASCII: 400 |
 | `security` | `JwtFilter` (подпись, `iss`, `aud`, срок, области, роль, второй фактор, SMS-сессия), `CallerFilter` (CN сертификата), `JwtDecoders`, `AccessRules` | ADR-021, ADR-022. Нет токена или он неверен: 401, JWKS недоступен: 503, не хватает прав: 403 |
 | `trace` | `traceparent` и `X-Correlation-Id` в журнал и в исходящие вызовы | NFT-6.0 |

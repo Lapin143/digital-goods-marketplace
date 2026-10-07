@@ -390,6 +390,22 @@ def t_order_transitions():
     raises(c, ORD_INS.replace("'created'", "'created'") % (', status', q(uid()), q(uid()), q(uid()), q(uid()), 1, 100, 100, 200, 2, ", 'paid'"), '23514')   # начальный статус только created
 
 
+@test('orders: короткий номер выдаётся базой, растёт, уникален и неизменен; приложение не может задать его само', 'FT-5.0, F10-5')
+def t_order_number():
+    c = conn('order_db')
+    a, b = new_order(c), new_order(c)
+    na, nb = (int(c.scalar("select number from orders.orders where id = %s" % q(x))) for x in (a, b))
+    assert na >= 1001 and nb > na, (na, nb)
+    raises(c, "update orders.orders set number = 1 where id = %s" % q(a), '428C9')          # identity always: задать вручную нельзя
+    raises(c, "insert into orders.orders (id, number, buyer_id, seller_id, product_id, product_title, quantity, unit_price, amount, commission_rate_bp, commission, delivery_address) "
+              "values (%s, 5, %s, %s, %s, 'Игра', 1, 100, 100, 200, 2, 'buyer@example.com')" % (q(uid()), q(uid()), q(uid()), q(uid())), '428C9')
+    ok(c, "set role app_orders")
+    try:
+        new_order(c)                                                                       # роль приложения вставляет заказ без прав на последовательность
+    finally:
+        ok(c, "reset role")
+
+
 # --------------------------------------------------------------------------------------------- платежи
 def new_payment(c, order=None, status='created', extra_cols='', extra_vals=''):
     pid = uid()
