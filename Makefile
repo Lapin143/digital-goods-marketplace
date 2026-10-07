@@ -169,6 +169,10 @@ realm: ## Пересоздать файл realm Keycloak из генератор
 keycloak-users: ## Создать тестовых пользователей Keycloak: случайные пароли в secrets/test_users.json (поднято с DEBUG=1, профиль auth)
 	$(KC_ENV) python3 infra/keycloak/provision_test_users.py
 
+.PHONY: keycloak-console
+keycloak-console: ## Включить консоль администратора Keycloak в браузере: https://localhost:18445/auth/admin/ (поднято с DEBUG=1; вернуть как было: make keycloak-console OFF=1)
+	python3 infra/keycloak/enable_admin_console.py $(if $(OFF),--off)
+
 .PHONY: keycloak-reimport
 keycloak-reimport: ## Применить изменённый realm: удалить realm dgm и перезапустить Keycloak (пользователи пропадут; поднято с DEBUG=1)
 	$(KC_ENV) python3 infra/keycloak/reimport_realm.py
@@ -177,7 +181,7 @@ keycloak-reimport: ## Применить изменённый realm: удали�
 
 .PHONY: keycloak-test
 keycloak-test: ## Модульные тесты клиента входа Keycloak (сеть не нужна)
-	python3 -m unittest tools/stand-checks/test_kc_client.py
+	python3 -m unittest tools/stand-checks/test_kc_client.py tools/stand-checks/test_enable_admin_console.py
 
 .PHONY: keycloak-check
 keycloak-check: ## Проверить Keycloak: вход по ролям, второй фактор, сроки, перебор, VK ID, Argon2 (поднято с DEBUG=1, профили infra, stubs, auth)
