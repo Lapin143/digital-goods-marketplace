@@ -18,7 +18,7 @@
 | WSL2 с Ubuntu | Ubuntu 24.04 или новее (у автора 26.04) | Все команды `make` выполняются в Ubuntu, а не в PowerShell |
 | Docker Desktop | Движок WSL 2, интеграция с Ubuntu | Контейнеры стенда |
 | `make`, `git`, `curl`, `openssl` 3 и `python3` 3.12 или новее | Из пакетов Ubuntu 24.04 | Команды проекта, сертификаты, проверки (внешние пакеты Python не нужны, кроме проверок документов) |
-| JDK 25 (Temurin) | 25 | Только для наборов с Java: `purchase`, `platform`, `gateway`, и для `make build`, `make test`, `make kit-test`. Наборы `dev-min` и `dev-auth` без шлюза собираются без Java. В Ф1 записано «JDK локально не ставим»: с Ф3 это не так, Gradle запускается на хосте (в отчёте Ф3 предложена сборка в контейнере для Ф4) |
+| JDK 25 (Temurin или OpenJDK из пакетов Ubuntu) | 25 | Только для наборов с Java: `purchase`, `platform`, `gateway`, и для `make build`, `make test`, `make kit-test`. Наборы `dev-min` и `dev-auth` без шлюза собираются без Java. В Ф1 записано «JDK локально не ставим»: с Ф3 это не так, Gradle запускается на хосте (в отчёте Ф3 предложена сборка в контейнере для Ф4) |
 | Node.js | Не нужен | Заглушки внешних систем собираются из образа Node 24 |
 | AWS CLI v2 | Любая | Только для `make storage-check` |
 
@@ -65,7 +65,7 @@ sudo apt update
 sudo apt install -y make git curl openssl python3 unzip
 ```
 
-JDK 25 нужен для наборов с Java и сборки. Проще всего поставить Temurin 25 через SDKMAN (`sdk list java`, выбрать строку 25.x с `tem`, `sdk install java <идентификатор>`) или из пакетов Adoptium. Сборка Gradle сама JDK не скачивает: в `dgm.java-conventions` требуется ровно 25. Если JDK 25 нет, Gradle отвечает «No matching toolchains found» (runbook, раздел 4).
+JDK 25 нужен для наборов с Java и сборки. Проще всего поставить Temurin 25 через SDKMAN (`sdk list java`, выбрать строку 25.x с `tem`, `sdk install java <идентификатор>`) или из пакетов Adoptium. Сборка Gradle сама JDK не скачивает: в `dgm.java-conventions` требуется ровно 25. Если JDK 25 нет, Gradle отвечает «No matching toolchains found» (runbook, раздел 4). На Ubuntu 26.04 проверена установка из пакетов: `sudo apt install -y openjdk-25-jdk-headless` (версия 25.0.4.1), Gradle её принимает: в `dgm.java-conventions` задана только версия языка, поставщик не ограничен.
 
 ### 2.5. Клон внутри файловой системы WSL
 
@@ -123,6 +123,8 @@ make down                   # остановить, данные сохраня�
 | `full-obs` | `full` и стек наблюдаемости | 5936 | 3667 (сумма пиков), около 3000 в конце проверок | Сервер и CI |
 
 «Лимиты» это сумма `mem_limit` контейнеров, «замер» это сумма наибольших значений контейнеров за время проверок CI ([memory-measurements.md](memory-measurements.md), раздел 4). Решение о том, помещается ли набор, принимается по лимитам: так он гарантированно не выйдет за память.
+
+Замеры на ноутбуке (8 октября, WSL 3 ГБ): `dev-min` 493–537 МиБ, `dev-auth` 1348, `dev-purchase` 1492; после запуска `dev-purchase` в WSL остаётся около 780 МиБ доступной памяти, поэтому одновременно с ним сборку и IDE не запускайте. Набор `full` на ноутбуке с лимитом 3 ГБ не проверялся. Подробности в [memory-measurements.md](memory-measurements.md), раздел 4.1.
 
 Что запускать, по задачам:
 
