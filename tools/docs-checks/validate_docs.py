@@ -5,7 +5,7 @@
 import os, re, subprocess, sys, tempfile, glob, time
 
 REPO = os.environ.get('REPO') or os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
-REQ = os.path.join(REPO, 'docs/02-requirements/requirements_v1.5.md')
+REQ = os.path.join(REPO, 'docs/02-requirements/requirements_v1.6.md')
 HERE = os.path.dirname(os.path.abspath(__file__))
 PCFG = os.environ.get('MMDC_PUPPETEER_CONFIG') or os.path.join(HERE, 'puppeteer-config.json')
 
@@ -14,9 +14,9 @@ FT = set(re.findall(r'\|\s*(FT-\d+\.\d+)\s*\|', req_text))
 NFT = set(re.findall(r'\|\s*(NFT-\d+\.\d+)\s*\|', req_text))
 BG = set(re.findall(r'\|\s*(BG-\d+)\s*\|', req_text))
 
-# Известные исключения. Требования v1.4 и v1.5 выпущены раньше правила о тире и правке не подлежат.
+# Известные исключения. Требования v1.4 и v1.5 выпущены раньше правила о тире и правке не подлежат, v1.6 унаследовала их разметку.
 # В гайде Ф1 блок Mermaid приведён как пример разметки, а не как диаграмма проекта.
-DASH_OK = {'requirements_v1.4.md', 'requirements_v1.5.md'}
+DASH_OK = {'requirements_v1.4.md', 'requirements_v1.5.md', 'requirements_v1.6.md'}
 MERMAID_SKIP = {'00-phase1-guide.md'}
 
 problems = []

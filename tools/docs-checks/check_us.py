@@ -3,7 +3,7 @@
 import glob, os, re, sys
 
 D = os.path.join(os.environ.get('REPO') or os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')), 'docs')
-req = open(D + '/02-requirements/requirements_v1.5.md', encoding='utf-8').read()
+req = open(D + '/02-requirements/requirements_v1.6.md', encoding='utf-8').read()
 
 ft_rel = {}
 for m in re.finditer(r'^\|\s*(FT-\d+\.\d+)\s*\|.*\|\s*([^|]+?)\s*\|\s*$', req, re.M):

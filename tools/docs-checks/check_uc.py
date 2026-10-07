@@ -4,7 +4,7 @@ import glob, os, re, sys
 
 D = os.path.join(os.environ.get('REPO') or os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')), 'docs')
 RQ = D + '/02-requirements'
-req = open(RQ + '/requirements_v1.5.md', encoding='utf-8').read()
+req = open(RQ + '/requirements_v1.6.md', encoding='utf-8').read()
 FT = set(re.findall(r'^\|\s*(FT-\d+\.\d+)\s*\|', req, re.M))
 NFT = set(re.findall(r'^\|\s*(NFT-\d+\.\d+)\s*\|', req, re.M))
 BG = set(re.findall(r'^\|\s*(BG-\d+)\s*\|', req, re.M))

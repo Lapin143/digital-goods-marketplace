@@ -20,7 +20,6 @@ STAND_TOOLS = os.path.join(L.REPO, 'tools', 'stand-checks')   # проверки
 SKIP_DIRS = ('node_modules', '.git')
 # документы, которые появятся на следующих шагах плана; ссылки на них пока допустимы только в виде имени в кавычках
 FUTURE_MD = {
-    'requirements_v1.6.md',                          # решение D-12: версия 1.6 после замечаний Ф2
     'monitoring.md', 'runbook.md', 'deploy.md',      # Ф6, раздел 09-operations
     'versions.md',                                   # Ф3, шаг 2: версии компонентов
 }

@@ -14,7 +14,7 @@ REPO = os.environ.get('REPO') or os.path.abspath(
 DOCS = os.path.join(REPO, 'docs')
 ARCH = os.path.join(DOCS, '05-architecture')
 OPS_DIR = os.path.join(DOCS, '09-operations')
-REQ = os.path.join(DOCS, '02-requirements', 'requirements_v1.5.md')
+REQ = os.path.join(DOCS, '02-requirements', 'requirements_v1.6.md')
 
 
 def read(path):

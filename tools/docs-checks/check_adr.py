@@ -90,10 +90,10 @@ def main():
         # требования
         for rid in re.findall(r'\b(FT-\d+\.\d+)\b', fields.get('Требования', '')):
             if rid not in ft:
-                rep.err(name, 'требование %s не найдено в requirements_v1.5.md' % rid)
+                rep.err(name, 'требование %s не найдено в requirements_v1.6.md' % rid)
         for rid in re.findall(r'\b(NFT-\d+\.\d+)\b', fields.get('Требования', '')):
             if rid not in nft:
-                rep.err(name, 'требование %s не найдено в requirements_v1.5.md' % rid)
+                rep.err(name, 'требование %s не найдено в requirements_v1.6.md' % rid)
 
     # ----- индекс
     idx_text = L.read(os.path.join(ADR_DIR, 'README.md'))
