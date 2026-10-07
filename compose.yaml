@@ -642,12 +642,12 @@ services:
       - --web.listen-address=:9093
       - --cluster.listen-address=
       - --log.format=json
-    mem_limit: 32m
-    memswap_limit: 32m
+    mem_limit: 48m
+    memswap_limit: 48m
     # В app нужен для почты: SMTP на стенде идёт к external-stubs, на сервере к почтовому сервису в интернете
     networks: [obs, app]
     environment:
-      GOMEMLIMIT: 26MiB
+      GOMEMLIMIT: 38MiB
     volumes:
       - ./infra/obs/alertmanager:/etc/alertmanager:ro
     tmpfs:
