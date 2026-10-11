@@ -28,4 +28,10 @@ include(
     ":services:payment-service",
     ":services:delivery-service",
     ":services:platform-service",
+    ":infra:keycloak-sms-otp",
 )
+
+// Расширение Keycloak лежит рядом с остальной настройкой Keycloak. Gradle собирает и проверяет только его ядро без зависимостей от Keycloak
+// (разбор номера, диалог входа, вызовы платформы, TLS); сам jar с классами для Keycloak собирает docker/Dockerfile.keycloak
+// против библиотек того же образа Keycloak
+project(":infra:keycloak-sms-otp").projectDir = file("infra/keycloak/sms-otp")

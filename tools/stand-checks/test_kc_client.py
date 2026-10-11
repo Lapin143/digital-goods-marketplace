@@ -80,7 +80,12 @@ LOGIN = '<form id="kc-form-login" action="/a"><input name="username" value=""><i
 OTP = '<form id="kc-otp-login-form" action="/b"><input name="otp"><input type="hidden" name="credentialId" value="x"></form>'
 SETUP = '<form id="kc-totp-settings-form" action="/c"><input type="hidden" name="totpSecret" value="S"><input name="totp"></form>'
 ERROR = '<div id="kc-error-message"><p class="instruction">Вход по коду из SMS пока недоступен.</p></div>'
-REGISTER = '<form action="/d"><input name="password"><input name="password-confirm"></form>'
+REGISTER = '<form action="/d"><input name="email"><input name="password"><input name="password-confirm"></form>'
+UPDATE_PASSWORD = '<form action="/e"><input name="password-new"><input name="password-confirm"></form>'
+SMS_PHONE = '<form id="kc-sms-phone-form" action="/p"><input id="phone" name="phone"><button name="send" type="submit"></button></form>'
+SMS_CODE = '<form id="kc-sms-code-form" action="/q"><input name="code"><button name="verify"></button><button name="resend"></button></form>'
+ALERT = '<div class="pf-v5-c-alert pf-m-danger"><span class="pf-v5-c-alert__title kc-feedback-text">Код неверный.   Проверьте цифры.</span></div>'
+EMPTY_FIELD_ERROR = '<div id="input-error-container-code"></div>'
 
 
 class PagesTest(unittest.TestCase):
@@ -91,6 +96,12 @@ class PagesTest(unittest.TestCase):
         self.assertEqual(K.page_kind(ERROR), 'error')
         self.assertEqual(K.page_kind('<html><body>ok</body></html>'), 'other')
 
+    def test_page_kind_of_sms_and_registration_pages(self):
+        self.assertEqual(K.page_kind(SMS_PHONE), 'sms_phone')
+        self.assertEqual(K.page_kind(SMS_CODE), 'sms_code')
+        self.assertEqual(K.page_kind(REGISTER), 'register')
+        self.assertNotEqual(K.page_kind(UPDATE_PASSWORD), 'register')
+
     def test_forms_skip_buttons_and_keep_hidden_values(self):
         f = K.forms_of(OTP)[0]
         self.assertEqual(f['action'], '/b')
@@ -100,6 +111,68 @@ class PagesTest(unittest.TestCase):
     def test_page_message(self):
         self.assertEqual(K.page_message(ERROR), 'Вход по коду из SMS пока недоступен.')
         self.assertEqual(K.page_message(LOGIN), '')
+
+    def test_page_message_reads_alert_and_skips_empty_error_containers(self):
+        self.assertEqual(K.page_message(ALERT), 'Код неверный. Проверьте цифры.')
+        # пустой контейнер ошибки поля не должен скрывать сообщение вверху страницы
+        self.assertEqual(K.page_message(EMPTY_FIELD_ERROR + ALERT), 'Код неверный. Проверьте цифры.')
+        self.assertEqual(K.page_message(EMPTY_FIELD_ERROR), '')
+        self.assertEqual(K.page_message('<span id="input-error-phone">Введите номер</span>'), 'Введите номер')
+
+    def test_normalize_page_drops_per_session_values_only(self):
+        a = ('<form action="https://h/auth/realms/dgm/login-actions/authenticate?session_code=AAA&amp;execution=E1&amp;tab_id=T1&amp;client_data=CD1">'
+             '<input name="x" value="one"></form><script>checkAuthSession( "TOKEN1" );</script><link href="/auth/resources/abc12/login/dgm/x.css">')
+        b = a.replace('AAA', 'BBB').replace('E1', 'E2').replace('T1', 'T2').replace('CD1', 'CD2').replace('TOKEN1', 'TOKEN2').replace('abc12', 'zzz99').replace('one', 'two')
+        self.assertEqual(K.normalize_page(a), K.normalize_page(b))
+        self.assertNotEqual(K.normalize_page(a), K.normalize_page(a.replace('Dgm', 'x').replace('name="x"', 'name="y"')))
+        self.assertNotEqual(K.normalize_page(a), K.normalize_page(a + '<p>письмо отправлено</p>'))
+
+
+class FakeNet:
+    """Сеть-двойник для Dialog: отвечает заранее заготовленными ответами и запоминает запросы."""
+
+    def __init__(self, *responses):
+        self.responses, self.requests = list(responses), []
+
+    def request(self, method, url, form=None, **kw):
+        self.requests.append((method, url, form))
+        return self.responses.pop(0)
+
+
+def page(text):
+    return K.Response(200, {}, text.encode())
+
+
+class DialogTest(unittest.TestCase):
+    def dialog(self, net, html_text):
+        kc = K.Keycloak(net, public='https://h/auth')
+        return K.Dialog(kc, 'dgm-sms', page(html_text), None, 'v', 'https://h/callback')
+
+    def test_post_sends_hidden_fields_button_and_values_to_form_action(self):
+        net = FakeNet(page(SMS_CODE))
+        d = self.dialog(net, SMS_PHONE.replace('</form>', '<input type="hidden" name="h" value="1"></form>'))
+        d.post('resend', phone='+79001234567')
+        method, url, form = net.requests[0]
+        self.assertEqual((method, url), ('POST', 'https://h/p'))
+        self.assertEqual(form, {'phone': '+79001234567', 'h': '1', 'resend': ''})
+        self.assertEqual(d.kind, 'sms_code')
+
+    def test_follow_opens_link_with_fragment(self):
+        net = FakeNet(page(REGISTER))
+        d = self.dialog(net, '<a href="/auth/realms/dgm/login-actions/registration?a=1&amp;b=2">Регистрация</a>')
+        d.follow('login-actions/registration')
+        self.assertEqual(net.requests[0][:2], ('GET', 'https://h/auth/realms/dgm/login-actions/registration?a=1&b=2'))
+        self.assertEqual(d.kind, 'register')
+        with self.assertRaises(RuntimeError):
+            d.follow('нет такой ссылки')
+
+    def test_setup_totp_submits_code_for_page_secret(self):
+        net = FakeNet(page('<html>done</html>'))
+        kc = K.Keycloak(net, public='https://h/auth', totp=mock.Mock(next_code=mock.Mock(return_value='123456')))
+        d = K.Dialog(kc, 'dgm-staff', page(SETUP), None, 'v', 'https://h/callback')
+        self.assertEqual(d.setup_totp('телефон'), 'S')
+        self.assertEqual(net.requests[0][2], {'totpSecret': 'S', 'totp': '123456', 'userLabel': 'телефон'})
+        kc.totp.next_code.assert_called_once_with('S')
 
 
 class RoutesTest(unittest.TestCase):

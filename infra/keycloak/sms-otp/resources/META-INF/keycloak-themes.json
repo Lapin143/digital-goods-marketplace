@@ -1,0 +1,5 @@
+{
+  "themes": [
+    {"name": "dgm", "types": ["login", "email"]}
+  ]
+}

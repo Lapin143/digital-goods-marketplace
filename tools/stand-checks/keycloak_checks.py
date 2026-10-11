@@ -12,7 +12,12 @@
   разделение ролей: покупатель у клиента сотрудников и продавец у клиента покупателей не получают ни области, ни роли;
   сессии: refresh-токен одноразовый (повторное использование отзывает сессию), сроки простоя 30 и 15 минут;
   перебор: пять неудач закрывают вход, Admin API это показывает;
-  расширение SMS подключено, вход по SMS пока закрыт отказом;
+  расширение подключено (провайдеры sms-otp, dgm-cookie, dgm-auth-level, dgm-register, dgm-reset-email), страницы входа по SMS работают,
+    без платформы вход по SMS честно отвечает «временно недоступен» (ответы с платформой проверяет sms_login_checks.py);
+  второй фактор целиком: вход без TOTP → настройка TOTP на странице → токен с amr из pwd и otp;
+  регистрация и сброс пароля нейтральны (US-01, ST-06): страница ответа для свободного и занятого e-mail одна, письма уходят, время ответа
+    близко; занятому адресу пароль не меняется, учётная запись не создаётся; ссылка из письма подтверждает адрес и продолжает вход;
+  утверждение seller_id попадает в токен продавца и не появляется у покупателя;
   настройки realm в работающем Keycloak: Argon2, защита от перебора, TLS обязателен;
   служебный клиент platform-service: токен по секрету, Admin API только в пределах выданных прав;
   VK ID через заглушку: полный вход нового пользователя, amr = vk;
@@ -69,6 +74,279 @@ def scopes_of(claims):
 
 def describe(r):
     return '%s %s' % (r.kind, K.page_message(r.page) if r.page and r.kind != 'tokens' else '')
+
+
+
+# --------------------------------------------------------------------------------------------------- общие помощники
+def median(values):
+    ordered = sorted(values)
+    return ordered[len(ordered) // 2]
+
+
+def mails_to(net, address, at_least=0, wait=1.0):
+    """Письма, которые SMTP-заглушка приняла для адреса. at_least > 0: ждёт, пока их станет не меньше (до wait секунд)."""
+    found, deadline = [], time.time() + wait
+    while True:
+        m = net.request('GET', 'https://external-stubs:8444/admin/emails?to=%s' % urllib.parse.quote(address), headers={'Accept': 'application/json'})
+        if m.status == 200:
+            body = m.json()
+            found = body if isinstance(body, list) else body.get('items') or body.get('emails') or []
+        if len(found) >= at_least and (at_least > 0 or time.time() >= deadline):
+            return found
+        if time.time() >= deadline:
+            return found
+        time.sleep(0.4)
+
+
+def action_link(mail):
+    m = re.search(r'https://localhost:8443/auth/realms/dgm/login-actions/action-token\?\S+', mail.get('text', ''))
+    return m.group(0) if m else None
+
+
+def strong_password(tag):
+    return 'Zq9-%s-correct-horse-battery' % tag
+
+
+def finish_at_callback(kc, response, limit=8):
+    """Идёт по переходам Keycloak после ссылки из письма, пока не придёт на redirect_uri клиента. Возвращает последний ответ и адрес."""
+    for _ in range(limit):
+        loc = response.location
+        if response.status in (301, 302, 303, 307) and loc:
+            loc = urllib.parse.urljoin(kc.public + '/', loc)
+            if loc.startswith(kc.redirect_base + '/callback'):
+                return response, loc
+            response = kc.net.request('GET', loc)
+        else:
+            break
+    return response, None
+
+
+def follow_redirects(kc, response, limit=8):
+    """Идёт по переходам Keycloak до страницы (ответ без перехода). Страница с кодом на redirect_uri клиента тоже конец пути."""
+    for _ in range(limit):
+        loc = response.location
+        if response.status not in (301, 302, 303, 307) or not loc:
+            break
+        loc = urllib.parse.urljoin(kc.public + '/', loc)
+        if loc.startswith(kc.redirect_base + '/callback'):
+            break
+        response = kc.net.request('GET', loc)
+    return response
+
+
+# --------------------------------------------------------------------------------------------------- вход по SMS без платформы
+def sms_checks_without_platform(kc):
+    d = kc.start('dgm-sms')
+    expect('вход по SMS: клиент dgm-sms открывает страницу номера', d.kind == 'sms_phone', d.kind)
+    d.post(phone='123')
+    expect('вход по SMS: неверный номер отклонён на странице с понятным текстом, платформа не вызывалась',
+           d.kind == 'sms_phone' and 'российский номер' in d.message, '%s %s' % (d.kind, d.message))
+    d.post(phone='+79990001122')
+    expect('вход по SMS: платформа недоступна, ответ «временно недоступен», а не ошибка сервера', d.kind == 'sms_phone' and 'временно недоступен' in d.message,
+           '%s %s %s' % (d.resp.status, d.kind, d.message))
+    r = kc.start('dgm-web')
+    r2 = kc.start('dgm-sms', clear_cookies=False)
+    expect('вход по SMS: у dgm-sms нет входа по SSO-cookie, номер спрашивают всегда', r.kind == 'login' and r2.kind == 'sms_phone', '%s %s' % (r.kind, r2.kind))
+
+
+# --------------------------------------------------------------------------------------------------- регистрация и сброс пароля нейтральны
+def registration_checks(kc, admin, users):
+    net = kc.net
+    print('== Регистрация: ответ одинаков для свободного и занятого e-mail (US-01, ST-06)')
+
+    def register(email, password, confirm=None):
+        d = kc.start('dgm-web').follow('login-actions/registration')
+        t0 = time.time()
+        d.post(email=email, password=password, **{'password-confirm': password if confirm is None else confirm})
+        return d, time.time() - t0
+
+    stamp = int(time.time())
+    free = 'new-%d@example.test' % stamp
+    taken = users['buyer-2']['email']
+    pw = strong_password('a')
+    before_taken = len(mails_to(net, taken))
+    d_new, t_new = register(free, pw)
+    d_taken, t_taken = register(taken, strong_password('other'))
+    expect('регистрация: свободный адрес, страница «проверьте почту»', d_new.resp.status == 200 and 'Проверьте почту' in d_new.page, '%s %s' % (d_new.kind, d_new.message))
+    expect('регистрация: занятый адрес получает ту же страницу, ни слова об «адрес уже существует»',
+           d_taken.resp.status == 200 and 'Проверьте почту' in d_taken.page and 'уже существует' not in d_taken.page, '%s %s' % (d_taken.kind, d_taken.message))
+    same = K.normalize_page(d_new.page) == K.normalize_page(d_taken.page)
+    expect('регистрация: страница ответа для свободного и занятого адреса совпадает до символа (кроме кодов сессии)', same,
+           'длины %d и %d' % (len(d_new.page), len(d_taken.page)))
+    d_upper, _ = register(taken.upper(), strong_password('upper'))
+    expect('регистрация: занятый адрес, записанный заглавными буквами, получает ту же страницу', K.normalize_page(d_upper.page) == K.normalize_page(d_new.page), d_upper.message)
+
+    new_mail = mails_to(net, free, at_least=1, wait=10)
+    expect('регистрация: свободный адрес получил одно письмо «Подтверждение E-mail» со ссылкой',
+           len(new_mail) == 1 and new_mail[0].get('subject') == 'Подтверждение E-mail' and action_link(new_mail[0]), str([m.get('subject') for m in new_mail]))
+    owner_mail = mails_to(net, taken, at_least=before_taken + 2, wait=10)
+    fresh = owner_mail[before_taken:]
+    expect('регистрация: владелец занятого адреса получил письма о двух попытках (обычной и заглавными), без ссылок подтверждения',
+           len(fresh) == 2 and all(m.get('subject') == 'Попытка регистрации на ваш e-mail' and not action_link(m) for m in fresh), str([m.get('subject') for m in fresh]))
+    expect('регистрация: в письме владельцу есть путь «войти» и нет нового пароля', fresh and 'войдите' in fresh[0].get('text', '').lower()
+           and strong_password('other') not in fresh[0].get('text', ''), fresh[0].get('text', '')[:200] if fresh else '')
+
+    created = admin.realm('/users?email=%s&exact=true' % free).json()
+    if expect('регистрация: учётная запись для свободного адреса создана', len(created) == 1, str(created)[:200]):
+        u = created[0]
+        roles = {r['name'] for r in admin.realm('/users/%s/role-mappings/realm/composite' % u['id']).json()}
+        expect('регистрация: новая запись включена, адрес не подтверждён, роль buyer, имя пользователя равно адресу',
+               u['enabled'] and not u['emailVerified'] and 'buyer' in roles and u['username'] == free, str((u['enabled'], u['emailVerified'], roles, u['username'])))
+        creds = admin.realm('/users/%s/credentials' % u['id']).json()
+        expect('регистрация: пароль новой записи хранится как argon2', [json.loads(c['credentialData']).get('algorithm') for c in creds if c['type'] == 'password'] == ['argon2'], str(creds)[:200])
+    same_owner = admin.realm('/users?email=%s&exact=true' % taken).json()
+    expect('регистрация: на занятый адрес запись не создана и не изменена (одна запись, прежний идентификатор)',
+           len(same_owner) == 1 and same_owner[0]['id'] == users['buyer-2']['id'], str(same_owner)[:200])
+    r = kc.login('dgm-web', taken, users['buyer-2']['password'])
+    expect('регистрация: прежний пароль владельца занятого адреса продолжает работать, новый не принят', r.ok, describe(r))
+    r = kc.login('dgm-web', taken, strong_password('other'))
+    expect('регистрация: пароль из попытки регистрации на занятый адрес не принимается', not r.ok, describe(r))
+    admin.clear_attacks(users['buyer-2']['id'])
+
+    # время ответа: по три попытки каждой ветки, сравниваются медианы
+    t_free, t_busy = [t_new], [t_taken]
+    for i in range(2):
+        t_free.append(register('new-%d-%d@example.test' % (stamp, i), strong_password('t%d' % i))[1])
+        t_busy.append(register(taken, strong_password('t%d' % i))[1])
+    gap = abs(median(t_free) - median(t_busy))
+    expect('регистрация: время ответа для свободного и занятого адреса различается меньше чем на 0,4 с (медианы %.2f и %.2f с)' % (median(t_free), median(t_busy)),
+           gap < 0.4 and min(t_free + t_busy) >= 1.1, 'свободный %s, занятый %s' % (['%.2f' % t for t in t_free], ['%.2f' % t for t in t_busy]))
+
+    # ошибки формы одинаковы для любого адреса
+    weak_free, _ = register('weak-%d@example.test' % stamp, 'short')
+    weak_taken, _ = register(taken, 'short')
+    expect('регистрация: слабый пароль отклонён политикой одинаково для свободного и занятого адреса',
+           weak_free.kind == 'register' and weak_free.message and weak_free.message == weak_taken.message, '%r и %r' % (weak_free.message, weak_taken.message))
+    mismatch, _ = register(free + '.x', pw, confirm=pw + 'x')
+    bad_email, _ = register('not-an-email', pw)
+    expect('регистрация: разные пароли и неверный e-mail остаются на форме с сообщением', mismatch.kind == 'register' and mismatch.message and bad_email.kind == 'register' and bad_email.message,
+           '%r, %r' % (mismatch.message, bad_email.message))
+    expect('регистрация: после ошибки поле e-mail заполнено, пароли пустые', 'value="not-an-email"' in bad_email.page and 'value="%s"' % pw not in bad_email.page)
+
+    # ссылка из письма: подтверждает адрес и продолжает вход в том же браузере (PKCE сохраняется)
+    d_link, _ = register('link-%d@example.test' % stamp, strong_password('link'))
+    mail = mails_to(net, 'link-%d@example.test' % stamp, at_least=1, wait=10)
+    link = action_link(mail[0]) if mail else None
+    if expect('регистрация: ссылка подтверждения есть в письме', link, str(mail)[:200]):
+        resp, loc = finish_at_callback(kc, net.request('GET', link))
+        expect('регистрация: ссылка из письма в том же браузере подтверждает адрес и возвращает покупателя в приложение с кодом', loc is not None and 'code=' in loc,
+               '%s %s' % (resp.status, resp.location))
+        verified = admin.realm('/users?email=link-%d@example.test&exact=true' % stamp).json()[0]
+        expect('регистрация: после ссылки адрес подтверждён', verified['emailVerified'] is True, str(verified.get('emailVerified')))
+        r = kc.login('dgm-web', verified['email'], strong_password('link'))
+        a = r.access() if r.ok else {}
+        expect('регистрация: вход по e-mail и паролю после регистрации: роль buyer, области покупателя, amr = pwd',
+               r.ok and (a.get('realm_access') or {}).get('roles') == ['buyer'] and scopes_of(a) == BUYER and a.get('amr') == ['pwd'], describe(r))
+    return stamp
+
+
+def reset_checks(kc, admin, users, stamp):
+    net = kc.net
+    print('== Сброс пароля: ответ одинаков для известного и неизвестного адреса (ST-06)')
+
+    def request(username):
+        d = kc.start('dgm-web').follow('login-actions/reset-credentials')
+        t0 = time.time()
+        d.post(username=username)
+        return d, time.time() - t0
+
+    known = users['buyer-3']['email']
+    unknown = 'nobody-%d@example.test' % stamp
+    before = len(mails_to(kc.net, known))
+    d_known, t_known = request(known)
+    d_unknown, t_unknown = request(unknown)
+    expect('сброс пароля: известный и неизвестный адрес получают одну и ту же страницу', d_known.message and K.normalize_page(d_known.page) == K.normalize_page(d_unknown.page),
+           '%r и %r' % (d_known.message, d_unknown.message))
+    got = mails_to(net, known, at_least=before + 1, wait=10)
+    expect('сброс пароля: известный адрес получил письмо со ссылкой', len(got) == before + 1 and action_link(got[-1]), str([m.get('subject') for m in got]))
+    expect('сброс пароля: неизвестному адресу письмо не ушло', mails_to(net, unknown, wait=1.5) == [])
+    t_k, t_u = [t_known], [t_unknown]
+    for _ in range(2):
+        t_k.append(request(known)[1])
+        t_u.append(request(unknown)[1])
+    gap = abs(median(t_k) - median(t_u))
+    expect('сброс пароля: время ответа различается меньше чем на 0,4 с (медианы %.2f и %.2f с)' % (median(t_k), median(t_u)), gap < 0.4 and min(t_k + t_u) >= 0.7,
+           'известный %s, неизвестный %s' % (['%.2f' % t for t in t_k], ['%.2f' % t for t in t_u]))
+    admin.clear_attacks(users['buyer-3']['id'])
+
+    # ссылка из письма: новый пароль, вход со старым невозможен
+    d = kc.start('dgm-web').follow('login-actions/reset-credentials')
+    count = len(mails_to(net, users['buyer-1']['email']))
+    d.post(username=users['buyer-1']['email'])
+    mail = mails_to(net, users['buyer-1']['email'], at_least=count + 1, wait=10)
+    link = action_link(mail[-1]) if len(mail) > count else None
+    if expect('сброс пароля: письмо покупателю со ссылкой', link, str([m.get('subject') for m in mail])):
+        page = follow_redirects(kc, net.request('GET', link))
+        forms = K.forms_of(page.text)
+        fresh = strong_password('reset%d' % stamp)
+        if expect('сброс пароля: ссылка открывает форму нового пароля', forms and 'password-new' in forms[0]['inputs'], '%s %s' % (page.status, page.text[:200])):
+            data = dict(forms[0]['inputs'], **{'password-new': fresh, 'password-confirm': fresh})
+            resp, loc = finish_at_callback(kc, net.request('POST', urllib.parse.urljoin(kc.public + '/', forms[0]['action']), form=data))
+            expect('сброс пароля: после нового пароля покупатель возвращается в приложение', loc is not None and 'code=' in loc, '%s %s' % (resp.status, K.page_message(resp.text)))
+            expect('сброс пароля: со старым паролем вход закрыт', not kc.login('dgm-web', users['buyer-1']['email'], users['buyer-1']['password']).ok)
+            r = kc.login('dgm-web', users['buyer-1']['email'], fresh)
+            expect('сброс пароля: с новым паролем вход открыт', r.ok, describe(r))
+            users['buyer-1']['password'] = fresh
+
+
+# --------------------------------------------------------------------------------------------------- второй фактор целиком и seller_id
+def totp_cycle_checks(kc, admin, users):
+    print('== Второй фактор целиком: вход без TOTP, настройка на странице, токен с otp (NFT-3.0, F3-4)')
+    u = users['moderator-2']
+    d = kc.start('dgm-staff')
+    d.post(username=u['email'], password=u['password'])
+    if not expect('второй фактор: сотрудник без TOTP после пароля попадает на настройку TOTP', d.kind == 'totp_setup', d.kind):
+        return
+    d.post(totp='000000', userLabel='неверный')
+    expect('второй фактор: неверный код при настройке не принимается, остаёмся на настройке', d.kind == 'totp_setup' and d.message, '%s %s' % (d.kind, d.message))
+    secret = d.setup_totp('проверка стенда')
+    r = d.tokens()
+    a = r.access() if r.ok else {}
+    expect('второй фактор: после настройки выдан токен, роль moderator, область staff.moderation',
+           r.ok and (a.get('realm_access') or {}).get('roles') == ['moderator'] and scopes_of(a) == {'staff.moderation'}, describe(r))
+    # F4-2: настройка TOTP не записывается как пройденный шаг, поэтому первый токен несёт только pwd и шлюз его не примет как токен со вторым фактором
+    expect('второй фактор: сразу после настройки в amr нет otp (находка F4-2), шлюз такой токен отклонит', r.ok and a.get('amr') == ['pwd'], str(a.get('amr')))
+    again = kc.start('dgm-staff', extra={'prompt': 'login'}, clear_cookies=False)
+    if expect('второй фактор: повторный вход с prompt=login спрашивает пароль даже при живой сессии', again.kind == 'login', again.kind):
+        again.post(username=u['email'], password=u['password'])
+        expect('второй фактор: повторный вход после настройки просит код TOTP', again.kind == 'otp', again.kind)
+        again.post(otp=kc.totp.next_code(secret))
+        r = again.tokens()
+        expect('второй фактор: после повторного входа amr = otp и pwd', r.ok and sorted(r.access().get('amr') or []) == ['otp', 'pwd'], describe(r))
+    creds = admin.realm('/users/%s/credentials' % u['id']).json()
+    expect('второй фактор: в Keycloak появилась учётные данные otp с пользовательским названием', any(c['type'] == 'otp' and c.get('userLabel') == 'проверка стенда' for c in creds), str(creds)[:300])
+    r = kc.login('dgm-staff', u['email'], u['password'], secret)
+    expect('второй фактор: следующий вход требует код TOTP и даёт amr с otp', r.ok and sorted(r.access().get('amr') or []) == ['otp', 'pwd'], describe(r))
+    r = kc.login('dgm-staff', u['email'], u['password'])
+    expect('второй фактор: пароль без кода TOTP токена не даёт', r.kind == 'otp_required', describe(r))
+    u['otp_secret'] = secret
+    admin.clear_attacks(u['id'])
+
+
+def seller_id_checks(kc, admin, users):
+    print('== Утверждение seller_id в токене (ADR-010, п. 5)')
+    seller, buyer = users['seller-1'], users['buyer-1']
+    sid = '0199e0a0-5e11-7c00-8a00-000000000042'
+    rep = admin.realm('/users/%s' % seller['id']).json()
+    rep.setdefault('attributes', {})['seller_id'] = [sid]
+    r = admin.realm('/users/%s' % seller['id'], 'PUT', rep)
+    if not expect('seller_id: администратор выставил атрибут продавцу через Admin API', r.status == 204, '%s %s' % (r.status, r.text[:200])):
+        return
+    try:
+        res = kc.login('dgm-staff', seller['email'], seller['password'], seller['otp_secret'])
+        expect('seller_id: в access-токене продавца утверждение seller_id равно атрибуту', res.ok and res.access().get('seller_id') == sid, describe(res) + ' ' + str(res.access().get('seller_id') if res.ok else ''))
+        b = kc.login('dgm-web', buyer['email'], buyer['password'])
+        expect('seller_id: у покупателя утверждения нет', b.ok and 'seller_id' not in b.access(), describe(b))
+        expect('seller_id: в id-токене продавца его нет (токен для интерфейса, не для сервисов)', res.ok and 'seller_id' not in res.id_claims(), str(res.id_claims() if res.ok else ''))
+    finally:
+        rep['attributes'].pop('seller_id', None)
+        admin.realm('/users/%s' % seller['id'], 'PUT', rep)
+    res = kc.login('dgm-staff', seller['email'], seller['password'], seller['otp_secret'])
+    expect('seller_id: после снятия атрибута утверждение пропало', res.ok and 'seller_id' not in res.access(), describe(res))
+    # пользователь не может выставить его себе сам
+    attempt = kc.net.request('PUT', '%s/realms/%s/account' % (kc.public, kc.realm), json_body={'attributes': {'seller_id': [sid]}},
+                             headers={'Authorization': 'Bearer ' + res.tokens['access_token']}) if res.ok else None
+    expect('seller_id: сам пользователь атрибут выставить не может (нужен запрос к account API, клиент dgm-staff его не получает)', attempt is None or attempt.status in (401, 403, 404), str(attempt.status if attempt else ''))
 
 
 def main():
@@ -182,8 +460,26 @@ def main():
     expect('расширение SMS: провайдер sms-otp подключён', 'sms-otp' in providers, str(providers)[:300])
     flows = {f['alias'] for f in admin.realm('/authentication/flows').json()}
     expect('потоки входа: dgm-browser, sms-login, dgm-vk-post-login есть', {'dgm-browser', 'sms-login', 'dgm-vk-post-login'} <= flows, str(sorted(flows)))
-    r = kc.login('dgm-sms', users['buyer-1']['email'], users['buyer-1']['password'])
-    expect('вход по SMS пока закрыт отказом (логика кодов в Ф4), токена нет', not r.ok, describe(r))
+    expect('провайдеры расширения подключены: dgm-cookie, dgm-auth-level, dgm-register, dgm-reset-email',
+           {'dgm-cookie', 'dgm-auth-level', 'dgm-register', 'dgm-reset-email'} <= set(providers), str(providers)[:300])
+    # Встроенные потоки Keycloak (browser, registration form и другие) остаются в области как неиспользуемые, смотрим только то, что подключено
+    realm_rep = admin.realm('').json()
+    start = {realm_rep[k] for k in ('browserFlow', 'registrationFlow', 'resetCredentialsFlow', 'directGrantFlow', 'firstBrokerLoginFlow')}
+    start |= {'sms-login', 'dgm-vk-post-login'}
+    in_use, seen, queue = set(), set(), sorted(start)
+    while queue:
+        alias = queue.pop()
+        if alias in seen:
+            continue
+        seen.add(alias)
+        for e in admin.realm('/authentication/flows/%s/executions' % urllib.parse.quote(alias)).json():
+            if e.get('authenticationFlow'):
+                queue.append(e['displayName'])
+            elif e.get('providerId'):
+                in_use.add(e['providerId'])
+    expect('в потоках нет стандартных шагов auth-cookie, reset-credential-email и registration-user-creation (вместо них шаги расширения)',
+           not ({'auth-cookie', 'reset-credential-email', 'registration-user-creation'} & in_use), str(sorted(in_use)))
+    sms_checks_without_platform(kc)
     client = next(c for c in admin.realm('/clients?clientId=dgm-sms').json())
     at = client['attributes']
     expect('dgm-sms: токен 15 минут, сессия не более часа, refresh-токена нет',
@@ -237,6 +533,12 @@ def main():
         expect('VK ID: области покупателя выданы', scopes_of(a) == BUYER, a.get('scope'))
     else:
         print('        | первый переход: %s' % first)
+
+    # --- второй фактор целиком, seller_id, регистрация и сброс пароля
+    totp_cycle_checks(kc, admin, users)
+    seller_id_checks(kc, admin, users)
+    stamp = registration_checks(kc, admin, users)
+    reset_checks(kc, admin, users, stamp)
 
     # --- письма Keycloak доходят до SMTP заглушки
     u = users['buyer-2']

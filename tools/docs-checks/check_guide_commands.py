@@ -31,7 +31,7 @@ BUDGET = 'docs/09-operations/memory-budget.md'
 GUIDE_REQUIRED = ['certs', 'secrets', 'up', 'down', 'reset', 'ps', 'logs', 'stand-check', 'stand-down-check', 'smoke', 'smoke-sabotage', 'demo', 'token',
                   'otp', 'keycloak-users', 'pki-status', 'pki-verify', 'obs-check', 'load', 'memory-start', 'memory-stop', 'images', 'build', 'test',
                   'kit-test', 'db-migrate', 'ide-check', 'gateway-check', 'stateless-check', 'services-check', 'keycloak-check', 'web-check',
-                  'db-check', 'stubs-check', 'storage-check']
+                  'db-check', 'stubs-check', 'storage-check', 'sms-login-check']
 RUNBOOK_REQUIRED = ['ps', 'logs', 'stand-check', 'certs', 'pki-status', 'pki-verify', 'down', 'up', 'reset', 'keycloak-reimport', 'keycloak-users', 'keycloak-console', 'otp',
                     'demo', 'token', 'db-roles', 'realm']
 # Цели Makefile, которых нет в руководстве: их описывает README каталога, где они живут

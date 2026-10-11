@@ -196,12 +196,18 @@ def forms_of(page):
 
 
 def page_kind(page):
-    """Что за страница: форма пароля, второй фактор, настройка TOTP, ошибка, другое."""
+    """Что за страница: форма пароля, второй фактор, настройка TOTP, номер или код входа по SMS, ошибка, другое."""
     names = {n for f in forms_of(page) for n in f['inputs']}
     if 'otp' in names and 'totpSecret' not in names:
         return 'otp'
     if 'totpSecret' in names or 'kc-totp-settings-form' in page:
         return 'totp_setup'
+    if 'phone' in names and 'password' not in names:
+        return 'sms_phone'
+    if 'code' in names and not ({'phone', 'password', 'otp'} & names):
+        return 'sms_code'
+    if {'email', 'password', 'password-confirm'} <= names:
+        return 'register'
     if 'password' in names and ('username' in names or 'password-new' not in names):
         return 'login'
     if 'kc-error-message' in page or 'id="kc-error"' in page:
@@ -210,9 +216,24 @@ def page_kind(page):
 
 
 def page_message(page):
-    """Текст сообщения об ошибке или предупреждения на странице Keycloak (для вывода при сбое)."""
-    m = re.search(r'id="(?:input-error|kc-error-message)[^>]*>(.*?)</', page, re.S) or re.search(r'class="kc-feedback-text"[^>]*>(.*?)</', page, re.S)
-    return html.unescape(re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', m.group(1)))).strip() if m else ''
+    """Текст сообщения об ошибке или предупреждения на странице Keycloak (для вывода при сбое и для проверки текста ответа)."""
+    for pattern in (r'id="(?:input-error(?!-container)[^"]*|kc-error-message)"[^>]*>(.*?)</',
+                    r'class="[^"]*kc-feedback-text[^"]*"[^>]*>(.*?)</'):
+        for m in re.finditer(pattern, page, re.S):
+            text = html.unescape(re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', m.group(1)))).strip()
+            if text:
+                return text
+    return ''
+
+
+def normalize_page(page):
+    """Страница без значений, которые у каждой выдачи свои: коды сессии и вкладки, ключ проверки сессии, хеш ресурсов, значения полей.
+    Две страницы с равным результатом одинаковы для посетителя (проверки нейтральности ответов: адрес занят или свободен)."""
+    page = re.sub(r'(session_code|execution|tab_id|client_data|state|nonce)=[^&"\s]+', r'\1=_', page)
+    page = re.sub(r'checkAuthSession\(\s*"[^"]*"\s*\)', 'checkAuthSession("_")', page)
+    page = re.sub(r'/resources/[A-Za-z0-9_-]+/', '/resources/_/', page)
+    page = re.sub(r'value="[^"]*"', 'value="_"', page)
+    return re.sub(r'\s+', ' ', page)
 
 
 class LoginResult:
@@ -228,6 +249,64 @@ class LoginResult:
 
     def id_claims(self):
         return decode_jwt(self.tokens['id_token'])[1]
+
+
+class Dialog:
+    """Открытая страница входа, которую проверка ведёт по шагам: вход по SMS, регистрация, сброс пароля, настройка TOTP.
+
+    kind: что на экране сейчас (login, otp, totp_setup, sms_phone, sms_code, error, other) или redirect, если Keycloak уже вернул код
+    на redirect_uri. post() отправляет первую форму страницы вместе со скрытыми полями; button добавляет имя нажатой кнопки
+    (вход по SMS различает «отправить ещё раз» и «другой номер» по имени кнопки).
+    """
+
+    def __init__(self, kc, client_id, resp, loc, verifier, redirect_uri):
+        self.kc, self.client_id, self.resp, self.loc, self.verifier, self.redirect_uri = kc, client_id, resp, loc, verifier, redirect_uri
+
+    @property
+    def kind(self):
+        return 'redirect' if self.loc is not None else page_kind(self.resp.text)
+
+    @property
+    def page(self):
+        return self.resp.text
+
+    @property
+    def message(self):
+        return page_message(self.resp.text)
+
+    def post(self, button=None, **fields):
+        forms = forms_of(self.resp.text)
+        if not forms:
+            raise RuntimeError('на странице нет формы: %s' % self.resp.text[:200])
+        form = forms[0]
+        data = dict(form['inputs'], **fields)
+        if button:
+            data[button] = ''
+        action = urllib.parse.urljoin(self.kc.public + '/', form['action'])
+        self.resp, self.loc = self.kc._follow(self.kc.net.request('POST', action, form=data), self.redirect_uri)
+        return self
+
+    def follow(self, fragment):
+        """Переходит по первой ссылке страницы, в адресе которой есть fragment (например, login-actions/registration)."""
+        m = re.search(r'href="([^"]*%s[^"]*)"' % re.escape(fragment), self.resp.text)
+        if not m:
+            raise RuntimeError('на странице нет ссылки с %s: %s' % (fragment, self.resp.text[:200]))
+        self.resp = self.kc.net.request('GET', urllib.parse.urljoin(self.kc.public + '/', html.unescape(m.group(1))))
+        return self
+
+    def setup_totp(self, label='stand-check'):
+        """Завершает обязательное действие «настроить TOTP» на открытой странице: берёт секрет со страницы, считает код, отправляет.
+        Возвращает секрет (строку, как его хранит Keycloak): им потом считаются коды для входа."""
+        form = next(f for f in forms_of(self.resp.text) if 'totpSecret' in f['inputs'])
+        secret = form['inputs']['totpSecret']
+        self.post(totp=self.kc.totp.next_code(secret), userLabel=label)
+        return secret
+
+    def tokens(self):
+        """Обмен кода на токены, если вход завершён (kind == redirect)."""
+        if self.loc is None:
+            return LoginResult(self.kind, page=self.resp.text, response=self.resp)
+        return self.kc._finish(self.client_id, self.loc, self.verifier, self.redirect_uri, self.resp)
 
 
 class Keycloak:
@@ -263,6 +342,24 @@ class Keycloak:
         url = '%s/protocol/openid-connect/auth?%s' % (self.issuer, urllib.parse.urlencode(q))
         resp, loc = self._follow(self.net.request('GET', url), redirect_uri)
         return resp, loc, verifier, redirect_uri
+
+    def start(self, client_id, scope='openid', extra=None, clear_cookies=True):
+        """Открывает страницу входа клиента и отдаёт Dialog. clear_cookies=False оставляет сессию браузера (проверки SSO)."""
+        if clear_cookies:
+            self.net.cookies.clear()
+        resp, loc, verifier, redirect_uri = self.authorize(client_id, scope=scope, extra=extra)
+        return Dialog(self, client_id, resp, loc, verifier, redirect_uri)
+
+    def login_sms(self, client_id, phone, code, clear_cookies=True):
+        """Вход по SMS до конца: номер, затем код. Результат как у login: tokens или причина остановки."""
+        d = self.start(client_id, clear_cookies=clear_cookies)
+        if d.kind != 'sms_phone':
+            return d.tokens() if d.kind == 'redirect' else LoginResult(d.kind, page=d.page, response=d.resp)
+        d.post(phone=phone)
+        if d.kind != 'sms_code':
+            return LoginResult(d.kind, page=d.page, response=d.resp)
+        d.post(code=code() if callable(code) else code)
+        return d.tokens()
 
     def exchange(self, client_id, code, verifier, redirect_uri):
         r = self.net.request('POST', self.issuer + '/protocol/openid-connect/token', form={

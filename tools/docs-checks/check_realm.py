@@ -27,6 +27,7 @@ import docslib as L
 REALM_FILE = os.environ.get('DGM_REALM_FILE') or os.path.join(L.REPO, 'infra', 'keycloak', 'realm', 'dgm-realm.json')
 RP = os.path.join(L.ARCH, 'roles-permissions.md')
 SPI = os.path.join(L.REPO, 'infra', 'keycloak', 'sms-otp')
+FACTORIES = ('SmsOtpAuthenticatorFactory', 'DgmCookieAuthenticatorFactory', 'AuthLevelAuthenticatorFactory', 'NeutralRegistrationAuthenticatorFactory', 'ResetEmailAuthenticatorFactory')
 WHO_ROLE = [('Оператор поддержки', 'support-operator'), ('Покупатель', 'buyer'), ('Продавец', 'seller'),
             ('Модератор', 'moderator'), ('Администратор', 'admin')]
 AMR_WORDS = {'pwd', 'vk', 'sms', 'otp'}
@@ -328,6 +329,9 @@ def main():
     aud = mappers.get('oidc-audience-mapper', {}).get('config', {})
     if aud.get('included.custom.audience') != rules['aud'][0] or aud.get('access.token.claim') != 'true':
         rep.err(w, 'область dgm-api: audience должен быть %s в access-токене' % rules['aud'][0])
+    sid = [m for m in api.get('protocolMappers', []) if m['config'].get('claim.name') == 'seller_id']
+    if not sid or sid[0]['config'].get('user.attribute') != 'seller_id' or sid[0]['config'].get('access.token.claim') != 'true':
+        rep.err(w, 'область dgm-api: нет утверждения seller_id (атрибут пользователя в access-токене, ADR-010 п. 5)')
     pv = [m for m in api.get('protocolMappers', []) if m['config'].get('claim.name') == 'phone_verified']
     if not pv or pv[0]['config'].get('user.attribute') != 'phone_verified' or pv[0]['config'].get('jsonType.label') != 'boolean':
         rep.err(w, 'область dgm-api: нет утверждения phone_verified (boolean из атрибута пользователя)')
@@ -395,8 +399,41 @@ def main():
         m = re.search(r'String ID = "([^"]+)"', L.read(factory))
         if not m or m.group(1) != 'sms-otp':
             rep.err('SmsOtpAuthenticatorFactory.java', 'идентификатор провайдера %s, поток sms-login и ADR-010 используют sms-otp' % (m.group(1) if m else None))
-        if L.read(services).strip() != 'dgm.keycloak.smsotp.SmsOtpAuthenticatorFactory':
-            rep.err('META-INF/services', 'файл регистрации ссылается не на SmsOtpAuthenticatorFactory')
+        registered = sorted(x.strip() for x in L.read(services).splitlines() if x.strip())
+        if registered != sorted('dgm.keycloak.smsotp.' + n for n in FACTORIES):
+            rep.err('META-INF/services', 'файл регистрации должен перечислять ровно %s: %s' % (', '.join(FACTORIES), registered))
+        # Каждая фабрика называет себя тем же идентификатором, что поток входа (иначе realm не импортируется на старте Keycloak)
+        provided = set()
+        for name in FACTORIES:
+            path = os.path.join(SPI, 'src', 'dgm', 'keycloak', 'smsotp', name + '.java')
+            found = re.search(r'String ID = "([^"]+)"', L.read(path)) if os.path.exists(path) else None
+            if not found:
+                rep.err(name + '.java', 'нет константы ID')
+            else:
+                provided.add(found.group(1))
+        if provided != {'sms-otp', 'dgm-cookie', 'dgm-auth-level', 'dgm-register', 'dgm-reset-email'}:
+            rep.err('infra/keycloak/sms-otp', 'идентификаторы фабрик %s, ожидались sms-otp, dgm-cookie, dgm-auth-level, dgm-register, dgm-reset-email' % sorted(provided))
+        used = {e.get('authenticator') for f in realm.get('authenticationFlows', []) for e in f['authenticationExecutions'] if e.get('authenticator')}
+        for needed in sorted(provided):
+            if needed not in used:
+                rep.err(w, 'шаг %s есть в расширении, но ни один поток входа его не использует' % needed)
+        if 'auth-cookie' in used:
+            rep.err(w, 'стандартный шаг auth-cookie принимает сессию по SMS без пароля: в потоках должен стоять dgm-cookie')
+        theme = os.path.join(SPI, 'resources', 'theme', realm.get('loginTheme', '') or '-', 'login')
+        if realm.get('loginTheme') != 'dgm' or not all(os.path.exists(os.path.join(theme, n)) for n in ('theme.properties', 'sms-phone.ftl', 'sms-code.ftl')):
+            rep.err(w, 'loginTheme должна быть dgm, а в расширении должны лежать theme.properties, sms-phone.ftl и sms-code.ftl темы')
+        reg_flow = flows.get(realm.get('registrationFlow'), {})
+        if [e.get('authenticator') for e in reg_flow.get('authenticationExecutions', [])] != ['dgm-register']:
+            rep.err(w, 'поток регистрации должен состоять из одного шага dgm-register: форма Keycloak отвечает «адрес уже существует» (US-01, ST-06)')
+        email_theme = os.path.join(SPI, 'resources', 'theme', 'dgm', 'email')
+        if realm.get('emailTheme') != 'dgm' or not all(os.path.exists(os.path.join(email_theme, n)) for n in (
+                'theme.properties', os.path.join('html', 'register-duplicate.ftl'), os.path.join('text', 'register-duplicate.ftl'),
+                os.path.join('messages', 'messages_ru.properties'))):
+            rep.err(w, 'emailTheme должна быть dgm, а в расширении должны лежать theme.properties, html/ и text/register-duplicate.ftl и messages_ru.properties почтовой темы')
+        for flow_name in ('dgm-browser-forms', 'dgm-vk-post-login'):
+            steps = [e.get('authenticator') for e in flows.get(flow_name, {}).get('authenticationExecutions', [])]
+            if 'dgm-auth-level' not in steps:
+                rep.err(w, 'поток %s без шага dgm-auth-level: сессия после пароля или VK ID осталась бы с уровнем «sms»' % flow_name)
     if 'DGM_REALM_FILE' not in os.environ:
         sys.path.insert(0, os.path.join(L.REPO, 'infra', 'keycloak'))
         import gen_realm

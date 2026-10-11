@@ -190,6 +190,10 @@ keycloak-test: ## Модульные тесты клиента входа Keyclo
 keycloak-check: ## Проверить Keycloak: вход по ролям, второй фактор, сроки, перебор, VK ID, Argon2 (поднято с DEBUG=1, профили infra, stubs, auth)
 	tools/stand-checks/keycloak_checks.sh
 
+.PHONY: sms-login-check
+sms-login-check: ## Проверить вход по SMS на настоящей платформе: привязка номера, сессия по SMS, уровень входа, нейтральность чужого номера (набор full, DEBUG=1, make keycloak-users)
+	$(KC_ENV) python3 tools/stand-checks/sms_login_checks.py
+
 .PHONY: gateway-check
 gateway-check: ## Проверить шлюз: маршруты, токены Keycloak, лимиты, отказ открытым (подняты dev-auth и dev-purchase с DEBUG=1, make keycloak-users)
 	$(KC_ENV) tools/stand-checks/gateway_checks.sh

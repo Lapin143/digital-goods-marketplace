@@ -61,7 +61,7 @@
 
 Правила, которые из этого следуют:
 
-1. **Структура.** Корень содержит `settings.gradle.kts`, `build.gradle.kts`, `gradle/libs.versions.toml`, wrapper. Проекты: `:libs:service-kit`, `:services:<имя-сервиса>` (шесть сервисов), `:services:api-gateway`. Общий код между сервисами только `service-kit` (правило модульности 5 из [decomposition.md](../decomposition.md)), DTO сервисов не разделяются.
+1. **Структура.** Корень содержит `settings.gradle.kts`, `build.gradle.kts`, `gradle/libs.versions.toml`, wrapper. Проекты: `:libs:service-kit`, `:services:<имя-сервиса>` (шесть сервисов), `:services:api-gateway` и `:infra:keycloak-sms-otp` (классы расширения Keycloak без зависимостей от Keycloak и их модульные тесты; адаптеры Keycloak собирает образ, [ADR-010](ADR-010-keycloak-sms-codes.md), шаг 7). Общий код между сервисами только `service-kit` (правило модульности 5 из [decomposition.md](../decomposition.md)), DTO сервисов не разделяются.
 2. **Версии.** Библиотеки Spring получают версии из BOM Spring Boot 4.1.1 и Spring Cloud 2025.1.3. Явные версии только у библиотек вне BOM и только в каталоге. Wrapper закреплён контрольной суммой, действие `setup-gradle` её проверяет.
 3. **Java.** Компилятор `--release 25` для сервисов и библиотеки. Расширение Keycloak (шаг 10) собирается с `--release 21`. Предупреждения компилятора в собственных пакетах считаются ошибками.
 4. **Образы.** Один параметризованный Dockerfile для сервисов: этап распаковки слоёв, итоговый образ на `eclipse-temurin:25-jre-noble`, пользователь UID 10001, `read_only: true`, временный каталог в памяти, `JAVA_TOOL_OPTIONS` с `Xmx` из [memory-budget.md](../../09-operations/memory-budget.md). Дайджест базового образа записывается в метку образа.

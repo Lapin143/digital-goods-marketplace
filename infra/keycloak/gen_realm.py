@@ -122,8 +122,9 @@ def build_flows():
     forms = [step('auth-username-password-form', prio=10, config=ref('ref-pwd', 'pwd', SESSIONS['buyer']['max']))]
     for i, role in enumerate(OTP_ROLES):
         forms.append(sub('dgm-2fa-' + role, 'CONDITIONAL', 20 + 10 * i))
-    flows.append(flow('dgm-browser', 'Вход: SSO-cookie, внешний провайдер или пароль плюс второй фактор по роли', [
-        step('auth-cookie', 'ALTERNATIVE', 10),
+    forms.append(step('dgm-auth-level', prio=90))
+    flows.append(flow('dgm-browser', 'Вход: SSO-cookie (кроме сессий по SMS), внешний провайдер или пароль плюс второй фактор по роли', [
+        step('dgm-cookie', 'ALTERNATIVE', 10),
         step('identity-provider-redirector', 'ALTERNATIVE', 25),
         sub('dgm-browser-forms', 'ALTERNATIVE', 30),
     ], top=True))
@@ -134,14 +135,9 @@ def build_flows():
             step('auth-otp-form', prio=20, config=ref('ref-otp-' + role, 'otp', SESSIONS['staff']['max'])),
         ]))
 
-    # 2. Регистрация покупателя по e-mail и паролю (FT-1.1). Капча и условия отключены: их нет в R1.
-    flows.append(flow('registration', 'Регистрация', [sub('registration form', 'REQUIRED', 10)], top=True))
-    flows.append(flow('registration form', 'Форма регистрации', [
-        step('registration-user-creation', prio=20),
-        step('registration-password-action', prio=50),
-        step('registration-recaptcha-action', 'DISABLED', 60),
-        step('registration-terms-and-conditions', 'DISABLED', 70),
-    ], provider='form-flow'))
+    # 2. Регистрация покупателя по e-mail и паролю (FT-1.1) с нейтральным ответом (Р-8, US-01, ST-06): один шаг расширения вместо формы
+    # Keycloak, которая на занятый адрес отвечает «адрес уже существует». Капчи и условий в R1 нет.
+    flows.append(flow('registration', 'Регистрация с нейтральным ответом', [step('dgm-register', prio=10)], top=True))
 
     # 3. Прямая выдача токена по паролю в клиентах выключена, поток нужен только потому, что realm обязан его иметь
     flows.append(flow('direct grant', 'Выдача токена по паролю (клиентам не включена)', [
@@ -154,10 +150,11 @@ def build_flows():
         step('direct-grant-validate-otp', prio=20),
     ]))
 
-    # 4. Восстановление пароля по e-mail (FT-1.4); при настроенном втором факторе его код тоже спрашивают
+    # 4. Восстановление пароля по e-mail (FT-1.4); при настроенном втором факторе его код тоже спрашивают. Шаг письма с выровненным временем
+    # ответа (ST-06): ответ страницы и так одинаков для любого адреса, расширение убирает различие во времени
     flows.append(flow('reset credentials', 'Сброс пароля', [
         step('reset-credentials-choose-user', prio=10),
-        step('reset-credential-email', prio=20),
+        step('dgm-reset-email', prio=20),
         step('reset-password', prio=30),
         sub('Reset - Conditional OTP', 'CONDITIONAL', 40),
     ], top=True))
@@ -191,6 +188,7 @@ def build_flows():
     flows.append(flow('dgm-vk-post-login', 'После входа через VK ID', [
         sub('dgm-vk-deny-nonbuyer', 'CONDITIONAL', 10),
         step('allow-access-authenticator', prio=20, config=ref('ref-vk', 'vk', SESSIONS['buyer']['max'])),
+        step('dgm-auth-level', prio=30),
     ], top=True))
 
     # 8. Вход по коду из SMS (ADR-010, FT-1.7): клиент dgm-sms. Номер и код принимает расширение sms-otp, сотрудникам и продавцам вход закрыт
@@ -235,10 +233,12 @@ def build_scopes():
                 'user.attribute': 'emailVerified', 'claim.name': 'email_verified', 'jsonType.label': 'boolean',
                 'id.token.claim': 'true', 'access.token.claim': 'false', 'userinfo.token.claim': 'true'}),
         ]),
-        scope(AUDIENCE, 'Адресат dgm-api, признак подтверждённого телефона и способы входа amr', [
+        scope(AUDIENCE, 'Адресат dgm-api, признак подтверждённого телефона, идентификатор продавца и способы входа amr', [
             mapper('audience ' + AUDIENCE, 'oidc-audience-mapper', dict(access, **{'included.custom.audience': AUDIENCE})),
             mapper('phone_verified', 'oidc-usermodel-attribute-mapper', dict(access, **{
                 'user.attribute': 'phone_verified', 'claim.name': 'phone_verified', 'jsonType.label': 'boolean'})),
+            mapper('seller_id', 'oidc-usermodel-attribute-mapper', dict(access, **{
+                'user.attribute': 'seller_id', 'claim.name': 'seller_id', 'jsonType.label': 'String'})),
             mapper('amr', 'oidc-amr-mapper', dict(access)),
         ]),
     ]
@@ -306,6 +306,10 @@ USER_PROFILE = {
         # Признак выставляет только платформа через Admin API (INV-35), сам пользователь его не видит и не меняет
         {'name': 'phone_verified', 'displayName': 'Телефон подтверждён', 'validations': {'options': {'options': ['true', 'false']}},
          'permissions': {'view': ['admin'], 'edit': ['admin']}, 'multivalued': False},
+        # Идентификатор профиля продавца (conventions.md, 3.4): его выставляет seller-role-handler при одобрении заявки (ADR-010, п. 5;
+        # ADR-025), он попадает в токен утверждением seller_id, и сервисы каталога и ключей отличают «свои» товары без обращения к platform-service
+        {'name': 'seller_id', 'displayName': 'Идентификатор продавца', 'validations': {'length': {'max': 36}},
+         'permissions': {'view': ['admin'], 'edit': ['admin']}, 'multivalued': False},
     ],
     'groups': [],
 }
@@ -317,7 +321,7 @@ def build_realm():
     default_role = 'default-roles-' + REALM
     realm = {
         'id': REALM, 'realm': REALM, 'displayName': 'Маркетплейс цифровых товаров', 'enabled': True,
-        'sslRequired': 'all', 'loginTheme': None,
+        'sslRequired': 'all', 'loginTheme': 'dgm', 'emailTheme': 'dgm',
         'registrationAllowed': True, 'registrationEmailAsUsername': True, 'loginWithEmailAllowed': True,
         'duplicateEmailsAllowed': False, 'rememberMe': False, 'verifyEmail': True, 'resetPasswordAllowed': True,
         # защита от перебора: 5 неудач, вход закрыт на 15 минут (roles-permissions.md, раздел 2.1)

@@ -4,6 +4,8 @@
   "displayName": "Маркетплейс цифровых товаров",
   "enabled": true,
   "sslRequired": "all",
+  "loginTheme": "dgm",
+  "emailTheme": "dgm",
   "registrationAllowed": true,
   "registrationEmailAsUsername": true,
   "loginWithEmailAllowed": true,
@@ -93,13 +95,13 @@
     {
       "id": "7f3803a9-07af-5ba4-a904-f2360ff5906a",
       "alias": "dgm-browser",
-      "description": "Вход: SSO-cookie, внешний провайдер или пароль плюс второй фактор по роли",
+      "description": "Вход: SSO-cookie (кроме сессий по SMS), внешний провайдер или пароль плюс второй фактор по роли",
       "providerId": "basic-flow",
       "topLevel": true,
       "builtIn": false,
       "authenticationExecutions": [
         {
-          "authenticator": "auth-cookie",
+          "authenticator": "dgm-cookie",
           "authenticatorFlow": false,
           "autheticatorFlow": false,
           "requirement": "ALTERNATIVE",
@@ -171,6 +173,14 @@
           "flowAlias": "dgm-2fa-admin",
           "requirement": "CONDITIONAL",
           "priority": 50,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "dgm-auth-level",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 90,
           "userSetupAllowed": false
         }
       ]
@@ -290,59 +300,17 @@
     {
       "id": "cdc0af9c-80c4-5143-ad0a-822a008372b8",
       "alias": "registration",
-      "description": "Регистрация",
+      "description": "Регистрация с нейтральным ответом",
       "providerId": "basic-flow",
       "topLevel": true,
       "builtIn": false,
       "authenticationExecutions": [
         {
-          "authenticatorFlow": true,
-          "autheticatorFlow": true,
-          "flowAlias": "registration form",
+          "authenticator": "dgm-register",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
           "requirement": "REQUIRED",
           "priority": 10,
-          "userSetupAllowed": false
-        }
-      ]
-    },
-    {
-      "id": "acfaebe7-23cd-5410-b3e9-9a79ad64ffa6",
-      "alias": "registration form",
-      "description": "Форма регистрации",
-      "providerId": "form-flow",
-      "topLevel": false,
-      "builtIn": false,
-      "authenticationExecutions": [
-        {
-          "authenticator": "registration-user-creation",
-          "authenticatorFlow": false,
-          "autheticatorFlow": false,
-          "requirement": "REQUIRED",
-          "priority": 20,
-          "userSetupAllowed": false
-        },
-        {
-          "authenticator": "registration-password-action",
-          "authenticatorFlow": false,
-          "autheticatorFlow": false,
-          "requirement": "REQUIRED",
-          "priority": 50,
-          "userSetupAllowed": false
-        },
-        {
-          "authenticator": "registration-recaptcha-action",
-          "authenticatorFlow": false,
-          "autheticatorFlow": false,
-          "requirement": "DISABLED",
-          "priority": 60,
-          "userSetupAllowed": false
-        },
-        {
-          "authenticator": "registration-terms-and-conditions",
-          "authenticatorFlow": false,
-          "autheticatorFlow": false,
-          "requirement": "DISABLED",
-          "priority": 70,
           "userSetupAllowed": false
         }
       ]
@@ -424,7 +392,7 @@
           "userSetupAllowed": false
         },
         {
-          "authenticator": "reset-credential-email",
+          "authenticator": "dgm-reset-email",
           "authenticatorFlow": false,
           "autheticatorFlow": false,
           "requirement": "REQUIRED",
@@ -640,6 +608,14 @@
           "priority": 20,
           "userSetupAllowed": false,
           "authenticatorConfig": "ref-vk"
+        },
+        {
+          "authenticator": "dgm-auth-level",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 30,
+          "userSetupAllowed": false
         }
       ]
     },
@@ -1044,7 +1020,7 @@
     },
     {
       "name": "dgm-api",
-      "description": "Адресат dgm-api, признак подтверждённого телефона и способы входа amr",
+      "description": "Адресат dgm-api, признак подтверждённого телефона, идентификатор продавца и способы входа amr",
       "protocol": "openid-connect",
       "attributes": {
         "include.in.token.scope": "false",
@@ -1079,6 +1055,22 @@
             "user.attribute": "phone_verified",
             "claim.name": "phone_verified",
             "jsonType.label": "boolean"
+          }
+        },
+        {
+          "name": "seller_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "access.token.claim": "true",
+            "introspection.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "lightweight.claim": "false",
+            "user.attribute": "seller_id",
+            "claim.name": "seller_id",
+            "jsonType.label": "String"
           }
         },
         {
@@ -1414,7 +1406,7 @@
         "subComponents": {},
         "config": {
           "kc.user.profile.config": [
-            "{\"attributes\": [{\"name\": \"username\", \"displayName\": \"${username}\", \"validations\": {\"length\": {\"min\": 3, \"max\": 255}, \"username-prohibited-characters\": {}, \"up-username-not-idn-homograph\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"email\", \"displayName\": \"${email}\", \"validations\": {\"email\": {}, \"length\": {\"max\": 255}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"phone_verified\", \"displayName\": \"Телефон подтверждён\", \"validations\": {\"options\": {\"options\": [\"true\", \"false\"]}}, \"permissions\": {\"view\": [\"admin\"], \"edit\": [\"admin\"]}, \"multivalued\": false}], \"groups\": []}"
+            "{\"attributes\": [{\"name\": \"username\", \"displayName\": \"${username}\", \"validations\": {\"length\": {\"min\": 3, \"max\": 255}, \"username-prohibited-characters\": {}, \"up-username-not-idn-homograph\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"email\", \"displayName\": \"${email}\", \"validations\": {\"email\": {}, \"length\": {\"max\": 255}}, \"required\": {\"roles\": [\"user\"]}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"phone_verified\", \"displayName\": \"Телефон подтверждён\", \"validations\": {\"options\": {\"options\": [\"true\", \"false\"]}}, \"permissions\": {\"view\": [\"admin\"], \"edit\": [\"admin\"]}, \"multivalued\": false}, {\"name\": \"seller_id\", \"displayName\": \"Идентификатор продавца\", \"validations\": {\"length\": {\"max\": 36}}, \"permissions\": {\"view\": [\"admin\"], \"edit\": [\"admin\"]}, \"multivalued\": false}], \"groups\": []}"
           ]
         }
       }

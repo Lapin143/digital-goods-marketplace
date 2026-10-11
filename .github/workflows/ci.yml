@@ -508,6 +508,14 @@ jobs:
           DIAG_TAIL: "30"
         run: tools/ci/diag.sh "Проверка проверки API-тестов" make e2e-sabotage
 
+      # Вход по SMS на настоящей платформе: номер подтверждается через шлюз, код берётся из SMS-заглушки (шаг 7 Ф4)
+      - name: Вход по SMS (платформа, Keycloak, шлюз)
+        env:
+          DIAG_FILTER: 'ОШИБКА|Traceback|Error'
+          DIAG_MAX: "30"
+          DIAG_TAIL: "60"
+        run: tools/ci/diag.sh "Вход по SMS" make sms-login-check
+
       - name: Отчёты Newman в артефакте запуска
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
