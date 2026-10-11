@@ -533,6 +533,15 @@ jobs:
         if: always()
         run: python3 tools/stand-checks/memory.py stop "$RUNNER_TEMP/mem.jsonl" --label "набор full, проверки учётных записей" --strict --fail 90
 
+      # Причина отказа проверок учётных записей чаще всего в вызовах платформы к Keycloak и обратно: строки предупреждений и ошибок журналов попадают в аннотацию
+      - name: Журналы платформы и Keycloak (предупреждения и ошибки)
+        if: failure()
+        run: |
+          for s in platform-service keycloak; do
+            msg=$(docker compose --profile '*' logs --no-color --tail 600 "$s" 2>&1 | grep -E 'WARN|ERROR|Exception|Forbidden|не выполнил' | tail -n 14 | cut -c1-320 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+            echo "::warning title=журнал $s (предупреждения и ошибки)::$msg"
+          done
+
       - name: Отчёты Newman в артефакте запуска
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
