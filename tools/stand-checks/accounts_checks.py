@@ -199,6 +199,7 @@ def vk_checks(kc, admin, stamp):
             silent.kind, K.page_message(silent.page)[:200] if silent.page else '', shown))
         orphan = admin.realm('/users?search=%s' % urllib.parse.quote(silent_sub)).json()
         print('  --    TC-110 (наблюдение): записей Keycloak, найденных по идентификатору VK: %d' % len(orphan))
+        expect('TC-110: ответ VK ID без e-mail: токенов нет и записи не появилось', not silent.ok and not orphan, '%s, записей %d' % (S.describe(silent), len(orphan)))
         if os.environ.get('GITHUB_ACTIONS'):
             print('::notice title=TC-110 вход через VK ID без e-mail::результат %s, сообщение %r, записей %d, страница: %s' % (
                 silent.kind, K.page_message(silent.page)[:160] if silent.page else '', len(orphan), shown))
