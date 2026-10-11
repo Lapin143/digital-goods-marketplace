@@ -5,12 +5,12 @@
 # Статус меняется в том же commit, где появляется обработчик. Тест RoutesTest сервиса сверяет реестр с OpenAPI и контроллерами,
 # а tools/docs-checks/check_ledger.py показывает, сколько операций среза ещё не готово.
 
-anonymizeUser            slice1
-changeUserRole           slice1
+anonymizeUser            done
+changeUserRole           done
 createPhoneConfirmation  slice1
-deactivateUser           slice1
+deactivateUser           done
 issueOtpCode             slice1
-listStaffUsers           slice1
+listStaffUsers           done
 receiveSmsStatus         slice1
 verifyOtpCode            slice1
 verifyPhoneConfirmation  slice1

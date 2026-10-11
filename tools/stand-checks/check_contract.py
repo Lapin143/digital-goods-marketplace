@@ -4,7 +4,7 @@
     python3 tools/stand-checks/check_contract.py                 образцы в services/*/build/contract-samples
     python3 tools/stand-checks/check_contract.py каталог...      образцы в указанных каталогах (имя сервиса берётся из пути вида .../services/<сервис>/build/...)
 
-Интеграционные тесты (CatalogServiceIT, OrderServiceIT) запускают приложение на стенде, ходят в него по HTTPS и через StandHttp
+Интеграционные тесты (CatalogServiceIT, OrderServiceIT, InventoryServiceIT, PlatformServiceIT) запускают приложение на стенде, ходят в него по HTTPS и через StandHttp
 складывают каждый JSON-ответ в build/contract-samples: метод, путь без запроса, код и тело. Здесь по методу и пути находится
 операция OpenAPI сервиса (шаблон «/api/v1/products/{productId}» совпадает с настоящим идентификатором), по коду берётся описание
 ответа, по нему проверяется тело (JSON Schema 2020-12, форматы uuid и date-time включены).
@@ -32,12 +32,16 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(REPO, 'tools', 'docs-checks'))
 import check_stub_contract as S  # noqa: E402  (load/resolve по файлам OpenAPI)
 
-# Операции и коды, образцы которых обязательны: ходячий скелет (шаг 12 Ф3) и пул ключей (шаг 4 Ф4, образцы появятся в шаге 14)
+# Операции и коды, образцы которых обязательны: ходячий скелет (шаг 12 Ф3), пул ключей (шаг 4 Ф4, образцы появятся в шаге 14) и учётные записи
+# сотрудников (шаг 5 Ф4)
 REQUIRED = {
     'catalog-service': [('listStorefrontProducts', 200), ('listStorefrontProducts', 422), ('getProductCard', 200), ('getProductCard', 404)],
     'order-service': [('listOrders', 200), ('listOrders', 422)],
     'inventory-service': [('uploadKeyBatch', 200), ('uploadKeyBatch', 422), ('uploadKeyFile', 200), ('uploadKeyFile', 415),
                           ('getProductStock', 200), ('getProductStock', 404)],
+    'platform-service': [('listStaffUsers', 200), ('listStaffUsers', 422), ('changeUserRole', 200), ('changeUserRole', 409),
+                         ('changeUserRole', 422), ('deactivateUser', 200), ('deactivateUser', 409), ('anonymizeUser', 200),
+                         ('anonymizeUser', 409)],
 }
 PROBLEM = ('components.yaml', 'Problem')
 RFC3339 = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$')

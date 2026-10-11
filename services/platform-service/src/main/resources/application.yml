@@ -38,3 +38,12 @@ dgm:
     module: identity
   consumer:
     module: identity
+  # Admin REST Keycloak (ADR-025): создание учётных записей, роли, деактивация, сверка. Секрет клиента platform-service читается из /run/secrets
+  # (keycloak_client_platform) при каждом получении токена, Keycloak при старте сервису не нужен
+  keycloak:
+    base-url: ${DGM_KEYCLOAK_BASE_URL:https://keycloak:8443/auth}
+  identity:
+    # Сверка с Keycloak (identity-reconciler): раз в минуту, первый проход через 20 секунд после старта; запускает её тот экземпляр,
+    # который держит блокировку публикатора Outbox. Ключи названы как параметры платформы, значения по умолчанию те же (правило 6 среза 1)
+    reconcile-interval: PT1M
+    reconcile-initial-delay: PT20S

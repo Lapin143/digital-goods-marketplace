@@ -142,7 +142,7 @@ class KeycloakAdminClientTest {
             if (req.path().endsWith("/token")) {
                 return token(req, 300);
             }
-            return new Resp(200, "[{\"id\":\"" + USER_ID + "\",\"username\":\"ivan\",\"email\":\"ivan@example.org\",\"enabled\":true,"
+            return new Resp(200, "[{\"id\":\"" + USER_ID + "\",\"username\":\"ivan\",\"email\":\"ivan@example.org\",\"firstName\":\"Иван\",\"lastName\":\"Петров\",\"enabled\":true,"
                     + "\"emailVerified\":true,\"createdTimestamp\":1760000000000,\"attributes\":{\"seller_id\":[\"s-1\"],\"phone\":[\"+79990000000\"]}}]");
         };
         List<KeycloakUser> page = client().listUsers(100, 50);
@@ -150,6 +150,7 @@ class KeycloakAdminClientTest {
         KeycloakUser user = page.get(0);
         assertEquals(USER_ID, user.id());
         assertEquals("ivan", user.username());
+        assertEquals("Иван Петров", user.fullName());
         assertTrue(user.enabled());
         assertEquals(1760000000000L, user.createdTimestamp());
         assertEquals("s-1", user.attribute("seller_id"));
@@ -261,6 +262,51 @@ class KeycloakAdminClientTest {
         for (Req mapping : mappings) {
             assertEquals(List.of(Map.of("id", "role-1", "name", "seller")), Json.parse(mapping.body()));
         }
+    }
+
+    @Test
+    void requiredActionIsAddedOnceAndKeepsTheRestOfTheProfile() throws Exception {
+        router = req -> {
+            if (req.path().endsWith("/token")) {
+                return token(req, 300);
+            }
+            return req.method().equals("GET")
+                    ? new Resp(200, "{\"id\":\"" + USER_ID + "\",\"email\":\"ivan@example.org\",\"requiredActions\":[\"VERIFY_EMAIL\"]}")
+                    : new Resp(204, null);
+        };
+        KeycloakAdminClient client = client();
+        client.addRequiredAction(USER_ID, "CONFIGURE_TOTP");
+        client.addRequiredAction(USER_ID, "VERIFY_EMAIL");
+        List<Req> puts = requests.stream().filter(r -> r.method().equals("PUT")).toList();
+        assertEquals(1, puts.size());
+        Map<String, Object> sent = Json.parseObject(puts.get(0).body());
+        assertEquals(List.of("VERIFY_EMAIL", "CONFIGURE_TOTP"), sent.get("requiredActions"));
+        assertEquals("ivan@example.org", sent.get("email"));
+    }
+
+    @Test
+    void logoutAndDeleteIgnoreMissingUsers() throws Exception {
+        router = req -> req.path().endsWith("/token") ? token(req, 300) : new Resp(404, "{}");
+        KeycloakAdminClient client = client();
+        client.logout(USER_ID);
+        client.deleteUser(USER_ID);
+        assertEquals(1, count("POST /auth/admin/realms/dgm/users/" + USER_ID + "/logout"));
+        assertEquals(1, count("DELETE /auth/admin/realms/dgm/users/" + USER_ID));
+    }
+
+    @Test
+    void logoutAndDeleteFailOnServerErrors() throws Exception {
+        router = req -> req.path().endsWith("/token") ? token(req, 300) : new Resp(503, "{}");
+        KeycloakAdminClient client = client();
+        assertTrue(assertThrows(KeycloakException.class, () -> client.logout(USER_ID)).retryable());
+        assertTrue(assertThrows(KeycloakException.class, () -> client.deleteUser(USER_ID)).retryable());
+    }
+
+    @Test
+    void federatedProvidersAreListed() throws Exception {
+        router = req -> req.path().endsWith("/token") ? token(req, 300)
+                : new Resp(200, "[{\"identityProvider\":\"vk-id\",\"userId\":\"123\"}]");
+        assertEquals(List.of("vk-id"), client().federatedProviders(USER_ID));
     }
 
     @Test

@@ -161,6 +161,60 @@ public final class KeycloakAdminClient {
         call("PUT", "/users/" + segment(userId), Json.write(user), 204);
     }
 
+    /**
+     * Добавляет пользователю обязательное действие входа, например {@code CONFIGURE_TOTP}: при следующем входе Keycloak потребует его
+     * выполнить. Если действие уже назначено, Keycloak не вызывается.
+     */
+    public void addRequiredAction(String userId, String action) {
+        Map<String, Object> user = rawUser(userId);
+        List<Object> actions = new ArrayList<>();
+        if (user.get("requiredActions") instanceof List<?> existing) {
+            actions.addAll(existing);
+        }
+        if (actions.contains(action)) {
+            return;
+        }
+        actions.add(action);
+        user.put("requiredActions", actions);
+        call("PUT", "/users/" + segment(userId), Json.write(user), 204);
+    }
+
+    /** Завершает все сессии пользователя. Если пользователя нет, ничего не происходит. */
+    public void logout(String userId) {
+        try {
+            call("POST", "/users/" + segment(userId) + "/logout", null, 204);
+        } catch (KeycloakException e) {
+            if (!e.notFound()) {
+                throw e;
+            }
+        }
+    }
+
+    /** Удаляет пользователя вместе с сессиями и учётными данными. Если его уже нет, это не ошибка. */
+    public void deleteUser(String userId) {
+        try {
+            call("DELETE", "/users/" + segment(userId), null, 204);
+        } catch (KeycloakException e) {
+            if (!e.notFound()) {
+                throw e;
+            }
+        }
+    }
+
+    /** Псевдонимы внешних поставщиков входа, с которыми связан пользователь (VK ID); пусто, если он вошёл только паролем. */
+    public List<String> federatedProviders(String userId) {
+        Object parsed = Json.parse(call("GET", "/users/" + segment(userId) + "/federated-identity", null, 200).body());
+        List<String> providers = new ArrayList<>();
+        if (parsed instanceof List<?> list) {
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> link && link.get("identityProvider") != null) {
+                    providers.add(String.valueOf(link.get("identityProvider")));
+                }
+            }
+        }
+        return providers;
+    }
+
     private Map<String, Object> rawUser(String userId) {
         return Json.parseObject(call("GET", "/users/" + segment(userId), null, 200).body());
     }
@@ -253,8 +307,9 @@ public final class KeycloakAdminClient {
             }
         }
         long created = map.get("createdTimestamp") instanceof Number n ? n.longValue() : 0L;
-        return new KeycloakUser(String.valueOf(map.get("id")), text(map.get("username")), text(map.get("email")),
-                Boolean.TRUE.equals(map.get("enabled")), Boolean.TRUE.equals(map.get("emailVerified")), created, attributes);
+        return new KeycloakUser(String.valueOf(map.get("id")), text(map.get("username")), text(map.get("email")), text(map.get("firstName")),
+                text(map.get("lastName")), Boolean.TRUE.equals(map.get("enabled")), Boolean.TRUE.equals(map.get("emailVerified")), created,
+                attributes);
     }
 
     private static String text(Object value) {

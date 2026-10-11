@@ -1174,6 +1174,8 @@ paths:
           $ref: components.yaml#/components/responses/E429RateLimited
         '500':
           $ref: components.yaml#/components/responses/E500InternalError
+        '503':
+          $ref: components.yaml#/components/responses/E503DependencyUnavailable
   /api/v1/staff/users/{userId}/change-role:
     post:
       operationId: changeUserRole
@@ -1403,6 +1405,8 @@ paths:
           $ref: components.yaml#/components/responses/E429RateLimited
         '500':
           $ref: components.yaml#/components/responses/E500InternalError
+        '503':
+          $ref: components.yaml#/components/responses/E503DependencyUnavailable
   /api/v1/staff/parameters:
     get:
       operationId: listPlatformParameters

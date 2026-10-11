@@ -173,7 +173,7 @@ jobs:
         run: |
           tools/ci/diag.sh "Интеграционные тесты каркаса и сервисов" ./gradlew --console=plain --continue \
             :libs:service-kit:integrationTest :services:catalog-service:integrationTest :services:order-service:integrationTest \
-            :services:inventory-service:integrationTest
+            :services:inventory-service:integrationTest :services:platform-service:integrationTest
 
       # Рецепт руководства разработчика (раздел 10): order-service запускается из Gradle на стороне хоста, инфраструктура в Compose (dev-min, отладочные порты)
       - name: Сервис из Gradle при инфраструктуре в Compose

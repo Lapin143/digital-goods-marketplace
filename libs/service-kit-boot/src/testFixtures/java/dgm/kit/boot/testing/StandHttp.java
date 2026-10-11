@@ -76,13 +76,27 @@ public final class StandHttp {
      * @throws IOException рукопожатие не состоялось (например, нет клиентского сертификата) или связь прервана
      */
     public Response get(String path, String... headers) throws IOException {
-        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("https://localhost:" + port + path)).timeout(Duration.ofSeconds(15)).GET();
+        return send("GET", path, null, headers);
+    }
+
+    /** POST с телом JSON (или без тела, если {@code json} равно {@code null}); заголовки парами «имя, значение». */
+    public Response post(String path, String json, String... headers) throws IOException {
+        return send("POST", path, json, headers);
+    }
+
+    private Response send(String method, String path, String json, String... headers) throws IOException {
+        HttpRequest.BodyPublisher body = json == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(json);
+        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("https://localhost:" + port + path)).timeout(Duration.ofSeconds(15))
+                .method(method, body);
+        if (json != null) {
+            request.header("Content-Type", "application/json");
+        }
         for (int i = 0; i + 1 < headers.length; i += 2) {
             request.header(headers[i], headers[i + 1]);
         }
         try {
             HttpResponse<String> response = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
-            record(path, response);
+            record(method, path, response);
             return new Response(response.statusCode(), response.body(), response.headers());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -95,7 +109,7 @@ public final class StandHttp {
      * лежат в каталоге build/contract-samples сервиса. Каталог меняет свойство dgm.contract.samples. Сбой записи тест не роняет:
      * без образцов упадёт сама проверка, которой образцы обязательны.
      */
-    private static void record(String path, HttpResponse<String> response) {
+    private static void record(String method, String path, HttpResponse<String> response) {
         String type = response.headers().firstValue("Content-Type").orElse("");
         String body = response.body();
         if (body == null || body.isBlank() || !type.contains("json") || path.startsWith("/actuator")) {
@@ -105,11 +119,11 @@ public final class StandHttp {
             Path dir = Path.of(System.getProperty("dgm.contract.samples", "build/contract-samples"));
             Files.createDirectories(dir);
             Map<String, Object> sample = new LinkedHashMap<>();
-            sample.put("method", "GET");
+            sample.put("method", method);
             sample.put("path", path.contains("?") ? path.substring(0, path.indexOf('?')) : path);
             sample.put("status", response.statusCode());
             sample.put("body", Json.parse(body));
-            String name = "GET-" + response.statusCode() + "-" + Integer.toHexString(path.hashCode()) + ".json";
+            String name = method + "-" + response.statusCode() + "-" + Integer.toHexString(path.hashCode()) + ".json";
             Files.writeString(dir.resolve(name), Json.write(sample), StandardCharsets.UTF_8);
         } catch (IOException | RuntimeException e) {
             System.err.println("Образец ответа не записан: " + e);

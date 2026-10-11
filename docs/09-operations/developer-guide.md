@@ -233,7 +233,7 @@ make -s token WHO=seller-1                   # токен другого пол�
 | `make keycloak-check` | Вход по ролям, второй фактор, сроки, перебор, VK ID, Argon2 | `dev-auth`, `DEBUG=1` | около 3 минут |
 | `make web-check` | Веб-интерфейс: доступ только шлюзу, заголовки | Набор с профилем `gateway`, `DEBUG=1` | около минуты |
 | `make services-check` | Контейнеры сервисов: здоровье, память, журнал JSON | `dev-purchase` и `dev-platform`; при одном наборе перечислите сервисы в `S="..."` | около минуты |
-| `make kit-test` | Интеграционные тесты каркаса (Outbox, потребитель, идемпотентность, Redis), каталога, заказов и инвентаря на стенде | `dev-kit`, `DEBUG=1`, `make db-migrate S="order-service inventory-service"` | несколько минут |
+| `make kit-test` | Интеграционные тесты каркаса (Outbox, потребитель, идемпотентность, Redis), каталога, заказов, инвентаря и платформенного сервиса (учётные записи, роли, сверка с заглушкой Keycloak) на стенде | `dev-kit`, `DEBUG=1`, `make db-migrate S="order-service inventory-service"` | несколько минут |
 | `make db-check` | Миграции Flyway с нуля, права ролей | Набор с `infra` | около минуты |
 | `make obs-check` | Цели Prometheus, Grafana, журнал в Loki, трасса в Tempo, письмо оповещения | `full-obs`, `DEBUG=1` | несколько минут |
 | `make load` | 60 секунд нагрузки на каталог и заказы для замеров памяти | `full`, `DEBUG=1`, `make keycloak-users` | минута |
