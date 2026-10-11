@@ -103,6 +103,23 @@ def new_buyer(kc, admin, stamp, tag):
     return {'email': email, 'password': password, 'id': user['id']}
 
 
+def staff_login(kc, admin, user, tries=3):
+    """Вход сотрудника со вторым фактором: (токен доступа, пояснение при неудаче).
+
+    Предыдущие проверки того же задания уже входили этими пользователями. Keycloak не принимает код TOTP второй раз (codeReusable = false), а быстрые
+    неудачи подряд закрывают вход на минуту. Поэтому перед каждой попыткой блокировка снимается, а повтор ждёт следующего шага TOTP (30 секунд).
+    """
+    note = ''
+    for attempt in range(tries):
+        admin.clear_attacks(user['id'])
+        r = kc.login(G.CLIENTS[user['role']], user['email'], user['password'], user.get('otp_secret'))
+        if r.ok:
+            return r.tokens['access_token'], ''
+        note = 'попытка %d: %s' % (attempt + 1, S.describe(r))
+        time.sleep(31)
+    return None, note
+
+
 # --------------------------------------------------------------------------------------------------- TC-103, TC-104
 def login_checks(kc, admin, stamp):
     print('== Вход по e-mail и паролю: до подтверждения почты, неверный пароль, неизвестный адрес (TC-103, TC-104; US-1.1, US-1.3)')
@@ -207,8 +224,8 @@ def lifecycle(kc, admin, people, buyer):
            '%s' % (verified.text[:200] if verified is not None else 'код не пришёл'))
     phone_busy_check(kc, admin, people, t, phone)
 
-    adm = G.login(kc, people['admin-1'])
-    if not expect('администратор admin-1 вошёл со вторым фактором', adm, 'вход не удался'):
+    adm, why = staff_login(kc, admin, people['admin-1'])
+    if not expect('администратор admin-1 вошёл со вторым фактором', adm, why):
         return
     r = get('/api/v1/staff/users?email=%s' % urllib.parse.quote(buyer['email']), adm)
     items = r.json().get('items', []) if r.status == 200 else []
@@ -289,13 +306,16 @@ def lifecycle(kc, admin, people, buyer):
 
 
 # --------------------------------------------------------------------------------------------------- ST-02 для внутренних операций
-def internal_operations(kc, people):
+def internal_operations(kc, admin, people):
     print('== ST-02: внутренние операции платформы недостижимы через шлюз ни одной ролью (issueOtpCode, verifyOtpCode, receiveSmsStatus)')
     tokens = {'guest': None}
+    notes = []
     for name in ('buyer-1', 'seller-1', 'moderator-1', 'support-1', 'admin-1'):
-        tokens[people[name]['role']] = G.login(kc, people[name])
+        tokens[people[name]['role']], why = staff_login(kc, admin, people[name]) if people[name].get('otp_secret') else (G.login(kc, people[name]), '')
+        if why:
+            notes.append('%s: %s' % (name, why))
     missing = [role for role, token in tokens.items() if role != 'guest' and not token]
-    if not expect('токены пяти ролей получены', not missing, 'нет токенов: %s' % missing):
+    if not expect('токены пяти ролей получены', not missing, 'нет токенов: %s; %s' % (missing, '; '.join(notes))):
         return
     probes = [('issueOtpCode', 'POST', '/internal/v1/otp-codes'), ('verifyOtpCode', 'POST', '/internal/v1/otp-verifications'),
               ('receiveSmsStatus', 'POST', '/api/v1/webhooks/sms-provider')]
@@ -326,7 +346,7 @@ def main():
     vk_checks(kc, admin, stamp)
     if buyer:
         lifecycle(kc, admin, people, buyer)
-    internal_operations(kc, people)
+    internal_operations(kc, admin, people)
     print('\nПроверок успешно: %d, с ошибками: %d' % (G.PASSED, len(G.FAILED)))
     for name in G.FAILED:
         print('  - %s' % name)
