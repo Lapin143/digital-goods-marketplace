@@ -24,7 +24,8 @@ FUTURE_MD = {
     'versions.md',                                   # Ф3, шаг 2: версии компонентов
 }
 # скрипты проверок, которые появятся на шагах Ф3 (план: docs/00-phase3-guide.md); после создания файла запись безвредна
-FUTURE_SCRIPTS = {'check_compose.py', 'check_realm.py'}
+FUTURE_SCRIPTS = {'check_compose.py', 'check_realm.py',
+                  'check_code_docs.py'}   # Ф4, срез 1, шаг 20 (план: docs/00-phase4-guide.md)
 
 
 def slug(title):
