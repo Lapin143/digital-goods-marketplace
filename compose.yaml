@@ -344,11 +344,11 @@ services:
 # Сети (c4-deployment.md, раздел 4.2). edge и app подключаются у контейнеров следующих профилей.
 # data и obs закрыты для выхода в интернет. Порты на хост здесь не публикуются: отладочные порты в compose.debug.yaml.
 
-  # ------------------------------------------------------------------ профиль purchase
+  # ------------------------------------------------------------------ профиль sellers
   catalog-service:
     <<: *common
     image: dgm/catalog-service:${IMAGE_TAG:-dev}
-    profiles: [purchase]
+    profiles: [sellers]
     user: "10001:10001"
     mem_limit: 352m
     memswap_limit: 352m
@@ -381,7 +381,7 @@ services:
   inventory-service:
     <<: *common
     image: dgm/inventory-service:${IMAGE_TAG:-dev}
-    profiles: [purchase]
+    profiles: [sellers]
     user: "10001:10001"
     mem_limit: 320m
     memswap_limit: 320m
@@ -407,6 +407,7 @@ services:
     healthcheck:
       <<: *service-health
 
+  # ------------------------------------------------------------------ профиль purchase
   order-service:
     <<: *common
     image: dgm/order-service:${IMAGE_TAG:-dev}

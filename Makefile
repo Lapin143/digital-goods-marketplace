@@ -67,11 +67,13 @@ SET             ?= dev-min
 SET_dev-min      := infra,stubs
 SET_dev-platform := infra,stubs,platform,storage
 SET_dev-auth     := infra,stubs,auth,gateway
-SET_dev-purchase := infra,stubs,purchase
-SET_full         := infra,stubs,auth,gateway,purchase,platform,storage
+SET_dev-purchase := infra,stubs,purchase,sellers
+SET_dev-sellers  := infra,stubs,auth,gateway,platform,storage,sellers
+SET_dev-kit      := infra,stubs,storage
+SET_full         := infra,stubs,auth,gateway,purchase,sellers,platform,storage
 SET_full-obs     := $(SET_full),obs
 SET_server       := $(SET_full-obs),ops
-ALL_SETS        := dev-min dev-platform dev-auth dev-purchase full full-obs server
+ALL_SETS        := dev-min dev-platform dev-auth dev-purchase dev-sellers dev-kit full full-obs server
 PROFILES         := $(SET_$(SET))
 COMPOSE          := docker compose -f compose.yaml $(if $(DEBUG),-f compose.debug.yaml)
 # Alloy (профиль obs) читает журналы контейнеров через сокет Docker и входит в его группу. Номер группы берётся у сокета хоста;
@@ -84,7 +86,7 @@ WAIT_TIMEOUT     ?= 420
 up: certs secrets ## Поднять набор профилей и дождаться готовности: make up SET=dev-min [DEBUG=1]
 	@test -n "$(PROFILES)" || { echo "Неизвестный набор SET=$(SET). Доступны: $(ALL_SETS)"; exit 2; }
 	@# Образы сервисов Java собираются из jar (ADR-023), поэтому наборы с сервисами сначала собирают jar и образы
-	@case ",$(PROFILES)," in *,purchase,*|*,platform,*|*,gateway,*) $(MAKE) --no-print-directory images;; esac
+	@case ",$(PROFILES)," in *,purchase,*|*,sellers,*|*,platform,*|*,gateway,*) $(MAKE) --no-print-directory images;; esac
 	COMPOSE_PROFILES=$(PROFILES) $(COMPOSE) up -d --build --remove-orphans
 	python3 tools/stand-checks/wait.py --profiles $(PROFILES) --timeout $(WAIT_TIMEOUT)
 

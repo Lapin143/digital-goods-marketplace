@@ -215,7 +215,7 @@ SOAP-мок, RabbitMQ, Camunda и Temporal в реализацию не вход
 
 Пошаговая инструкция: `docs/00-phase3-guide.md` (20 шагов). Код Java и Docker проверяется только запуском в GitHub Actions (из рабочей среды недоступны реестры пакетов и образов), поэтому CI строится первым. Принцип фазы: ходячий скелет, три реальные операции контракта проходят весь путь от шлюза до базы.
 
-- Docker Compose с профилями из `05-architecture/c4-deployment.md`: `infra`, `stubs`, `auth`, `gateway`, `purchase`, `platform`, `storage`, `obs`, `ops`; наборы `dev-min`, `dev-platform`, `dev-auth`, `dev-purchase`, `full`, `full-obs`, `server` (`make up SET=…`)
+- Docker Compose с профилями из `05-architecture/c4-deployment.md`: `infra`, `stubs`, `auth`, `gateway`, `purchase`, `sellers`, `platform`, `storage`, `obs`, `ops`; наборы `dev-min`, `dev-platform`, `dev-auth`, `dev-purchase`, `dev-sellers`, `dev-kit`, `full`, `full-obs`, `server` (`make up SET=…`)
 - Внутренний трафик по ADR-022: частный центр сертификации, mTLS между сервисами, TLS к PostgreSQL, Kafka и Redis
 - PostgreSQL: один сервер, отдельная база на сервис, миграции Flyway из DDL Ф2
 - Kafka (один брокер), Redis, объектное хранилище (MinIO архивирован в 2026 году, замена выбирается спайком и фиксируется в ADR-024)

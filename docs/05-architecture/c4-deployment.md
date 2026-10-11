@@ -35,7 +35,7 @@ flowchart LR
     github["<b>GitHub</b><br/><i>[Внешняя система]</i><br/>Репозиторий, Actions, реестр образов"]
 
     subgraph laptop["<b>Ноутбук разработчика</b> <i>[Узел: Windows, WSL2 3 ГБ, Docker Compose]</i>"]
-        laptop-stand["<b>Срез стенда</b><br/><i>[Compose, профили]</i><br/>dev-min, dev-platform, dev-auth, dev-purchase"]
+        laptop-stand["<b>Срез стенда</b><br/><i>[Compose, профили]</i><br/>dev-min, dev-platform, dev-auth, dev-purchase, dev-kit"]
     end
 
     subgraph server["<b>Сервер в РФ</b> <i>[Узел: Linux, 8 ГБ]</i>"]
@@ -86,11 +86,13 @@ flowchart TB
         subgraph p-auth["<b>Профиль auth, 672 МБ</b>"]
             keycloak["<b>Сервер идентификации</b><br/><i>[Контейнер: Keycloak]</i><br/>8443, 9000"]
         end
-        subgraph p-purchase["<b>Профиль purchase, 1664 МБ</b>"]
+        subgraph p-purchase["<b>Профиль purchase, 992 МБ</b>"]
             order-service["<b>Сервис заказов</b><br/><i>[Контейнер: Java, Spring Boot]</i><br/>8443"]
-            inventory-service["<b>Сервис остатков и ключей</b><br/><i>[Контейнер: Java, Spring Boot]</i><br/>8443"]
             payment-service["<b>Сервис платежей</b><br/><i>[Контейнер: Java, Spring Boot]</i><br/>8443"]
             delivery-service["<b>Сервис выдачи</b><br/><i>[Контейнер: Java, Spring Boot]</i><br/>8443"]
+        end
+        subgraph p-sellers["<b>Профиль sellers, 672 МБ</b>"]
+            inventory-service["<b>Сервис остатков и ключей</b><br/><i>[Контейнер: Java, Spring Boot]</i><br/>8443"]
             catalog-service["<b>Сервис каталога</b><br/><i>[Контейнер: Java, Spring Boot]</i><br/>8443"]
         end
         subgraph p-platform["<b>Профиль platform, 352 МБ</b>"]
@@ -115,6 +117,7 @@ flowchart TB
     style p-gateway fill:#eaf2fb,stroke:#7a9cc0,color:#000000
     style p-auth fill:#eaf2fb,stroke:#7a9cc0,color:#000000
     style p-purchase fill:#eaf2fb,stroke:#7a9cc0,color:#000000
+    style p-sellers fill:#eaf2fb,stroke:#7a9cc0,color:#000000
     style p-platform fill:#eaf2fb,stroke:#7a9cc0,color:#000000
     style p-storage fill:#eaf2fb,stroke:#7a9cc0,color:#000000
     style p-infra fill:#eaf2fb,stroke:#7a9cc0,color:#000000
@@ -130,8 +133,8 @@ flowchart TB
 | Веб-интерфейс | `web-app` | c4-containers | `gateway` | 8443 (HTTPS, статические файлы) | Нет | HTTP-запрос к `/` |
 | API Gateway | `api-gateway` | c4-containers | `gateway` | 8443 (пользовательский вход), 8444 (метрики и здоровье, mTLS) | Нет | `/actuator/health/readiness` на 8444 |
 | Сервер идентификации | `keycloak` | c4-containers | `auth` | 8443 (HTTPS), 9000 (метрики и здоровье) | Realm как код из репозитория (файл копируется при запуске в каталог в памяти), только чтение | `curl` к `/health/ready` на 9000 по TLS |
-| Сервис каталога | `catalog-service` | c4-containers | `purchase` | 8443 (mTLS), 8444 (метрики) | Нет | `/actuator/health/readiness` |
-| Сервис остатков и ключей | `inventory-service` | c4-containers | `purchase` | 8443 (mTLS), 8444 | Нет | то же |
+| Сервис каталога | `catalog-service` | c4-containers | `sellers` | 8443 (mTLS), 8444 (метрики) | Нет | `/actuator/health/readiness` |
+| Сервис остатков и ключей | `inventory-service` | c4-containers | `sellers` | 8443 (mTLS), 8444 | Нет | то же |
 | Сервис заказов | `order-service` | c4-containers | `purchase` | 8443 (mTLS), 8444 | Нет | то же |
 | Сервис платежей | `payment-service` | c4-containers | `purchase` | 8443 (mTLS), 8444 | Нет | то же |
 | Сервис выдачи | `delivery-service` | c4-containers | `purchase` | 8443 (mTLS), 8444 | Нет | то же |
@@ -166,7 +169,8 @@ flowchart TB
 | `stubs` | `external-stubs` | Платёжный шлюз, e-mail, SMS, VK ID и SMTP для Keycloak |
 | `auth` | `keycloak` | Вход, токены, 2FA |
 | `gateway` | `api-gateway`, `web-app` | Единая точка входа и интерфейс |
-| `purchase` | `order-service`, `inventory-service`, `payment-service`, `delivery-service`, `catalog-service` | Критический путь покупки и выдачи, плюс карточка товара |
+| `sellers` | `catalog-service`, `inventory-service` | Витрина, заявки и товары продавцов, пул ключей. Выделен из `purchase` в Ф4 (решение Р-17 [руководства Ф4](../00-phase4-guide.md)): срез 1 не нужны заказ, платёж и выдача |
+| `purchase` | `order-service`, `payment-service`, `delivery-service` | Критический путь покупки и выдачи. Вместе с `sellers` даёт набор `dev-purchase` |
 | `platform` | `platform-service` | Поддержка, уведомления, журнал аудита, параметры, прикладной слой идентификации |
 | `storage` | `object-storage`, `storage-init` | Документы продавцов |
 | `obs` | `prometheus`, `alertmanager`, `grafana`, `loki`, `tempo`, `alloy` | Метрики, журналы, трассировка, оповещения |
@@ -177,14 +181,16 @@ flowchart TB
 | `dev-min` | `infra`, `stubs` | Основной режим разработки: сервисы запускаются из Gradle и IDE, инфраструктура в Compose |
 | `dev-platform` | `dev-min`, `platform`, `storage` | Разработка служебного сервиса и модерации |
 | `dev-auth` | `dev-min`, `auth`, `gateway` | Проверка входа, ролей, 2FA и интерфейса, сервисы из Gradle |
-| `dev-purchase` | `dev-min`, `purchase` | Сквозная покупка без шлюза и входа, токены тестовые |
+| `dev-purchase` | `dev-min`, `purchase`, `sellers` | Сквозная покупка без шлюза и входа, токены тестовые |
+| `dev-sellers` | `dev-min`, `auth`, `gateway`, `platform`, `storage`, `sellers` | Срез 1 Ф4: вход, заявка продавца, модерация, товары, ключи, витрина. На ноутбуке с 3 ГБ не помещается, нужен лимит WSL2 4 ГБ |
+| `dev-kit` | `dev-min`, `storage` | Интеграционные тесты каркаса и сервисов с настоящими базой, Kafka, Redis и хранилищем, без Keycloak и шлюза (`make kit-test`) |
 | `full` | все профили R1 | Полный стенд на сервере и в CI |
 | `full-obs` | `full`, `obs` | Нагрузочные тесты и демонстрация наблюдаемости |
 | `server` | `full-obs`, `ops` | Рабочий стенд на сервере |
 
 Набор это имя цели в `Makefile` (`make up SET=dev-purchase`), которая раскрывает его в список профилей Compose (`COMPOSE_PROFILES`). Имена наборов не совпадают с именами профилей, чтобы не путать «набор» и «профиль».
 
-Какие наборы помещаются в 3 ГБ: `dev-min`, `dev-platform`, `dev-auth` помещаются, `dev-purchase` на пределе, `full`, `full-obs` и `server` только на сервере ([memory-budget.md](../09-operations/memory-budget.md), раздел 3).
+Какие наборы помещаются в 3 ГБ: `dev-min`, `dev-platform`, `dev-auth`, `dev-kit` помещаются, `dev-purchase` на пределе, `dev-sellers` не помещается по лимитам (помещается при лимите WSL2 4 ГБ, по замеру пиков занимает около 2,3 ГБ), `full`, `full-obs` и `server` только на сервере ([memory-budget.md](../09-operations/memory-budget.md), раздел 3).
 
 Профили Compose это не окружения. Конфигурация (адреса, секреты, сертификаты) одна и та же во всех наборах, меняется только состав контейнеров. Так ошибки конфигурации находятся на ноутбуке, а не на сервере.
 
@@ -459,7 +465,7 @@ flowchart TB
 | 16 | Объектное хранилище | RustFS 1.0.1 вместо архивного MinIO ([ADR-024](adr/ADR-024-object-storage.md)): один контейнер `object-storage` (192 МБ, порт 9000 по TLS, консоль отключена, том `objectdata`) и разовое задание `storage-init` (32 МБ, клиент `rc`), которое создаёт бакет `seller-documents`, политику и учётную запись `catalog-service` | Выбор подтверждён спайком на раннере CI, а не обзорами: из трёх кандидатов один выполняет TLS, учётную запись на один бакет и один открытый порт без дополнительных контейнеров, пик памяти около 100 МБ. Корневая запись и запись сервиса разделены, пароли только файлами (`storage_admin`, `storage_catalog`). Инициализация идемпотентна, правка политики и смена пароля выполняются повторным `make storage-init`. Проект молодой (1.0 от 16 сентября 2026), поэтому поведение проверяет `tools/stand-checks/storage_checks.sh` в каждом запуске CI, запасной вариант SeaweedFS 4.48 описан в ADR |
 | 17 | Заглушки внешних систем | Один процесс Node.js 24 (`tools/external-stubs`), образ собирается Compose из `docker/Dockerfile.stubs` при `make up`, 128 МБ, куча 64 МБ, сеть `app`. Порт 8443 по TLS: платёжный шлюз, e-mail, SMS, VK ID, просмотр писем. Порт 8444 по TLS: команды управления. Порт 1025: SMTP для Keycloak. Вебхуки идут на `api-gateway` по путям из OpenAPI с клиентским сертификатом заглушки | Команды управления отделены портом от прикладного интерфейса ([ADR-015](adr/ADR-015-payment-gateway-integration.md)): на сервере порт 8444 не публикуется, а на ноутбуке доступен только на 127.0.0.1 с отладочным файлом. Внешних пакетов нет, поэтому нет и цепочки поставок (T-42). Состояние в памяти, перезапуск возвращает режимы по умолчанию. Контракт вебхуков сверяется с OpenAPI (`check_stub_contract.py`), поведение проверяют 100 с лишним модульных тестов (`make stubs-test`) и `tools/stand-checks/stubs_checks.sh` в CI |
 | 18 | Сервер идентификации | Образ `dgm/keycloak` собирается Compose из `docker/Dockerfile.keycloak`: Keycloak 26.8.0, расширение `sms-otp` (заготовка: отказывает с кодом 501 до Ф4), `kc.sh build`, curl. Лимит 672 МБ, куча 384 МБ, сети `app` и `data`, база PostgreSQL по TLS с проверкой имени (`verify-full`). Realm как код: `infra/keycloak/gen_realm.py` создаёт `infra/keycloak/realm/dgm-realm.json`, `tools/docs-checks/check_realm.py` сверяет его с [roles-permissions.md](roles-permissions.md). Адрес для браузера `https://localhost:8443/auth` через шлюз (маршруты `/auth` и `/vkid`), он же издатель `iss` токенов; секреты подставляются из файлов в `infra/keycloak/entrypoint.sh` | Один realm `dgm` в файле даёт воспроизводимый стенд и проверяемые настройки (NFT-3.0, NFT-3.1). Известные ограничения: realm применяется только при первом запуске на пустой базе, изменения требуют удаления realm и перезапуска (порядок в руководстве разработчика); `KC_PROXY_HEADERS=xforwarded` требует, чтобы шлюз перезаписывал `X-Forwarded-*`; вход по SMS создаёт обычную сессию Keycloak, и без мер Ф4 (уровни аутентификации) браузер мог бы получить из неё токен `dgm-web` без пароля; у сотрудника при первой настройке TOTP в `amr` может не быть `otp`, поведение проверяется в Ф4 |
-| 19 | Сервисы Java в Compose | Шесть сервисов (профили `purchase`: каталог, склад, заказы, платежи, выдача; `platform`: служебный сервис) собираются из `docker/Dockerfile.service` (образ `dgm/<сервис>:${IMAGE_TAG:-dev}`), пользователь 10001, файловая система только для чтения, `/tmp` 48 МБ в памяти, лимит 320 МБ (служебный 352 МБ, куча 192 МБ), сети `app` и `data`, TLS с взаимной проверкой на 8443 и 8444. Здоровье контейнера: `GET /ready` на 127.0.0.1:8081 (внутренняя проба каркаса), запускаются после здоровой базы и созданных тем Kafka. `make up` собирает образы, если в наборе есть профили `purchase`, `platform` или `gateway` | В образе на JRE нет `curl`, а проба на петле не требует клиентского сертификата и не открывается наружу (внешний порт 8444 принимает только mTLS, поэтому проверять здоровье на нём из контейнера пришлось бы с ключом). Пробу создаёт каркас, она отвечает 200, когда приложение приняло трафик (миграции выполнены, сервер запущен) и базы модулей отвечают, иначе 503. Секреты (пароли ролей, ключи TLS) монтируются файлами, переменные окружения называются `*_FILE`, это проверяет `check_compose.py`. Тестовые данные ходячего скелета (три товара, четыре заказа) создаёт профиль Spring `testdata` (`DGM_SPRING_PROFILES`, по умолчанию включён на стенде, пустое значение выключает), продуктовый код их не знает |
+| 19 | Сервисы Java в Compose | Шесть сервисов (профили `sellers`: каталог, склад; `purchase`: заказы, платежи, выдача; `platform`: служебный сервис) собираются из `docker/Dockerfile.service` (образ `dgm/<сервис>:${IMAGE_TAG:-dev}`), пользователь 10001, файловая система только для чтения, `/tmp` 48 МБ в памяти, лимит 320 МБ (служебный 352 МБ, куча 192 МБ), сети `app` и `data`, TLS с взаимной проверкой на 8443 и 8444. Здоровье контейнера: `GET /ready` на 127.0.0.1:8081 (внутренняя проба каркаса), запускаются после здоровой базы и созданных тем Kafka. `make up` собирает образы, если в наборе есть профили `purchase`, `sellers`, `platform` или `gateway` | В образе на JRE нет `curl`, а проба на петле не требует клиентского сертификата и не открывается наружу (внешний порт 8444 принимает только mTLS, поэтому проверять здоровье на нём из контейнера пришлось бы с ключом). Пробу создаёт каркас, она отвечает 200, когда приложение приняло трафик (миграции выполнены, сервер запущен) и базы модулей отвечают, иначе 503. Секреты (пароли ролей, ключи TLS) монтируются файлами, переменные окружения называются `*_FILE`, это проверяет `check_compose.py`. Тестовые данные ходячего скелета (три товара, четыре заказа) создаёт профиль Spring `testdata` (`DGM_SPRING_PROFILES`, по умолчанию включён на стенде, пустое значение выключает), продуктовый код их не знает |
 | 20 | Шлюз | Образ `dgm/api-gateway` из `docker/Dockerfile.service` (Spring Cloud Gateway на WebFlux), пользователь 10001, лимит 352 МБ, куча 192 МБ, `/tmp` 48 МБ в памяти, сети `edge`, `app` и `data` (только Redis). Единственный контейнер с портом на хосте: 8443 (на сервере 443). Вход: TLS 1.3 и 1.2 без клиентского сертификата (браузеры). К сервисам mTLS с сертификатом `api-gateway`, имя сервера в сертификате сверяется с адресом. К Redis TLS и пользователь `gateway`, пароль из файла `redis_gateway`. Порт 8444 (метрики и здоровье, mTLS), на ноутбуке с отладочным файлом 127.0.0.1:18446. Здоровье контейнера: `GET /ready` на 127.0.0.1:8081. Запускается после здорового Redis, Keycloak и сервисы для старта не нужны | Таблица маршрутов создаётся из OpenAPI (`gateway-routes.json`), закрыто всё, чего в ней нет, а `/internal/**` и `/actuator/**` наружу недоступны никогда. Keycloak открыт только для входа (консоль, Admin API и realm `master` закрыты). Ключи подписи токенов запрашиваются лениво, поэтому шлюз стартует без Keycloak. Redis шлюзу не обязателен: при его отказе запросы проходят и считаются в метрике (отказ открытым, [ADR-021](adr/ADR-021-api-gateway.md)), поэтому Redis не входит в готовность. Порядок проверок, группы лимитов и то, что не сделано в Ф3, описаны в ADR-021, раздел «Реализация». Контейнер проверяют `tools/stand-checks/gateway_checks.sh` (задание `gateway` в CI) и `check_services.py api-gateway` |
 | 21 | Веб-интерфейс | Образ `dgm/web-app` собирается Compose из `docker/Dockerfile.web` (nginx 1.30.5, файлы из `frontend/web-app`): пользователь 10001, лимит 64 МБ, один рабочий процесс, `/tmp` 8 МБ в памяти, сеть `app`, на хост не публикуется (на ноутбуке с отладочным файлом 127.0.0.1:18447). Порт 8443 по TLS 1.2 и выше, клиентский сертификат обязателен и принимается только с именем `api-gateway`: страницу браузеру отдаёт шлюз, мимо него до nginx не дойти. Готовность: `GET /health` на 127.0.0.1:8081 внутри контейнера. Журнал в JSON. Заголовки безопасности (строгая политика содержимого) ставит nginx, HSTS добавляет шлюз | Один вход и один сертификат: браузер видит только шлюз, а страница, API и вход (Keycloak) лежат на одном адресе, поэтому не нужны CORS и второй сертификат. В Ф3 это заглушка (HTML, стили и скрипт проверки витрины), React появится в Ф4. Контейнер проверяют `tools/stand-checks/webapp_checks.sh` и `gateway_checks.py` (страница через шлюз), задание `gateway` в CI |
 | 22 | Стек наблюдения | Шесть контейнеров профиля `obs` с конфигурацией в `infra/obs/**`. Prometheus собирает метрики с порта 8444 сервисов по взаимному TLS (сертификат `tls_prometheus`, сеть `obs`), правила оповещений проверяются тестами promtool, Alertmanager отправляет письма через `external-stubs:1025` (сеть `app`). Alloy читает журналы контейнеров проекта через сокет Docker и принимает OTLP по взаимному TLS (сертификат `tls_alloy`), журналы уходят в Loki, трассы в Tempo. Grafana получает источники и две панели из файлов, секреты `grafana_admin` и `grafana_secret_key` приходят файлами. Внутри закрытой сети `obs` Prometheus, Alertmanager, Grafana, Loki и Tempo говорят без TLS: сертификаты нужны только там, где граница пересекается (клиент Prometheus, приём OTLP Alloy) | Сеть `obs` закрыта и без выхода наружу, лишние сертификаты увеличили бы перечень секретов без выигрыша (`check_compose.py`, `OBS_NO_CERT`). Сокет Docker с `:ro` ограничивает файл сокета, но не программный интерфейс Docker: Alloy с доступом к сокету может управлять контейнерами хоста. Принято на стенде, прокси сокета только для чтения журналов в Ф6. Образы Loki и Tempo без оболочки: проверку готовности Docker им задать нечем, её делает `make obs-check` |

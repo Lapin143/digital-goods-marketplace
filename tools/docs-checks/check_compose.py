@@ -40,7 +40,7 @@ DEP = os.path.join(L.ARCH, 'c4-deployment.md')
 MB = os.path.join(L.OPS_DIR, 'memory-budget.md')
 VER = os.path.join(L.OPS_DIR, 'versions.md')
 
-R1_PROFILES = ['infra', 'stubs', 'auth', 'gateway', 'purchase', 'platform', 'storage']
+R1_PROFILES = ['infra', 'stubs', 'auth', 'gateway', 'purchase', 'sellers', 'platform', 'storage']
 ONE_SHOT = {'kafka-init', 'storage-init'}     # завершаются сами, проверки готовности нет
 # Образы без оболочки и wget (distroless): проверку готовности Docker задать нечем, готовность проверяет make obs-check по /ready
 NO_HEALTHCHECK = {'loki': 'образ distroless', 'tempo': 'образ distroless'}

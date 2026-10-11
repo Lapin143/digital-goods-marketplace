@@ -27,6 +27,7 @@ DEP = os.path.join(L.ARCH, 'c4-deployment.md')
 
 LAPTOP = 3072
 LAPTOP_FIT = 2560
+LAPTOP_4G = 4096     # ноутбук с лимитом WSL2 4 ГБ (набор dev-sellers, решение Р-17 руководства Ф4)
 CI_RUNNER = 16384
 SERVER = 8192
 SYSTEM_RESERVE = 800
@@ -260,7 +261,7 @@ def check_memory(rep):
         if g not in groups:
             rep.err('memory-budget 2.2', 'группа %s есть у контейнеров, но не в таблице сумм' % g)
     # --- наборы
-    r1 = ['infra', 'stubs', 'auth', 'gateway', 'purchase', 'platform', 'storage']
+    r1 = ['infra', 'stubs', 'auth', 'gateway', 'purchase', 'sellers', 'platform', 'storage']
     for name, s in sets.items():
         calc = sum(groups[g]['total'] for g in s['groups'])
         if calc != s['total']:
@@ -271,7 +272,7 @@ def check_memory(rep):
         if name == 'full' and sorted(s['groups']) != sorted(r1):
             rep.err('memory-budget 3.1', 'набор full должен включать все профили R1: %s' % r1)
     # --- запасы (3.2)
-    env_of = {'Ноутбук': LAPTOP, 'Раннер CI': CI_RUNNER, 'Сервер 8 ГБ': SERVER}
+    env_of = {'Ноутбук': LAPTOP, 'Ноутбук с WSL2 4 ГБ': LAPTOP_4G, 'Раннер CI': CI_RUNNER, 'Сервер 8 ГБ': SERVER}
     for name, r in margins.items():
         env = env_of.get(r[1])
         if env is None:
@@ -342,7 +343,7 @@ def check_deployment(rep, cont, groups, sets):
         if name in prof:
             return [name]
         if name == 'full':
-            return ['infra', 'stubs', 'auth', 'gateway', 'purchase', 'platform', 'storage']
+            return ['infra', 'stubs', 'auth', 'gateway', 'purchase', 'sellers', 'platform', 'storage']
         out = []
         for x in sets_dep[name]:
             out += expand(x)
@@ -379,7 +380,7 @@ def check_deployment(rep, cont, groups, sets):
         if name in groups and groups[name]['total'] != v:
             rep.err('c4-deployment 2.1', 'профиль %s на диаграмме %d МБ, в memory-budget.md %d' % (name, v, groups[name]['total']))
     seen_prof = set(re.findall(r'subgraph p-([\w-]+)\[', b))
-    for g in ('infra', 'stubs', 'auth', 'gateway', 'purchase', 'platform', 'storage'):
+    for g in ('infra', 'stubs', 'auth', 'gateway', 'purchase', 'sellers', 'platform', 'storage'):
         if g not in seen_prof:
             rep.err('c4-deployment 2.1', 'на диаграмме нет профиля %s' % g)
     # --- элементов на диаграммах не больше 15 (узлы без подграфов)

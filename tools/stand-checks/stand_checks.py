@@ -17,7 +17,7 @@ import sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 SECRETS = os.environ.get('DGM_SECRETS_DIR', os.path.join(ROOT, 'secrets'))
-FULL = 'infra,stubs,auth,gateway,purchase,platform,storage'
+FULL = 'infra,stubs,auth,gateway,purchase,sellers,platform,storage'
 FULL_OBS = FULL + ',obs'
 ONE_SHOT = {'kafka-init', 'storage-init'}
 NO_HEALTH = {'loki', 'tempo'}       # образы без оболочки: проверка готовности Docker невозможна, готовность проверяет make obs-check

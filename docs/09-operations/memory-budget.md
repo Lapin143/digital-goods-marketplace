@@ -34,8 +34,8 @@
 | Веб-интерфейс | `web-app` | `gateway` | 64 | nginx, статические файлы, один рабочий процесс | Статика, нагрузка на память минимальна |
 | API Gateway | `api-gateway` | `gateway` | 352 | `Xmx` 192 МБ | Реактивный стек, таблица маршрутов небольшая ([ADR-021](../05-architecture/adr/ADR-021-api-gateway.md)). Запас на Netty и TLS. Пик 254–291 МБ при проверках лимитов частоты, отказов Redis и двух экземпляров сервисов: 86 % прежних 320 МБ (правило 85 % нарушено), после подъёма 83 %. Лимит и куча как у каталога |
 | Сервер идентификации | `keycloak` | `auth` | 672 | `Xmx` 384 МБ, `Xms` 64 МБ | Keycloak на Quarkus. Замер: пик 522–569 МБ (до 85 %), при 640 МБ правило 85 % не выполнялось, лимит поднят на 32 МБ (раздел 6, решение 1) |
-| Сервис каталога | `catalog-service` | `purchase` | 352 | `Xmx` 192 МБ | Читающий сервис, кэш карточек в Redis. Под нагрузкой 1000–2000 запросов в секунду пик 262–289 МБ, то есть 82–90 % прежних 320 МБ: куча 192 МБ и лимит 352 МБ, как у `platform-service` |
-| Сервис остатков и ключей | `inventory-service` | `purchase` | 320 | `Xmx` 160 МБ | Шифрование AES-256 для ключей, объём данных на запрос мал |
+| Сервис каталога | `catalog-service` | `sellers` | 352 | `Xmx` 192 МБ | Читающий сервис, кэш карточек в Redis. Под нагрузкой 1000–2000 запросов в секунду пик 262–289 МБ, то есть 82–90 % прежних 320 МБ: куча 192 МБ и лимит 352 МБ, как у `platform-service` |
+| Сервис остатков и ключей | `inventory-service` | `sellers` | 320 | `Xmx` 160 МБ | Шифрование AES-256 для ключей, объём данных на запрос мал |
 | Сервис заказов | `order-service` | `purchase` | 352 | `Xmx` 192 МБ | Оркестратор саги и Outbox ([ADR-004](../05-architecture/adr/ADR-004-saga-purchase.md), [ADR-005](../05-architecture/adr/ADR-005-transactional-outbox.md)). Под нагрузкой 460–1250 запросов в секунду пик 249–273 МБ (78–85 % прежних 320 МБ), лимит и куча как у каталога |
 | Сервис платежей | `payment-service` | `purchase` | 320 | `Xmx` 160 МБ | Клиент платёжного шлюза и приём вебхуков |
 | Сервис выдачи | `delivery-service` | `purchase` | 320 | `Xmx` 160 МБ | Очередь отправки писем ([ADR-011](../05-architecture/adr/ADR-011-guaranteed-delivery.md)) |
@@ -66,7 +66,8 @@
 | `stubs` | `external-stubs` 128 | 128 |
 | `auth` | `keycloak` 672 | 672 |
 | `gateway` | `api-gateway` 352, `web-app` 64 | 416 |
-| `purchase` | `catalog-service` 352, `order-service` 352, `inventory-service` 320, `payment-service` 320, `delivery-service` 320 | 1664 |
+| `sellers` | `catalog-service` 352, `inventory-service` 320 | 672 |
+| `purchase` | `order-service` 352, `payment-service` 320, `delivery-service` 320 | 992 |
 | `platform` | `platform-service` 352 | 352 |
 | `storage` | `object-storage` 192, `storage-init` 32 | 224 |
 | `obs` | `prometheus` 192, `alertmanager` 48, `grafana` 384, `loki` 256, `tempo` 256, `alloy` 128 | 1264 |
@@ -85,10 +86,12 @@
 | `dev-min` | `infra` + `stubs` | 1344 | помещается |
 | `dev-platform` | `infra` + `stubs` + `platform` + `storage` | 1920 | помещается |
 | `dev-auth` | `infra` + `stubs` + `auth` + `gateway` | 2432 | помещается |
-| `dev-purchase` | `infra` + `stubs` + `purchase` | 3008 | на пределе: запас 64 МБ по лимитам (сумма замеренных пиков около 1,7 ГБ, раздел 3.3), лучше запускать без лишних приложений в WSL |
-| `full` | `infra` + `stubs` + `auth` + `gateway` + `purchase` + `platform` + `storage` | 4672 | только на сервере и в CI |
-| `full-obs` | `infra` + `stubs` + `auth` + `gateway` + `purchase` + `platform` + `storage` + `obs` | 5936 | только на сервере и в CI |
-| `server` | `infra` + `stubs` + `auth` + `gateway` + `purchase` + `platform` + `storage` + `obs` + `ops` | 6128 | только на сервере |
+| `dev-purchase` | `infra` + `stubs` + `purchase` + `sellers` | 3008 | на пределе: запас 64 МБ по лимитам (сумма замеренных пиков около 1,7 ГБ, раздел 3.3), лучше запускать без лишних приложений в WSL |
+| `dev-sellers` | `infra` + `stubs` + `auth` + `gateway` + `platform` + `storage` + `sellers` | 3680 | только на сервере и в CI. На ноутбуке запускается только при лимите WSL2 4096 МБ (`memory=4GB` в `.wslconfig`): по лимитам набор не помещается, по замеру пиков занимает около 2,3 ГБ (раздел 3.3) |
+| `dev-kit` | `infra` + `stubs` + `storage` | 1568 | помещается |
+| `full` | `infra` + `stubs` + `auth` + `gateway` + `purchase` + `sellers` + `platform` + `storage` | 4672 | только на сервере и в CI |
+| `full-obs` | `infra` + `stubs` + `auth` + `gateway` + `purchase` + `sellers` + `platform` + `storage` + `obs` | 5936 | только на сервере и в CI |
+| `server` | `infra` + `stubs` + `auth` + `gateway` + `purchase` + `sellers` + `platform` + `storage` + `obs` + `ops` | 6128 | только на сервере |
 
 Пороги статуса: «помещается» до 2560 МБ включительно, «на пределе» до 3072 МБ включительно, выше «только на сервере» (принципы 4 и 5).
 
@@ -100,6 +103,8 @@
 | `dev-platform` | Ноутбук | 3072 | 1920 | 1152 | 38 |
 | `dev-auth` | Ноутбук | 3072 | 2432 | 640 | 21 |
 | `dev-purchase` | Ноутбук | 3072 | 3008 | 64 | 2 |
+| `dev-sellers` | Ноутбук с WSL2 4 ГБ | 4096 | 3680 | 416 | 10 |
+| `dev-kit` | Ноутбук | 3072 | 1568 | 1504 | 49 |
 | `full` | Раннер CI | 16384 | 4672 | 11712 | 71 |
 | `full-obs` | Сервер 8 ГБ | 8192 | 5936 | 2256 | 28 |
 | `server` | Сервер 8 ГБ | 8192 | 6128 | 2064 | 25 |
@@ -116,7 +121,10 @@
 | `dev-platform` | 1920 | 886 | 46 |
 | `dev-auth` | 2432 | 1464 | 60 |
 | `dev-purchase` | 3008 | 1783 | 59 |
+| `dev-sellers` | 3680 | 2255 | 61 |
 | `full-obs` | 5936 | 3667 | 62 |
+
+Строка `dev-sellers` это расчёт по пикам Ф3, а не отдельный замер: `dev-min` 590, Keycloak, шлюз и веб-интерфейс 874, `platform-service` и хранилище 296, каталог 294, остатки 201. Набор появился в Ф4 (срез 1), замер на стенде (шаг 9 руководства Ф4) уточнит число. По лимитам набор не помещается в 3 ГБ, поэтому для показа среза 1 на ноутбуке нужен лимит WSL2 4 ГБ (`memory=4GB` в `.wslconfig`); оценка по пикам оставляет около 1,8 ГБ запаса до учёта системы и Gradle.
 
 Вывод для ноутбука: по лимитам `dev-purchase` стоит на пределе (запас 64 МБ), по замеру он занимает около 1,7 ГБ из 3 ГБ. Оценка по лимитам остаётся правилом проекта (она защищает от худшего случая), а замер объясняет, почему на практике наборы идут свободнее.
 
