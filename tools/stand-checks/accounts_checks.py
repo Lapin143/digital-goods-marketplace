@@ -24,6 +24,7 @@ make keycloak-users. Проверки идут настоящим входом (
 """
 import json
 import os
+import re
 import sys
 import time
 import urllib.parse
@@ -101,6 +102,16 @@ def new_buyer(kc, admin, stamp, tag):
         return None
     confirm_email(admin, user['id'])
     return {'email': email, 'password': password, 'id': user['id']}
+
+
+def page_summary(page):
+    """Кратко о странице Keycloak: заголовок и имена полей форм (для наблюдений, где вид страницы заранее не задан)."""
+    if not page:
+        return '(пусто)'
+    title = re.search(r'<title[^>]*>(.*?)</title>', page, re.S)
+    names = sorted({n for f in K.forms_of(page) for n in f['inputs']})
+    text = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', re.sub(r'(?s)<(script|style).*?</\1>', ' ', page))).strip()
+    return 'заголовок %r, поля %s, текст %r' % (re.sub(r'\s+', ' ', title.group(1)).strip() if title else '', names, text[:160])
 
 
 def staff_login(kc, admin, user, tries=3):
@@ -183,12 +194,14 @@ def vk_checks(kc, admin, stamp):
         silent_sub = 'vk_noemail_%d' % stamp
         stub_mode(kc.net, 'vkid', {'behavior': 'success', 'profile': dict(profile, sub=silent_sub, email='', email_verified=False)})
         silent = kc.login_idp('dgm-web', 'vkid')
-        print('  --    TC-110 (наблюдение, не проверка): вход через VK ID без e-mail дал «%s»; сообщение: %r' % (silent.kind, K.page_message(silent.page)[:200] if silent.page else ''))
+        shown = page_summary(silent.page)
+        print('  --    TC-110 (наблюдение, не проверка): вход через VK ID без e-mail дал «%s»; сообщение: %r; страница: %s' % (
+            silent.kind, K.page_message(silent.page)[:200] if silent.page else '', shown))
         orphan = admin.realm('/users?search=%s' % urllib.parse.quote(silent_sub)).json()
         print('  --    TC-110 (наблюдение): записей Keycloak, найденных по идентификатору VK: %d' % len(orphan))
         if os.environ.get('GITHUB_ACTIONS'):
-            print('::notice title=TC-110 вход через VK ID без e-mail::результат %s, сообщение %r, записей %d' % (
-                silent.kind, K.page_message(silent.page)[:160] if silent.page else '', len(orphan)))
+            print('::notice title=TC-110 вход через VK ID без e-mail::результат %s, сообщение %r, записей %d, страница: %s' % (
+                silent.kind, K.page_message(silent.page)[:160] if silent.page else '', len(orphan), shown))
     finally:
         stub_mode(kc.net, 'vkid', {})
 
@@ -227,6 +240,18 @@ def lifecycle(kc, admin, people, buyer):
     adm, why = staff_login(kc, admin, people['admin-1'])
     if not expect('администратор admin-1 вошёл со вторым фактором', adm, why):
         return
+    issued = [time.time()]
+
+    def renew():
+        """Токен доступа живёт 5 минут, а проверка с настройкой TOTP и ожиданием шага TOTP идёт дольше: старше 200 секунд токен выдаётся заново."""
+        previous = renew.token
+        if time.time() - issued[0] > 200:
+            token, note = staff_login(kc, admin, people['admin-1'])
+            expect('администратор admin-1 вошёл заново для следующих шагов', token, note)
+            renew.token = token or previous
+            issued[0] = time.time()
+        return renew.token
+    renew.token = adm
     r = get('/api/v1/staff/users?email=%s' % urllib.parse.quote(buyer['email']), adm)
     items = r.json().get('items', []) if r.status == 200 else []
     if not expect('TC-111: список администратора находит запись по адресу: покупатель, активна, телефон подтверждён',
@@ -270,10 +295,10 @@ def lifecycle(kc, admin, people, buyer):
         expect('TC-120: токен с otp кабинет открывает: список администратора 200', allowed.status == 200 and allowed.json().get('items'), '%s %s' % (allowed.status, allowed.text[:200]))
     refresh = again.tokens.get('refresh_token') if again.ok else None
 
-    anon_active = post('/api/v1/staff/users/%s/anonymize' % uid, adm)
+    anon_active = post('/api/v1/staff/users/%s/anonymize' % uid, renew())
     expect('TC-116: анонимизация активной записи отклонена: 409 state-conflict', anon_active.status == 409 and anon_active.code() == 'state-conflict', '%s %s' % (anon_active.status, anon_active.text[:200]))
 
-    off = post('/api/v1/staff/users/%s/deactivate' % uid, adm)
+    off = post('/api/v1/staff/users/%s/deactivate' % uid, renew())
     expect('TC-115: деактивация: 200, статус deactivated', off.status == 200 and off.json().get('status') == 'deactivated', '%s %s' % (off.status, off.text[:200]))
     expect('TC-115: в Keycloak запись отключена', eventually(lambda: admin.realm('/users/%s' % uid).json().get('enabled') is False), str(admin.realm('/users/%s' % uid).json().get('enabled')))
     closed = kc.login('dgm-staff', buyer['email'], buyer['password'], secret)
@@ -281,23 +306,23 @@ def lifecycle(kc, admin, people, buyer):
     if refresh:
         r = kc.refresh('dgm-staff', refresh)
         expect('TC-115: выданный до деактивации refresh-токен больше не работает', r.status in (400, 401), '%s %s' % (r.status, r.text[:150]))
-    repeat = post('/api/v1/staff/users/%s/deactivate' % uid, adm)
+    repeat = post('/api/v1/staff/users/%s/deactivate' % uid, renew())
     expect('TC-115: повторная деактивация ничего не меняет: 200 и тот же статус', repeat.status == 200 and repeat.json().get('status') == 'deactivated', '%s %s' % (repeat.status, repeat.text[:200]))
-    listed = get('/api/v1/staff/users?email=%s' % urllib.parse.quote(buyer['email']), adm)
+    listed = get('/api/v1/staff/users?email=%s' % urllib.parse.quote(buyer['email']), renew())
     expect('TC-115: история сохранена: запись остаётся в списке со статусом deactivated', listed.status == 200 and [i.get('status') for i in listed.json().get('items', [])] == ['deactivated'],
            '%s %s' % (listed.status, listed.text[:200]))
-    role_back = post('/api/v1/staff/users/%s/change-role' % uid, adm, {'role': 'buyer'})
+    role_back = post('/api/v1/staff/users/%s/change-role' % uid, renew(), {'role': 'buyer'})
     expect('TC-115: роль деактивированной записи не меняют: 409 state-conflict', role_back.status == 409 and role_back.code() == 'state-conflict', '%s %s' % (role_back.status, role_back.text[:200]))
 
-    erased = post('/api/v1/staff/users/%s/anonymize' % uid, adm)
+    erased = post('/api/v1/staff/users/%s/anonymize' % uid, renew())
     expect('TC-117: анонимизация деактивированной записи: 200, anonymized = true', erased.status == 200 and erased.json().get('anonymized') is True, '%s %s' % (erased.status, erased.text[:200]))
     expect('TC-117: в ответе нет прежнего адреса', buyer['email'] not in erased.text, erased.text[:200])
     expect('TC-117: в Keycloak записи больше нет (404)', eventually(lambda: admin.realm('/users/%s' % uid).status == 404), str(admin.realm('/users/%s' % uid).status))
-    page = get('/api/v1/staff/users?status=deactivated&limit=50', adm)
+    page = get('/api/v1/staff/users?status=deactivated&limit=50', renew())
     mine = [i for i in (page.json().get('items', []) if page.status == 200 else []) if i.get('userId') == uid]
     expect('TC-117: платформа хранит обезличенную строку с прежним идентификатором, прежнего адреса в ней нет',
            len(mine) == 1 and mine[0].get('anonymized') is True and mine[0].get('email') != buyer['email'], str(mine)[:300])
-    repeat = post('/api/v1/staff/users/%s/anonymize' % uid, adm)
+    repeat = post('/api/v1/staff/users/%s/anonymize' % uid, renew())
     expect('TC-117: повторная анонимизация ничего не меняет: 200', repeat.status == 200 and repeat.json().get('anonymized') is True, '%s %s' % (repeat.status, repeat.text[:200]))
     d = register(kc, buyer['email'], strong_password('again'))
     reborn = eventually(lambda: keycloak_user(admin, buyer['email']), wait=10)
