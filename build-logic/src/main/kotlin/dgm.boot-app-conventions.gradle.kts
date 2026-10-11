@@ -25,6 +25,12 @@ dependencies {
                 because("уязвимости Tomcat ниже $floor (Trivy)")
             }
         }
+
+        // lz4-java приходит с клиентом Kafka; версия из BOM попала под CVE-2026-106451 (HIGH), исправление в 1.11.4 (Trivy)
+        val lz4Floor = catalog.findVersion("lz4-security-floor").get().requiredVersion
+        add("implementation", "at.yawk.lz4:lz4-java:$lz4Floor") {
+            because("уязвимость lz4-java ниже $lz4Floor (Trivy, CVE-2026-106451)")
+        }
     }
 }
 

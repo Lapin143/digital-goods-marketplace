@@ -14,6 +14,9 @@ tomcat-security-floor = "11.0.25"
 # исправлены в 3.1.7 (Trivy, шаг 17 Ф3); 6 октября 2026 года граница поднята до 3.2.3 по запросу Dependabot после зелёного CI.
 # Платформа подключается в dgm.boot-app-conventions; убрать, когда BOM Spring Boot принесёт эту версию или выше.
 jackson-security-floor = "3.2.3"
+# Нижняя граница версии lz4-java (приходит транзитивно с клиентом Kafka): версия 1.10.1 из BOM Spring Boot 4.1.1 попала под CVE-2026-106451 (HIGH), исправлено
+# в 1.11.4 (Trivy нашёл её 11 октября 2026 года в образах шести сервисов, находка F4-1). Ограничение в dgm.boot-app-conventions убрать, когда BOM принесёт эту версию или выше.
+lz4-security-floor = "1.11.4"
 
 [libraries]
 spring-boot-gradle-plugin = { module = "org.springframework.boot:spring-boot-gradle-plugin", version.ref = "spring-boot" }
