@@ -236,7 +236,7 @@
 | Открыть платёжную сессию | `order-service` | `payment-service` | Все остальные |
 | Значения ключей по заказу (OP-38, U17) | `delivery-service` | `inventory-service` | Все остальные, в том числе `order-service` и `platform-service` |
 | Обновить адрес доставки в заказе | `platform-service` | `order-service` | Все остальные |
-| Назначить роль, сменить e-mail, деактивировать (Admin REST) | `platform-service` | `keycloak` | Все остальные. Служебная учётная запись клиента `platform-service` в Keycloak имеет только `manage-users`, `view-users`, `query-users` |
+| Назначить роль, сменить e-mail, деактивировать (Admin REST) | `platform-service` | `keycloak` | Все остальные. Служебная учётная запись клиента `platform-service` в Keycloak имеет только `manage-users`, `view-users`, `query-users`. Представление роли для назначения платформа берёт из списка ролей, доступных пользователю (`role-mappings/realm/available`), потому что чтение роли по имени требует `view-realm` (находка шага 9 Ф4, Р-56) |
 | Отправить и проверить код входа | `keycloak` (расширение `sms-otp`) | `platform-service` | Все остальные |
 | R2: проверить API-ключ продавца | `api-gateway` | `catalog-service` | Все остальные |
 
