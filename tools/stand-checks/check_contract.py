@@ -12,7 +12,9 @@
   - тело подходит под схему ответа операции; код описан в OpenAPI операции; у ошибок тело подходит под Problem и поле status
     равно коду ответа;
   - путь, которого нет в OpenAPI (например, неизвестный маршрут), допустим только как ошибка с телом Problem;
-  - для каждого сервиса есть образцы обязательных операций ходячего скелета: без них контракт «проверен» пустой проверкой.
+  - для каждого сервиса есть образцы обязательных операций: без них контракт «проверен» пустой проверкой. Требование включается само,
+    когда реестр операций сервиса (src/test/resources/dgm/operations.txt) переводит операцию в done: пока обработчика нет, образцов
+    тоже не ждут, а после появления обработчика проверка без образцов краснеет (находка 5 плана Ф4).
 Нужны PyYAML и jsonschema.
 """
 import glob
@@ -30,10 +32,12 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(REPO, 'tools', 'docs-checks'))
 import check_stub_contract as S  # noqa: E402  (load/resolve по файлам OpenAPI)
 
-# Операции и коды ходячего скелета, образцы которых обязательны (шаг 12 Ф3)
+# Операции и коды, образцы которых обязательны: ходячий скелет (шаг 12 Ф3) и пул ключей (шаг 4 Ф4, образцы появятся в шаге 14)
 REQUIRED = {
     'catalog-service': [('listStorefrontProducts', 200), ('listStorefrontProducts', 422), ('getProductCard', 200), ('getProductCard', 404)],
     'order-service': [('listOrders', 200), ('listOrders', 422)],
+    'inventory-service': [('uploadKeyBatch', 200), ('uploadKeyBatch', 422), ('uploadKeyFile', 200), ('uploadKeyFile', 415),
+                          ('getProductStock', 200), ('getProductStock', 404)],
 }
 PROBLEM = ('components.yaml', 'Problem')
 RFC3339 = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$')
@@ -121,6 +125,20 @@ def undocumented(schema, body, path=''):
     return found
 
 
+def ready_operations(service):
+    """Операции со статусом done в реестре сервиса. None, если реестра нет: тогда обязательными считаются все."""
+    path = os.path.join(REPO, 'services', service, 'src', 'test', 'resources', 'dgm', 'operations.txt')
+    if not os.path.exists(path):
+        return None
+    ready = set()
+    with open(path, encoding='utf-8') as f:
+        for line in f:
+            parts = line.split('#', 1)[0].split()
+            if len(parts) == 2 and parts[1] == 'done':
+                ready.add(parts[0])
+    return ready
+
+
 def service_of(directory):
     m = re.search(r'services[/\\]([^/\\]+)[/\\]build', os.path.abspath(directory))
     return m.group(1) if m else None
@@ -180,15 +198,23 @@ def main():
         n = check_directory(directory, service, problems, seen)
         print('%s: образцов проверено %d (%s)' % (service, n, os.path.relpath(directory, REPO) if directory.startswith(REPO) else directory))
         total += n
+    postponed = 0
     for service, required in REQUIRED.items():
+        ready = ready_operations(service)
+        active = [(op_id, status) for op_id, status in required if ready is None or op_id in ready]
+        postponed += len(required) - len(active)
+        if not active:
+            continue
         if explicit and service not in services:
             continue
         if service not in services:
             problems.append('%s: нет каталога build/contract-samples, интеграционные тесты не записали ответы' % service)
             continue
-        for op_id, status in required:
+        for op_id, status in active:
             if (service, op_id, status) not in seen:
                 problems.append('%s: нет образца ответа %s операции %s (интеграционный тест не вызвал её или не записал ответ)' % (service, status, op_id))
+    if postponed:
+        print('обязательных образцов отложено: %d (операции ещё не готовы по реестру operations.txt)' % postponed)
     problems = list(dict.fromkeys(problems))
     for p in problems:
         print('  -', p)

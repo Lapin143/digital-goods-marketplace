@@ -1,0 +1,112 @@
+# Spectral: второй, независимый взгляд на контракты REST (шаг 4 Ф4).
+# Правила собственного линтера tools/docs-checks/check_openapi.py знают нашу предметную область (матрица прав, истории, владение путями),
+# Spectral проверяет то же самое чужим набором правил spectral:oas и несколькими правилами, которые повторяют ключевые соглашения
+# docs/05-architecture/conventions.md. Расхождение между двумя линтерами значит, что одно из правил нужно уточнить.
+# Запуск: spectral lint --fail-severity=error "docs/06-api/openapi/*-service.yaml" (задание docs в CI; components.yaml описывает только общие части).
+extends:
+  - spectral:oas
+
+rules:
+  # Учебный проект без владельца контактов и без отдельной страницы условий использования
+  info-contact: off
+  # Описание тегов ведёт README контрактов, внешней документации у API нет
+  openapi-tags-alphabetical: off
+
+  # ---- Соглашения проекта ----
+  dgm-operation-id-camel-case:
+    description: Идентификатор операции пишется camelCase (из него строятся имена методов, правила маршрутов и сценарии Newman).
+    severity: error
+    given: $.paths[*][get,put,post,patch,delete]
+    then:
+      field: operationId
+      function: pattern
+      functionOptions:
+        match: "^[a-z][A-Za-z0-9]*$"
+
+  dgm-operation-matrix-id:
+    description: Каждая операция ссылается на строку матрицы прав (x-matrix-id, формат OP-NN).
+    severity: error
+    given: $.paths[*][get,put,post,patch,delete]
+    then:
+      field: x-matrix-id
+      function: pattern
+      functionOptions:
+        match: "^OP-[0-9]+$"
+
+  dgm-operation-roles:
+    description: Операция перечисляет допустимые роли (x-allowed-roles), иначе шлюз и сервис не смогут построить правило доступа.
+    severity: error
+    given: $.paths[*][get,put,post,patch,delete]
+    then:
+      field: x-allowed-roles
+      function: schema
+      functionOptions:
+        schema:
+          type: array
+          minItems: 1
+
+  dgm-operation-security-explicit:
+    description: Безопасность задана у каждой операции явно (пустой список означает публичную операцию).
+    severity: error
+    given: $.paths[*][get,put,post,patch,delete]
+    then:
+      field: security
+      function: defined
+
+  dgm-operation-tags:
+    description: Операция входит ровно в одну группу тегов.
+    severity: error
+    given: $.paths[*][get,put,post,patch,delete]
+    then:
+      field: tags
+      function: schema
+      functionOptions:
+        schema:
+          type: array
+          minItems: 1
+          maxItems: 1
+
+  dgm-path-prefix:
+    description: Пути начинаются с /api/v1 (публичный API через шлюз) или с /internal/v1 (вызовы между сервисами).
+    severity: error
+    given: $.paths
+    then:
+      field: "@key"
+      function: pattern
+      functionOptions:
+        match: "^/(api|internal)/v1/"
+
+  dgm-path-kebab-case:
+    description: Сегменты пути пишутся строчными буквами через дефис, параметры пути в фигурных скобках camelCase.
+    severity: error
+    given: $.paths
+    then:
+      field: "@key"
+      function: pattern
+      functionOptions:
+        match: "^(/([a-z0-9]+(-[a-z0-9]+)*|\\{[a-z][A-Za-z0-9]*\\}))+$"
+
+  dgm-server-https:
+    description: Адрес сервера задан по HTTPS (по соглашениям весь трафик идёт под TLS).
+    severity: error
+    given: $.servers[*]
+    then:
+      field: url
+      function: pattern
+      functionOptions:
+        match: "^https://"
+
+  dgm-success-response:
+    description: У операции описан хотя бы один успешный ответ (2xx).
+    severity: error
+    given: $.paths[*][get,put,post,patch,delete].responses
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          anyOf:
+            - required: ["200"]
+            - required: ["201"]
+            - required: ["202"]
+            - required: ["204"]

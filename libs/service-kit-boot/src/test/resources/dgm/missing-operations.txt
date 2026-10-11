@@ -1,0 +1,3 @@
+# В реестре нет getThing, а в правилах она есть
+listThings   done
+closeThing   done

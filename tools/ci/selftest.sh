@@ -278,6 +278,15 @@ PY
     rm -f "$tmp/contract/services/catalog-service/build/contract-samples/card404.json"
     expect_fail "check_contract находит пропавший образец обязательной операции" python3 "$C" "$tmp/contract/services/catalog-service/build/contract-samples"
     grep -q 'getProductCard' "$tmp/out.txt" || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: контракт упал не из-за пропавшего образца"; tail -n 5 "$tmp/out.txt"; fail=1; }
+    # 9. Spectral находит нарушение соглашения проекта (идентификатор операции не в camelCase); команда есть в задании docs, локально её может не быть.
+    if command -v spectral >/dev/null 2>&1; then
+      cp -r "$REPO/docs/06-api/openapi" "$tmp/openapi"
+      sed -i '0,/operationId: [A-Za-z]*/s//operationId: bad_operation_id/' "$tmp/openapi/catalog-service.yaml"
+      expect_fail "Spectral находит идентификатор операции не в camelCase" spectral lint --ruleset "$REPO/.spectral.yaml" --fail-severity=error "$tmp/openapi/catalog-service.yaml"
+      grep -q 'dgm-operation-id-camel-case' "$tmp/out.txt" || { echo "САМОПРОВЕРКА НЕ ПРОЙДЕНА: Spectral упал не из-за правила dgm-operation-id-camel-case"; tail -n 8 "$tmp/out.txt"; fail=1; }
+    else
+      echo "самопроверка пропущена: Spectral не установлен"
+    fi
     ;;
   security)
     # Фиктивный токен формата GitHub (ghp_ и 36 случайных символов). Он не настоящий и нигде не работает.

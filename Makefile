@@ -132,9 +132,9 @@ db-migrate: ## Применить миграции Flyway сервисов к с
 	tools/stand-checks/migrate_stand.sh $(S)
 
 .PHONY: kit-test
-kit-test: ## Интеграционные тесты каркаса, каталога и заказов на стенде (make up SET=dev-min DEBUG=1 и make db-migrate S="order-service inventory-service")
+kit-test: ## Интеграционные тесты каркаса, каталога, заказов и инвентаря на стенде (make up SET=dev-kit DEBUG=1 и make db-migrate S="order-service inventory-service")
 	DGM_SECRETS_DIR=$(CURDIR)/secrets ./gradlew --console=plain --continue :libs:service-kit:integrationTest \
-	  :services:catalog-service:integrationTest :services:order-service:integrationTest
+	  :services:catalog-service:integrationTest :services:order-service:integrationTest :services:inventory-service:integrationTest
 
 .PHONY: contract-check
 contract-check: ## Сверить ответы сервисов, записанные интеграционными тестами (make kit-test), со схемами OpenAPI
@@ -216,6 +216,18 @@ obs-check: ## Проверить стек наблюдения: цели Prometh
 .PHONY: smoke
 smoke: ## Дымовой тест: токен, операции через шлюз, ST-03, mTLS, Outbox → Kafka, сквозной идентификатор (набор full, DEBUG=1, make keycloak-users)
 	$(KC_ENV) python3 tools/stand-checks/smoke.py
+
+.PHONY: e2e
+e2e: ## API-тесты Newman: матрица прав ST-02 готовых операций и сценарии tools/api-tests/scenarios (набор full, DEBUG=1, make keycloak-users, newman в PATH)
+	$(KC_ENV) python3 tools/api-tests/run.py
+
+.PHONY: e2e-sabotage
+e2e-sabotage: ## Проверка проверки API-тестов: ожидание отказа 403 заменено на 200, Newman обязан покраснеть (те же условия, что у make e2e)
+	$(KC_ENV) python3 tools/api-tests/run.py --sabotage
+
+.PHONY: e2e-check
+e2e-check: ## Собрать коллекцию API-тестов без стенда и проверить сценарии (входит в tools/docs-checks/run_all.sh)
+	python3 tools/api-tests/build.py --check
 
 .PHONY: demo
 demo: ## Показать цель вехи M3: вход тестового пользователя (WHO=buyer-1) и запросы через шлюз с токеном и без (набор full, DEBUG=1, make keycloak-users)

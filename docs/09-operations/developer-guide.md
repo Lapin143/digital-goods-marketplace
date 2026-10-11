@@ -226,12 +226,14 @@ make -s token WHO=seller-1                   # токен другого пол�
 | `make smoke` | Главный путь: токен, операции через шлюз, ST-03, mTLS, Outbox → Kafka, сквозной идентификатор | `full`, `DEBUG=1`, `make keycloak-users` | около 40 секунд |
 | `make smoke-sabotage` | Проверка проверки: испорченные токен, область и сертификат делают дымовой тест красным | То же | около 2 минут |
 | `make demo` | Показ цели вехи M3 | То же | около 10 секунд |
+| `make e2e` | API-тесты Newman: матрица прав ST-02 для готовых операций и сценарии из `tools/api-tests/scenarios` (токены тестовых пользователей берутся входом через Keycloak) | `full`, `DEBUG=1`, `make keycloak-users`, `newman` в PATH (`npm install -g newman@6.2.1`) | около минуты |
+| `make e2e-sabotage` | Проверка проверки API-тестов: ожидание отказа 403 заменено на 200, Newman обязан покраснеть | То же, что у `make e2e` | около минуты |
 | `make gateway-check` | Маршруты, токены, лимиты частоты, отказ открытым | `dev-auth` и `dev-purchase`, `DEBUG=1` | несколько минут |
 | `make stateless-check` | NFT-1.3: два экземпляра сервиса, перезапуск одного посреди серии | `dev-auth` и `dev-purchase`, `DEBUG=1` | несколько минут |
 | `make keycloak-check` | Вход по ролям, второй фактор, сроки, перебор, VK ID, Argon2 | `dev-auth`, `DEBUG=1` | около 3 минут |
 | `make web-check` | Веб-интерфейс: доступ только шлюзу, заголовки | Набор с профилем `gateway`, `DEBUG=1` | около минуты |
 | `make services-check` | Контейнеры сервисов: здоровье, память, журнал JSON | `dev-purchase` и `dev-platform`; при одном наборе перечислите сервисы в `S="..."` | около минуты |
-| `make kit-test` | Интеграционные тесты каркаса, каталога и заказов на стенде | `dev-min`, `DEBUG=1`, `make db-migrate S="order-service inventory-service"` | несколько минут |
+| `make kit-test` | Интеграционные тесты каркаса (Outbox, потребитель, идемпотентность, Redis), каталога, заказов и инвентаря на стенде | `dev-kit`, `DEBUG=1`, `make db-migrate S="order-service inventory-service"` | несколько минут |
 | `make db-check` | Миграции Flyway с нуля, права ролей | Набор с `infra` | около минуты |
 | `make obs-check` | Цели Prometheus, Grafana, журнал в Loki, трасса в Tempo, письмо оповещения | `full-obs`, `DEBUG=1` | несколько минут |
 | `make load` | 60 секунд нагрузки на каталог и заказы для замеров памяти | `full`, `DEBUG=1`, `make keycloak-users` | минута |
@@ -250,6 +252,7 @@ make -s token WHO=seller-1                   # токен другого пол�
 | `make images` | Jar и образы всех сервисов (`dgm/<сервис>:dev`) |
 | `make kit-test` | Интеграционные тесты на поднятом стенде (раздел 8) |
 | `make contract-check` | Сверка ответов сервисов, записанных `make kit-test`, со схемами OpenAPI |
+| `make e2e-check` | Собрать коллекцию API-тестов из OpenAPI, матрицы прав и сценариев без стенда и проверить сценарии |
 | `make stubs-test` | Модульные тесты заглушек внешних систем (нужен только Docker) |
 | `make pki-test`, `make keycloak-test` | Тесты скриптов сертификатов и клиента Keycloak, сеть не нужна |
 | `make clean` | Удалить результаты сборки |

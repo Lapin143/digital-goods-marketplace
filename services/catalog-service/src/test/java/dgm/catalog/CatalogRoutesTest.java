@@ -16,6 +16,12 @@ class CatalogRoutesTest {
         assertEquals(List.of(), RouteCoverage.handlersWithoutRule("dgm.catalog", ROUTES));
     }
 
+    /** Каждая операция OpenAPI записана в реестре готовности; готовые имеют обработчик, остальные его ещё не имеют (находка 5). */
+    @Test
+    void operationLedgerMatchesCodeAndContract() {
+        assertEquals(List.of(), RouteCoverage.ledgerProblems("dgm.catalog", ROUTES, "dgm/operations.txt"));
+    }
+
     @Test
     void routeRulesAreConsistent() {
         assertEquals(List.of(), RouteCoverage.policyProblems(ROUTES, "catalog-service"));

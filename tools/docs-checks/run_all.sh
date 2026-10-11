@@ -47,7 +47,10 @@ run python3 "$REPO/infra/kafka/gen_kafka.py" --check
 run python3 "$HERE/db/gen_migrations.py" --check
 run python3 "$HERE/check_db_roles.py"
 run python3 "$HERE/check_kit.py"
+run python3 "$HERE/check_ledger.py"
 run python3 "$HERE/gen_routes.py" --check
+run python3 "$REPO/tools/api-tests/build.py" --check
+run python3 -m unittest discover -s "$REPO/tools/api-tests"
 if [ "$1" = "--db" ]; then
   run bash "$HERE/db/apply.sh"
   run python3 "$HERE/db/test_db.py"

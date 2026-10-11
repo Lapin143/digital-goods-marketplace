@@ -96,6 +96,10 @@
 | `flyway/flyway:13.6.0` | Образ командной строки Flyway для проверки миграций на стенде (`tools/stand-checks/db_migrations.sh`). Не входит в стенд и в образы сервисов, сами сервисы применяют миграции библиотекой Flyway из Spring Boot | Точный тег, существование проверяет задание `images` |
 | Gitleaks | Поиск секретов, ST-14 | Версия бинарного файла в задании `security` |
 | Trivy | Уязвимости зависимостей и образов, ST-14 | Версия бинарного файла в задании `security` |
+| `actions/upload-artifact` 7.0.2 | HTML-отчёт JaCoCo и отчёты Newman в артефакте запуска | Хеш коммита `cf430e030ddbb5b0abf93d22962f4752f3646cd9` |
+| JaCoCo 0.8.14 | Покрытие кода модульными тестами (шаг 4 Ф4), версия в `gradle/libs.versions.toml`. Понимает файлы классов Java 25 | Каталог версий Gradle |
+| `@stoplight/spectral-cli` 6.15.0 | Второй линтер контрактов OpenAPI (NFT-6.2), правила в `.spectral.yaml` | Переменная `SPECTRAL_CLI_VERSION` в `ci.yml`, установка `npm install -g` |
+| `newman` 6.2.1 | API-тесты ST-02 и сквозные сценарии (`tools/api-tests`) | Переменная `NEWMAN_VERSION` в `ci.yml`, установка `npm install -g` |
 | Раннер `ubuntu-24.04` | Среда CI | Метка в workflow. Фактические параметры (4 ядра, 16 ГБ, Docker 28, Compose 2.38) проверены 4 октября 2026 года |
 
 ## 7. Решения и замечания

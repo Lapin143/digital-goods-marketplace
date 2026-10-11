@@ -46,4 +46,48 @@ class RouteCoverageTest {
         assertTrue(problems.stream().anyMatch(p -> p.contains("/v1/lost") && p.contains("не начинается")));
         assertTrue(problems.stream().anyMatch(p -> p.contains("/api/v1/mixed") && p.contains("со списком вызывающих")));
     }
+    // --- реестр готовности операций (находка 5 плана Ф4) -------------------------------------------------------------------------
+
+    @Test
+    void consistentLedgerHasNoProblems() {
+        assertEquals(List.of(), RouteCoverage.ledgerProblems(SAMPLE, "dgm/sample-routes.json", "dgm/sample-operations.txt"));
+    }
+
+    @Test
+    void everyKindOfLedgerMismatchIsReported() {
+        List<String> problems = RouteCoverage.ledgerProblems(SAMPLE, "dgm/sample-routes.json", "dgm/broken-operations.txt");
+        assertEquals(5, problems.size(), problems.toString());
+        assertTrue(problems.stream().anyMatch(p -> p.contains("listThings") && p.contains("переведите её в done")), problems.toString());
+        assertTrue(problems.stream().anyMatch(p -> p.contains("closeThing") && p.contains("дважды")), problems.toString());
+        assertTrue(problems.stream().anyMatch(p -> p.contains("getThing") && p.contains("обработчика в контроллерах нет")), problems.toString());
+        assertTrue(problems.stream().anyMatch(p -> p.contains("phantom") && p.contains("нет в OpenAPI")), problems.toString());
+        assertTrue(problems.stream().anyMatch(p -> p.contains("lonely") && p.contains("нужны имя операции и статус")), problems.toString());
+    }
+
+    @Test
+    void operationMissingFromTheLedgerIsReported() {
+        List<String> problems = RouteCoverage.ledgerProblems(SAMPLE, "dgm/sample-routes.json", "dgm/missing-operations.txt");
+        assertEquals(1, problems.size(), problems.toString());
+        assertTrue(problems.get(0).contains("getThing") && problems.get(0).contains("не записана в реестре"), problems.toString());
+    }
+
+    @Test
+    void unknownStatusIsReported() {
+        List<String> problems = RouteCoverage.ledgerProblems(SAMPLE, "dgm/sample-routes.json", "dgm/soon-operations.txt");
+        assertTrue(problems.stream().anyMatch(p -> p.contains("getThing") && p.contains("неизвестный статус")), problems.toString());
+    }
+
+    @Test
+    void missingLedgerFileIsReported() {
+        List<String> problems = RouteCoverage.ledgerProblems(SAMPLE, "dgm/sample-routes.json", "dgm/no-such-operations.txt");
+        assertTrue(problems.stream().anyMatch(p -> p.contains("Нет реестра операций")), problems.toString());
+    }
+
+    /** Заведомо пустой сервис: ни одного контроллера, а реестр обещает готовые операции. Так проверка краснеет, пока шаги не реализованы. */
+    @Test
+    void serviceWithoutControllersTurnsRedWhenTheLedgerPromisesOperations() {
+        List<String> problems = RouteCoverage.ledgerProblems("dgm.kit.boot.empty", "dgm/sample-routes.json", "dgm/sample-operations.txt");
+        assertEquals(2, problems.size(), problems.toString());
+        assertTrue(problems.stream().allMatch(p -> p.contains("обработчика в контроллерах нет")), problems.toString());
+    }
 }

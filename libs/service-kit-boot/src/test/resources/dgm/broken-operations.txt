@@ -1,0 +1,7 @@
+# Реестр с ошибками: у listThings есть обработчик, closeThing записана дважды, getThing без обработчика, phantom нет в OpenAPI, у одной строки нет статуса
+listThings   later
+closeThing   done
+closeThing   done
+getThing     done
+phantom      done
+lonely

@@ -1,0 +1,33 @@
+# Реестр операций platform-service: каждая операция из OpenAPI (dgm/routes.json) и её готовность. Находка 5 плана Ф4.
+#   done    обработчик в контроллере есть
+#   slice1  войдёт в срез 1 «Продавцы, товары, ключи» (docs/00-phase4-guide.md), обработчика ещё нет
+#   later   относится к срезам 2 и 3 или к Ф5, обработчика ещё нет
+# Статус меняется в том же commit, где появляется обработчик. Тест RoutesTest сервиса сверяет реестр с OpenAPI и контроллерами,
+# а tools/docs-checks/check_ledger.py показывает, сколько операций среза ещё не готово.
+
+anonymizeUser            slice1
+changeUserRole           slice1
+createPhoneConfirmation  slice1
+deactivateUser           slice1
+issueOtpCode             slice1
+listStaffUsers           slice1
+receiveSmsStatus         slice1
+verifyOtpCode            slice1
+verifyPhoneConfirmation  slice1
+
+createSupportTicket      later
+getEmailChangeState      later
+getStaffSupportTicket    later
+getSupportTicket         later
+listAuditRecords         later
+listPlatformParameters   later
+listSupportTicketQueue   later
+listSupportTickets       later
+receiveMailStatus        later
+releaseSupportTicket     later
+requestEmailChangeCode   later
+resendKeyForTicket       later
+setPlatformParameter     later
+startEmailChange         later
+takeSupportTicket        later
+verifyEmailChangeCode    later

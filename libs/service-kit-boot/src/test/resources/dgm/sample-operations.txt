@@ -1,0 +1,4 @@
+# Образец реестра операций для проверки сверки (RouteCoverageTest)
+listThings   done
+closeThing   done    # комментарий после статуса
+getThing     later

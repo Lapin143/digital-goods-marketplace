@@ -1,0 +1,35 @@
+# Реестр операций catalog-service: каждая операция из OpenAPI (dgm/routes.json) и её готовность. Находка 5 плана Ф4.
+#   done    обработчик в контроллере есть
+#   slice1  войдёт в срез 1 «Продавцы, товары, ключи» (docs/00-phase4-guide.md), обработчика ещё нет
+#   later   относится к срезам 2 и 3 или к Ф5, обработчика ещё нет
+# Статус меняется в том же commit, где появляется обработчик. Тест RoutesTest сервиса сверяет реестр с OpenAPI и контроллерами,
+# а tools/docs-checks/check_ledger.py показывает, сколько операций среза ещё не готово.
+
+getProductCard                 done
+listStorefrontProducts         done
+
+approveProduct                 slice1
+approveSellerApplication       slice1
+archiveSellerProduct           slice1
+blockProduct                   slice1
+createSellerApplication        slice1
+createSellerProduct            slice1
+deleteSellerDocument           slice1
+getCurrentSellerApplication    slice1
+getProductForModeration        slice1
+getSellerApplicationCard       slice1
+getSellerDocumentLink          slice1
+getSellerProduct               slice1
+getStorefrontProduct           slice1
+listProductModerationQueue     slice1
+listSellerApplicationQueue     slice1
+listSellerProducts             slice1
+rejectProduct                  slice1
+rejectSellerApplication        slice1
+replaceSellerApplicationDraft  slice1
+replaceSellerProduct           slice1
+restoreSellerProduct           slice1
+returnSellerApplication        slice1
+submitSellerApplication        slice1
+submitSellerProduct            slice1
+uploadSellerDocument           slice1

@@ -1,11 +1,18 @@
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+import org.gradle.testing.jacoco.plugins.JacocoTaskExtension
+import org.gradle.testing.jacoco.tasks.JacocoReport
 
-// Общие правила для всех Java-модулей: Java 25, предупреждения компилятора считаются ошибками, JUnit 5, ArchUnit.
+// Общие правила для всех Java-модулей: Java 25, предупреждения компилятора считаются ошибками, JUnit 5, ArchUnit, покрытие JaCoCo.
 plugins {
     java
+    jacoco
 }
 
 val catalog = extensions.getByType<VersionCatalogsExtension>().named("libs")
+
+jacoco {
+    toolVersion = catalog.findVersion("jacoco").get().requiredVersion
+}
 
 java {
     toolchain {
@@ -42,6 +49,18 @@ tasks.named<Test>("test") {
     useJUnitPlatform {
         excludeTags("integration")
     }
+    // Отчёт о покрытии строится после модульных тестов, в том числе когда они упали (шаг 4 Ф4: порога пока нет, отчёт только показывает)
+    finalizedBy(tasks.named("jacocoTestReport"))
+}
+
+// Отчёт: XML для сводки в CI (tools/ci/jacoco_summary.py), HTML для просмотра в артефакте запуска
+tasks.named<JacocoReport>("jacocoTestReport") {
+    dependsOn(tasks.named("test"))
+    reports {
+        xml.required = true
+        html.required = true
+        csv.required = false
+    }
 }
 
 // Один стенд на все проекты: интеграционные задачи идут по одной (StandLock), остальные задачи сборки параллельны
@@ -64,4 +83,11 @@ val integrationTest = tasks.register<Test>("integrationTest") {
         includeTags("integration")
     }
     shouldRunAfter(tasks.named("test"))
+}
+
+// Интеграционные тесты идут без агента JaCoCo: покрытие считают модульные тесты, а агент замедляет задачи с ограничениями по времени (окна счётчиков Redis, ожидание повторов)
+integrationTest.configure {
+    extensions.configure<JacocoTaskExtension> {
+        isEnabled = false
+    }
 }
