@@ -40,6 +40,21 @@ public interface UserAccountRepository {
     /** До {@code limit + 1} записей: лишняя говорит, что есть следующая страница. */
     List<UserAccount> list(UserFilter filter);
 
+    /** Запись, к которой привязан номер (E.164); пусто, если номер не привязан. Номера есть только у подтверждённых записей. */
+    Optional<UserAccount> findByPhone(String phone);
+
+    /**
+     * Записывает подтверждённый номер и признак подтверждения; признак передачи в Keycloak сбрасывается, чтобы сверка довела атрибут
+     * {@code phone_verified} до токена.
+     *
+     * @return {@code false}: запись не активна или телефон у неё уже подтверждён, ничего не изменено
+     * @throws dgm.platform.identity.domain.PhoneTakenException номер уже у другой записи (гонка двух подтверждений, INV-34)
+     */
+    boolean confirmPhone(UUID id, String phone);
+
+    /** Соль пользователя для хешей аудита (ADR-014); пусто у анонимизированной записи. */
+    Optional<byte[]> auditSalt(UUID id);
+
     /** Подтверждённые телефоны, ещё не переданные в Keycloak. */
     List<UUID> unsyncedPhones(int limit);
 

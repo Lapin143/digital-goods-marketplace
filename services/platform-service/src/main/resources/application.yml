@@ -34,6 +34,20 @@ dgm:
         pool-size: 1
   kafka:
     bootstrap: ${DGM_KAFKA_BOOTSTRAP:kafka:9093}
+  # Redis (ADR-022): одноразовые коды, счётчики запросов и замки номеров (ADR-010). Пользователь ACL platform видит только ключи platform:*,
+  # пароль лежит в секрете redis_platform. Без Redis выпуск и проверка кодов отвечают 503 и SMS не уходит
+  redis:
+    host: ${DGM_REDIS_HOST:redis}
+    port: ${DGM_REDIS_PORT:6379}
+    user: platform
+  # SMS-провайдер: на стенде заглушка external-stubs (ключ API в секрете platform_sms_key), в проде адрес настоящего провайдера
+  sms:
+    base-url: ${DGM_SMS_BASE_URL:https://external-stubs:8443}
+  # Правила одноразовых кодов (NFT-3.7), не меняются администратором; лимиты запросов и потолок SMS это параметры платформы (audit_admin)
+  otp:
+    ttl: PT5M
+    attempts: 5
+    min-response: PT0.8S
   outbox:
     module: identity
   consumer:

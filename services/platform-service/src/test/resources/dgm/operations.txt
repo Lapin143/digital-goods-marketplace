@@ -7,13 +7,13 @@
 
 anonymizeUser            done
 changeUserRole           done
-createPhoneConfirmation  slice1
+createPhoneConfirmation  done
 deactivateUser           done
-issueOtpCode             slice1
+issueOtpCode             done
 listStaffUsers           done
-receiveSmsStatus         slice1
-verifyOtpCode            slice1
-verifyPhoneConfirmation  slice1
+receiveSmsStatus         done
+verifyOtpCode            done
+verifyPhoneConfirmation  done
 
 createSupportTicket      later
 getEmailChangeState      later

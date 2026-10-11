@@ -3,6 +3,7 @@ package dgm.platform.identity.repository;
 import dgm.kit.boot.ModuleDatabases;
 import dgm.platform.identity.domain.LastAdminException;
 import dgm.platform.identity.domain.NewAccount;
+import dgm.platform.identity.domain.PhoneTakenException;
 import dgm.platform.identity.domain.UserAccount;
 import dgm.platform.identity.domain.UserFilter;
 import java.security.SecureRandom;
@@ -18,6 +19,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -127,6 +129,27 @@ public final class JdbcUserAccountRepository implements UserAccountRepository {
         sql.append(" order by registered_at desc, id desc limit ?");
         args.add(f.limit() + 1);
         return jdbc.query(sql.toString(), (rs, row) -> map(rs), args.toArray());
+    }
+
+    @Override
+    public Optional<UserAccount> findByPhone(String phone) {
+        return jdbc.query("select " + COLUMNS + " from identity.user_account where phone = ?", (rs, row) -> map(rs), phone).stream().findFirst();
+    }
+
+    @Override
+    public boolean confirmPhone(UUID id, String phone) {
+        try {
+            return jdbc.update("update identity.user_account set phone = ?, phone_confirmed = true, phone_synced_to_idp = false "
+                    + "where id = ? and status = 'active' and not phone_confirmed", phone, id) == 1;
+        } catch (DuplicateKeyException e) {
+            throw new PhoneTakenException(e);
+        }
+    }
+
+    @Override
+    public Optional<byte[]> auditSalt(UUID id) {
+        return jdbc.query("select audit_salt from identity.user_account where id = ? and audit_salt is not null",
+                (rs, row) -> rs.getBytes("audit_salt"), id).stream().findFirst();
     }
 
     @Override

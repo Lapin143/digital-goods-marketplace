@@ -166,7 +166,7 @@ paths:
         '404':
           $ref: components.yaml#/components/responses/E404NotFound
         '409':
-          $ref: components.yaml#/components/responses/E409RequestInProgressPhoneNotAllowed
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressPhoneNotAllowed
         '415':
           $ref: components.yaml#/components/responses/E415UnsupportedMediaType
         '422':
@@ -175,6 +175,8 @@ paths:
           $ref: components.yaml#/components/responses/E429RateLimitedOtpLocked
         '500':
           $ref: components.yaml#/components/responses/E500InternalError
+        '503':
+          $ref: components.yaml#/components/responses/E503DependencyUnavailable
   /api/v1/support-tickets:
     post:
       operationId: createSupportTicket
@@ -1922,6 +1924,8 @@ paths:
           $ref: components.yaml#/components/responses/E429OtpLocked
         '500':
           $ref: components.yaml#/components/responses/E500InternalError
+        '503':
+          $ref: components.yaml#/components/responses/E503DependencyUnavailable
   /api/v1/webhooks/email-provider:
     post:
       operationId: receiveMailStatus
@@ -2054,6 +2058,7 @@ components:
           minimum: 0
           maximum: 5
         resendAvailableAt:
+          description: Когда можно запросить новый код. `null`, если можно сразу (лимит запросов этим не исчерпан)
           oneOf:
           - $ref: components.yaml#/components/schemas/Timestamp
           - type: 'null'

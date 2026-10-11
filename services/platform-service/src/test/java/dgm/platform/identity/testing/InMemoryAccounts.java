@@ -2,6 +2,7 @@ package dgm.platform.identity.testing;
 
 import dgm.platform.identity.domain.LastAdminException;
 import dgm.platform.identity.domain.NewAccount;
+import dgm.platform.identity.domain.PhoneTakenException;
 import dgm.platform.identity.domain.UserAccount;
 import dgm.platform.identity.domain.UserFilter;
 import dgm.platform.identity.repository.UserAccountRepository;
@@ -19,6 +20,8 @@ import java.util.UUID;
 public final class InMemoryAccounts implements UserAccountRepository {
 
     private final Map<UUID, UserAccount> rows = new LinkedHashMap<>();
+    private final Map<UUID, String> phones = new LinkedHashMap<>();
+    private boolean racingPhone;
     private Runnable beforeInsert = () -> { };
 
     /** Действие перед вставкой: имитирует соперника, который успел создать запись раньше. */
@@ -40,6 +43,16 @@ public final class InMemoryAccounts implements UserAccountRepository {
         UserAccount a = rows.get(id);
         return put(new UserAccount(a.id(), a.email(), a.name(), a.role(), a.has2fa(), a.status(), true, false, a.anonymized(), a.registeredAt(),
                 a.deactivatedAt(), a.version()));
+    }
+
+    /** Номер у записи (для проверок); пусто, если не привязан. */
+    public Optional<String> phoneOf(UUID id) {
+        return Optional.ofNullable(phones.get(id));
+    }
+
+    /** Следующее подтверждение номера проиграет гонку: уникальный индекс отклонит запись, как если бы соперник успел раньше. */
+    public void loseNextPhoneRace() {
+        this.racingPhone = true;
     }
 
     public int size() {
@@ -107,6 +120,7 @@ public final class InMemoryAccounts implements UserAccountRepository {
     @Override
     public void anonymize(UUID id) {
         UserAccount a = rows.get(id);
+        phones.remove(id);
         put(new UserAccount(a.id(), "anonymized-" + id + "@invalid", "Удалён", a.role(), a.has2fa(), a.status(), false, false, true,
                 a.registeredAt(), a.deactivatedAt(), a.version() + 1));
     }
@@ -130,6 +144,41 @@ public final class InMemoryAccounts implements UserAccountRepository {
                 .sorted(newestFirst)
                 .limit(f.limit() + 1L)
                 .toList();
+    }
+
+    @Override
+    public Optional<UserAccount> findByPhone(String phone) {
+        return phones.entrySet().stream().filter(e -> e.getValue().equals(phone)).map(e -> rows.get(e.getKey())).findFirst();
+    }
+
+    @Override
+    public boolean confirmPhone(UUID id, String phone) {
+        if (racingPhone) {
+            racingPhone = false;
+            throw new PhoneTakenException(null);
+        }
+        UserAccount a = rows.get(id);
+        if (a == null || !a.active() || a.phoneConfirmed()) {
+            return false;
+        }
+        if (phones.entrySet().stream().anyMatch(e -> e.getValue().equals(phone))) {
+            throw new PhoneTakenException(null);
+        }
+        phones.put(id, phone);
+        put(new UserAccount(a.id(), a.email(), a.name(), a.role(), a.has2fa(), a.status(), true, false, a.anonymized(), a.registeredAt(),
+                a.deactivatedAt(), a.version() + 1));
+        return true;
+    }
+
+    @Override
+    public Optional<byte[]> auditSalt(UUID id) {
+        UserAccount a = rows.get(id);
+        if (a == null || a.anonymized()) {
+            return Optional.empty();
+        }
+        byte[] salt = new byte[16];
+        java.util.Arrays.fill(salt, (byte) (id.hashCode() & 0x7f));
+        return Optional.of(salt);
     }
 
     @Override

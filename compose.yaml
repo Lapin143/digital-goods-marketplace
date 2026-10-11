@@ -508,8 +508,12 @@ services:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     environment:
       <<: *service-env
+      # Redis нужен коду подтверждения телефона и входу по SMS (шаг 6 среза 1); пользователь platform задан в application.yml
+      DGM_REDIS_HOST: redis
       # Куча 192 МБ из лимита 352 МБ (memory-budget.md)
       JAVA_TOOL_OPTIONS: -Xmx192m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED
     tmpfs:

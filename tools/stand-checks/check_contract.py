@@ -32,8 +32,9 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(REPO, 'tools', 'docs-checks'))
 import check_stub_contract as S  # noqa: E402  (load/resolve по файлам OpenAPI)
 
-# Операции и коды, образцы которых обязательны: ходячий скелет (шаг 12 Ф3), пул ключей (шаг 4 Ф4, образцы появятся в шаге 14) и учётные записи
-# сотрудников (шаг 5 Ф4)
+# Операции и коды, образцы которых обязательны: ходячий скелет (шаг 12 Ф3), пул ключей (шаг 4 Ф4, образцы появятся в шаге 14), учётные записи
+# сотрудников (шаг 5 Ф4) и подтверждение телефона с внутренними операциями входа по SMS (шаг 6 Ф4). Ответ 200 вебхука статуса SMS тела не имеет,
+# поэтому у receiveSmsStatus обязательны только отказы
 REQUIRED = {
     'catalog-service': [('listStorefrontProducts', 200), ('listStorefrontProducts', 422), ('getProductCard', 200), ('getProductCard', 404)],
     'order-service': [('listOrders', 200), ('listOrders', 422)],
@@ -41,7 +42,15 @@ REQUIRED = {
                           ('getProductStock', 200), ('getProductStock', 404)],
     'platform-service': [('listStaffUsers', 200), ('listStaffUsers', 422), ('changeUserRole', 200), ('changeUserRole', 409),
                          ('changeUserRole', 422), ('deactivateUser', 200), ('deactivateUser', 409), ('anonymizeUser', 200),
-                         ('anonymizeUser', 409)],
+                         ('anonymizeUser', 409),
+                         ('createPhoneConfirmation', 201), ('createPhoneConfirmation', 400), ('createPhoneConfirmation', 403),
+                         ('createPhoneConfirmation', 409), ('createPhoneConfirmation', 422), ('createPhoneConfirmation', 429),
+                         ('createPhoneConfirmation', 503),
+                         ('verifyPhoneConfirmation', 200), ('verifyPhoneConfirmation', 404), ('verifyPhoneConfirmation', 422),
+                         ('verifyPhoneConfirmation', 429),
+                         ('issueOtpCode', 202), ('issueOtpCode', 400), ('issueOtpCode', 403), ('issueOtpCode', 422),
+                         ('verifyOtpCode', 200), ('verifyOtpCode', 422),
+                         ('receiveSmsStatus', 400), ('receiveSmsStatus', 401)],
 }
 PROBLEM = ('components.yaml', 'Problem')
 RFC3339 = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$')
