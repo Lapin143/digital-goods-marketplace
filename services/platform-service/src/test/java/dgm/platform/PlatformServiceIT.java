@@ -11,12 +11,17 @@ import dgm.kit.boot.testing.StandHttp;
 import dgm.kit.boot.testing.StandHttp.Response;
 import dgm.kit.crypto.WebhookSignature;
 import dgm.kit.json.Json;
+import dgm.kit.kafka.KafkaClients;
+import dgm.kit.outbox.EnvelopeBuilder;
+import dgm.kit.outbox.OutboxRow;
+import dgm.kit.outbox.OutgoingEvent;
 import dgm.kit.redis.KitRedis;
 import dgm.kit.secret.SecretFiles;
 import dgm.kit.testing.Stand;
 import dgm.kit.testing.TestTokens;
 import dgm.kit.time.Timestamps;
 import dgm.kit.tls.TlsMaterial;
+import dgm.kit.trace.TraceContext;
 import dgm.platform.identity.service.IdentityReconciler;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -30,15 +35,21 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
@@ -58,12 +69,13 @@ import org.springframework.test.context.DynamicPropertySource;
 
 /**
  * Платформенный сервис целиком на стенде (набор dev-kit): настоящие PostgreSQL (роль {@code app_identity}, миграции под ролью-мигратором),
- * Kafka, Redis (пользователь ACL {@code platform}), заглушка SMS-провайдера {@code external-stubs} и правила маршрутов, а Keycloak заменён
+ * Kafka, Redis (пользователь ACL {@code platform}), заглушки SMS- и почтового провайдера {@code external-stubs} и правила маршрутов, а Keycloak заменён
  * заглушкой Admin REST в памяти ({@link KeycloakStub}). Проверяется шаг 5 Ф4: создание записи при первом обращении (в том числе при
  * одновременных запросах), роли, деактивация, анонимизация, порядок «база и Outbox, потом Keycloak», сверка (создаёт записи мимо создания
  * при обращении и догоняет Keycloak после сбоя), и шаг 6: подтверждение телефона по коду из SMS (ST-05, ST-11), внутренние операции входа по
- * SMS от имени {@code keycloak}, статус доставки вебхуком, передача {@code phone_verified} и её повтор сверкой. Ответы складываются в
- * build/contract-samples и проверяются {@code check_contract.py}.
+ * SMS от имени {@code keycloak}, статус доставки вебхуком, передача {@code phone_verified} и её повтор сверкой, и шаг 8: обработчик
+ * уведомлений (событие в Kafka, письмо в почтовой заглушке, статус в таблице без адреса, дубль события, повторы при сбое провайдера,
+ * {@code notification.failed}). Ответы складываются в build/contract-samples и проверяются {@code check_contract.py}.
  */
 @Tag("integration")
 @SpringBootTest(classes = PlatformServiceApplication.class, webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT)
@@ -93,6 +105,9 @@ class PlatformServiceIT {
         registry.add("dgm.redis.host", () -> env("DGM_REDIS_HOST", "localhost"));
         registry.add("dgm.redis.port", () -> env("DGM_REDIS_PORT", "16379"));
         registry.add("dgm.sms.base-url", () -> "https://localhost:" + env("DGM_STUBS_PORT", "18443"));
+        registry.add("dgm.email.base-url", () -> "https://localhost:" + env("DGM_STUBS_PORT", "18443"));
+        // Лестница повторов письма сжата: настоящие 1, 5 и 25 секунд проверяет модульный тест, здесь важен порядок событий
+        registry.add("dgm.notification.retry-delays", () -> "PT0.2S,PT0.2S,PT0.2S");
         // Сверку в тестах запускает сам тест: расписание уходит за пределы прогона
         registry.add("dgm.identity.reconcile-interval", () -> "PT1H");
         registry.add("dgm.identity.reconcile-initial-delay", () -> "PT1H");
@@ -119,6 +134,7 @@ class PlatformServiceIT {
     @AfterAll
     static void stopStub() {
         KEYCLOAK.close();
+        PRODUCERS.values().forEach(producer -> producer.close(Duration.ofSeconds(5)));
     }
 
     @Autowired
@@ -878,6 +894,269 @@ class PlatformServiceIT {
     }
 
     // ---- последний администратор: в конце, потому что тест деактивирует остальных ----
+
+    // ---- уведомления (шаг 8 Ф4): событие в Kafka, письмо в почтовой заглушке, статус в таблице ----
+
+    private static final Map<String, KafkaProducer<String, String>> PRODUCERS = new ConcurrentHashMap<>();
+
+    /** Издатель событий от имени сервиса: права Kafka выданы по CN сертификата, поэтому события каталога пишет {@code catalog-service}. */
+    private static KafkaProducer<String, String> producer(String service) {
+        return PRODUCERS.computeIfAbsent(service, name -> KafkaClients.producer(Stand.kafkaBootstrap(), Stand.kafkaSecurity(name), name + "-it"));
+    }
+
+    /** Публикует конверт события, собранный тем же кодом, что собирает публикатор Outbox. Ключ записи равен {@code subject}. */
+    private static void publish(String service, String topic, String aggregateType, String subject, String type, UUID eventId,
+                                Map<String, Object> data) throws Exception {
+        String headers = "{\"schemaversion\": 1, \"traceparent\": \"" + TraceContext.fresh().traceparent() + "\", \"correlationid\": \""
+                + UUID.randomUUID() + "\"}";
+        OutgoingEvent event = new EnvelopeBuilder(service).build(new OutboxRow(1, eventId, aggregateType, subject, type, topic, Json.write(data),
+                headers, Instant.now(), 0));
+        ProducerRecord<String, String> record = new ProducerRecord<>(event.topic(), event.key(), event.value());
+        record.headers().add("ce_type", event.type().getBytes(StandardCharsets.UTF_8));
+        record.headers().add("traceparent", event.traceparent().getBytes(StandardCharsets.UTF_8));
+        producer(service).send(record).get(20, TimeUnit.SECONDS);
+    }
+
+    private static void publishSellerEvent(UUID userId, String type, Map<String, Object> extra) throws Exception {
+        UUID sellerId = UUID.randomUUID();
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("sellerId", sellerId.toString());
+        data.put("userId", userId.toString());
+        data.put("moderatorId", UUID.randomUUID().toString());
+        data.putAll(extra);
+        publish("catalog-service", "catalog.events", "Seller", sellerId.toString(), type, UUID.randomUUID(), data);
+    }
+
+    private static boolean await(Duration limit, BooleanSupplier condition) throws InterruptedException {
+        long deadline = System.nanoTime() + limit.toNanos();
+        while (System.nanoTime() < deadline) {
+            if (condition.getAsBoolean()) {
+                return true;
+            }
+            Thread.sleep(200);
+        }
+        return condition.getAsBoolean();
+    }
+
+    /** Письма, принятые заглушкой для адреса, по порядку получения. */
+    private static List<Map<?, ?>> mails(String address) {
+        try {
+            HttpResponse<String> response = stubs("GET", "/admin/emails?to=" + URLEncoder.encode(address, StandardCharsets.UTF_8), null);
+            assertEquals(200, response.statusCode(), response.body());
+            List<Map<?, ?>> items = new ArrayList<>();
+            for (Object item : (List<?>) Json.parseObject(response.body()).get("items")) {
+                items.add((Map<?, ?>) item);
+            }
+            return items;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static Map<?, ?> mailWithSubject(String address, String subject) {
+        return mails(address).stream().filter(m -> subject.equals(m.get("subject"))).findFirst()
+                .orElseThrow(() -> new AssertionError("нет письма «" + subject + "» для " + address));
+    }
+
+    private JdbcTemplate notificationDb() {
+        return databases.jdbc("notification");
+    }
+
+    private static final String ROW = "select id::text as id, status, attempts, in_dead_queue, last_error_code, next_attempt_at is null as no_next, "
+            + "source_event_id::text as source_event_id, params::text as params, sent_at is not null as has_sent_at from notification.notification ";
+
+    /** Единственное уведомление пользователя по шаблону: два уведомления дали бы ошибку, это и проверяется. */
+    private Map<String, Object> notification(String userId, String template) {
+        return notificationDb().queryForMap(ROW + "where user_id = ? and template = ?", UUID.fromString(userId), template);
+    }
+
+    private boolean notificationIs(String userId, String template, String status) {
+        List<String> found = notificationDb().queryForList("select status from notification.notification where user_id = ? and template = ?",
+                String.class, UUID.fromString(userId), template);
+        return found.size() == 1 && status.equals(found.get(0));
+    }
+
+    private String wholeRow(Object id) {
+        return notificationDb().queryForObject("select n::text from notification.notification n where id = ?::uuid", String.class, String.valueOf(id));
+    }
+
+    private static void emailMode(String json) throws IOException {
+        assertEquals(200, stubs("PUT", "/admin/modes/email", json).statusCode());
+    }
+
+    private List<Map<String, Object>> failedEvents(Object notificationId) {
+        List<Map<String, Object>> events = new ArrayList<>();
+        for (String payload : jdbc().queryForList("select payload::text from public.outbox where event_type = 'notification.failed' and aggregate_id = ?",
+                String.class, String.valueOf(notificationId))) {
+            events.add(Json.parseObject(payload));
+        }
+        return events;
+    }
+
+    @Test
+    @Order(22)
+    void smsLoginGivesTheOwnerOneLetterAndAReplayedEventGivesNone() throws Exception {
+        String phone = newPhone();
+        KeycloakStub.User buyer = confirmedBuyer(phone);
+        StandHttp keycloak = StandHttp.asService("keycloak", PORT);
+        String ip = newIp();
+        assertEquals(202, asKeycloak(keycloak, "/internal/v1/otp-codes", "{\"purpose\":\"sms_login\",\"phone\":\"" + phone + "\",\"clientIp\":\"" + ip + "\"}",
+                UUID.randomUUID().toString()).status());
+        Response accepted = asKeycloak(keycloak, "/internal/v1/otp-verifications",
+                "{\"purpose\":\"sms_login\",\"phone\":\"" + phone + "\",\"code\":\"" + smsCode(phone) + "\"}", UUID.randomUUID().toString());
+        assertEquals(200, accepted.status(), accepted.body());
+        UUID eventId = UUID.fromString(jdbc().queryForObject("select event_id::text from public.outbox where aggregate_id = ? and event_type = 'user.sms-login'",
+                String.class, buyer.id));
+
+        assertTrue(await(Duration.ofSeconds(90), () -> mails(buyer.email).size() == 1), "письмо о входе дошло до почтовой заглушки");
+        Map<?, ?> mail = mails(buyer.email).get(0);
+        assertEquals("platform", mail.get("sender"));
+        assertEquals("Вход в аккаунт по коду из SMS", mail.get("subject"));
+        assertTrue(String.valueOf(mail.get("text")).contains("(МСК) в ваш аккаунт выполнен вход по одноразовому коду из SMS"), String.valueOf(mail.get("text")));
+        assertFalse(String.valueOf(mail.get("text")).contains(phone), "номера телефона в письме нет");
+
+        assertTrue(await(Duration.ofSeconds(20), () -> notificationIs(buyer.id, "user-sms-login", "sent")));
+        Map<String, Object> row = notification(buyer.id, "user-sms-login");
+        assertEquals(String.valueOf(mail.get("messageId")), row.get("id"), "идентификатор сообщения у провайдера равен идентификатору уведомления");
+        assertEquals(1, row.get("attempts"));
+        assertEquals(eventId.toString(), row.get("source_event_id"));
+        assertEquals(Boolean.TRUE, row.get("no_next"));
+        assertEquals(Boolean.TRUE, row.get("has_sent_at"));
+        assertEquals(Boolean.FALSE, row.get("in_dead_queue"));
+        assertFalse(wholeRow(row.get("id")).contains(buyer.email), "адреса в таблице уведомлений нет (INV-44)");
+        assertEquals(1, notificationDb().queryForObject("select count(*) from public.processed_event where consumer = 'notification-handler' and event_id = ?",
+                Integer.class, eventId));
+
+        // Тот же конверт приходит второй раз, затем настоящий второй вход: он идёт по той же партиции следом за дублем
+        publish("platform-service", "identity.events", "User", buyer.id, "user.sms-login", eventId, Map.of("userId", buyer.id));
+        publish("platform-service", "identity.events", "User", buyer.id, "user.sms-login", UUID.randomUUID(), Map.of("userId", buyer.id));
+        assertTrue(await(Duration.ofSeconds(90), () -> mails(buyer.email).size() == 2), "второй вход дал второе письмо");
+        assertEquals(2, mails(buyer.email).size(), "дубль события письма не дал");
+        assertEquals(2, notificationDb().queryForObject("select count(*) from notification.notification where user_id = ? and template = 'user-sms-login'",
+                Integer.class, UUID.fromString(buyer.id)));
+    }
+
+    @Test
+    @Order(23)
+    void decisionsOnTheSellerApplicationGiveTheApplicantThreeLettersWithTheModeratorText() throws Exception {
+        KeycloakStub.User applicant = provisioned("buyer");
+        UUID user = UUID.fromString(applicant.id);
+        String reason = "Не хватает скана паспорта, проверьте " + UUID.randomUUID();
+        String comment = "Приложите свежую выписку " + UUID.randomUUID();
+        String nextAt = Timestamps.format(Instant.now().plus(Duration.ofDays(1)));
+
+        publishSellerEvent(user, "seller.approved", Map.of("sellerType", "self_employed"));
+        publishSellerEvent(user, "seller.rejected", Map.of("reason", reason, "nextApplicationAt", nextAt));
+        publishSellerEvent(user, "seller.returned", Map.of("comment", comment));
+
+        assertTrue(await(Duration.ofSeconds(90), () -> mails(applicant.email).size() == 3), "три письма дошли до заглушки");
+        String approved = String.valueOf(mailWithSubject(applicant.email, "Ваша заявка продавца одобрена").get("text"));
+        assertTrue(approved.contains("Тип профиля: самозанятый."), approved);
+        assertTrue(approved.contains("второй фактор"), approved);
+        String rejected = String.valueOf(mailWithSubject(applicant.email, "Заявка продавца отклонена").get("text"));
+        assertTrue(rejected.contains(reason), rejected);
+        assertTrue(rejected.contains("(МСК)"), rejected);
+        String returned = String.valueOf(mailWithSubject(applicant.email, "Заявка продавца возвращена на доработку").get("text"));
+        assertTrue(returned.contains(comment), returned);
+        for (String text : List.of(approved, rejected, returned)) {
+            assertTrue(text.startsWith("Здравствуйте, "), text);
+            assertFalse(text.contains(applicant.email), "адреса получателя в тексте письма нет");
+        }
+
+        for (String template : List.of("seller-approved", "seller-rejected", "seller-returned")) {
+            assertTrue(await(Duration.ofSeconds(20), () -> notificationIs(applicant.id, template, "sent")), template);
+            Map<String, Object> row = notification(applicant.id, template);
+            assertEquals(1, row.get("attempts"), template);
+            assertFalse(wholeRow(row.get("id")).contains(applicant.email), template + ": адреса в таблице уведомлений нет (INV-44)");
+        }
+        assertTrue(String.valueOf(notification(applicant.id, "seller-rejected").get("params")).contains(reason), "причина лежит в параметрах шаблона");
+    }
+
+    @Test
+    @Order(24)
+    void temporaryProviderFailureIsRetriedAndTheLetterArrivesExactlyOnce() throws Exception {
+        KeycloakStub.User applicant = provisioned("buyer");
+        emailMode("{\"sender\":\"platform\",\"behavior\":\"temp_error\",\"failFirst\":2,\"tempKind\":\"http_503\"}");
+        try {
+            publishSellerEvent(UUID.fromString(applicant.id), "seller.returned", Map.of("comment", "Исправьте данные " + UUID.randomUUID()));
+
+            assertTrue(await(Duration.ofSeconds(90), () -> notificationIs(applicant.id, "seller-returned", "sent")), "письмо отправлено с третьей попытки");
+        } finally {
+            emailMode("{\"behavior\":\"accept\"}");
+        }
+        Map<String, Object> row = notification(applicant.id, "seller-returned");
+        assertEquals(3, row.get("attempts"));
+        assertNull(row.get("last_error_code"), "после успеха код прошлой ошибки очищен");
+        assertEquals(1, mails(applicant.email).size());
+        assertTrue(failedEvents(row.get("id")).isEmpty(), "доставленное письмо события о недоставке не даёт");
+    }
+
+    @Test
+    @Order(25)
+    void exhaustedAttemptsPutTheLetterInTheDeadQueueAndPublishNotificationFailed() throws Exception {
+        KeycloakStub.User applicant = provisioned("buyer");
+        emailMode("{\"sender\":\"platform\",\"behavior\":\"temp_error\",\"failFirst\":-1,\"tempKind\":\"http_503\"}");
+        try {
+            publishSellerEvent(UUID.fromString(applicant.id), "seller.returned", Map.of("comment", "Исправьте данные"));
+
+            assertTrue(await(Duration.ofSeconds(90), () -> notificationIs(applicant.id, "seller-returned", "failed")), "после четвёртой попытки письмо недоставлено");
+        } finally {
+            emailMode("{\"behavior\":\"accept\"}");
+        }
+        Map<String, Object> row = notification(applicant.id, "seller-returned");
+        assertEquals(4, row.get("attempts"));
+        assertEquals(Boolean.TRUE, row.get("in_dead_queue"));
+        assertEquals("provider_unavailable", row.get("last_error_code"));
+        assertEquals(Boolean.TRUE, row.get("no_next"));
+        assertTrue(mails(applicant.email).isEmpty(), "провайдер не принял ни одного письма");
+
+        List<Map<String, Object>> events = failedEvents(row.get("id"));
+        assertEquals(1, events.size());
+        Map<String, Object> event = events.get(0);
+        assertEquals(Map.of("notificationId", row.get("id"), "channel", "email", "template", "seller-returned", "recipientUserId", applicant.id,
+                "attempts", 4, "reason", "attempts_exhausted"), event);
+        assertFalse(event.toString().contains(applicant.email), "адреса в событии нет");
+        assertTrue(await(Duration.ofSeconds(30), () -> 1 == jdbc().queryForObject("select count(*) from public.outbox where event_type = 'notification.failed' "
+                + "and aggregate_id = ? and published_at is not null and topic = 'notification.events'", Integer.class, String.valueOf(row.get("id")))),
+                "публикатор отправил событие в notification.events");
+    }
+
+    @Test
+    @Order(26)
+    void providerRefusalFailsTheLetterAtOnceWithoutRetries() throws Exception {
+        KeycloakStub.User applicant = provisioned("buyer");
+        emailMode("{\"sender\":\"platform\",\"behavior\":\"perm_error\",\"failFirst\":-1,\"permStatus\":422}");
+        try {
+            publishSellerEvent(UUID.fromString(applicant.id), "seller.returned", Map.of("comment", "Исправьте данные"));
+
+            assertTrue(await(Duration.ofSeconds(90), () -> notificationIs(applicant.id, "seller-returned", "failed")));
+        } finally {
+            emailMode("{\"behavior\":\"accept\"}");
+        }
+        Map<String, Object> row = notification(applicant.id, "seller-returned");
+        assertEquals(1, row.get("attempts"), "отказ провайдера не повторяется");
+        assertEquals(Boolean.TRUE, row.get("in_dead_queue"));
+        assertEquals("address_rejected", row.get("last_error_code"));
+        List<Map<String, Object>> events = failedEvents(row.get("id"));
+        assertEquals(1, events.size());
+        assertEquals("address_rejected", events.get(0).get("reason"));
+        assertEquals(1, events.get(0).get("attempts"));
+    }
+
+    @Test
+    @Order(27)
+    void letterForARecipientWhoIsGoneIsDroppedWithoutAnEvent() throws Exception {
+        UUID nobody = UUID.randomUUID();
+
+        publishSellerEvent(nobody, "seller.returned", Map.of("comment", "Исправьте данные"));
+
+        assertTrue(await(Duration.ofSeconds(90), () -> notificationIs(nobody.toString(), "seller-returned", "failed")));
+        Map<String, Object> row = notification(nobody.toString(), "seller-returned");
+        assertEquals("recipient_unavailable", row.get("last_error_code"));
+        assertEquals(0, row.get("attempts"));
+        assertEquals(Boolean.FALSE, row.get("in_dead_queue"));
+        assertTrue(failedEvents(row.get("id")).isEmpty());
+    }
 
     @Test
     @Order(99)

@@ -3,6 +3,11 @@
 spring:
   application:
     name: platform-service
+  task:
+    scheduling:
+      # Два потока расписания: сверка с Keycloak (вызовы по сети) не задерживает отправку писем и наоборот
+      pool:
+        size: 2
 
 dgm:
   security:
@@ -43,6 +48,9 @@ dgm:
   # SMS-провайдер: на стенде заглушка external-stubs (ключ API в секрете platform_sms_key), в проде адрес настоящего провайдера
   sms:
     base-url: ${DGM_SMS_BASE_URL:https://external-stubs:8443}
+  # Провайдер почты: на стенде заглушка external-stubs (ключ API в секрете platform_email_key), в проде адрес настоящего провайдера
+  email:
+    base-url: ${DGM_EMAIL_BASE_URL:https://external-stubs:8443}
   # Правила одноразовых кодов (NFT-3.7), не меняются администратором; лимиты запросов и потолок SMS это параметры платформы (audit_admin)
   otp:
     ttl: PT5M
@@ -61,3 +69,14 @@ dgm:
     # который держит блокировку публикатора Outbox. Ключи названы как параметры платформы, значения по умолчанию те же (правило 6 среза 1)
     reconcile-interval: PT1M
     reconcile-initial-delay: PT20S
+  notification:
+    # Просмотр очереди писем: лестница повторов начинается с секунды (ADR-011), поэтому просматривать нужно чаще. Письма, срок которых
+    # настал, берутся по одному с блокировкой строки (FOR UPDATE SKIP LOCKED) и арендой на lease: упавший экземпляр не теряет письмо
+    poll-interval: PT0.5S
+    lease: PT30S
+    batch: 10
+    # Паузы после первой, второй и третьей неудачи; после четвёртой письмо считается недоставленным и даёт notification.failed
+    retry-delays: PT1S,PT5S,PT25S
+    # Время в письмах (вход по SMS, срок повторной заявки) выводится в этом поясе
+    zone: Europe/Moscow
+    zone-label: МСК
