@@ -223,26 +223,38 @@ public final class KeycloakAdminClient {
 
     /** Имена ролей realm, назначенных пользователю непосредственно. */
     public List<String> realmRoles(String userId) {
-        Object parsed = Json.parse(call("GET", "/users/" + segment(userId) + "/role-mappings/realm", null, 200).body());
-        List<String> names = new ArrayList<>();
-        if (parsed instanceof List<?> list) {
-            for (Object item : list) {
-                if (item instanceof Map<?, ?> role && role.get("name") != null) {
-                    names.add(String.valueOf(role.get("name")));
-                }
-            }
-        }
-        return names;
+        return roleNames("/users/" + segment(userId) + "/role-mappings/realm");
     }
 
-    /** Назначает роль realm. Если роль уже есть, Keycloak ничего не меняет. */
+    /**
+     * Назначает роль realm. Представление роли берётся из списка ролей, доступных этому пользователю для назначения: так хватает прав
+     * {@code manage-users}, а чтение роли по имени ({@code GET /roles/{имя}}) требует {@code view-realm}, которого у служебной записи нет
+     * (Keycloak отвечает 403, находка шага 9 Ф4). Если роль у пользователя уже есть, прямо или через составную, ничего не меняется.
+     */
     public void addRealmRole(String userId, String roleName) {
-        call("POST", "/users/" + segment(userId) + "/role-mappings/realm", Json.write(List.of(roleRepresentation(roleName))), 204);
+        String mappings = "/users/" + segment(userId) + "/role-mappings/realm";
+        Map<String, Object> role = findRole(mappings + "/available", roleName);
+        if (role != null) {
+            call("POST", mappings, Json.write(List.of(role)), 204);
+            return;
+        }
+        if (!effectiveRealmRoles(userId).contains(roleName)) {
+            throw new KeycloakException(404, "В realm нет роли " + roleName, false);
+        }
     }
 
-    /** Снимает роль realm. Если роли нет, Keycloak ничего не меняет. */
+    /** Снимает прямое назначение роли realm. Если роль не назначена напрямую, ничего не меняется. */
     public void removeRealmRole(String userId, String roleName) {
-        call("DELETE", "/users/" + segment(userId) + "/role-mappings/realm", Json.write(List.of(roleRepresentation(roleName))), 204);
+        String mappings = "/users/" + segment(userId) + "/role-mappings/realm";
+        Map<String, Object> role = findRole(mappings, roleName);
+        if (role != null) {
+            call("DELETE", mappings, Json.write(List.of(role)), 204);
+        }
+    }
+
+    /** Роли, действующие у пользователя: назначенные напрямую и входящие в составные. */
+    public List<String> effectiveRealmRoles(String userId) {
+        return roleNames("/users/" + segment(userId) + "/role-mappings/realm/composite");
     }
 
     // ---- Учётные данные ----
@@ -279,15 +291,41 @@ public final class KeycloakAdminClient {
 
     // ---- Внутреннее ----
 
-    private Map<String, Object> roleRepresentation(String roleName) {
-        Object parsed = Json.parse(call("GET", "/roles/" + segment(roleName), null, 200).body());
-        if (parsed instanceof Map<?, ?> role && role.get("id") != null && role.get("name") != null) {
-            Map<String, Object> representation = new LinkedHashMap<>();
-            representation.put("id", role.get("id"));
-            representation.put("name", role.get("name"));
-            return representation;
+    /** Имена ролей из ответа Keycloak по пути {@code path} (список представлений ролей). */
+    private List<String> roleNames(String path) {
+        List<String> names = new ArrayList<>();
+        for (Map<String, Object> role : roles(path)) {
+            names.add(String.valueOf(role.get("name")));
         }
-        throw new KeycloakException(200, "Keycloak вернул роль в неожиданном виде", false);
+        return names;
+    }
+
+    /** Представление роли ({@code id} и {@code name}) с заданным именем из списка по пути {@code path}; нет такой роли, {@code null}. */
+    private Map<String, Object> findRole(String path, String roleName) {
+        for (Map<String, Object> role : roles(path)) {
+            if (roleName.equals(role.get("name"))) {
+                Map<String, Object> representation = new LinkedHashMap<>();
+                representation.put("id", role.get("id"));
+                representation.put("name", role.get("name"));
+                return representation;
+            }
+        }
+        return null;
+    }
+
+    private List<Map<String, Object>> roles(String path) {
+        Object parsed = Json.parse(call("GET", path, null, 200).body());
+        List<Map<String, Object>> roles = new ArrayList<>();
+        if (parsed instanceof List<?> list) {
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> role && role.get("name") != null && role.get("id") != null) {
+                    Map<String, Object> copy = new LinkedHashMap<>();
+                    role.forEach((k, v) -> copy.put(String.valueOf(k), v));
+                    roles.add(copy);
+                }
+            }
+        }
+        return roles;
     }
 
     private static KeycloakUser user(Object item) {

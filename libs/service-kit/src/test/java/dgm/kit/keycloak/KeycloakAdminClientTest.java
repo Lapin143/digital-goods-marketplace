@@ -246,15 +246,18 @@ class KeycloakAdminClientTest {
                 return token(req, 300);
             }
             if (req.path().endsWith("/roles/seller")) {
-                return new Resp(200, "{\"id\":\"role-1\",\"name\":\"seller\",\"composite\":false}");
+                return new Resp(403, "{\"error\":\"HTTP 403 Forbidden\"}");     // чтение роли по имени требует view-realm: клиент им не пользуется
+            }
+            if (req.path().endsWith("/role-mappings/realm/available") && req.method().equals("GET")) {
+                return new Resp(200, "[{\"id\":\"role-1\",\"name\":\"seller\",\"composite\":false}]");
             }
             if (req.path().endsWith("/role-mappings/realm") && req.method().equals("GET")) {
-                return new Resp(200, "[{\"id\":\"role-0\",\"name\":\"buyer\"}]");
+                return new Resp(200, "[{\"id\":\"role-0\",\"name\":\"buyer\"},{\"id\":\"role-1\",\"name\":\"seller\",\"composite\":false}]");
             }
             return new Resp(204, null);
         };
         KeycloakAdminClient client = client();
-        assertEquals(List.of("buyer"), client.realmRoles(USER_ID));
+        assertEquals(List.of("buyer", "seller"), client.realmRoles(USER_ID));
         client.addRealmRole(USER_ID, "seller");
         client.removeRealmRole(USER_ID, "seller");
         List<Req> mappings = requests.stream().filter(r -> r.path().endsWith("/role-mappings/realm") && !r.method().equals("GET")).toList();
@@ -262,6 +265,33 @@ class KeycloakAdminClientTest {
         for (Req mapping : mappings) {
             assertEquals(List.of(Map.of("id", "role-1", "name", "seller")), Json.parse(mapping.body()));
         }
+        assertTrue(requests.stream().noneMatch(r -> r.path().contains("/roles/")), "роль по имени не читается");
+    }
+
+    @Test
+    void addingARoleTheUserAlreadyHasChangesNothingAndAnUnknownRoleFails() throws Exception {
+        router = req -> {
+            if (req.path().endsWith("/token")) {
+                return token(req, 300);
+            }
+            if (req.path().endsWith("/role-mappings/realm/available")) {
+                return new Resp(200, "[]");
+            }
+            if (req.path().endsWith("/role-mappings/realm/composite")) {
+                return new Resp(200, "[{\"id\":\"role-0\",\"name\":\"buyer\"}]");
+            }
+            if (req.path().endsWith("/role-mappings/realm") && req.method().equals("GET")) {
+                return new Resp(200, "[]");
+            }
+            return new Resp(204, null);
+        };
+        KeycloakAdminClient client = client();
+        assertEquals(List.of("buyer"), client.effectiveRealmRoles(USER_ID));
+        client.addRealmRole(USER_ID, "buyer");
+        client.removeRealmRole(USER_ID, "seller");
+        assertTrue(requests.stream().noneMatch(r -> !r.method().equals("GET") && r.path().contains("/role-mappings/")), "записи не менялись");
+        KeycloakException failure = assertThrows(KeycloakException.class, () -> client.addRealmRole(USER_ID, "no-such-role"));
+        assertFalse(failure.retryable());
     }
 
     @Test

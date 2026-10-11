@@ -118,7 +118,8 @@ final class KeycloakStub implements AutoCloseable {
         if (method.equals("GET") && path.equals("/auth/admin/realms/dgm/users")) {
             listUsers(exchange);
         } else if (role.matches() && method.equals("GET")) {
-            reply(exchange, 200, Json.write(Map.of("id", "role-" + role.group(1), "name", role.group(1))));
+            // как настоящий Keycloak для служебной записи с manage-users, view-users и query-users: чтение роли по имени требует view-realm
+            reply(exchange, 403, "{\"error\":\"HTTP 403 Forbidden\"}");
         } else if (user.matches()) {
             userCall(exchange, method, user.group(1), user.group(2) == null ? "" : user.group(2), body);
         } else {
@@ -188,6 +189,21 @@ final class KeycloakStub implements AutoCloseable {
                 }
                 reply(exchange, 200, Json.write(mappings));
             }
+            case "/role-mappings/realm/available GET" -> {
+                List<Object> available = new ArrayList<>();
+                Set<String> effective = effectiveRoles(user);
+                for (String name : REALM_ROLES) {
+                    if (!effective.contains(name)) {
+                        available.add(Map.of("id", "role-" + name, "name", name));
+                    }
+                }
+                reply(exchange, 200, Json.write(available));
+            }
+            case "/role-mappings/realm/composite GET" -> {
+                List<Object> effective = new ArrayList<>();
+                effectiveRoles(user).forEach(r -> effective.add(Map.of("id", "role-" + r, "name", r)));
+                reply(exchange, 200, Json.write(effective));
+            }
             case "/role-mappings/realm POST", "/role-mappings/realm DELETE" -> {
                 if (refuseRoleMappings) {
                     reply(exchange, 503, "{}");
@@ -207,6 +223,20 @@ final class KeycloakStub implements AutoCloseable {
             }
             default -> reply(exchange, 404, "{}");
         }
+    }
+
+    /** Роли realm: пять ролей приложения и роль по умолчанию, в которую входит «покупатель». */
+    private static final List<String> REALM_ROLES = List.of("buyer", "seller", "moderator", "support-operator", "admin", "default-roles-dgm");
+
+    private static Set<String> effectiveRoles(User user) {
+        Set<String> effective = new LinkedHashSet<>();
+        synchronized (user.roles) {
+            effective.addAll(user.roles);
+        }
+        if (effective.contains("default-roles-dgm")) {
+            effective.add("buyer");
+        }
+        return effective;
     }
 
     private static Map<String, Object> representation(User user) {
