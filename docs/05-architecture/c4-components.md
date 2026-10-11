@@ -145,7 +145,7 @@
 | Письмо принято | `delivery.accepted` | `delivery-domain` | `event-consumer` → `saga-orchestrator` (`order-service`), `support-event-handler` |
 | Выдача доставлена | `delivery.delivered` | `delivery-domain` | `support-event-handler` (закрывает обращение системы, обновляет статус выдачи) |
 | Выдача не удалась, 30 минут без доставки | `delivery.failed`, `delivery.overdue` | `delivery-domain` | `support-event-handler`, `notification-handler` |
-| E-mail изменён, пользователь деактивирован | `user.email-changed`, `user.deactivated` | `user-service` | `notification-handler` |
+| E-mail изменён, пользователь деактивирован, вход по коду из SMS | `user.email-changed`, `user.deactivated`, `user.sms-login` | `user-service` | `notification-handler` |
 | Пользователь зарегистрирован, роль назначена, телефон подтверждён | `user.registered`, `user.role-assigned`, `user.phone-confirmed` | `user-service` | Потребителей в R1 нет, факт для аудита и метрик |
 | Пользователь анонимизирован | `user.anonymized` | `user-service` | `event-consumer` → `order-domain` (`order-service`), `event-consumer` → `delivery-domain` (`delivery-service`) |
 | Обращение создано, решено | `ticket.created`, `ticket.resolved` | `ticket-service` | Метрики, аудит через `audit.recorded` |

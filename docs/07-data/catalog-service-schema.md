@@ -30,6 +30,7 @@ erDiagram
         text rejection_reason
         text status_before_block
         text block_reason
+        text block_note
         timestamptz submitted_at
         timestamptz review_deadline_at
         timestamptz overdue_marked_at
@@ -113,6 +114,7 @@ erDiagram
 | `rejection_reason` | `text` | нет |  | Причина отклонения, видна продавцу (FT-11.4) |
 | `status_before_block` | `text` | нет |  | Статус до блокировки: нужен, чтобы вернуть товар после снятия блокировки продавца (SM-04, решение 1) |
 | `block_reason` | `text` | нет |  | moderator_decision или seller_blocked (SM-04, решение 1) |
+| `block_note` | `text` | нет |  | Текст причины блокировки, который ввёл модератор (от 1 до 1000 знаков), виден продавцу; у снятой блокировки пусто |
 | `submitted_at` | `timestamp with time zone` | нет |  | Когда товар поставлен в очередь модерации |
 | `review_deadline_at` | `timestamp with time zone` | нет |  | Срок рассмотрения: постановка в очередь плюс 3 суток (FT-3.2) |
 | `overdue_marked_at` | `timestamp with time zone` | нет |  | Когда задание контроля сроков пометило просрочку, один раз (US-8.8) |
@@ -128,6 +130,7 @@ erDiagram
 | --- | --- | --- |
 | `pk_product` | первичный ключ | `PRIMARY KEY (id)` |
 | `ck_product_activation_regions` | проверка | `CHECK (((cardinality(activation_regions) <= 250) AND (array_to_string(activation_regions, ','::text) ~ '^([A-Z]{2}(,[A-Z]{2})*)?$'::text)))` |
+| `ck_product_block_note` | проверка | `CHECK (((block_note IS NULL) OR ((status = 'blocked'::text) AND ((char_length(block_note) >= 1) AND (char_length(block_note) <= 1000)))))` |
 | `ck_product_block_reason` | проверка | `CHECK ((block_reason = ANY (ARRAY['moderator_decision'::text, 'seller_blocked'::text])))` |
 | `ck_product_block_state` | проверка | `CHECK ((((status = 'blocked'::text) AND (status_before_block IS NOT NULL) AND (block_reason IS NOT NULL)) OR ((status <> 'blocked'::text) AND (status_before_block IS NULL) AND (block_reason IS NULL))))` |
 | `ck_product_currency` | проверка | `CHECK ((currency = 'RUB'::bpchar))` |
@@ -200,7 +203,7 @@ erDiagram
 | `object_key` | `text` | да |  | Ключ объекта в бакете объектного хранилища, ссылка выдаётся подписанной на 5 минут |
 | `file_name` | `text` | да |  | Имя файла для показа модератору, не путь в хранилище |
 | `content_type` | `text` | да |  | Тип содержимого файла, проверяется при загрузке |
-| `size_bytes` | `bigint` | да |  | Размер файла в байтах, лимит проверяется при загрузке |
+| `size_bytes` | `bigint` | да |  | Размер файла в байтах, не больше 2 МБ (2097152, FT-2.0): лимит проверяют шлюз, сервис и это ограничение |
 | `uploaded_at` | `timestamp with time zone` | да | `now()` | Время загрузки документа |
 
 **Ограничения**
@@ -212,7 +215,7 @@ erDiagram
 | `fk_seller_document_seller_id` | внешний ключ | `FOREIGN KEY (seller_id) REFERENCES seller_onboarding.seller_profile(id)` |
 | `ck_seller_document_content_type` | проверка | `CHECK ((content_type = ANY (ARRAY['application/pdf'::text, 'image/jpeg'::text, 'image/png'::text])))` |
 | `ck_seller_document_file_name_len` | проверка | `CHECK (((char_length(file_name) >= 1) AND (char_length(file_name) <= 255)))` |
-| `ck_seller_document_size` | проверка | `CHECK (((size_bytes > 0) AND (size_bytes <= 10485760)))` |
+| `ck_seller_document_size` | проверка | `CHECK (((size_bytes > 0) AND (size_bytes <= 2097152)))` |
 
 **Индексы**
 

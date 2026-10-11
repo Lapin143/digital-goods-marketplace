@@ -2576,7 +2576,7 @@ components:
         blockReason:
           oneOf:
           - type: string
-            description: Причина блокировки
+            description: Текст причины блокировки, который ввёл модератор (до 1000 знаков, колонка block_note)
           - type: 'null'
         submittedAt:
           oneOf:

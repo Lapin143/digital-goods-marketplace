@@ -3,7 +3,7 @@
 | Поле | Содержание |
 | --- | --- |
 | Контракт | [asyncapi.yaml](../asyncapi/asyncapi.yaml), AsyncAPI 3.0: темы, сообщения, схемы данных, издатели, потребители, ключи идемпотентности, обработка ошибок |
-| Объём | 55 событий: R1 37, R2 18 (черновик) |
+| Объём | 56 событий: R1 38, R2 18 (черновик) |
 | Примеры | [examples](examples): по одному файлу на событие, полный конверт, имя файла равно типу события |
 | Правила | [conventions.md](../../05-architecture/conventions.md), разделы 2 (событие, команда, запрос), 11 (конверт, темы, версии), 12 (потребитель, DLQ) |
 | Проверка | Скрипт `check_asyncapi.py`: структура и ссылки, схемы, примеры по схемам, один издатель на событие, владелец агрегата, ключи идемпотентности, сверка с реестром событий и границами контекстов. Таблицы ниже между маркерами генерируются из контракта, ручная правка запрещена |
@@ -29,7 +29,7 @@
 | `order.events` | `order-service` | Идентификатор заказа | 3 | 7 суток | 7 | `order.events.dlq`, инцидент высокой важности |
 | `payment.events` | `payment-service` | Идентификатор заказа | 3 | 7 суток | 4 | `payment.events.dlq`, инцидент высокой важности |
 | `delivery.events` | `delivery-service` | Идентификатор заказа | 3 | 7 суток | 5 | `delivery.events.dlq`, инцидент высокой важности |
-| `identity.events` | `platform-service` | Идентификатор пользователя | 1 | 7 суток | 7 | `identity.events.dlq`, предупреждение |
+| `identity.events` | `platform-service` | Идентификатор пользователя | 1 | 7 суток | 8 | `identity.events.dlq`, предупреждение |
 | `support.events` | `platform-service` | Идентификатор обращения | 1 | 7 суток | 2 | нет |
 | `notification.events` | `platform-service` | Идентификатор уведомления | 1 | 7 суток | 1 | нет |
 | `audit.events` | все сервисы | Идентификатор объекта действия | 1 | 30 суток | 1 | `audit.events.dlq`, предупреждение |
@@ -97,6 +97,7 @@
 | [`user.role-assigned`](examples/user.role-assigned.json) | `userId` | `user-service` | Пользователю назначена роль. | нет, факт для аудита. Токен с новой ролью пользователь получает из Keycloak |
 | [`user.email-changed`](examples/user.email-changed.json) | `userId` | `user-service` | E-mail пользователя изменён. | `platform-service`: `notification-handler` |
 | [`user.phone-confirmed`](examples/user.phone-confirmed.json) | `userId` | `user-service` | Телефон пользователя подтверждён. | нет, факт для аудита. Признак попадает в токен при следующем обновлении |
+| [`user.sms-login`](examples/user.sms-login.json) | `userId` | `user-service` | Выполнен вход по коду из SMS. | `platform-service`: `notification-handler` |
 | [`user.deactivated`](examples/user.deactivated.json) | `userId` | `user-service` | Пользователь деактивирован. | `platform-service`: `notification-handler` |
 | [`user.anonymized`](examples/user.anonymized.json) | `userId` | `user-service` | Пользователь анонимизирован. | `order-service`: `order-domain`; `delivery-service`: `delivery-domain` |
 
@@ -242,6 +243,7 @@
 | `notification-handler` | `delivery.failed` | R1 | Оповещение администратору «Выдача не удалась» (NFT-2.4) | Уникальный индекс `(event_id, template)` в таблице уведомлений: письмо по одному событию уходит один раз |
 | `notification-handler` | `delivery.overdue` | R1 | Оповещение администратору «Нет подтверждения доставки за 30 минут» (NFT-2.4) | Уникальный индекс `(event_id, template)` в таблице уведомлений: письмо по одному событию уходит один раз |
 | `notification-handler` | `user.email-changed` | R1 | Письма об изменении e-mail на новый и прежний адрес (FT-11.0) | Уникальный индекс `(event_id, template)` в таблице уведомлений: письмо по одному событию уходит один раз |
+| `notification-handler` | `user.sms-login` | R1 | Письмо владельцу учётной записи о входе по коду из SMS (US-1.7, T-01) | Уникальный индекс `(event_id, template)` в таблице уведомлений: письмо по одному событию уходит один раз |
 | `notification-handler` | `user.deactivated` | R1 | Письмо о деактивации учётной записи (FT-11.0) | Уникальный индекс `(event_id, template)` в таблице уведомлений: письмо по одному событию уходит один раз |
 | `notification-handler` | `seller.blocked` | R2 | Письмо о блокировке продавцу | Уникальный индекс `(event_id, template)` в таблице уведомлений: письмо по одному событию уходит один раз |
 | `notification-handler` | `seller.unblocked` | R2 | Письмо о снятии блокировки продавцу | Уникальный индекс `(event_id, template)` в таблице уведомлений: письмо по одному событию уходит один раз |

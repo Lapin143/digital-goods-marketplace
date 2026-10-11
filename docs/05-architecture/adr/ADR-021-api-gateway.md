@@ -74,7 +74,7 @@ API Gateway единая точка входа в систему из интер
 | Покупатель: заказ, история, обращения | JWT | `orders.read`, `orders.create`, `support.write` | `order-service`, `platform-service` | 120 в минуту на пользователя. `POST /orders` 10 в минуту |
 | Кабинет учётной записи: телефон, смена e-mail, смена номера | JWT | `account.manage` (нет у сессий по SMS) | `platform-service` | 30 в минуту на пользователя |
 | Заявка на статус продавца | JWT | `seller.apply` (нет у сессий по SMS) | `catalog-service` | 30 в минуту на пользователя |
-| Продавец: товары, ключи, остатки | JWT с 2FA | `seller.catalog` | `catalog-service`, `inventory-service` | 60 в минуту на пользователя, загрузка пулов 6 в час |
+| Продавец: товары, ключи, остатки | JWT с 2FA | `seller.catalog` | `catalog-service`, `inventory-service` | 60 в минуту на пользователя (отдельный лимит «загрузка пулов 6 в час» вводится в Ф5) |
 | Кабинеты сотрудников | JWT с 2FA | `staff.moderation`, `staff.support`, `staff.admin`, `staff.audit` | `platform-service`, `catalog-service`, `payment-service` | 120 в минуту на пользователя |
 | Вебхуки шлюза, e-mail- и SMS-провайдера | Подпись проверяет сервис | | `payment-service`, `delivery-service`, `platform-service` | 300 в минуту с IP источника, тело до 64 КБ |
 | Вход и токены Keycloak | Не нужна | | `keycloak` | 30 в минуту с IP, дополнительно защита Keycloak от подбора пароля |

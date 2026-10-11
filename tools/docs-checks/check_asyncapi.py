@@ -51,7 +51,7 @@ CTX_SERVICE = {'4.1': 'platform-service', '4.2': 'catalog-service', '4.3': 'cata
 RU2TECH = {
     'пользователь зарегистрирован': 'user.registered', 'роль назначена': 'user.role-assigned',
     'e-mail изменён': 'user.email-changed', 'телефон подтверждён': 'user.phone-confirmed',
-    'телефон изменён': 'user.phone-changed', 'пользователь деактивирован': 'user.deactivated',
+    'телефон изменён': 'user.phone-changed', 'вход по коду из sms': 'user.sms-login', 'пользователь деактивирован': 'user.deactivated',
     'пользователь анонимизирован': 'user.anonymized',
     'профиль одобрен': 'seller.approved', 'профиль отклонён': 'seller.rejected',
     'профиль возвращён на доработку': 'seller.returned', 'продавец заблокирован': 'seller.blocked',

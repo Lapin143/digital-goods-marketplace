@@ -106,14 +106,14 @@ create table seller_onboarding.seller_document (
     constraint uq_seller_document_object_key unique (object_key),
     constraint ck_seller_document_content_type check (content_type in ('application/pdf', 'image/jpeg', 'image/png')),
     constraint ck_seller_document_file_name_len check (char_length(file_name) between 1 and 255),
-    constraint ck_seller_document_size check (size_bytes > 0 and size_bytes <= 10485760)
+    constraint ck_seller_document_size check (size_bytes > 0 and size_bytes <= 2097152)
 );
 comment on table seller_onboarding.seller_document is 'Ссылка на документ заявки. Сам файл лежит в S3-хранилище в РФ (NFT-5.0), в базе только ключ объекта';
 comment on column seller_onboarding.seller_document.id is 'Идентификатор документа';
 comment on column seller_onboarding.seller_document.seller_id is 'Профиль продавца, которому принадлежит документ';
 comment on column seller_onboarding.seller_document.file_name is 'Имя файла для показа модератору, не путь в хранилище';
 comment on column seller_onboarding.seller_document.content_type is 'Тип содержимого файла, проверяется при загрузке';
-comment on column seller_onboarding.seller_document.size_bytes is 'Размер файла в байтах, лимит проверяется при загрузке';
+comment on column seller_onboarding.seller_document.size_bytes is 'Размер файла в байтах, не больше 2 МБ (2097152, FT-2.0): лимит проверяют шлюз, сервис и это ограничение';
 comment on column seller_onboarding.seller_document.uploaded_at is 'Время загрузки документа';
 comment on column seller_onboarding.seller_document.object_key is 'Ключ объекта в бакете объектного хранилища, ссылка выдаётся подписанной на 5 минут';
 create index ix_seller_document_seller_id on seller_onboarding.seller_document (seller_id, uploaded_at);

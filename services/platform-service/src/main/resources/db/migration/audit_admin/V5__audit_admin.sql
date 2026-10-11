@@ -205,4 +205,9 @@ insert into audit_admin.platform_parameter (key, description, unit, value, defau
     ('seller.reapplication-pause-seconds', 'Пауза после отказа продавцу перед новой заявкой (FT-2.4)', 'seconds', 86400, 86400, 3600, 604800),
     ('otp.requests-per-10-minutes',       'Запросов кода на учётную запись и номер за 10 минут (NFT-3.5)', 'count', 3, 3, 1, 20),
     ('otp.requests-per-day',              'Запросов кода на учётную запись и номер за сутки (NFT-3.5)', 'count', 10, 10, 1, 100),
-    ('sms.daily-cap',                     'Общий потолок SMS в сутки, оповещение при 80% (ADR-010)', 'count', 1000, 1000, 10, 100000);
+    ('sms.daily-cap',                     'Общий потолок SMS в сутки, оповещение при 80% (ADR-010)', 'count', 1000, 1000, 10, 100000),
+    ('otp.requests-per-hour-per-ip',      'Запросов кода с одного IP за час (NFT-3.5, ADR-010)', 'count', 10, 10, 1, 200),
+    ('otp.phone-lock-seconds',            'Срок закрытия номера после трёх погашенных кодов за час (NFT-3.5, ADR-010)', 'seconds', 3600, 3600, 600, 86400),
+    ('moderation.review-deadline-seconds', 'Срок рассмотрения заявки продавца и товара от каждой подачи, просрочка даёт метрику (FT-2.1, FT-3.2)', 'seconds', 259200, 259200, 3600, 1209600),
+    ('seller.document-link-ttl-seconds',  'Срок подписанной ссылки на документ заявки (FT-2.0, ADR-024)', 'seconds', 300, 300, 60, 900),
+    ('catalog.cache-ttl-seconds',         'Срок хранения карточки товара в кэше каталога (NFT-1.0)', 'seconds', 60, 60, 5, 3600);

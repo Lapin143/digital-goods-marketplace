@@ -101,14 +101,14 @@ create table seller_onboarding.seller_document (
     constraint uq_seller_document_object_key unique (object_key),
     constraint ck_seller_document_content_type check (content_type in ('application/pdf', 'image/jpeg', 'image/png')),
     constraint ck_seller_document_file_name_len check (char_length(file_name) between 1 and 255),
-    constraint ck_seller_document_size check (size_bytes > 0 and size_bytes <= 10485760)
+    constraint ck_seller_document_size check (size_bytes > 0 and size_bytes <= 2097152)
 );
 comment on table seller_onboarding.seller_document is 'Ссылка на документ заявки. Сам файл лежит в S3-хранилище в РФ (NFT-5.0), в базе только ключ объекта';
 comment on column seller_onboarding.seller_document.id is 'Идентификатор документа';
 comment on column seller_onboarding.seller_document.seller_id is 'Профиль продавца, которому принадлежит документ';
 comment on column seller_onboarding.seller_document.file_name is 'Имя файла для показа модератору, не путь в хранилище';
 comment on column seller_onboarding.seller_document.content_type is 'Тип содержимого файла, проверяется при загрузке';
-comment on column seller_onboarding.seller_document.size_bytes is 'Размер файла в байтах, лимит проверяется при загрузке';
+comment on column seller_onboarding.seller_document.size_bytes is 'Размер файла в байтах, не больше 2 МБ (2097152, FT-2.0): лимит проверяют шлюз, сервис и это ограничение';
 comment on column seller_onboarding.seller_document.uploaded_at is 'Время загрузки документа';
 comment on column seller_onboarding.seller_document.object_key is 'Ключ объекта в бакете объектного хранилища, ссылка выдаётся подписанной на 5 минут';
 create index ix_seller_document_seller_id on seller_onboarding.seller_document (seller_id, uploaded_at);
@@ -135,6 +135,7 @@ create table catalog.product (
     rejection_reason   text,
     status_before_block text,
     block_reason       text,
+    block_note         text,
     submitted_at       timestamptz,
     review_deadline_at timestamptz,
     overdue_marked_at  timestamptz,
@@ -164,6 +165,8 @@ create table catalog.product (
     ),
     constraint ck_product_status_before_block check (status_before_block in ('published', 'on_moderation')),
     constraint ck_product_block_reason check (block_reason in ('moderator_decision', 'seller_blocked')),
+    -- пояснение модератора к блокировке: только у блокированного товара, 1 – 1000 знаков (решение Р-21 руководства Ф4)
+    constraint ck_product_block_note check (block_note is null or (status = 'blocked' and char_length(block_note) between 1 and 1000)),
     constraint ck_product_moderation_state check (
         status <> 'on_moderation' or (submitted_at is not null and review_deadline_at is not null)
     ),
@@ -187,6 +190,7 @@ comment on column catalog.product.issuance_method is 'key_pool в R1, seller_api
 comment on column catalog.product.rejection_reason is 'Причина отклонения, видна продавцу (FT-11.4)';
 comment on column catalog.product.status_before_block is 'Статус до блокировки: нужен, чтобы вернуть товар после снятия блокировки продавца (SM-04, решение 1)';
 comment on column catalog.product.block_reason is 'moderator_decision или seller_blocked (SM-04, решение 1)';
+comment on column catalog.product.block_note is 'Текст причины блокировки, который ввёл модератор (от 1 до 1000 знаков), виден продавцу; у снятой блокировки пусто';
 comment on column catalog.product.submitted_at is 'Когда товар поставлен в очередь модерации';
 comment on column catalog.product.review_deadline_at is 'Срок рассмотрения: постановка в очередь плюс 3 суток (FT-3.2)';
 comment on column catalog.product.overdue_marked_at is 'Когда задание контроля сроков пометило просрочку, один раз (US-8.8)';

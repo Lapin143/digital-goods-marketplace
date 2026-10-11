@@ -24,6 +24,7 @@ create table catalog.product (
     rejection_reason   text,
     status_before_block text,
     block_reason       text,
+    block_note         text,
     submitted_at       timestamptz,
     review_deadline_at timestamptz,
     overdue_marked_at  timestamptz,
@@ -53,6 +54,8 @@ create table catalog.product (
     ),
     constraint ck_product_status_before_block check (status_before_block in ('published', 'on_moderation')),
     constraint ck_product_block_reason check (block_reason in ('moderator_decision', 'seller_blocked')),
+    -- пояснение модератора к блокировке: только у блокированного товара, 1 – 1000 знаков (решение Р-21 руководства Ф4)
+    constraint ck_product_block_note check (block_note is null or (status = 'blocked' and char_length(block_note) between 1 and 1000)),
     constraint ck_product_moderation_state check (
         status <> 'on_moderation' or (submitted_at is not null and review_deadline_at is not null)
     ),
@@ -76,6 +79,7 @@ comment on column catalog.product.issuance_method is 'key_pool в R1, seller_api
 comment on column catalog.product.rejection_reason is 'Причина отклонения, видна продавцу (FT-11.4)';
 comment on column catalog.product.status_before_block is 'Статус до блокировки: нужен, чтобы вернуть товар после снятия блокировки продавца (SM-04, решение 1)';
 comment on column catalog.product.block_reason is 'moderator_decision или seller_blocked (SM-04, решение 1)';
+comment on column catalog.product.block_note is 'Текст причины блокировки, который ввёл модератор (от 1 до 1000 знаков), виден продавцу; у снятой блокировки пусто';
 comment on column catalog.product.submitted_at is 'Когда товар поставлен в очередь модерации';
 comment on column catalog.product.review_deadline_at is 'Срок рассмотрения: постановка в очередь плюс 3 суток (FT-3.2)';
 comment on column catalog.product.overdue_marked_at is 'Когда задание контроля сроков пометило просрочку, один раз (US-8.8)';

@@ -193,6 +193,8 @@ channels:
         $ref: '#/components/messages/UserEmailChanged'
       userPhoneConfirmed:
         $ref: '#/components/messages/UserPhoneConfirmed'
+      userSmsLogin:
+        $ref: '#/components/messages/UserSmsLogin'
       userDeactivated:
         $ref: '#/components/messages/UserDeactivated'
       userAnonymized:
@@ -1725,6 +1727,45 @@ operations:
       components:
       - user-service
       outbox: true
+  publishUserSmsLogin:
+    action: send
+    channel:
+      $ref: '#/channels/identityEvents'
+    messages:
+    - $ref: '#/channels/identityEvents/messages/userSmsLogin'
+    summary: 'Опубликовать: выполнен вход по коду из SMS'
+    tags:
+    - name: R1
+    x-publisher:
+      service: platform-service
+      components:
+      - user-service
+      outbox: true
+  receiveUserSmsLoginByPlatformServiceNotificationHandler:
+    action: receive
+    channel:
+      $ref: '#/channels/identityEvents'
+    messages:
+    - $ref: '#/channels/identityEvents/messages/userSmsLogin'
+    summary: Письмо владельцу учётной записи о входе по коду из SMS (US-1.7, T-01)
+    tags:
+    - name: R1
+    x-consumer:
+      service: platform-service
+      handler: notification-handler
+      effect: Письмо владельцу учётной записи о входе по коду из SMS (US-1.7, T-01)
+      release: R1
+      idempotency:
+        level2: processed_event
+        key: (consumer = 'notification-handler', event_id)
+        businessGuard: 'Уникальный индекс `(event_id, template)` в таблице уведомлений: письмо по одному событию
+          уходит один раз'
+      errorHandling:
+        retries: блокирующие, паузы 1, 5, 25 секунд
+        deadLetterTopic: identity.events.dlq
+        onPermanentFailure: В DLQ сразу, без повторов
+      consumerGroup: platform-service
+      offsetCommit: после фиксации транзакции базы
   publishUserDeactivated:
     action: send
     channel:
@@ -4668,6 +4709,64 @@ components:
       x-schema-version: 1
       x-contains-pii: false
       x-no-consumer-reason: Факт для аудита. Признак попадает в токен при следующем обновлении
+    UserSmsLogin:
+      name: user.sms-login
+      title: Выполнен вход по коду из SMS
+      summary: Выполнен вход по коду из SMS
+      description: Код из SMS проверен, выдана ограниченная сессия (FT-1.7). По событию владельцу учётной записи уходит письмо о входе (US-1.7, сценарий 5, T-01). Номер телефона и код в событие не попадают.
+      contentType: application/json
+      headers:
+        type: object
+        required:
+        - traceparent
+        - ce_type
+        properties:
+          traceparent:
+            type: string
+            description: Копия атрибута `traceparent` для инструментов трассировки
+          ce_type:
+            type: string
+            const: user.sms-login
+            description: Копия атрибута `type` для отбора без разбора тела
+      payload:
+        $ref: '#/components/schemas/UserSmsLoginEnvelope'
+      bindings:
+        kafka:
+          key:
+            type: string
+            format: uuid
+            description: Идентификатор в поле `userId`
+          bindingVersion: 0.5.0
+      examples:
+      - name: Вход по коду из SMS
+        headers:
+          traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba9021d-01
+          ce_type: user.sms-login
+        payload:
+          specversion: '1.0'
+          id: 0199e01d-0000-7000-8000-000000e0001e
+          source: platform-service
+          type: user.sms-login
+          time: '2026-10-03T12:52:10.400Z'
+          subject: 3f8e1d52-7b6a-4c90-8d21-5a9b0e7c4f13
+          datacontenttype: application/json
+          schemaversion: 1
+          aggregatetype: User
+          traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba9021d-01
+          correlationid: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4c
+          data:
+            userId: 3f8e1d52-7b6a-4c90-8d21-5a9b0e7c4f13
+      tags:
+      - name: R1
+      x-release: R1
+      x-status: stable
+      x-owner-service: platform-service
+      x-aggregate: User
+      x-publisher-components:
+      - user-service
+      x-subject-field: userId
+      x-schema-version: 1
+      x-contains-pii: false
     UserDeactivated:
       name: user.deactivated
       title: Пользователь деактивирован
@@ -7794,6 +7893,31 @@ components:
             const: 1
           data:
             $ref: '#/components/schemas/UserPhoneConfirmedData'
+    UserSmsLoginData:
+      type: object
+      additionalProperties: false
+      required:
+      - userId
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: Идентификатор пользователя, вошедшего по коду из SMS
+    UserSmsLoginEnvelope:
+      allOf:
+      - $ref: '#/components/schemas/EventEnvelope'
+      - type: object
+        properties:
+          type:
+            const: user.sms-login
+          source:
+            const: platform-service
+          aggregatetype:
+            const: User
+          schemaversion:
+            const: 1
+          data:
+            $ref: '#/components/schemas/UserSmsLoginData'
     UserDeactivatedData:
       type: object
       additionalProperties: false

@@ -1528,6 +1528,56 @@ paths:
                   version: 3
                   updatedAt: '2026-10-03T11:00:00.456Z'
                   updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
+                - key: otp.requests-per-hour-per-ip
+                  description: Запросов кода с одного IP за час (NFT-3.5, ADR-010)
+                  unit: count
+                  value: 10
+                  defaultValue: 10
+                  minValue: 1
+                  maxValue: 200
+                  version: 3
+                  updatedAt: '2026-10-03T11:00:00.456Z'
+                  updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
+                - key: otp.phone-lock-seconds
+                  description: Срок закрытия номера после трёх погашенных кодов за час (NFT-3.5, ADR-010)
+                  unit: seconds
+                  value: 3600
+                  defaultValue: 3600
+                  minValue: 600
+                  maxValue: 86400
+                  version: 3
+                  updatedAt: '2026-10-03T11:00:00.456Z'
+                  updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
+                - key: moderation.review-deadline-seconds
+                  description: Срок рассмотрения заявки продавца и товара от каждой подачи, просрочка даёт метрику (FT-2.1, FT-3.2)
+                  unit: seconds
+                  value: 259200
+                  defaultValue: 259200
+                  minValue: 3600
+                  maxValue: 1209600
+                  version: 3
+                  updatedAt: '2026-10-03T11:00:00.456Z'
+                  updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
+                - key: seller.document-link-ttl-seconds
+                  description: Срок подписанной ссылки на документ заявки (FT-2.0, ADR-024)
+                  unit: seconds
+                  value: 300
+                  defaultValue: 300
+                  minValue: 60
+                  maxValue: 900
+                  version: 3
+                  updatedAt: '2026-10-03T11:00:00.456Z'
+                  updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
+                - key: catalog.cache-ttl-seconds
+                  description: Срок хранения карточки товара в кэше каталога (NFT-1.0)
+                  unit: seconds
+                  value: 60
+                  defaultValue: 60
+                  minValue: 5
+                  maxValue: 3600
+                  version: 3
+                  updatedAt: '2026-10-03T11:00:00.456Z'
+                  updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
         '401':
           $ref: components.yaml#/components/responses/E401Unauthenticated
         '403':
