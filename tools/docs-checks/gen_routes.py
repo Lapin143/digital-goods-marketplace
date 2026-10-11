@@ -11,9 +11,12 @@
 Правило операции:
   security bearerJwt          scopes = области из security, roles = x-allowed-roles (токен нужен)
   security mutualTls          callers = x-allowed-callers (вход по клиентскому сертификату сервиса, токена нет)
-  security webhookSignature   ни областей, ни ролей, ни вызывающих: подпись проверяет обработчик вебхука, а не фильтр токена
+  security webhookSignature   ни областей, ни ролей, ни вызывающих; подпись проверяет WebhookSignatureFilter каркаса, имя секрета
+                              берётся из x-webhook-secret (webhookSecret), без него операция не принимается
   security []                 публичный маршрут
   x-sms-session: denied       smsSession = "denied" (сессия по SMS не допускается, FT-1.7)
+  параметр IdempotencyKey     idempotent = true: заголовок обязателен, повтор получает прежний ответ (ADR-006); нужны bearerJwt или mutualTls
+  x-module: <имя>             module = модуль базы сервиса, в транзакции которого работает операция (по умолчанию модуль Outbox)
 Что не описано в OpenAPI, закрыто: фильтр отвечает 404 (deny-by-default).
 
 Шлюз (шаг 13) получает свою таблицу services/api-gateway/src/main/resources/dgm/gateway-routes.json: все внешние маршруты шести
@@ -50,7 +53,15 @@ def out_path(service):
     return os.path.join(REPO, 'services', service, 'src', 'main', 'resources', 'dgm', 'routes.json')
 
 
-def rule(service, path, method, op):
+def has_idempotency_key(parameters):
+    for p in parameters or []:
+        if isinstance(p, dict) and (str(p.get('$ref', '')).endswith('/parameters/IdempotencyKey')
+                                    or (p.get('in') == 'header' and str(p.get('name', '')).lower() == 'idempotency-key')):
+            return True
+    return False
+
+
+def rule(service, path, method, op, item_parameters=None):
     where = '%s %s %s' % (service, method.upper(), path)
     for key in ('operationId',):
         if not op.get(key):
@@ -87,6 +98,21 @@ def rule(service, path, method, op):
     }
     if op.get('x-sms-session') == 'denied':
         item['smsSession'] = 'denied'
+    if has_idempotency_key(op.get('parameters')) or has_idempotency_key(item_parameters):
+        if method == 'get' or not (kinds & {'bearerJwt', 'mutualTls'}):
+            raise SpecError('%s: Idempotency-Key допустим у изменяющих операций с токеном или клиентским сертификатом' % where)
+        item['idempotent'] = True
+    if 'webhookSignature' in kinds:
+        secret = op.get('x-webhook-secret')
+        if not isinstance(secret, str) or not secret:
+            raise SpecError('%s: у вебхука нет x-webhook-secret (имя секрета подписи)' % where)
+        item['webhookSecret'] = secret
+    elif op.get('x-webhook-secret') is not None:
+        raise SpecError('%s: x-webhook-secret допустим только у операций с webhookSignature' % where)
+    if op.get('x-module') is not None:
+        if not isinstance(op['x-module'], str) or not op['x-module']:
+            raise SpecError('%s: x-module должен быть именем модуля' % where)
+        item['module'] = op['x-module']
     return item
 
 
@@ -98,7 +124,7 @@ def build(service):
         for method in METHODS:
             op = spec['paths'][path].get(method)
             if op is not None:
-                routes.append(rule(service, path, method, op))
+                routes.append(rule(service, path, method, op, spec['paths'][path].get('parameters')))
     ids = [r['operationId'] for r in routes]
     if len(ids) != len(set(ids)):
         raise SpecError('%s: operationId повторяются' % service)
@@ -140,7 +166,7 @@ def build_gateway():
                 op = spec['paths'][path].get(method)
                 if op is None:
                     continue
-                item = rule(service, path, method, op)
+                item = rule(service, path, method, op, spec['paths'][path].get('parameters'))
                 if item['callers']:
                     continue          # внутренний вызов по mTLS: через шлюз не ходит
                 kinds = {scheme for alternative in op['security'] for scheme in alternative}

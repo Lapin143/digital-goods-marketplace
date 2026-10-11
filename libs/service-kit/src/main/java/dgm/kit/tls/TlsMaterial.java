@@ -90,7 +90,8 @@ public final class TlsMaterial {
         return "jdbc:postgresql://" + host + ":" + port + "/" + database + "?sslmode=verify-full&sslrootcert=" + caFile.toAbsolutePath();
     }
 
-    private SSLContext context(boolean withClientCertificate) {
+    /** Доверенные сертификаты: центр сертификации проекта. Для клиентов, которые принимают фабрику, а не готовый контекст (Lettuce). */
+    public TrustManagerFactory trustManagers() {
         try {
             KeyStore trust = KeyStore.getInstance("PKCS12");
             trust.load(null, null);
@@ -100,22 +101,37 @@ public final class TlsMaterial {
             }
             TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
             tmf.init(trust);
+            return tmf;
+        } catch (GeneralSecurityException | IOException e) {
+            throw new IllegalStateException("Доверенные сертификаты не собраны из файла " + caFile.getFileName(), e);
+        }
+    }
 
-            KeyManagerFactory kmf = null;
-            if (withClientCertificate) {
-                List<X509Certificate> chain = Pem.certificates(read(certFile));
-                PrivateKey key = Pem.privateKey(read(keyFile));
-                KeyStore own = KeyStore.getInstance("PKCS12");
-                own.load(null, null);
-                char[] none = new char[0];
-                own.setKeyEntry("service", key, none, chain.toArray(new X509Certificate[0]));
-                kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-                kmf.init(own, none);
-            }
+    /** Ключ и цепочка сертификатов сервиса для предъявления собеседнику. */
+    public KeyManagerFactory keyManagers() {
+        try {
+            List<X509Certificate> chain = Pem.certificates(read(certFile));
+            PrivateKey key = Pem.privateKey(read(keyFile));
+            KeyStore own = KeyStore.getInstance("PKCS12");
+            own.load(null, null);
+            char[] none = new char[0];
+            own.setKeyEntry("service", key, none, chain.toArray(new X509Certificate[0]));
+            KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+            kmf.init(own, none);
+            return kmf;
+        } catch (GeneralSecurityException | IOException e) {
+            throw new IllegalStateException("Сертификат сервиса не собран из файлов " + certFile.getFileName() + ", " + keyFile.getFileName(), e);
+        }
+    }
+
+    private SSLContext context(boolean withClientCertificate) {
+        try {
+            TrustManagerFactory tmf = trustManagers();
+            KeyManagerFactory kmf = withClientCertificate ? keyManagers() : null;
             SSLContext context = SSLContext.getInstance("TLS");
             context.init(kmf == null ? null : kmf.getKeyManagers(), tmf.getTrustManagers(), null);
             return context;
-        } catch (GeneralSecurityException | IOException e) {
+        } catch (GeneralSecurityException e) {
             throw new IllegalStateException("Контекст TLS не собран из файлов " + caFile.getFileName() + ", " + certFile.getFileName(), e);
         }
     }

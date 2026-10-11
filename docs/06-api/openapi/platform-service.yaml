@@ -1934,6 +1934,7 @@ paths:
       x-allowed-roles:
       - system
       x-conditions: []
+      x-webhook-secret: platform_webhook_secret
       security:
       - webhookSignature: []
       parameters:
@@ -1989,6 +1990,7 @@ paths:
       x-allowed-roles:
       - system
       x-conditions: []
+      x-webhook-secret: platform_webhook_secret
       security:
       - webhookSignature: []
       parameters:

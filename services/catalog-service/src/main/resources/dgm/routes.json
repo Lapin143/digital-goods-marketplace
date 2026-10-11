@@ -29,7 +29,8 @@
         "buyer"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "GET",
@@ -68,7 +69,8 @@
         "buyer"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "DELETE",
@@ -107,7 +109,8 @@
         "buyer"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "GET",
@@ -133,7 +136,8 @@
         "seller"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "GET",
@@ -172,7 +176,8 @@
         "seller"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "POST",
@@ -185,7 +190,8 @@
         "seller"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "POST",
@@ -198,7 +204,8 @@
         "seller"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "GET",
@@ -237,7 +244,8 @@
         "moderator"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "POST",
@@ -250,7 +258,8 @@
         "moderator"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "POST",
@@ -263,7 +272,8 @@
         "moderator"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "GET",
@@ -302,7 +312,8 @@
         "moderator"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "POST",
@@ -315,7 +326,8 @@
         "moderator"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "POST",
@@ -328,7 +340,8 @@
         "moderator"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "GET",

@@ -9,6 +9,8 @@ dependencies {
     api(project(":libs:service-kit"))
     api("org.springframework.boot:spring-boot-starter-webmvc")
     api("org.springframework.boot:spring-boot-starter-actuator")
+    // Клиент Redis подключается к сервису, только если сервис сам добавил Lettuce (KitRedisAutoConfiguration проверяет наличие класса)
+    compileOnly("io.lettuce:lettuce-core")
     implementation("com.zaxxer:HikariCP")
     implementation("org.flywaydb:flyway-core")
     runtimeOnly("org.flywaydb:flyway-database-postgresql")

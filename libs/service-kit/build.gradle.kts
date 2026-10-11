@@ -5,11 +5,13 @@ plugins {
 
 val catalog = extensions.getByType<VersionCatalogsExtension>().named("libs")
 
-// Эти библиотеки есть в каждом сервисе (spring-boot-starter-web): в jar каркаса они не попадают
+// Эти библиотеки есть в каждом сервисе (spring-boot-starter-web): в jar каркаса они не попадают.
+// Lettuce нужен только сервисам с Redis (каталог, остатки, платформа): они подключают его сами, остальные его не получают
 val provided = listOf(
     "jakarta.servlet:jakarta.servlet-api",
     "org.springframework:spring-web",
     "org.springframework:spring-context",
+    "io.lettuce:lettuce-core",
 )
 
 dependencies {

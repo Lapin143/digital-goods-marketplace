@@ -8,7 +8,8 @@
       "operationId": "receiveKeyEmailStatus",
       "scopes": [],
       "roles": [],
-      "callers": []
+      "callers": [],
+      "webhookSecret": "delivery_webhook_secret"
     }
   ]
 }

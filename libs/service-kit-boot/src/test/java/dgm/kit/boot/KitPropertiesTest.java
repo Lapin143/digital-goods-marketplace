@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -34,6 +35,44 @@ class KitPropertiesTest {
         assertTrue(p.consumer().enabled());
         assertTrue(p.probe().enabled());
         assertEquals(8081, p.probe().port());
+    }
+
+    @Test
+    void bodyLimitIdempotencyRedisAndKeycloakDefaults() {
+        KitProperties p = bind(Map.of("dgm.service", "x"));
+        assertEquals(2L * 1024 * 1024, p.web().maxBody().toBytes());
+        assertEquals(64L * 1024, p.web().webhookMaxBody().toBytes());
+        assertEquals(Duration.ofSeconds(2), p.idempotency().waitForOther());
+        assertEquals(Duration.ofSeconds(60), p.idempotency().abandonedAfter());
+        assertNull(p.idempotency().module());
+        assertNull(p.redis().host());
+        assertEquals(6379, p.redis().port());
+        assertEquals(Duration.ofMillis(500), p.redis().commandTimeout());
+        assertEquals(Duration.ofSeconds(2), p.redis().connectTimeout());
+        assertNull(p.keycloak().baseUrl());
+        assertEquals("dgm", p.keycloak().realm());
+        assertEquals("platform-service", p.keycloak().clientId());
+        assertEquals("keycloak_client_platform", p.keycloak().clientSecret());
+    }
+
+    @Test
+    void idempotencyRedisAndKeycloakAreConfigurable() {
+        KitProperties p = bind(Map.of(
+                "dgm.service", "platform-service",
+                "dgm.web.max-body", "1MB",
+                "dgm.web.webhook-max-body", "16KB",
+                "dgm.idempotency.module", "support",
+                "dgm.idempotency.wait-for-other", "500ms",
+                "dgm.redis.host", "redis",
+                "dgm.redis.user", "platform",
+                "dgm.keycloak.base-url", "https://keycloak:8443/auth"));
+        assertEquals(1024L * 1024, p.web().maxBody().toBytes());
+        assertEquals(16L * 1024, p.web().webhookMaxBody().toBytes());
+        assertEquals("support", p.idempotency().module());
+        assertEquals(Duration.ofMillis(500), p.idempotency().waitForOther());
+        assertEquals("redis", p.redis().host());
+        assertEquals("platform", p.redis().user());
+        assertEquals("https://keycloak:8443/auth", p.keycloak().baseUrl());
     }
 
     @Test

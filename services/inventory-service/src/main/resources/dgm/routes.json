@@ -13,7 +13,8 @@
         "seller"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "POST",
@@ -26,7 +27,8 @@
         "seller"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "GET",
@@ -59,7 +61,8 @@
       "roles": [],
       "callers": [
         "order-service"
-      ]
+      ],
+      "idempotent": true
     },
     {
       "method": "POST",
@@ -69,7 +72,8 @@
       "roles": [],
       "callers": [
         "order-service"
-      ]
+      ],
+      "idempotent": true
     }
   ]
 }

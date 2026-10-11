@@ -13,7 +13,8 @@
         "buyer"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "POST",
@@ -26,7 +27,8 @@
         "buyer"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "GET",
@@ -117,7 +119,8 @@
         "support-operator"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "POST",
@@ -130,7 +133,8 @@
         "support-operator"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "POST",
@@ -143,7 +147,8 @@
         "support-operator"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "POST",
@@ -156,7 +161,8 @@
         "support-operator"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "GET",
@@ -182,7 +188,8 @@
         "admin"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "POST",
@@ -195,7 +202,8 @@
         "admin"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "POST",
@@ -208,7 +216,8 @@
         "admin"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "GET",
@@ -234,7 +243,8 @@
         "buyer",
         "system"
       ],
-      "callers": []
+      "callers": [],
+      "idempotent": true
     },
     {
       "method": "GET",
@@ -259,7 +269,8 @@
       "roles": [
         "buyer"
       ],
-      "callers": []
+      "callers": [],
+      "idempotent": true
     },
     {
       "method": "POST",
@@ -271,7 +282,8 @@
       "roles": [
         "buyer"
       ],
-      "callers": []
+      "callers": [],
+      "idempotent": true
     },
     {
       "method": "POST",
@@ -279,7 +291,8 @@
       "operationId": "receiveMailStatus",
       "scopes": [],
       "roles": [],
-      "callers": []
+      "callers": [],
+      "webhookSecret": "platform_webhook_secret"
     },
     {
       "method": "POST",
@@ -287,7 +300,8 @@
       "operationId": "receiveSmsStatus",
       "scopes": [],
       "roles": [],
-      "callers": []
+      "callers": [],
+      "webhookSecret": "platform_webhook_secret"
     },
     {
       "method": "POST",
@@ -297,7 +311,8 @@
       "roles": [],
       "callers": [
         "keycloak"
-      ]
+      ],
+      "idempotent": true
     },
     {
       "method": "POST",
@@ -307,7 +322,8 @@
       "roles": [],
       "callers": [
         "keycloak"
-      ]
+      ],
+      "idempotent": true
     }
   ]
 }

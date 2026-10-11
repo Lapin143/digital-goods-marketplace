@@ -33,6 +33,7 @@ paths:
       x-allowed-roles:
       - system
       x-conditions: []
+      x-webhook-secret: delivery_webhook_secret
       security:
       - webhookSignature: []
       parameters:

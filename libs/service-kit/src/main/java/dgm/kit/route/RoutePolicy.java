@@ -17,7 +17,8 @@ import java.util.regex.Pattern;
  * Правила маршрутов сервиса. Файл создаёт tools/docs-checks/gen_routes.py из OpenAPI, поэтому областей, ролей и списков вызывающих
  * в коде сервиса нет: контракт и защита не расходятся (roles-permissions.md, раздел 10).
  *
- * <p>Формат JSON: {@code {"service": "...", "routes": [{"method", "path", "operationId", "scopes", "roles", "smsSession", "callers"}]}}.
+ * <p>Формат JSON: {@code {"service": "...", "routes": [{"method", "path", "operationId", "scopes", "roles", "smsSession", "callers",
+ * "idempotent", "module", "webhookSecret"}]}}; три последних поля необязательны.
  */
 public final class RoutePolicy {
 
@@ -50,7 +51,10 @@ public final class RoutePolicy {
                     strings(raw, "scopes"),
                     strings(raw, "roles"),
                     "denied".equals(raw.get("smsSession")),
-                    strings(raw, "callers"));
+                    strings(raw, "callers"),
+                    Boolean.TRUE.equals(raw.get("idempotent")),
+                    optionalText(raw, "module"),
+                    optionalText(raw, "webhookSecret"));
             compiled.add(new Compiled(rule, rule.pattern()));
         }
         // Точные шаблоны раньше общих: /orders/current раньше /orders/{id}
@@ -93,6 +97,17 @@ public final class RoutePolicy {
         Object v = raw.get(key);
         if (!(v instanceof String s) || s.isBlank()) {
             throw new IllegalArgumentException("У маршрута нет поля " + key);
+        }
+        return s;
+    }
+
+    private static String optionalText(Map<?, ?> raw, String key) {
+        Object v = raw.get(key);
+        if (v == null) {
+            return null;
+        }
+        if (!(v instanceof String s) || s.isBlank()) {
+            throw new IllegalArgumentException("Поле " + key + " должно быть непустой строкой");
         }
         return s;
     }

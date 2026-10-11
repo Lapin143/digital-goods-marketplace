@@ -14,14 +14,28 @@ import java.util.regex.Pattern;
  * @param roles       роли Keycloak, которым маршрут доступен ({@code x-allowed-roles}); пусто, если токен не нужен
  * @param smsSessionDenied маршрут закрыт для сессии по SMS ({@code x-sms-session: denied})
  * @param callers     сервисы, которым разрешён внутренний вызов ({@code x-allowed-callers}); не пусто у внутренних маршрутов
+ * @param idempotent  операция принимает {@code Idempotency-Key}: заголовок обязателен, повтор получает прежний ответ (ADR-006)
+ * @param module      модуль базы сервиса, в котором работает операция ({@code x-module}); {@code null}: модуль по умолчанию
+ * @param webhookSecret имя секрета подписи вебхука ({@code x-webhook-secret}); {@code null}: маршрут не вебхук
  */
 public record RouteRule(String method, String path, String operationId, List<String> scopes, List<String> roles,
-                        boolean smsSessionDenied, List<String> callers) {
+                        boolean smsSessionDenied, List<String> callers, boolean idempotent, String module, String webhookSecret) {
 
     public RouteRule {
         scopes = List.copyOf(scopes);
         roles = List.copyOf(roles);
         callers = List.copyOf(callers);
+    }
+
+    /** Маршрут без ключа идемпотентности и не вебхук: так выглядит большинство правил. */
+    public RouteRule(String method, String path, String operationId, List<String> scopes, List<String> roles, boolean smsSessionDenied,
+                     List<String> callers) {
+        this(method, path, operationId, scopes, roles, smsSessionDenied, callers, false, null, null);
+    }
+
+    /** Маршрут вебхука: тело читает и подпись проверяет {@code WebhookSignatureFilter}, предел тела меньше обычного. */
+    public boolean webhook() {
+        return webhookSecret != null;
     }
 
     /** Маршрут требует токен пользователя. */

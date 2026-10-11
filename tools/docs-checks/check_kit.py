@@ -4,10 +4,13 @@
 
 Проверяется (шаг 11 Ф3):
   1. Реестр типов проблем в коде (enum ProblemType) совпадает с таблицей 9.1 conventions.md: коды, статусы HTTP, названия.
-  2. Таблицы outbox и processed_event в миграциях сервисов совпадают с DDL в docs/07-data/ddl (одинаковые во всех шести базах).
-  3. Столбцы в SQL каркаса (запись и чтение Outbox, таблица обработанных событий) есть в DDL: переименование столбца в
-     документе без правки кода, и наоборот, ловится здесь, а не на стенде. Запись в Outbox задаёт все обязательные столбцы.
+  2. Таблицы outbox, processed_event и idempotency_key в миграциях сервисов совпадают с DDL в docs/07-data/ddl (одинаковые во всех
+     шести базах).
+  3. Столбцы в SQL каркаса (запись и чтение Outbox, таблица обработанных событий, ключи идемпотентности) есть в DDL: переименование
+     столбца в документе без правки кода, и наоборот, ловится здесь, а не на стенде. Вставка задаёт все обязательные столбцы.
   4. Метрики Outbox, названные в ADR-005, есть в коде публикатора.
+  5. Идемпотентность (шаг 3 Ф4): типы проблем из ADR-006 есть в реестре, заголовки ключа и подписи вебхука в коде совпадают с
+     описанием в components.yaml, срок хранения ключей в коде равен сроку в ADR-006.
 Запуск: python3 tools/docs-checks/check_kit.py
 """
 import glob
@@ -21,13 +24,15 @@ import docslib as L
 KIT = os.path.join(L.REPO, 'libs', 'service-kit', 'src', 'main', 'java', 'dgm', 'kit')
 CONVENTIONS = os.path.join(L.ARCH, 'conventions.md')
 ADR_005 = os.path.join(L.ARCH, 'adr', 'ADR-005-transactional-outbox.md')
+ADR_006 = os.path.join(L.ARCH, 'adr', 'ADR-006-idempotency.md')
+COMPONENTS = os.path.join(L.DOCS, '06-api', 'openapi', 'components.yaml')
 DDL_DIR = os.path.join(L.DOCS, '07-data', 'ddl')
 
 # слова SQL и функции, которые не являются столбцами
 SQL_WORDS = set('''select insert into values update set delete from where and or not is null order by limit in now make_interval secs
 interval cast as jsonb uuid text on conflict do nothing returning count min max coalesce desc asc
 pg_try_advisory_lock pg_advisory_unlock'''.split())
-TABLES = {'outbox', 'processed_event'}
+TABLES = {'outbox', 'processed_event', 'idempotency_key'}
 
 ENUM_RX = re.compile(r'^\s+([A-Z][A-Z0-9_]*)\("([a-z0-9-]+)",\s*(\d{3}),\s*"((?:[^"\\]|\\.)*)"\)\s*[,;]', re.M)
 STMT_RX = re.compile(r'((?:"(?:[^"\\]|\\.)*"\s*\+?\s*)+)')
@@ -68,9 +73,16 @@ def table_columns(sql, table):
     if not m:
         return None
     cols = {}
+    depth = 0           # скобки незавершённого ограничения: его строки не столбцы
     for line in m.group(1).split('\n'):
         line = line.strip()
-        if not line or line.startswith('constraint') or line.startswith('--'):
+        if depth > 0:
+            depth += line.count('(') - line.count(')')
+            continue
+        if not line or line.startswith('--'):
+            continue
+        if line.startswith('constraint'):
+            depth = max(0, line.count('(') - line.count(')'))
             continue
         parts = line.rstrip(',').split()
         low = line.lower()
@@ -79,7 +91,7 @@ def table_columns(sql, table):
 
 
 def ddl_tables(rep):
-    where = 'DDL outbox и processed_event'
+    where = 'DDL outbox, processed_event и idempotency_key'
     result = {}
     for table in sorted(TABLES):
         seen = {}
@@ -111,14 +123,16 @@ def sql_statements(path):
 
 def sql_columns(rep, cols):
     where = 'SQL каркаса и DDL'
-    files = java_files('outbox') + java_files('events')
+    files = java_files('outbox') + java_files('events') + java_files('idempotency')
     total = 0
     for f in files:
         for s in sql_statements(f):
             total += 1
-            table = 'outbox' if re.search(r'\boutbox\b', s) else 'processed_event'
+            table = next(t for t in sorted(TABLES) if re.search(r'\b%s\b' % t, s))
             known = set(cols.get(table, {}))
-            tokens = {w for w in re.findall(r'[a-z_][a-z_0-9]*', re.sub(r'::\w+', '', s.lower()))}
+            # без приведений типов (::jsonb) и без строковых литералов ('in_progress')
+            bare = re.sub(r"'[^']*'", '', re.sub(r'::\w+', '', s.lower()))
+            tokens = {w for w in re.findall(r'[a-z_][a-z_0-9]*', bare)}
             unknown = sorted(tokens - SQL_WORDS - TABLES - known)
             if unknown:
                 rep.err(where, '%s: в SQL «%s…» нет в DDL %s: %s' % (os.path.basename(f), s[:48], table, ', '.join(unknown)))
@@ -129,7 +143,7 @@ def sql_columns(rep, cols):
                 for c in sorted(required - given):
                     rep.err(where, '%s: запись в %s не задаёт обязательный столбец %s' % (os.path.basename(f), table, c))
     if total == 0:
-        rep.err(where, 'в каркасе не найдено ни одного запроса к outbox и processed_event: разбор устарел')
+        rep.err(where, 'в каркасе не найдено ни одного запроса к служебным таблицам: разбор устарел')
     rep.fact('запросов к служебным таблицам проверено: %d' % total)
 
 
@@ -146,6 +160,46 @@ def metrics(rep):
     rep.fact('метрик Outbox в ADR-005: %d' % len(names))
 
 
+def const(text, name):
+    m = re.search(r'\b%s\s*=\s*"([^"]*)"' % re.escape(name), text)
+    return m.group(1) if m else None
+
+
+def idempotency(rep):
+    where = 'ADR-006, components.yaml и код идемпотентности'
+    adr = L.read(ADR_006)
+    # 1. типы проблем из ADR-006 есть в реестре кода
+    registry = set(re.findall(r'^\s+[A-Z][A-Z0-9_]*\("([a-z0-9-]+)"', L.read(os.path.join(KIT, 'problem', 'ProblemType.java')), re.M))
+    named = sorted(set(re.findall(r'`((?:idempotency-key|request)-[a-z-]+)`', adr)))
+    if len(named) < 3:
+        rep.err(where, 'в ADR-006 не найдены три типа проблем идемпотентности (найдено %d)' % len(named))
+    for n in named:
+        if n not in registry:
+            rep.err(where, 'тип проблемы %s назван в ADR-006, а в реестре кода его нет' % n)
+    # 2. заголовки
+    components = L.read(COMPONENTS)
+    filt = L.read(os.path.join(KIT, 'idempotency', 'IdempotencyFilter.java'))
+    key_header = const(filt, 'KEY_HEADER')
+    if not key_header or not re.search(r'^\s+IdempotencyKey:\s*\n\s+name:\s*%s\s*$' % re.escape(key_header), components, re.M):
+        rep.err(where, 'заголовок ключа в коде (%s) не совпадает с параметром IdempotencyKey в components.yaml' % key_header)
+    signature = L.read(os.path.join(KIT, 'crypto', 'WebhookSignature.java'))
+    for const_name, scheme_rx in (('SIGNATURE_HEADER', r'^\s+webhookSignature:.*?name:\s*%s\b'), ('TIMESTAMP_HEADER', None)):
+        value = const(signature, const_name)
+        if not value:
+            rep.err(where, 'в WebhookSignature.java не найдена константа %s' % const_name)
+        elif scheme_rx and not re.search(scheme_rx % re.escape(value), components, re.M | re.S):
+            rep.err(where, 'заголовок подписи в коде (%s) не совпадает со схемой webhookSignature в components.yaml' % value)
+        elif const_name == 'TIMESTAMP_HEADER' and value not in components:
+            rep.err(where, 'заголовок метки времени %s не описан в components.yaml' % value)
+    # 3. срок хранения 24 часа: в ADR и в коде
+    guard = L.read(os.path.join(KIT, 'idempotency', 'IdempotencyGuard.java'))
+    if not re.search(r'RETENTION\s*=\s*Duration\.ofHours\(24\)', guard):
+        rep.err(where, 'срок хранения ключей в IdempotencyGuard.RETENTION не равен 24 часам, как в ADR-006')
+    if 'Срок хранения 24 часа' not in adr:
+        rep.err(where, 'в ADR-006 не найдена фраза про срок хранения 24 часа: сверка устарела')
+    rep.fact('идемпотентность: типов проблем в ADR-006 %d, заголовки и срок хранения сверены' % len(named))
+
+
 def main():
     rep = L.Report('Каркас сервисов против документов')
     problem_types(rep)
@@ -153,6 +207,7 @@ def main():
     if cols:
         sql_columns(rep, cols)
     metrics(rep)
+    idempotency(rep)
     return rep.finish()
 
 

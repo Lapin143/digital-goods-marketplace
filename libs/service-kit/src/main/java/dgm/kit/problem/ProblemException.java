@@ -23,6 +23,14 @@ public final class ProblemException extends RuntimeException {
         this.headers = new LinkedHashMap<>(headers);
     }
 
+    /**
+     * Зависимость не ответила вовремя или недоступна: 503 {@code dependency-unavailable} с обязательным {@code Retry-After}
+     * (conventions.md, 9.1). Так же отвечают при недоступном Redis там, где без него действие небезопасно, например при отправке SMS.
+     */
+    public static ProblemException dependencyUnavailable(String detail, int retryAfterSeconds) {
+        return new ProblemException(ProblemType.DEPENDENCY_UNAVAILABLE, detail, Map.of(), Map.of("Retry-After", Integer.toString(retryAfterSeconds)));
+    }
+
     public ProblemType type() {
         return type;
     }

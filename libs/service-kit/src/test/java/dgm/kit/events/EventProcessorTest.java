@@ -83,6 +83,7 @@ class EventProcessorTest {
         final Set<String> types;
         final int maxVersion;
         final List<EventEnvelope> seen = new ArrayList<>();
+        String module;
         Function<EventEnvelope, HandleResult> action = e -> HandleResult.done();
 
         TestHandler(String name, String topic, Set<String> types, int maxVersion) {
@@ -110,6 +111,11 @@ class EventProcessorTest {
         @Override
         public int maxSchemaVersion() {
             return maxVersion;
+        }
+
+        @Override
+        public String module() {
+            return module;
         }
 
         @Override
@@ -395,6 +401,64 @@ class EventProcessorTest {
         TestHandler b = new TestHandler("b", "order.events", Set.of("o"), 1);
         TestHandler c = new TestHandler("c", "order.events", Set.of("o2"), 1);
         assertEquals(List.of("order.events", "payment.events"), processor(a, b, c).topics());
+    }
+
+    /** Транзакция модуля: считает, сколько раз её использовали, и откатывает таблицу обработанных своего модуля. */
+    private static final class CountingTransactions implements TransactionOperations {
+        private final RollingBack inner;
+        int calls;
+
+        CountingTransactions(FakeProcessed processed) {
+            this.inner = new RollingBack(processed);
+        }
+
+        @Override
+        public <T> T execute(TransactionCallback<T> action) throws TransactionException {
+            calls++;
+            return inner.execute(action);
+        }
+    }
+
+    @Test
+    void handlersOfDifferentModulesUseTheirOwnTransactionAndProcessedRows() throws Exception {
+        FakeProcessed identityProcessed = new FakeProcessed();
+        FakeProcessed supportProcessed = new FakeProcessed();
+        CountingTransactions identityTx = new CountingTransactions(identityProcessed);
+        CountingTransactions supportTx = new CountingTransactions(supportProcessed);
+        TestHandler inIdentity = new TestHandler("account-handler", "order.events", Set.of("order.paid"), 1);
+        TestHandler inSupport = new TestHandler("ticket-handler", "order.events", Set.of("order.paid"), 1);
+        inSupport.module = "support";
+        EventProcessor p = new EventProcessor(SERVICE, List.of(inIdentity, inSupport),
+                module -> "support".equals(module) ? supportProcessed : identityProcessed,
+                module -> "support".equals(module) ? supportTx : identityTx, "identity", dlq, EventProcessor.DEFAULT_RETRY_DELAYS, clock,
+                sleeps::add, metrics);
+
+        p.process(record(EventEnvelopeTest.valid(), "order.paid"));
+
+        assertEquals(Set.of("account-handler/" + EventEnvelopeTest.ID), identityProcessed.keys);
+        assertEquals(Set.of("ticket-handler/" + EventEnvelopeTest.ID), supportProcessed.keys);
+        assertEquals(1, identityTx.calls);
+        assertEquals(1, supportTx.calls);
+        assertTrue(dlq.sent.isEmpty());
+    }
+
+    @Test
+    void duplicateIsDetectedPerModule() throws Exception {
+        FakeProcessed identityProcessed = new FakeProcessed();
+        FakeProcessed supportProcessed = new FakeProcessed();
+        TestHandler inSupport = new TestHandler("ticket-handler", "order.events", Set.of("order.paid"), 1);
+        inSupport.module = "support";
+        EventProcessor p = new EventProcessor(SERVICE, List.of(inSupport),
+                module -> "support".equals(module) ? supportProcessed : identityProcessed,
+                module -> "support".equals(module) ? new RollingBack(supportProcessed) : new RollingBack(identityProcessed), "identity", dlq,
+                EventProcessor.DEFAULT_RETRY_DELAYS, clock, sleeps::add, metrics);
+
+        p.process(record(EventEnvelopeTest.valid()));
+        p.process(record(EventEnvelopeTest.valid()));
+
+        assertEquals(1, inSupport.seen.size());
+        assertEquals(1, supportProcessed.keys.size());
+        assertTrue(identityProcessed.keys.isEmpty());
     }
 
     @Test

@@ -66,24 +66,27 @@ create table public.idempotency_key (
     state         text        not null,
     response_code integer,
     response_body jsonb,
+    response_headers jsonb,
     created_at    timestamptz not null default now(),
     constraint pk_idempotency_key primary key (scope, key),
     constraint ck_idempotency_key_state check (state in ('in_progress', 'completed')),
     constraint ck_idempotency_key_request_hash check (octet_length(request_hash) = 32),
     constraint ck_idempotency_key_response check (
-        (state = 'in_progress' and response_code is null and response_body is null)
+        (state = 'in_progress' and response_code is null and response_body is null and response_headers is null)
         or (state = 'completed' and response_code between 100 and 599)
-    )
+    ),
+    constraint ck_idempotency_key_response_headers check (response_headers is null or jsonb_typeof(response_headers) = 'object')
 );
 comment on table public.idempotency_key is 'Ключи идемпотентности запросов, хранение 24 часа (ADR-006, уровень 1)';
-comment on column public.idempotency_key.scope is 'Область ключа: пользователь и метод, у разных пользователей одинаковые ключи не пересекаются';
+comment on column public.idempotency_key.scope is 'Область ключа: пользователь (у внутренних вызовов CN сертификата сервиса), у разных областей одинаковые ключи не пересекаются';
 comment on column public.idempotency_key.key is 'Ключ из заголовка Idempotency-Key (UUID)';
 comment on column public.idempotency_key.endpoint is 'Метод и путь первого запроса, повтор с другим адресом отклоняется';
 comment on column public.idempotency_key.request_hash is 'SHA-256 тела первого запроса: повтор с другим телом даёт 422 вместо ответа из кэша';
 comment on column public.idempotency_key.state is 'in_progress: запрос выполняется, completed: ответ сохранён';
 comment on column public.idempotency_key.response_code is 'Код ответа первого запроса, пусто пока in_progress';
 comment on column public.idempotency_key.response_body is 'Тело ответа первого запроса, повтор возвращает его без выполнения';
-comment on column public.idempotency_key.created_at is 'Время первого запроса, очистка через 24 часа';
+comment on column public.idempotency_key.response_headers is 'Заголовки ответа первого запроса, которые повтор воспроизводит: Location и ETag';
+comment on column public.idempotency_key.created_at is 'Время первого запроса, очистка через 24 часа; у запроса in_progress обновляется, когда его подхватывает повтор после сбоя';
 create index ix_idempotency_key_created_at on public.idempotency_key (created_at);
 
 -- Контроль допустимых переходов статуса (диаграммы SM). Аргументы триггера: 'initial:<статус>' и '<из>><в>'.

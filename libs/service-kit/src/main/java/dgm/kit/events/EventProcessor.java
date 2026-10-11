@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Function;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.Header;
@@ -42,8 +43,9 @@ public final class EventProcessor {
 
     private final String serviceName;
     private final List<EventHandler> handlers;
-    private final ProcessedEvents processed;
-    private final TransactionOperations transactions;
+    private final Function<String, ProcessedEvents> processedByModule;
+    private final Function<String, TransactionOperations> transactionsByModule;
+    private final String defaultModule;
     private final DlqSink dlq;
     private final List<Duration> retryDelays;
     private final Clock clock;
@@ -51,14 +53,30 @@ public final class EventProcessor {
     private final MeterRegistry metrics;
 
     /**
+     * Сервис с одним модулем базы: все обработчики работают в одной транзакции и пишут {@code processed_event} через одно подключение.
+     *
      * @param serviceName имя сервиса: значение {@code dlq-consumer} для записей, отклонённых до выбора обработчика
      */
     public EventProcessor(String serviceName, List<EventHandler> handlers, ProcessedEvents processed, TransactionOperations transactions,
                           DlqSink dlq, List<Duration> retryDelays, Clock clock, Sleeper sleeper, MeterRegistry metrics) {
+        this(serviceName, handlers, module -> processed, module -> transactions, "", dlq, retryDelays, clock, sleeper, metrics);
+    }
+
+    /**
+     * Сервис с несколькими модулями базы: обработчик объявляет свой модуль ({@link EventHandler#module()}), и его транзакция и отметка
+     * обработанного идут через подключение этого модуля. Обработчик без объявленного модуля работает в {@code defaultModule}.
+     *
+     * @param processedByModule    хранилище обработанных событий модуля
+     * @param transactionsByModule транзакции модуля
+     */
+    public EventProcessor(String serviceName, List<EventHandler> handlers, Function<String, ProcessedEvents> processedByModule,
+                          Function<String, TransactionOperations> transactionsByModule, String defaultModule, DlqSink dlq,
+                          List<Duration> retryDelays, Clock clock, Sleeper sleeper, MeterRegistry metrics) {
         this.serviceName = serviceName;
         this.handlers = List.copyOf(handlers);
-        this.processed = processed;
-        this.transactions = transactions;
+        this.processedByModule = processedByModule;
+        this.transactionsByModule = transactionsByModule;
+        this.defaultModule = defaultModule;
         this.dlq = dlq;
         this.retryDelays = List.copyOf(retryDelays);
         this.clock = clock;
@@ -114,11 +132,14 @@ public final class EventProcessor {
     }
 
     private void run(EventHandler handler, ConsumerRecord<String, String> record, EventEnvelope envelope) throws EventProcessingException {
+        String module = handler.module() == null ? defaultModule : handler.module();
+        TransactionOperations transactions = transactionsByModule.apply(module);
+        ProcessedEvents processed = processedByModule.apply(module);
         int attempt = 0;
         while (true) {
             attempt++;
             try {
-                HandleResult result = transactions.execute(status -> apply(handler, envelope));
+                HandleResult result = transactions.execute(status -> apply(handler, envelope, processed));
                 recordResult(handler, envelope, result);
                 return;
             } catch (FatalEventException e) {
@@ -144,7 +165,7 @@ public final class EventProcessor {
     }
 
     /** Тело транзакции: отметка обработанного и действие обработчика. Любое исключение откатывает обе записи. */
-    private HandleResult apply(EventHandler handler, EventEnvelope envelope) {
+    private HandleResult apply(EventHandler handler, EventEnvelope envelope, ProcessedEvents processed) {
         if (!processed.markProcessed(handler.name(), envelope.id())) {
             return DUPLICATE;
         }

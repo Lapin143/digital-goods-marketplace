@@ -56,8 +56,12 @@
 | `x-conditions` | Условия U1…U18 из матрицы. У чтения условия статуса 409 не дают |
 | `x-sms-session` | `allowed`, если операция доступна из ограниченной сессии по SMS (`orders.read`, `support.write`), иначе `denied` |
 | `x-allowed-callers` | Какие сервисы вправе вызвать внутреннюю операцию (проверка по сертификату) |
+| `x-webhook-secret` | Имя секрета подписи вебхука (`payment_webhook_secret`, `delivery_webhook_secret`, `platform_webhook_secret`). Обязательно у операций со схемой `webhookSignature`, `WebhookSignatureFilter` каркаса берёт ключ из секрета с этим именем (и из `<имя>_previous` при смене ключа) |
+| `x-module` | Модуль базы сервиса, в транзакции которого работает операция. Нужен только `platform-service` (identity, support, notification, audit-admin, audit-writer); у остальных сервисов один модуль и поле не задаётся |
 | `x-internal` | `true` у внутренних вызовов |
 | `x-internal-nolocation` | `true` у внутреннего `POST` с ответом 201 без `Location`: созданный ресурс отдельно не читается |
+
+Параметр `IdempotencyKey` (заголовок `Idempotency-Key`) у изменяющей операции включает охранник идемпотентности каркаса: `gen_routes.py` переносит его в правило маршрута (`idempotent`), и заголовок становится обязательным без правок кода сервиса ([ADR-006](../../05-architecture/adr/ADR-006-idempotency.md)). Допустимо только у операций с `bearerJwt` или `mutualTls`.
 
 Схемы безопасности: `bearerJwt` (HTTP bearer, JWT с областями), `webhookSignature` (заголовки `X-Webhook-Signature` и `X-Webhook-Timestamp`), `mutualTls`.
 

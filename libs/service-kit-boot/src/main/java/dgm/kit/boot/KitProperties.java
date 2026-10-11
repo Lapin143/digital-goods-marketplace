@@ -1,9 +1,11 @@
 package dgm.kit.boot;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
+import org.springframework.util.unit.DataSize;
 
 /**
  * Настройки каркаса, префикс {@code dgm}. Значения по умолчанию лежат в {@code dgm-kit-defaults.properties}, сервис задаёт своё имя,
@@ -21,7 +23,11 @@ public record KitProperties(
         @DefaultValue Kafka kafka,
         @DefaultValue Outbox outbox,
         @DefaultValue Consumer consumer,
-        @DefaultValue Probe probe) {
+        @DefaultValue Probe probe,
+        @DefaultValue Web web,
+        @DefaultValue Idempotency idempotency,
+        @DefaultValue Redis redis,
+        @DefaultValue Keycloak keycloak) {
 
     /** Проверка токена. */
     public record Security(@DefaultValue Jwt jwt) {
@@ -74,5 +80,49 @@ public record KitProperties(
 
     /** @param port порт проверки готовности на 127.0.0.1 внутри контейнера (0: свободный) */
     public record Probe(@DefaultValue("true") boolean enabled, @DefaultValue("8081") int port) {
+    }
+
+    /**
+     * Ограничения запроса (решение Р-29 руководства Ф4).
+     *
+     * @param maxBody        предел тела обычного запроса, как на шлюзе
+     * @param webhookMaxBody предел тела вебхука
+     */
+    public record Web(@DefaultValue("2MB") DataSize maxBody, @DefaultValue("64KB") DataSize webhookMaxBody) {
+    }
+
+    /**
+     * Ключи идемпотентности запросов (ADR-006).
+     *
+     * @param module         модуль, в базе которого работают операции с ключом, если в правиле маршрута модуль не указан; по умолчанию модуль Outbox
+     * @param waitForOther   сколько повтор ждёт завершения первого запроса, пока тот выполняется
+     * @param abandonedAfter через какое время незавершённый запрос считается брошенным и его ключ подхватывается
+     */
+    public record Idempotency(String module, @DefaultValue("2s") Duration waitForOther, @DefaultValue("60s") Duration abandonedAfter) {
+    }
+
+    /**
+     * Redis (ADR-022): включается, когда задан {@code host}. Пароль берётся из секрета {@code redis_<user>}.
+     *
+     * @param host           адрес Redis
+     * @param user           пользователь ACL (catalog, inventory, platform)
+     * @param commandTimeout предел команды
+     * @param connectTimeout предел подключения
+     */
+    public record Redis(String host, @DefaultValue("6379") int port, String user, @DefaultValue("500ms") Duration commandTimeout,
+                        @DefaultValue("2s") Duration connectTimeout) {
+    }
+
+    /**
+     * Admin REST Keycloak (ADR-025): включается, когда задан {@code baseUrl}.
+     *
+     * @param baseUrl      адрес Keycloak с префиксом, например {@code https://keycloak:8443/auth}
+     * @param realm        имя realm
+     * @param clientId     клиент с сервисной учётной записью
+     * @param clientSecret имя секрета с паролем клиента
+     * @param timeout      лимит одной операции
+     */
+    public record Keycloak(String baseUrl, @DefaultValue("dgm") String realm, @DefaultValue("platform-service") String clientId,
+                           @DefaultValue("keycloak_client_platform") String clientSecret, @DefaultValue("2s") Duration timeout) {
     }
 }

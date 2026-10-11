@@ -78,6 +78,38 @@ class RoutePolicyTest {
     }
 
     @Test
+    void idempotencyModuleAndWebhookSecretAreRead() {
+        RoutePolicy extended = RoutePolicy.fromJson("""
+                {"service": "platform-service", "routes": [
+                  {"method": "POST", "path": "/api/v1/tickets", "operationId": "createTicket", "scopes": ["support.write"], "roles": ["buyer"],
+                   "idempotent": true, "module": "support"},
+                  {"method": "POST", "path": "/api/v1/webhooks/sms-status", "operationId": "receiveSmsStatus", "webhookSecret": "platform_webhook_secret"},
+                  {"method": "GET", "path": "/api/v1/tickets", "operationId": "listTickets", "scopes": ["support.read"], "roles": ["buyer"]}
+                ]}
+                """);
+        RouteRule ticket = extended.match("POST", "/api/v1/tickets").orElseThrow();
+        assertTrue(ticket.idempotent());
+        assertEquals("support", ticket.module());
+        assertFalse(ticket.webhook());
+        RouteRule webhook = extended.match("POST", "/api/v1/webhooks/sms-status").orElseThrow();
+        assertTrue(webhook.webhook());
+        assertEquals("platform_webhook_secret", webhook.webhookSecret());
+        assertFalse(webhook.idempotent());
+        RouteRule list = extended.match("GET", "/api/v1/tickets").orElseThrow();
+        assertFalse(list.idempotent());
+        assertEquals(null, list.module());
+        assertEquals(null, list.webhookSecret());
+    }
+
+    @Test
+    void ordinaryRulesAreNotIdempotentAndHaveNoModule() {
+        RouteRule rule = policy.match("POST", "/api/v1/orders/1/cancel").orElseThrow();
+        assertFalse(rule.idempotent());
+        assertFalse(rule.webhook());
+        assertEquals(null, rule.module());
+    }
+
+    @Test
     void brokenPolicyIsRejected() {
         assertThrows(IllegalArgumentException.class, () -> RoutePolicy.fromJson("{\"service\":\"x\"}"));
         assertThrows(IllegalArgumentException.class, () -> RoutePolicy.fromJson("{\"routes\":[{\"method\":\"GET\"}]}"));

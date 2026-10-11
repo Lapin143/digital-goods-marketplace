@@ -25,7 +25,8 @@
         "buyer"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "GET",
@@ -60,7 +61,8 @@
       "roles": [],
       "callers": [
         "platform-service"
-      ]
+      ],
+      "idempotent": true
     }
   ]
 }

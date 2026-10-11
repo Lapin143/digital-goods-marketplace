@@ -12,6 +12,15 @@ public interface EventHandler {
     /** Имя обработчика, уникальное в базе сервиса (например {@code saga-orchestrator}). */
     String name();
 
+    /**
+     * Модуль базы, под рабочей ролью которого обработчик пишет данные: транзакция, отметка {@code processed_event} и записи в Outbox идут
+     * через соединение этого модуля. {@code null}: модуль потребителя по умолчанию ({@code dgm.consumer.module}). Нужен сервисам, где
+     * модули разделены ролями (platform-service: уведомления пишет роль модуля notification, а не identity).
+     */
+    default String module() {
+        return null;
+    }
+
     /** Тема, из которой обработчик получает события. */
     String topic();
 

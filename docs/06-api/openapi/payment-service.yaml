@@ -112,6 +112,7 @@ paths:
       x-allowed-roles:
       - system
       x-conditions: []
+      x-webhook-secret: payment_webhook_secret
       security:
       - webhookSignature: []
       parameters:

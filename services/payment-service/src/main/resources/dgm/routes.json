@@ -26,7 +26,8 @@
         "admin"
       ],
       "callers": [],
-      "smsSession": "denied"
+      "smsSession": "denied",
+      "idempotent": true
     },
     {
       "method": "POST",
@@ -34,7 +35,8 @@
       "operationId": "receivePaymentGatewayNotification",
       "scopes": [],
       "roles": [],
-      "callers": []
+      "callers": [],
+      "webhookSecret": "payment_webhook_secret"
     },
     {
       "method": "POST",
@@ -44,7 +46,8 @@
       "roles": [],
       "callers": [
         "order-service"
-      ]
+      ],
+      "idempotent": true
     }
   ]
 }
