@@ -272,7 +272,7 @@ def routes_and_tokens(kc, kc_gateway, people):
 
 
 def limits(kc, people):
-    print('== Лимиты частоты (Redis)')
+    print('== Лимиты частоты (Redis; NFT-3.5, ST-11; TC-108: входные страницы Keycloak ограничены по адресу)')
     buyer1 = login(kc, people['buyer-1'])
     buyer2 = login(kc, people['buyer-2'])
     if not expect('токены двух покупателей получены', buyer1 and buyer2, 'вход не удался'):

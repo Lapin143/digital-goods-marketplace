@@ -24,6 +24,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -113,6 +114,7 @@ class OtpServiceTest {
         assertEquals(PHONE, confirmed);
     }
 
+    @Tag("TC-123")
     @Test
     void codeIsValidUpToFiveMinutesAndExpiredAfterFiveMinutesOneSecond() {
         codes.then("111111", "222222");
@@ -369,6 +371,8 @@ class OtpServiceTest {
         assertTrue(store.codes().values().stream().allMatch(c -> c.userId().isEmpty()));
     }
 
+    @Tag("TC-123")
+    @Tag("TC-129")
     @Test
     void expiredLoginCodeAnswersTheSameForBoundAndUnknownNumbers() {
         codes.then("123456");

@@ -299,6 +299,7 @@ class PlatformServiceIT {
 
     // ---- listStaffUsers ----
 
+    @Tag("TC-111")
     @Test
     @Order(5)
     void listFiltersAndPaginatesNewestFirst() throws IOException {
@@ -335,6 +336,7 @@ class PlatformServiceIT {
 
     // ---- changeUserRole ----
 
+    @Tag("TC-112")
     @Test
     @Order(6)
     void roleChangeIsWrittenToTheDatabaseAndOutboxFirstThenToKeycloak() throws IOException {
@@ -365,6 +367,8 @@ class PlatformServiceIT {
         assertFalse(audit.contains(target.email), "в аудите нет адреса");
     }
 
+    @Tag("TC-113")
+    @Tag("ST-13")
     @Test
     @Order(7)
     void sellerRoleUnknownRoleAndUnknownUserAreRefusedByTheContract() throws IOException {
@@ -389,6 +393,7 @@ class PlatformServiceIT {
 
     // ---- deactivateUser и anonymizeUser ----
 
+    @Tag("TC-115")
     @Test
     @Order(8)
     void deactivationDisablesKeycloakAndRepeatsAreIdempotent() throws IOException {
@@ -414,6 +419,8 @@ class PlatformServiceIT {
         assertEquals("idempotency-key-required", noKey.json().get("code"));
     }
 
+    @Tag("TC-116")
+    @Tag("TC-117")
     @Test
     @Order(9)
     void anonymizationNeedsDeactivationThenRemovesPersonalDataEverywhere() throws IOException {
@@ -567,6 +574,8 @@ class PlatformServiceIT {
         return key == null ? client.post(path, body) : client.post(path, body, "Idempotency-Key", key);
     }
 
+    @Tag("TC-121")
+    @Tag("TC-122")
     @Test
     @Order(11)
     void phoneIsConfirmedByTheCodeFromTheSmsAndPassedToKeycloak() throws Exception {
@@ -622,6 +631,8 @@ class PlatformServiceIT {
         assertEquals(Optional.empty(), redis.get("platform:otp:code:phone_confirm:" + buyer.id));
     }
 
+    @Tag("TC-124")
+    @Tag("TC-127")
     @Test
     @Order(12)
     void confirmedNumberCannotBeTakenByAnotherAccountAndSmsSessionsAreRefused() throws Exception {
@@ -645,6 +656,9 @@ class PlatformServiceIT {
         assertEquals("validation-failed", invalid.json().get("code"));
     }
 
+    @Tag("TC-125")
+    @Tag("ST-05")
+    @Tag("ST-11")
     @Test
     @Order(13)
     void fourthRequestInTenMinutesIsRefusedWithRetryAfterForTheAccountAndForTheNumber() throws Exception {
@@ -668,6 +682,8 @@ class PlatformServiceIT {
         assertEquals(201, asBuyer(second.id, "/api/v1/phone-confirmations", phoneBody(newPhone()), newIp()).status());
     }
 
+    @Tag("TC-125")
+    @Tag("ST-11")
     @Test
     @Order(14)
     void eleventhRequestFromOneAddressInAnHourIsRefused() throws Exception {
@@ -689,6 +705,8 @@ class PlatformServiceIT {
                 "другой адрес не затронут");
     }
 
+    @Tag("TC-122")
+    @Tag("ST-05")
     @Test
     @Order(15)
     void fifthWrongCodeClosesTheRequestAndTheSixthCannotRedeemIt() throws Exception {
@@ -791,6 +809,8 @@ class PlatformServiceIT {
         assertEquals(0, reconciler.runPass().phonesSynced());
     }
 
+    @Tag("TC-128")
+    @Tag("TC-129")
     @Test
     @Order(19)
     void keycloakCanRequestAndRedeemALoginCodeOnlyOnceAndAnUnknownNumberLooksTheSame() throws Exception {
@@ -993,6 +1013,8 @@ class PlatformServiceIT {
         return events;
     }
 
+    @Tag("TC-130")
+    @Tag("TC-014")
     @Test
     @Order(22)
     void smsLoginGivesTheOwnerOneLetterAndAReplayedEventGivesNone() throws Exception {
@@ -1158,6 +1180,7 @@ class PlatformServiceIT {
         assertTrue(failedEvents(row.get("id")).isEmpty());
     }
 
+    @Tag("TC-114")
     @Test
     @Order(99)
     void lastActiveAdministratorCannotBeDeactivatedOrDemoted() throws IOException {

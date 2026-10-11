@@ -152,7 +152,7 @@ def sms_checks_without_platform(kc):
 # --------------------------------------------------------------------------------------------------- регистрация и сброс пароля нейтральны
 def registration_checks(kc, admin, users):
     net = kc.net
-    print('== Регистрация: ответ одинаков для свободного и занятого e-mail (US-01, ST-06)')
+    print('== Регистрация: ответ одинаков для свободного и занятого e-mail (US-1.1, ST-06; TC-101, TC-102)')
 
     def register(email, password, confirm=None):
         d = kc.start('dgm-web').follow('login-actions/registration')
@@ -242,7 +242,7 @@ def registration_checks(kc, admin, users):
 
 def reset_checks(kc, admin, users, stamp):
     net = kc.net
-    print('== Сброс пароля: ответ одинаков для известного и неизвестного адреса (ST-06)')
+    print('== Сброс пароля: ответ одинаков для известного и неизвестного адреса (US-1.4, ST-06; TC-106, TC-107)')
 
     def request(username):
         d = kc.start('dgm-web').follow('login-actions/reset-credentials')
@@ -291,7 +291,7 @@ def reset_checks(kc, admin, users, stamp):
 
 # --------------------------------------------------------------------------------------------------- второй фактор целиком и seller_id
 def totp_cycle_checks(kc, admin, users):
-    print('== Второй фактор целиком: вход без TOTP, настройка на странице, токен с otp (NFT-3.0, F3-4)')
+    print('== Второй фактор целиком: вход без TOTP, настройка на странице, токен с otp (US-1.5, NFT-3.0, F3-4; TC-118, TC-119)')
     u = users['moderator-2']
     d = kc.start('dgm-staff')
     d.post(username=u['email'], password=u['password'])
@@ -394,7 +394,7 @@ def main():
         expect('phone_verified: у buyer-2 нет или false', tokens['buyer-2'].access().get('phone_verified') in (None, False))
         expect('id-токен buyer-1 содержит e-mail для интерфейса', tokens['buyer-1'].id_claims().get('email') == users['buyer-1']['email'])
 
-    # --- второй фактор обязателен (NFT-3.0)
+    # --- второй фактор обязателен (NFT-3.0; US-1.5; TC-118, TC-119)
     for name in ('seller-2', 'moderator-2', 'support-2', 'admin-2'):
         u = users[name]
         r = kc.login('dgm-staff', u['email'], u['password'])
@@ -443,7 +443,7 @@ def main():
     r = net.request('GET', '%s/protocol/openid-connect/auth?%s' % (kc.issuer, urllib.parse.urlencode(q)))
     expect('чужой redirect_uri отклонён (страница ошибки, переход не выполняется)', r.status == 400 and 'evil.example' not in (r.location or ''), '%s %s' % (r.status, r.location))
 
-    # --- перебор паролей: пять неудач закрывают вход
+    # --- перебор паролей: пять неудач закрывают вход (US-1.3, сценарий 3; NFT-3.5; TC-105)
     v = users['buyer-3']
     attempts = [kc.login('dgm-web', v['email'], 'неверный-пароль-%d' % i) for i in range(5)]
     expect('перебор: пять неверных паролей не дают токенов', all(a.kind == 'login_error' for a in attempts), ','.join(a.kind for a in attempts))

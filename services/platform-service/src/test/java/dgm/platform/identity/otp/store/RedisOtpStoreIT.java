@@ -191,6 +191,7 @@ class RedisOtpStoreIT {
         assertEquals(Result.ABSENT, store.redeem(redeem(key, "hash-1", "conf-1"), T0.plusSeconds(11)).result(), "верный код после пятой неудачи не принимается");
     }
 
+    @Tag("TC-123")
     @Test
     void codeExpiresStrictlyAfterItsTimeNotAtIt() {
         String key = key("code-expiry");

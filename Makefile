@@ -194,6 +194,10 @@ keycloak-check: ## Проверить Keycloak: вход по ролям, вто
 sms-login-check: ## Проверить вход по SMS на настоящей платформе: привязка номера, сессия по SMS, уровень входа, нейтральность чужого номера (набор full, DEBUG=1, make keycloak-users)
 	$(KC_ENV) python3 tools/stand-checks/sms_login_checks.py
 
+.PHONY: accounts-check
+accounts-check: ## Проверить учётные записи сквозь стенд: вход, VK ID, жизненный цикл записи сотрудника, второй фактор, внутренние операции (набор full, DEBUG=1, make keycloak-users)
+	$(KC_ENV) python3 tools/stand-checks/accounts_checks.py
+
 .PHONY: gateway-check
 gateway-check: ## Проверить шлюз: маршруты, токены Keycloak, лимиты, отказ открытым (подняты dev-auth и dev-purchase с DEBUG=1, make keycloak-users)
 	$(KC_ENV) tools/stand-checks/gateway_checks.sh

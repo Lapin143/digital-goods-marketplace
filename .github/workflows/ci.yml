@@ -485,6 +485,10 @@ jobs:
       - name: Проверка сборщика коллекции
         run: tools/ci/diag.sh "Сборщик API-тестов" python3 -m unittest discover -s tools/api-tests
 
+      # Замеры памяти (К1 шага 9 Ф4): пик каждого контейнера набора full за всё время задания, в том числе платформенного сервиса под проверками учётных записей
+      - name: Замеры памяти, начало
+        run: python3 tools/stand-checks/memory.py start "$RUNNER_TEMP/mem.jsonl"
+
       - name: Набор full одной командой
         env:
           DIAG_FILTER: 'ERROR:|failed to|not found|denied|unhealthy|dependency failed|COPY|не готов|ОШИБКА'
@@ -515,6 +519,19 @@ jobs:
           DIAG_MAX: "30"
           DIAG_TAIL: "60"
         run: tools/ci/diag.sh "Вход по SMS" make sms-login-check
+
+      # Учётные записи сквозь стенд (шаг 9 Ф4): вход по паролю, VK ID, жизненный цикл записи сотрудника, второй фактор, внутренние операции закрыты шлюзом
+      - name: Учётные записи (вход, VK ID, роли, деактивация, анонимизация)
+        env:
+          DIAG_FILTER: 'ОШИБКА|Traceback|Error'
+          DIAG_MAX: "30"
+          DIAG_TAIL: "60"
+        run: tools/ci/diag.sh "Учётные записи" make accounts-check
+
+      # Итог замеров: пик каждого контейнера против лимита; красный шаг, если пик выше 90 % лимита (лимиты назначены по правилу 85 %)
+      - name: Замеры памяти, итог
+        if: always()
+        run: python3 tools/stand-checks/memory.py stop "$RUNNER_TEMP/mem.jsonl" --label "набор full, проверки учётных записей" --strict --fail 90
 
       - name: Отчёты Newman в артефакте запуска
         if: ${{ !cancelled() }}

@@ -12,7 +12,12 @@ make keycloak-users. Проверки идут цепочкой, как у по�
 3. покупатель входит по SMS (клиент dgm-sms): `amr` равен `sms`, токен живёт не больше 15 минут, refresh-токена нет, области только
    `orders.read` и `support.write`, шлюз не пускает такой токен туда, где нужен полный вход;
 4. F3-3: сессия по SMS не превращается в полную тихо: клиент dgm-web просит пароль, после пароля `pwd` в `amr`, и дальше SSO работает;
-5. ST-06: чужой (не привязанный) номер получает ту же страницу кода, то же сообщение о неверном коде, то же время ответа, SMS не уходит.
+5. ST-06: чужой (не привязанный) номер получает ту же страницу кода, то же сообщение о неверном коде, то же время ответа, SMS не уходит;
+6. F9-1: после успешного входа по SMS владельцу уходит ровно одно письмо, после неверного кода письма нет.
+
+Сквозные сценарии: TC-003 (часть 1: токен без phone_verified, подтверждение, токен с phone_verified = true, Р-4) и TC-014 (вход по коду из SMS,
+ограниченная сессия, письмо владельцу). По шагам: TC-121, TC-122 (подтверждение телефона), TC-126, TC-127 (сессия по SMS), TC-128, TC-129 (неверный код,
+чужой номер), TC-130 (письмо владельцу).
 
 Лимиты запросов кода (3 за 10 минут на номер, 10 за час на IP) общие для всей платформы, поэтому проверка расходует их экономно: на привязанный
 номер уходит три запроса (подтверждение, вход, сравнение с чужим номером), на IP не больше шести. Повторный прогон на том же стенде
@@ -62,6 +67,23 @@ def next_code(net, phone, seen, wait=15):
     return None
 
 
+LETTER_SUBJECT = 'Вход в аккаунт по коду из SMS'
+
+
+def sms_letters(net, address, at_least=0, wait=0.0):
+    """Письма «Вход в аккаунт по коду из SMS», которые почтовая заглушка приняла для адреса. at_least > 0: ждёт, пока их станет не меньше (до wait секунд)."""
+    deadline = time.time() + wait
+    while True:
+        found = []
+        m = net.request('GET', 'https://external-stubs:8444/admin/emails?to=%s' % urllib.parse.quote(address), headers={'Accept': 'application/json'})
+        if m.status == 200:
+            body = m.json()
+            found = [x for x in (body if isinstance(body, list) else body.get('items') or body.get('emails') or []) if x.get('subject') == LETTER_SUBJECT]
+        if len(found) >= at_least and (at_least > 0 or time.time() >= deadline) or time.time() >= deadline:
+            return found
+        time.sleep(0.5)
+
+
 def other_code(code):
     return '000000' if code != '000000' else '111111'
 
@@ -107,12 +129,13 @@ def remember_phone(phone):
 # --------------------------------------------------------------------------------------------------- проверки
 def bind_phone(kc, buyer):
     """Покупатель подтверждает телефон через шлюз. Возвращает (номер, sub) либо (None, sub), если проверять дальше нечем."""
-    print('== Подтверждение телефона покупателем (OP-06, FT-1.5)')
+    print('== Подтверждение телефона покупателем (OP-06, FT-1.5; TC-003 часть 1, TC-121, TC-122)')
     r = kc.login('dgm-web', buyer['email'], buyer['password'])
     if not expect('покупатель %s входит паролем' % BUYER, r.ok, describe(r)):
         return None, None
     token = r.tokens['access_token']
     sub = r.access().get('sub')
+    claims_before = r.access()
     phone = fresh_phone()
     before = len(sms_items(kc.net, phone))
     created = api('POST', '/api/v1/phone-confirmations', token, {'phone': phone})
@@ -123,12 +146,13 @@ def bind_phone(kc, buyer):
     if not expect('запрос кода подтверждения: 201 и идентификатор запроса', created.status == 201 and created.json().get('confirmationId'),
                   '%s %s' % (created.status, created.text[:200])):
         return None, sub
+    expect('TC-003 (часть 1): до подтверждения в токене покупателя нет phone_verified', not claims_before.get('phone_verified'), str(claims_before.get('phone_verified')))
     cid = created.json()['confirmationId']
     code = next_code(kc.net, phone, before)
     if not expect('SMS с кодом пришло на номер (заглушка провайдера)', code and re.fullmatch(r'\d{6}', code), str(code)):
         return None, sub
     wrong = api('POST', '/api/v1/phone-confirmations/%s/verify' % cid, token, {'code': other_code(code)})
-    expect('неверный код: 422 otp-invalid и число оставшихся попыток', wrong.status == 422 and wrong.code() == 'otp-invalid'
+    expect('TC-122: неверный код: 422 otp-invalid и число оставшихся попыток', wrong.status == 422 and wrong.code() == 'otp-invalid'
            and isinstance(wrong.json().get('attemptsLeft'), int), '%s %s' % (wrong.status, wrong.text[:200]))
     right = api('POST', '/api/v1/phone-confirmations/%s/verify' % cid, token, {'code': code})
     if not expect('верный код: 200, телефон подтверждён', right.status == 200 and right.json().get('phoneConfirmed') is True,
@@ -145,15 +169,16 @@ def bind_phone(kc, buyer):
         if claims.get('phone_verified') is True:
             break
         time.sleep(1)
-    expect('в токене появился признак phone_verified = true (платформа передала его Keycloak)', claims.get('phone_verified') is True, str(claims.get('phone_verified')))
+    expect('TC-003 (часть 1): в новом токене признак phone_verified = true (платформа передала его Keycloak)', claims.get('phone_verified') is True, str(claims.get('phone_verified')))
     return phone, sub
 
 
 def sms_session_checks(kc, buyer, phone, sub):
-    print('== Вход по коду из SMS: ограниченная сессия (FT-1.7, F3-3)')
+    print('== Вход по коду из SMS: ограниченная сессия (FT-1.7, F3-3; TC-014, TC-126, TC-127, TC-130)')
     seen = len(sms_items(kc.net, phone))
+    letters_before = len(sms_letters(kc.net, buyer['email']))
     r = kc.login_sms('dgm-sms', phone, lambda: next_code(kc.net, phone, seen))
-    if not expect('вход по SMS: токены выданы', r.ok, describe(r)):
+    if not expect('TC-126: вход по SMS: токены выданы', r.ok, describe(r)):
         return None
     t = r.tokens
     a = r.access()
@@ -171,6 +196,15 @@ def sms_session_checks(kc, buyer, phone, sub):
     expect('сессия по SMS не может подтверждать телефон (нужен полный вход): 403', denied.status == 403, '%s %s' % (denied.status, denied.text[:200]))
     staff = G.call('GET', '/api/v1/staff/users', headers=G.bearer(t['access_token']))
     expect('сессия по SMS не открывает кабинет сотрудников: 403', staff.status == 403, '%s %s' % (staff.status, staff.text[:200]))
+    order = api('POST', '/api/v1/orders', t['access_token'], {})
+    expect('TC-127: сессия по SMS не оформляет заказ: 403', order.status == 403, '%s %s' % (order.status, order.text[:200]))
+
+    letters = sms_letters(kc.net, buyer['email'], at_least=letters_before + 1, wait=25)
+    expect('TC-130: после входа по SMS владельцу ушло ровно одно письмо «%s» (было %d, стало %d)' % (LETTER_SUBJECT, letters_before, len(letters)),
+           len(letters) == letters_before + 1, '%d -> %d' % (letters_before, len(letters)))
+    if letters:
+        text = letters[-1].get('text', '')
+        expect('TC-130: в письме время входа по Москве и совет обратиться в поддержку', '(МСК)' in text and 'обратитесь в поддержку' in text, text[:300])
 
     print('== Уровень входа: SMS не становится полной сессией без пароля (F3-3)')
     d = kc.start('dgm-web', clear_cookies=False)
@@ -188,8 +222,8 @@ def sms_session_checks(kc, buyer, phone, sub):
     return a
 
 
-def neutrality_checks(kc, phone):
-    print('== Чужой номер неотличим от привязанного (ST-06)')
+def neutrality_checks(kc, buyer, phone):
+    print('== Чужой номер неотличим от привязанного (ST-06; TC-014, TC-128, TC-129, TC-130)')
     # Диалоги идут строго по очереди: следующий kc.start стирает cookie браузера, и прежняя страница уже не работает
     seen = len(sms_items(kc.net, phone))
     strangers = [fresh_phone() for _ in range(2)]
@@ -207,8 +241,14 @@ def neutrality_checks(kc, phone):
     bound_page, bound_kind = mask_phone(bound.page), bound.kind
     bound.post(code=other_code(code or ''))
     bound_wrong = (bound.kind, bound.message, mask_phone(bound.page))
+    letters_after_login = len(sms_letters(kc.net, buyer['email']))
+    time.sleep(3)
+    expect('TC-130: после неверного кода письмо о входе не уходит', len(sms_letters(kc.net, buyer['email'])) == letters_after_login,
+           '%d -> %d' % (letters_after_login, len(sms_letters(kc.net, buyer['email']))))
     bound.post(code=code)
     done = bound.tokens()
+    expect('TC-130: после верного кода письмо уходит (одно)', len(sms_letters(kc.net, buyer['email'], at_least=letters_after_login + 1, wait=25)) == letters_after_login + 1,
+           str(len(sms_letters(kc.net, buyer['email']))))
 
     strange, t_strange = ask(strangers[0])
     strange_page, strange_kind = mask_phone(strange.page), strange.kind
@@ -221,9 +261,9 @@ def neutrality_checks(kc, phone):
     gap = abs(t_bound - median([t_strange, t_strange_2]))
     expect('время ответа различается меньше чем на 0,4 с (привязанный %.2f с, чужие %.2f и %.2f с)' % (t_bound, t_strange, t_strange_2), gap < 0.4,
            'разница %.2f с' % gap)
-    expect('привязанному номеру ушло ровно одно SMS, чужим ни одного', code is not None and len(sms_items(kc.net, phone)) == seen + 1
+    expect('TC-129: привязанному номеру ушло ровно одно SMS, чужим ни одного', code is not None and len(sms_items(kc.net, phone)) == seen + 1
            and all(sms_items(kc.net, s) == [] for s in strangers), '%s' % len(sms_items(kc.net, phone)))
-    expect('неверный код: одна и та же страница и сообщение для привязанного и чужого номера',
+    expect('TC-128: неверный код: одна и та же страница и сообщение для привязанного и чужого номера',
            bound_wrong[0] == 'sms_code' and bound_wrong == strange_wrong and bound_wrong[1], '%r и %r' % (bound_wrong[:2], strange_wrong[:2]))
     expect('верный код привязанного номера всё же входит (неверная попытка код не сожгла)', done.ok and done.access().get('amr') == ['sms'], describe(done))
 
@@ -237,7 +277,7 @@ def main():
     phone, sub = bind_phone(kc, buyer)
     if phone:
         if sms_session_checks(kc, buyer, phone, sub) is not None:
-            neutrality_checks(kc, phone)
+            neutrality_checks(kc, buyer, phone)
     else:
         G.bad('вход по SMS не проверен: у покупателя нет подтверждённого номера', 'выполните make reset && make up SET=full DEBUG=1 && make keycloak-users')
     print('\nПроверок успешно: %d, с ошибками: %d' % (G.PASSED, len(G.FAILED)))

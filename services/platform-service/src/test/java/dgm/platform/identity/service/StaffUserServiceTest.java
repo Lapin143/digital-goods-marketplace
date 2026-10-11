@@ -22,6 +22,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Операции администратора: роли (INV-36, INV-38), деактивация, анонимизация (INV-44), порядок «база и Outbox, потом Keycloak». */
@@ -150,6 +151,8 @@ class StaffUserServiceTest {
         assertEquals("applyRole buyer totp=false " + USER, keycloak.calls().get(1));
     }
 
+    @Tag("TC-113")
+    @Tag("ST-13")
     @Test
     void roleSellerCannotBeAssignedByHand() {
         assertProblem(ProblemType.ROLE_MANAGED_BY_SYSTEM, () -> service.changeRole(ACTOR, USER, "seller"));
@@ -159,6 +162,8 @@ class StaffUserServiceTest {
         assertEquals(List.of(), keycloak.calls());
     }
 
+    @Tag("TC-113")
+    @Tag("ST-13")
     @Test
     void roleSellerCannotBeRemovedByHand() {
         UUID seller = id(3);

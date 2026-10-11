@@ -1,0 +1,26 @@
+{
+  "id": "ACC-01",
+  "title": "Учётные записи: отказы администратору, состояние записей не меняется (TC-111, TC-113, TC-116; ST-13)",
+  "steps": [
+    {"name": "TC-111. Список записей: администратор видит администраторов", "op": "listStaffUsers", "as": "admin",
+     "query": {"role": "admin", "status": "active", "limit": "5"}, "expect": 200,
+     "save": {"adminUserId": "items.0.userId"},
+     "assert": [{"path": "items", "notEmpty": true}, {"path": "items.0.role", "equals": "admin"}, {"path": "items.0.status", "equals": "active"}]},
+    {"name": "TC-111. Список записей: активные, первая страница", "op": "listStaffUsers", "as": "admin",
+     "query": {"status": "active", "limit": "1"}, "expect": 200,
+     "save": {"activeUserId": "items.0.userId"},
+     "assert": [{"path": "items", "notEmpty": true}, {"path": "items.0.status", "equals": "active"}]},
+    {"name": "TC-113. Роль продавца вручную не назначается: 409 role-managed-by-system", "op": "changeUserRole", "as": "admin",
+     "path": {"userId": "{{activeUserId}}"}, "body": {"role": "seller"}, "expect": 409,
+     "assert": [{"path": "code", "equals": "role-managed-by-system"}]},
+    {"name": "TC-113. Роль неизвестной записи: 404", "op": "changeUserRole", "as": "admin",
+     "path": {"userId": "00000000-0000-4000-8000-000000000001"}, "body": {"role": "moderator"}, "expect": 404},
+    {"name": "TC-115. Деактивация неизвестной записи: 404", "op": "deactivateUser", "as": "admin",
+     "path": {"userId": "00000000-0000-4000-8000-000000000001"}, "expect": 404},
+    {"name": "TC-116. Анонимизация активной записи: 409 state-conflict", "op": "anonymizeUser", "as": "admin",
+     "path": {"userId": "{{activeUserId}}"}, "expect": 409,
+     "assert": [{"path": "code", "equals": "state-conflict"}]},
+    {"name": "TC-116. Анонимизация неизвестной записи: 404", "op": "anonymizeUser", "as": "admin",
+     "path": {"userId": "00000000-0000-4000-8000-000000000001"}, "expect": 404}
+  ]
+}
