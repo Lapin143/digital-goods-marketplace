@@ -132,7 +132,8 @@ class SellerProductIT extends CatalogStandIT {
     private static void publish(String productId) {
         db.update("update catalog.product set status = 'on_moderation', submitted_at = now(), review_deadline_at = now() + interval '3 days', "
                 + "version = version + 1 where id = ?::uuid", productId);
-        db.update("update catalog.product set status = 'published', published_at = now(), version = version + 1 where id = ?::uuid", productId);
+        db.update("update catalog.product set status = 'published', published_at = now(), submitted_at = null, review_deadline_at = null, "
+                + "version = version + 1 where id = ?::uuid", productId);
     }
 
     private static String etagOf(Response response) {

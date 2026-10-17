@@ -252,14 +252,40 @@ def example(service, path, status='200'):
 def problem(status, code):
     return {'type': 'https://api.marketplace.example/problems/' + code, 'title': 'Проблема', 'status': status, 'detail': 'Пояснение', 'code': code,
             'correlationId': '0199e0a0-0000-7000-8000-0000000000c1'}
-def put(service, name, path, status, body):
+def put(service, name, path, status, body, method='GET'):
     d = os.path.join(root, 'services', service, 'build', 'contract-samples')
     os.makedirs(d, exist_ok=True)
-    json.dump({'method': 'GET', 'path': path, 'status': status, 'body': body}, open(os.path.join(d, name + '.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+    json.dump({'method': method, 'path': path, 'status': status, 'body': body}, open(os.path.join(d, name + '.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+CODES = {400: 'bad-request', 403: 'forbidden', 404: 'not-found', 409: 'state-conflict', 412: 'version-conflict', 415: 'unsupported-media-type',
+         422: 'validation-failed', 428: 'precondition-required'}
+def by_operation(service, op_id, statuses):
+    """Образцы для операции по operationId: успешный ответ из примера OpenAPI, отказы как Problem с кодом из справочника CODES."""
+    doc = yaml.safe_load(open(os.path.join(repo, 'docs', '06-api', 'openapi', service + '.yaml'), encoding='utf-8'))
+    for template, item in doc['paths'].items():
+        for method, op in item.items():
+            if isinstance(op, dict) and op.get('operationId') == op_id:
+                path = template.replace('{productId}', '0199e0a0-0000-7000-8000-000000000201')
+                for status in statuses:
+                    body = op['responses'][str(status)]['content']['application/json']['example'] if status < 400 else problem(status, CODES[status])
+                    put(service, op_id + str(status), path, status, body, method.upper())
+                return
+    raise SystemExit('в OpenAPI нет операции ' + op_id)
 put('catalog-service', 'list', '/api/v1/products', 200, example('catalog-service', '/api/v1/products'))
 put('catalog-service', 'list422', '/api/v1/products', 422, problem(422, 'validation-failed'))
 put('catalog-service', 'card', '/internal/v1/products/0199e0a0-0000-7000-8000-000000000201', 200, example('catalog-service', '/internal/v1/products/{productId}'))
 put('catalog-service', 'card404', '/internal/v1/products/0199e0a0-0000-7000-8000-000000000999', 404, problem(404, 'not-found'))
+# Остальные обязательные образцы каталога (товары продавца, модерация и далее) строятся из OpenAPI по реестру операций: новые операции со статусом done
+# попадают сюда без правки самопроверки
+sys.path.insert(0, os.path.join(repo, 'tools', 'stand-checks'))
+import check_contract as CC
+ready = CC.ready_operations('catalog-service') or set()
+handwritten = {'listStorefrontProducts', 'getProductCard'}
+wanted = {}
+for op_id, status in CC.REQUIRED['catalog-service']:
+    if op_id in ready and op_id not in handwritten:
+        wanted.setdefault(op_id, []).append(status)
+for op_id, statuses in wanted.items():
+    by_operation('catalog-service', op_id, statuses)
 put('order-service', 'orders', '/api/v1/orders', 200, example('order-service', '/api/v1/orders'))
 put('order-service', 'orders422', '/api/v1/orders', 422, problem(422, 'validation-failed'))
 PY

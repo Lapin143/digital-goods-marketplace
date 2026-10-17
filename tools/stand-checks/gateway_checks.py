@@ -241,7 +241,9 @@ def routes_and_tokens(kc, kc_gateway, people):
         r = call('GET', '/api/v1/orders', headers=bearer(seller))
         expect('продавец на маршруте покупателя: 403 (нет области orders.read)', r.status == 403, '%s %s' % (r.status, r.text[:200]))
         r = call('GET', '/api/v1/seller/products', headers=bearer(seller))
-        expect('продавец на своём маршруте: шлюз пропускает (не 401, не 403 шлюза и не 429)', r.status not in (401, 403, 429, 502, 503, 504), '%s %s' % (r.status, r.text[:200]))
+        # Токен тестового продавца без профиля (нет claim seller_id): шлюз пропустил запрос, а отказ 403 «нет профиля продавца» дал сам сервис (U3, шаг 12 Ф4)
+        reached = r.status not in (401, 403, 429, 502, 503, 504) or (r.status == 403 and 'профиля продавца' in r.text)
+        expect('продавец на своём маршруте: шлюз пропускает (не 401, не 403 шлюза и не 429)', reached, '%s %s' % (r.status, r.text[:200]))
 
     # Тела: большие запросы отклоняются по заголовку, не дожидаясь тела
     r = raw_call('POST', '/api/v1/orders', dict(bearer(buyer), **{'Content-Length': str(3 * 1024 * 1024), 'Content-Type': 'application/json'}))
