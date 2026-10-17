@@ -1231,6 +1231,9 @@ class PlatformServiceIT {
     void redeliveryOfTheApprovalChangesNothingAndNeedsNoSecondTotpWhenTheDeviceExists() throws Exception {
         KeycloakStub.User applicant = provisioned("buyer");
         applicant.otp = true;
+        reconciler.runPass();
+        assertEquals(Boolean.TRUE, jdbc().queryForObject("select has_2fa from identity.user_account where id = ?", Boolean.class, UUID.fromString(applicant.id)),
+                "сверка увидела устройство TOTP");
         UUID user = UUID.fromString(applicant.id);
         UUID sellerId = UUID.randomUUID();
 
