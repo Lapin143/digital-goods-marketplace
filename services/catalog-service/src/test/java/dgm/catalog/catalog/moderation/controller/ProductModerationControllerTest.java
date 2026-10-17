@@ -28,6 +28,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -116,7 +117,11 @@ class ProductModerationControllerTest {
         assertEquals(id(1).toString(), items.get(0).get("productId"));
         assertEquals(Map.of("amount", 149900, "currency", "RUB"), items.get(0).get("price"));
         assertFalse((Boolean) items.get(0).get("overdue"));
-        assertEquals(Map.of("limit", 20, "nextCursor", null), page.get("page"));
+        // Map.of не принимает null, а в ответе последней страницы курсор равен null
+        Map<String, Object> expectedPage = new LinkedHashMap<>();
+        expectedPage.put("limit", 20);
+        expectedPage.put("nextCursor", null);
+        assertEquals(expectedPage, page.get("page"));
     }
 
     @Test

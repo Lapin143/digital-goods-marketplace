@@ -218,7 +218,8 @@ class ProductModerationServiceTest {
     void theQueueGoesFromTheOldestSubmissionAndFlagsOverdueOnes() {
         Instant t = T0;
         products.with(queued(3, t.plusSeconds(300)), queued(1, t), queued(2, t.plusSeconds(100)), in(id(5), SELLER, form(), ProductStatus.PUBLISHED, 2, T0));
-        clock.set(t.plus(REVIEW).plusSeconds(10));
+        // Срок первого вышел на 150 секунд назад, второго на 50, у третьего ещё идёт
+        clock.set(t.plus(REVIEW).plusSeconds(150));
         ModerationQueuePage page = service.queue(10, Optional.empty());
         assertEquals(List.of(id(1), id(2), id(3)), page.items().stream().map(i -> i.productId()).toList());
         assertTrue(page.items().get(0).overdue(page.at()), "срок первого товара вышел");

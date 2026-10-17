@@ -105,7 +105,8 @@ class StorefrontProductControllerTest {
     @Test
     void aMalformedIdIsABadRequest() throws Exception {
         mvc.perform(get("/api/v1/products/не-uuid")).andExpect(status().isBadRequest());
-        mvc.perform(get("/api/v1/products/" + id(1).toString().toUpperCase())).andExpect(status().isBadRequest());
+        // В идентификаторе из цифр верхний регистр ничего не меняет, поэтому берём UUID с буквами
+        mvc.perform(get("/api/v1/products/0199E0A0-0000-7000-8000-0000000000AA")).andExpect(status().isBadRequest());
     }
 
     @Test
