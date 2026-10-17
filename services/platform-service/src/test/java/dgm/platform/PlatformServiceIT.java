@@ -938,13 +938,24 @@ class PlatformServiceIT {
     }
 
     private static void publishSellerEvent(UUID userId, String type, Map<String, Object> extra) throws Exception {
-        UUID sellerId = UUID.randomUUID();
+        publishSellerEvent(userId, UUID.randomUUID(), type, extra);
+    }
+
+    /** Публикует событие профиля продавца и возвращает его идентификатор: по нему видно, что обработчик событие разобрал. */
+    private static UUID publishSellerEvent(UUID userId, UUID sellerId, String type, Map<String, Object> extra) throws Exception {
+        UUID eventId = UUID.randomUUID();
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("sellerId", sellerId.toString());
         data.put("userId", userId.toString());
         data.put("moderatorId", UUID.randomUUID().toString());
         data.putAll(extra);
-        publish("catalog-service", "catalog.events", "Seller", sellerId.toString(), type, UUID.randomUUID(), data);
+        publish("catalog-service", "catalog.events", "Seller", sellerId.toString(), type, eventId, data);
+        return eventId;
+    }
+
+    /** Обработчик роли продавца разобрал событие: отметка в {@code processed_event} ставится в той же транзакции, что и действие. */
+    private boolean sellerRoleHandled(UUID eventId) {
+        return count("select count(*) from public.processed_event where consumer = 'seller-role-handler' and event_id = ?", eventId) == 1;
     }
 
     private static boolean await(Duration limit, BooleanSupplier condition) throws InterruptedException {
@@ -1178,6 +1189,131 @@ class PlatformServiceIT {
         assertEquals(0, row.get("attempts"));
         assertEquals(Boolean.FALSE, row.get("in_dead_queue"));
         assertTrue(failedEvents(row.get("id")).isEmpty());
+    }
+
+    // ---- роль продавца по seller.approved (шаг 11) ----
+
+    @Tag("TC-013")
+    @Tag("ST-13")
+    @Test
+    @Order(28)
+    void approvedBuyerBecomesSellerWithTheProfileOneRoleEventOneAuditAndTotpInKeycloak() throws Exception {
+        KeycloakStub.User applicant = provisioned("buyer");
+        UUID user = UUID.fromString(applicant.id);
+        UUID sellerId = UUID.randomUUID();
+
+        publishSellerEvent(user, sellerId, "seller.approved", Map.of("sellerType", "self_employed"));
+
+        assertTrue(await(Duration.ofSeconds(90), () -> "seller".equals(row(applicant.id).get("role"))), "роль продавца записана в базе");
+        assertEquals(sellerId.toString(), jdbc().queryForObject("select seller_id::text from identity.user_account where id = ?", String.class, user));
+        assertTrue(await(Duration.ofSeconds(30), () -> applicant.roles.contains("seller") && applicant.requiredActions.contains("CONFIGURE_TOTP")),
+                "после фиксации Keycloak получил роль и обязательную настройку TOTP");
+        assertEquals(Set.of("seller"), Set.copyOf(applicant.roles), "роль одна: «покупатель» заменена");
+        assertEquals(List.of(sellerId.toString()), applicant.attributes.get("seller_id"), "атрибут для claim seller_id в токене");
+
+        assertEquals(List.of("user.registered", "user.role-assigned", "audit.recorded"), events(applicant.id));
+        String roleEvent = jdbc().queryForObject("select payload::text from public.outbox where aggregate_id = ? and event_type = 'user.role-assigned'",
+                String.class, applicant.id);
+        assertTrue(roleEvent.contains("\"seller\""), roleEvent);
+        assertTrue(roleEvent.contains("seller_approval"), roleEvent);
+        assertFalse(roleEvent.contains("assignedBy"), "роль назначила система, а не администратор");
+        String audit = jdbc().queryForObject("select payload::text from public.outbox where aggregate_id = ? and event_type = 'audit.recorded'",
+                String.class, applicant.id);
+        assertTrue(audit.contains("\"system\""), audit);
+        assertTrue(audit.contains("user.role_assigned"), audit);
+        assertTrue(audit.contains(sellerId.toString()), "в изменениях виден профиль продавца");
+        assertFalse(audit.contains(applicant.email), "в аудите нет адреса");
+    }
+
+    @Tag("TC-013")
+    @Test
+    @Order(29)
+    void redeliveryOfTheApprovalChangesNothingAndNeedsNoSecondTotpWhenTheDeviceExists() throws Exception {
+        KeycloakStub.User applicant = provisioned("buyer");
+        applicant.otp = true;
+        UUID user = UUID.fromString(applicant.id);
+        UUID sellerId = UUID.randomUUID();
+
+        UUID first = publishSellerEvent(user, sellerId, "seller.approved", Map.of("sellerType", "legal_entity"));
+        assertTrue(await(Duration.ofSeconds(90), () -> sellerRoleHandled(first)));
+        assertTrue(await(Duration.ofSeconds(30), () -> applicant.roles.contains("seller")));
+        assertEquals("seller", row(applicant.id).get("role"));
+        assertFalse(applicant.requiredActions.contains("CONFIGURE_TOTP"), "устройство уже есть: настраивать второй фактор повторно не нужно");
+
+        UUID again = publishSellerEvent(user, sellerId, "seller.approved", Map.of("sellerType", "legal_entity"));
+        assertTrue(await(Duration.ofSeconds(90), () -> sellerRoleHandled(again)), "повторное решение разобрано");
+
+        assertEquals(List.of("user.registered", "user.role-assigned", "audit.recorded"), events(applicant.id), "повтор не добавил событий");
+        assertEquals(sellerId.toString(), jdbc().queryForObject("select seller_id::text from identity.user_account where id = ?", String.class, user));
+        assertEquals(Set.of("seller"), Set.copyOf(applicant.roles));
+    }
+
+    @Tag("TC-013")
+    @Tag("ST-13")
+    @Test
+    @Order(30)
+    void keycloakOutageAtApprovalLeavesTheDecisionInPlaceAndTheReconcilerCatchesKeycloakUp() throws Exception {
+        KeycloakStub.User applicant = provisioned("buyer");
+        UUID user = UUID.fromString(applicant.id);
+        UUID sellerId = UUID.randomUUID();
+        int before = KEYCLOAK.requests().size();
+
+        KEYCLOAK.down(true);
+        try {
+            publishSellerEvent(user, sellerId, "seller.approved", Map.of("sellerType", "self_employed"));
+
+            assertTrue(await(Duration.ofSeconds(90), () -> "seller".equals(row(applicant.id).get("role"))), "решение записано, пока Keycloak недоступен");
+            assertTrue(await(Duration.ofSeconds(30), () -> KEYCLOAK.requests().stream().skip(before).anyMatch(r -> r.contains("/users/" + applicant.id))),
+                    "платформа обратилась к Keycloak и получила отказ");
+        } finally {
+            KEYCLOAK.down(false);
+        }
+        assertFalse(applicant.roles.contains("seller"), "Keycloak ещё не знает о роли");
+        assertEquals(List.of("user.registered", "user.role-assigned", "audit.recorded"), events(applicant.id), "событие не ушло в повторы");
+
+        reconciler.runPass();
+
+        assertEquals(Set.of("seller"), Set.copyOf(applicant.roles), "сверка довела роль в Keycloak до базы");
+        assertEquals(List.of(sellerId.toString()), applicant.attributes.get("seller_id"));
+        assertTrue(applicant.requiredActions.contains("CONFIGURE_TOTP"), "второй фактор обязателен и после догонки");
+        assertEquals(List.of("user.registered", "user.role-assigned", "audit.recorded"), events(applicant.id), "сверка событий роли не пишет повторно");
+    }
+
+    @Tag("ST-13")
+    @Test
+    @Order(31)
+    void approvalNeverDemotesAStaffMember() throws Exception {
+        KeycloakStub.User moderator = KEYCLOAK.add("moderator", null, null);
+        reconciler.runPass();
+        UUID staff = UUID.fromString(moderator.id);
+
+        UUID event = publishSellerEvent(staff, UUID.randomUUID(), "seller.approved", Map.of("sellerType", "self_employed"));
+
+        assertTrue(await(Duration.ofSeconds(90), () -> sellerRoleHandled(event)), "событие разобрано и проигнорировано");
+        assertEquals("moderator", row(moderator.id).get("role"), "сотрудник заявкой продавца не понижается");
+        assertNull(jdbc().queryForObject("select seller_id from identity.user_account where id = ?", UUID.class, staff));
+        assertEquals(List.of("user.registered"), events(moderator.id));
+        assertEquals(Set.of("moderator"), Set.copyOf(moderator.roles));
+    }
+
+    @Tag("TC-013")
+    @Test
+    @Order(32)
+    void approvalForAnAccountThePlatformHasNotYetCreatedIsRetriedUntilTheReconcilerCreatesIt() throws Exception {
+        KeycloakStub.User applicant = KEYCLOAK.add("buyer", null, null);
+        UUID user = UUID.fromString(applicant.id);
+        UUID sellerId = UUID.randomUUID();
+        assertEquals(0, count("select count(*) from identity.user_account where id = ?", user));
+
+        UUID event = publishSellerEvent(user, sellerId, "seller.approved", Map.of("sellerType", "self_employed"));
+        Thread.sleep(500);
+        reconciler.runPass();
+
+        assertTrue(await(Duration.ofSeconds(90), () -> sellerRoleHandled(event)), "повтор нашёл созданную запись");
+        assertEquals("seller", row(applicant.id).get("role"));
+        assertEquals(sellerId.toString(), jdbc().queryForObject("select seller_id::text from identity.user_account where id = ?", String.class, user));
+        assertEquals(List.of("user.registered", "user.role-assigned", "audit.recorded"), events(applicant.id));
+        assertTrue(await(Duration.ofSeconds(30), () -> applicant.roles.contains("seller")));
     }
 
     @Tag("TC-114")
