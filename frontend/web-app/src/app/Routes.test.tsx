@@ -142,3 +142,61 @@ describe('маршруты кабинета продавца', () => {
     expect(await screen.findByRole('heading', { level: 1, name: t('notFound.title') })).toBeInTheDocument();
   });
 });
+
+describe('маршруты рабочего места сотрудника', () => {
+  const emptyQueue = () => respond(200, { items: [], page: { limit: 20, nextCursor: null } });
+
+  it('модератор с кодом видит ссылки на очереди', async () => {
+    const staff = fakeManager(fakeUser(claimsFor(['moderator'], ['pwd', 'otp'])));
+    renderScreen(<App />, { route: '/staff', managers: { staff } });
+    expect(await screen.findByRole('link', { name: t('moderation.home.applications') })).toHaveAttribute('href', '/staff/applications');
+    expect(screen.getByRole('link', { name: t('moderation.home.products') })).toHaveAttribute('href', '/staff/products');
+  });
+
+  it('оператор поддержки видит раздел, но без очередей модерации', async () => {
+    const staff = fakeManager(fakeUser(claimsFor(['support-operator'], ['pwd', 'otp'])));
+    renderScreen(<App />, { route: '/staff', managers: { staff } });
+    expect(await screen.findByRole('heading', { level: 1, name: t('work.staff.title') })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: t('moderation.home.applications') })).not.toBeInTheDocument();
+  });
+
+  it('очередь заявок оператору поддержки закрыта, запросов нет', async () => {
+    const staff = fakeManager(fakeUser(claimsFor(['support-operator'], ['pwd', 'otp'])));
+    const { calls } = renderScreen(<App />, { route: '/staff/applications', managers: { staff }, handler: emptyQueue });
+    expect(await screen.findByRole('heading', { level: 1, name: t('auth.forbidden.title') })).toBeInTheDocument();
+    expect(calls).toHaveLength(0);
+  });
+
+  it('модератор без одноразового кода получает предложение войти с кодом', async () => {
+    const staff = fakeManager(fakeUser(claimsFor(['moderator'], ['pwd'])));
+    const { calls } = renderScreen(<App />, { route: '/staff/products', managers: { staff }, handler: emptyQueue });
+    expect(await screen.findByRole('heading', { level: 1, name: t('auth.secondFactor.title') })).toBeInTheDocument();
+    expect(calls).toHaveLength(0);
+  });
+
+  it('очередь без входа отправляет на Keycloak (dgm-staff) и возвращает на тот же адрес', async () => {
+    const staff = fakeManager(null);
+    renderScreen(<App />, { route: '/staff/applications', managers: { staff } });
+    await waitFor(() => expect(staff.signinRedirect).toHaveBeenCalledTimes(1));
+    expect(staff.signinRedirect).toHaveBeenCalledWith({ state: { returnTo: '/staff/applications' }, prompt: undefined });
+  });
+
+  it('модератор открывает очередь заявок и очередь товаров', async () => {
+    const staff = fakeManager(fakeUser(claimsFor(['moderator'], ['pwd', 'otp'])));
+    renderScreen(<App />, { route: '/staff/applications', managers: { staff }, handler: emptyQueue });
+    expect(await screen.findByText(t('moderation.applications.empty'))).toBeInTheDocument();
+  });
+
+  it('карточка товара открывается по адресу', async () => {
+    const staff = fakeManager(fakeUser(claimsFor(['moderator'], ['pwd', 'otp'])));
+    renderScreen(<App />, { route: '/staff/products/p-1', managers: { staff }, handler: () => respond(404, { code: 'not-found' }) });
+    expect(await screen.findByText(t('problem.not-found'))).toBeInTheDocument();
+  });
+
+  it('неизвестный адрес внутри раздела даёт страницу «не найдено»', async () => {
+    const staff = fakeManager(fakeUser(claimsFor(['moderator'], ['pwd', 'otp'])));
+    renderScreen(<App />, { route: '/staff/unknown', managers: { staff } });
+    expect(await screen.findByRole('heading', { level: 1, name: t('notFound.title') })).toBeInTheDocument();
+  });
+});
+

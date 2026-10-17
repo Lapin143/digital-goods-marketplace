@@ -1,5 +1,5 @@
 import { Outlet, Route, Routes } from 'react-router-dom';
-import { SELLER_ROLES, STAFF_ROLES } from '../auth/claims';
+import { MODERATOR_ROLES, SELLER_ROLES, STAFF_ROLES } from '../auth/claims';
 import { RequireAccess } from './Guards';
 import { Layout } from './Layout';
 import { CallbackPage, HomePage, NotFoundPage, SellerHome, StaffHome, WorkEntry } from './pages';
@@ -10,13 +10,17 @@ import { ApplicationPage } from '../screens/seller/ApplicationPage';
 import { KeysPage } from '../screens/seller/KeysPage';
 import { SellerProductPage } from '../screens/seller/SellerProductPage';
 import { SellerProductsPage } from '../screens/seller/SellerProductsPage';
+import { ApplicationCardPage } from '../screens/staff/moderation/ApplicationCardPage';
+import { ApplicationQueuePage } from '../screens/staff/moderation/ApplicationQueuePage';
+import { ProductCardPage } from '../screens/staff/moderation/ProductCardPage';
+import { ProductQueuePage } from '../screens/staff/moderation/ProductQueuePage';
 import { ProductListPage } from '../screens/storefront/ProductListPage';
 import { ProductPage } from '../screens/storefront/ProductPage';
 
 /**
  * Маршруты. Разделы `/seller/*`, `/staff/*` и `/work` открываются входом через клиент `dgm-staff` со вторым фактором,
  * остальное через `dgm-web` (clientKindForPath); `/sms` это ограниченная сессия по коду из SMS. Экраны витрины и аккаунта добавил шаг 17,
- * кабинет и модерацию добавят шаги 18 и 19.
+ * кабинет продавца добавил шаг 18, рабочее место модератора шаг 19.
  */
 export function App() {
   return (
@@ -75,13 +79,28 @@ export function App() {
           <Route path="*" element={<NotFoundPage />} />
         </Route>
         <Route
-          path="staff/*"
+          path="staff"
           element={
             <RequireAccess kind="staff" roles={STAFF_ROLES} secondFactor>
-              <StaffHome />
+              <Outlet />
             </RequireAccess>
           }
-        />
+        >
+          <Route index element={<StaffHome />} />
+          <Route
+            element={
+              <RequireAccess kind="staff" roles={MODERATOR_ROLES} secondFactor>
+                <Outlet />
+              </RequireAccess>
+            }
+          >
+            <Route path="applications" element={<ApplicationQueuePage />} />
+            <Route path="applications/:sellerId" element={<ApplicationCardPage />} />
+            <Route path="products" element={<ProductQueuePage />} />
+            <Route path="products/:productId" element={<ProductCardPage />} />
+          </Route>
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

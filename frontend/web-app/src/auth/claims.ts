@@ -55,6 +55,8 @@ export function decodeClaims(accessToken: string): Claims | undefined {
 
 export const SELLER_ROLES = ['seller'];
 export const STAFF_ROLES = ['moderator', 'support-operator', 'admin'];
+/** Очереди и решения модерации доступны только модератору (OP-11, OP-12, OP-22 – OP-24). */
+export const MODERATOR_ROLES = ['moderator'];
 
 export function hasAnyRole(claims: Claims, roles: readonly string[]): boolean {
   return roles.some((role) => claims.roles.includes(role));

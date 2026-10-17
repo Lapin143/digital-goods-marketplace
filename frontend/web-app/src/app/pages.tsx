@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
-import { SELLER_ROLES, STAFF_ROLES, hasAnyRole } from '../auth/claims';
+import { MODERATOR_ROLES, SELLER_ROLES, STAFF_ROLES, hasAnyRole } from '../auth/claims';
 import { isClientKind } from '../auth/clients';
 import { t } from '../i18n';
 import { Button } from '../ui/Button';
@@ -108,10 +108,23 @@ export function SellerHome() {
 }
 
 export function StaffHome() {
+  const auth = useAuth();
+  const session = auth.session('staff');
+  const moderator = session ? hasAnyRole(session.claims, MODERATOR_ROLES) : false;
   return (
     <section>
       <h1>{t('work.staff.title')}</h1>
       <p>{t('work.staff.lead')}</p>
+      {moderator ? (
+        <ul>
+          <li>
+            <Link to="/staff/applications">{t('moderation.home.applications')}</Link>
+          </li>
+          <li>
+            <Link to="/staff/products">{t('moderation.home.products')}</Link>
+          </li>
+        </ul>
+      ) : null}
     </section>
   );
 }
