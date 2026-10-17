@@ -45,6 +45,7 @@ paths:
       x-conditions:
       - U15
       x-sms-session: denied
+      x-module: seller_onboarding
       security:
       - bearerJwt:
         - seller.apply
@@ -141,6 +142,7 @@ paths:
       x-conditions:
       - U15
       x-sms-session: denied
+      x-module: seller_onboarding
       security:
       - bearerJwt:
         - seller.apply
@@ -213,6 +215,7 @@ paths:
       - U14
       - U15
       x-sms-session: denied
+      x-module: seller_onboarding
       security:
       - bearerJwt:
         - seller.apply
@@ -311,6 +314,7 @@ paths:
       x-conditions:
       - U15
       x-sms-session: denied
+      x-module: seller_onboarding
       security:
       - bearerJwt:
         - seller.apply
@@ -392,6 +396,7 @@ paths:
       x-conditions:
       - U15
       x-sms-session: denied
+      x-module: seller_onboarding
       security:
       - bearerJwt:
         - seller.apply
@@ -443,6 +448,7 @@ paths:
       x-conditions:
       - U15
       x-sms-session: denied
+      x-module: seller_onboarding
       security:
       - bearerJwt:
         - seller.apply
@@ -503,6 +509,7 @@ paths:
       - U14
       - U15
       x-sms-session: denied
+      x-module: seller_onboarding
       security:
       - bearerJwt:
         - seller.apply

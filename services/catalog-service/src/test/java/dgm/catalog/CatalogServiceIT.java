@@ -11,44 +11,25 @@ import dgm.kit.boot.testing.StandHttp.Response;
 import dgm.kit.probe.ReadinessProbe;
 import dgm.kit.route.RoutePolicy;
 import dgm.kit.route.RouteRule;
-import dgm.kit.testing.TestTokens;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
-import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 /**
- * Сервис каталога целиком на стенде (make up SET=dev-min DEBUG=1): приложение стартует в процессе теста, применяет миграции под ролью
+ * Сервис каталога целиком на стенде (make up SET=dev-kit DEBUG=1): приложение стартует в процессе теста, применяет миграции под ролью
  * мигратора вместе с тестовыми данными (профиль testdata), читает базу по TLS под рабочей ролью и отвечает по mTLS. Проверяются две
  * операции каталога, защита маршрутов и служебные порты.
  */
-@Tag("integration")
-@SpringBootTest(classes = CatalogServiceApplication.class, webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT)
-@ActiveProfiles("testdata")
-@Import(CatalogServiceIT.TestBeans.class)
-class CatalogServiceIT {
-
-    private static final int PORT = StandHttp.freePort();
-    private static final int MANAGEMENT = StandHttp.freePort();
-    private static final TestTokens TOKENS = TestTokens.create(Clock.systemUTC());
+class CatalogServiceIT extends CatalogStandIT {
 
     private static final String P201 = "0199e0a0-0000-7000-8000-000000000201";
     private static final String P202 = "0199e0a0-0000-7000-8000-000000000202";
@@ -65,19 +46,6 @@ class CatalogServiceIT {
 
     @Autowired
     private ReadinessProbe probe;
-
-    @TestConfiguration(proxyBeanMethods = false)
-    static class TestBeans {
-        @Bean
-        JwtDecoder jwtDecoder() {
-            return StandHttp.decoderFor(TOKENS);
-        }
-    }
-
-    @DynamicPropertySource
-    static void properties(DynamicPropertyRegistry registry) {
-        StandHttp.register(registry, PORT, MANAGEMENT);
-    }
 
     @BeforeAll
     static void clients() {

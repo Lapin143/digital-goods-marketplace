@@ -3,6 +3,10 @@
 spring:
   application:
     name: catalog-service
+  servlet:
+    multipart:
+      # Форму multipart/form-data разбирает MultipartForm каркаса: тело уже прочитано фильтром идемпотентности (Р-61)
+      enabled: false
 
 dgm:
   security:
@@ -19,9 +23,32 @@ dgm:
       catalog:
         role: app_catalog
         pool-size: 4
+      # Предел соединений роли app_seller_onboarding 3 (infra/postgres/roles.json): пул 3, публикатора Outbox у модуля нет
+      seller_onboarding:
+        role: app_seller_onboarding
+        pool-size: 3
   kafka:
     bootstrap: ${DGM_KAFKA_BOOTSTRAP:kafka:9093}
+  storage:
+    # Закрытый бакет seller-documents в RustFS (ADR-024). Учётная запись catalog-service с паролем из секрета storage_catalog:
+    # права только на этот бакет (infra/storage). Клиент создаётся без соединения: хранилище не нужно для старта сервиса
+    endpoint: ${DGM_STORAGE_ENDPOINT:https://object-storage:9000}
+    # Адрес, под которым ссылку открывает браузер: шлюз и маршрут /files. Подпись считается для имени узла этого адреса
+
+    public-base-url: ${DGM_STORAGE_PUBLIC_BASE_URL:https://localhost:8443/files}
+  moderation:
+    # Задание контроля сроков (moderation-deadline-job, US-8.8): раз в 5 минут
+    deadline-interval: PT5M
+    deadline-initial-delay: PT1M
   outbox:
     module: catalog
   consumer:
     module: catalog
+
+# Параметры сроков модуля sellers. Имена ключей те же, что у параметров платформы platform_parameter (Р-10); до слушателя
+# config.changed (срез 3) значения берутся отсюда. Границы проверяет SellerSettings: значение вне них останавливает запуск
+seller:
+  reapplication-pause-seconds: 86400     # пауза после отказа, 24 часа (3600 … 604800)
+  document-link-ttl-seconds: 300         # срок подписанной ссылки на документ, 5 минут (60 … 900)
+moderation:
+  review-deadline-seconds: 259200        # срок рассмотрения заявки от каждой подачи, 3 суток (в профиле fast-time 10 секунд)

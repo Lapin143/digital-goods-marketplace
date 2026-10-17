@@ -57,7 +57,7 @@
 | `x-sms-session` | `allowed`, если операция доступна из ограниченной сессии по SMS (`orders.read`, `support.write`), иначе `denied` |
 | `x-allowed-callers` | Какие сервисы вправе вызвать внутреннюю операцию (проверка по сертификату) |
 | `x-webhook-secret` | Имя секрета подписи вебхука (`payment_webhook_secret`, `delivery_webhook_secret`, `platform_webhook_secret`). Обязательно у операций со схемой `webhookSignature`, `WebhookSignatureFilter` каркаса берёт ключ из секрета с этим именем (и из `<имя>_previous` при смене ключа) |
-| `x-module` | Модуль базы сервиса, в транзакции которого работает операция. Нужен только `platform-service` (identity, support, notification, audit-admin, audit-writer); у остальных сервисов один модуль и поле не задаётся |
+| `x-module` | Модуль базы сервиса, в транзакции которого работает операция. Нужен сервисам с несколькими модулями: `platform-service` (identity, support, notification, audit-admin, audit-writer) и `catalog-service` (`seller_onboarding` для заявки продавца; операции модуля `catalog` поля не задают, это модуль по умолчанию); у остальных сервисов один модуль и поле не задаётся |
 | `x-internal` | `true` у внутренних вызовов |
 | `x-internal-nolocation` | `true` у внутреннего `POST` с ответом 201 без `Location`: созданный ресурс отдельно не читается |
 
