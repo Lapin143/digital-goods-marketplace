@@ -27,7 +27,8 @@ public record KitProperties(
         @DefaultValue Web web,
         @DefaultValue Idempotency idempotency,
         @DefaultValue Redis redis,
-        @DefaultValue Keycloak keycloak) {
+        @DefaultValue Keycloak keycloak,
+        @DefaultValue Storage storage) {
 
     /** Проверка токена. */
     public record Security(@DefaultValue Jwt jwt) {
@@ -124,5 +125,21 @@ public record KitProperties(
      */
     public record Keycloak(String baseUrl, @DefaultValue("dgm") String realm, @DefaultValue("platform-service") String clientId,
                            @DefaultValue("keycloak_client_platform") String clientSecret, @DefaultValue("2s") Duration timeout) {
+    }
+
+    /**
+     * Объектное хранилище S3 (ADR-024): включается, когда задан {@code endpoint}. Пароль учётной записи читается из секрета.
+     *
+     * @param endpoint      адрес хранилища для записи и удаления объектов, по TLS: {@code https://object-storage:9000}
+     * @param region        регион в подписи запросов
+     * @param bucket        бакет документов
+     * @param accessKey     учётная запись сервиса в хранилище
+     * @param secret        имя секрета с её паролем
+     * @param publicBaseUrl адрес, под которым ссылки открывает пользователь (шлюз и префикс {@code /files}): входит в подпись ссылки
+     * @param timeout       предел ожидания ответа хранилища
+     */
+    public record Storage(String endpoint, @DefaultValue("us-east-1") String region, @DefaultValue("seller-documents") String bucket,
+                          @DefaultValue("catalog-service") String accessKey, @DefaultValue("storage_catalog") String secret,
+                          @DefaultValue("https://localhost:8443/files") String publicBaseUrl, @DefaultValue("10s") Duration timeout) {
     }
 }

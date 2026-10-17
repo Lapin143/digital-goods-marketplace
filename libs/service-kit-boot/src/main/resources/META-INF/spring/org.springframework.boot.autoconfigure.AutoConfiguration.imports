@@ -5,3 +5,4 @@ dgm.kit.boot.KitMessagingAutoConfiguration
 dgm.kit.boot.KitProbeAutoConfiguration
 dgm.kit.boot.KitRedisAutoConfiguration
 dgm.kit.boot.KitKeycloakAutoConfiguration
+dgm.kit.boot.KitStorageAutoConfiguration

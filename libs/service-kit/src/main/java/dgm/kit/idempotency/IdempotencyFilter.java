@@ -82,7 +82,7 @@ public final class IdempotencyFilter extends OncePerRequestFilter {
         String scope = scope(request);
         CachedBodyRequest cached;
         try {
-            cached = RequestBodies.cached(request, maxBody);
+            cached = RequestBodies.cached(request, RequestBodies.limitFor(request, maxBody));
         } catch (ProblemException e) {
             write(request, response, e);
             return;

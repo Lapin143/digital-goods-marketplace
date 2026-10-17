@@ -84,12 +84,39 @@ public final class StandHttp {
         return send("POST", path, json, headers);
     }
 
+    /** PUT с телом JSON; заголовки парами «имя, значение». */
+    public Response put(String path, String json, String... headers) throws IOException {
+        return send("PUT", path, json, headers);
+    }
+
+    /** DELETE без тела; заголовки парами «имя, значение». */
+    public Response delete(String path, String... headers) throws IOException {
+        return send("DELETE", path, null, headers);
+    }
+
+    /**
+     * Запрос с произвольным методом и телом из байтов (форма multipart/form-data, файл, нестандартный Content-Type).
+     *
+     * @param contentType значение заголовка {@code Content-Type}; {@code null}, если тела нет
+     * @param body        тело или {@code null}
+     * @param headers     заголовки парами «имя, значение»
+     */
+    public Response request(String method, String path, String contentType, byte[] body, String... headers) throws IOException {
+        HttpRequest.BodyPublisher publisher = body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(body);
+        return execute(method, path, publisher, contentType, headers);
+    }
+
     private Response send(String method, String path, String json, String... headers) throws IOException {
         HttpRequest.BodyPublisher body = json == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(json);
+        return execute(method, path, body, json == null ? null : "application/json", headers);
+    }
+
+    private Response execute(String method, String path, HttpRequest.BodyPublisher body, String contentType, String... headers)
+            throws IOException {
         HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("https://localhost:" + port + path)).timeout(Duration.ofSeconds(15))
                 .method(method, body);
-        if (json != null) {
-            request.header("Content-Type", "application/json");
+        if (contentType != null) {
+            request.header("Content-Type", contentType);
         }
         for (int i = 0; i + 1 < headers.length; i += 2) {
             request.header(headers[i], headers[i + 1]);

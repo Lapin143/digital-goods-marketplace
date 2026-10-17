@@ -40,12 +40,13 @@ public final class BodyLimitFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         long limit = limitFor(request);
+        long shown = shownLimit(request, limit);
         if (request.getContentLengthLong() > limit) {
-            write(request, response, RequestBodies.tooLarge(limit));
+            write(request, response, RequestBodies.tooLarge(shown));
             return;
         }
         try {
-            chain.doFilter(new LimitedBodyRequest(request, limit), response);
+            chain.doFilter(new LimitedBodyRequest(request, limit, shown), response);
         } catch (ProblemException e) {
             if (response.isCommitted()) {
                 throw e;
@@ -58,7 +59,12 @@ public final class BodyLimitFilter extends OncePerRequestFilter {
         if (request.getAttribute(JwtFilter.ROUTE_ATTRIBUTE) instanceof RouteRule rule && rule.webhook()) {
             return webhookMaxBody;
         }
-        return maxBody;
+        return RequestBodies.limitFor(request, maxBody);
+    }
+
+    /** Предел, который назван клиенту в сообщении: для формы multipart это предел файла, без запаса на служебные байты. */
+    private long shownLimit(HttpServletRequest request, long limit) {
+        return RequestBodies.isMultipart(request) && limit == maxBody + RequestBodies.MULTIPART_ENVELOPE ? maxBody : limit;
     }
 
     private static void write(HttpServletRequest request, HttpServletResponse response, ProblemException e) throws IOException {
@@ -69,17 +75,19 @@ public final class BodyLimitFilter extends OncePerRequestFilter {
     static final class LimitedBodyRequest extends HttpServletRequestWrapper {
 
         private final long limit;
+        private final long shown;
         private ServletInputStream stream;
 
-        LimitedBodyRequest(HttpServletRequest request, long limit) {
+        LimitedBodyRequest(HttpServletRequest request, long limit, long shown) {
             super(request);
             this.limit = limit;
+            this.shown = shown;
         }
 
         @Override
         public ServletInputStream getInputStream() throws IOException {
             if (stream == null) {
-                stream = new CountingStream(super.getInputStream(), limit);
+                stream = new CountingStream(super.getInputStream(), limit, shown);
             }
             return stream;
         }
@@ -96,18 +104,20 @@ public final class BodyLimitFilter extends OncePerRequestFilter {
 
         private final ServletInputStream delegate;
         private final long limit;
+        private final long shown;
         private long total;
 
-        CountingStream(ServletInputStream delegate, long limit) {
+        CountingStream(ServletInputStream delegate, long limit, long shown) {
             this.delegate = delegate;
             this.limit = limit;
+            this.shown = shown;
         }
 
         private void count(long n) {
             if (n > 0) {
                 total += n;
                 if (total > limit) {
-                    throw RequestBodies.tooLarge(limit);
+                    throw RequestBodies.tooLarge(shown);
                 }
             }
         }

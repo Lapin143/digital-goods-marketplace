@@ -104,6 +104,56 @@ class BodyLimitFilterTest {
     }
 
     @Test
+    void multipartFormGetsRoomForItsEnvelopeButNotForMoreThanThat() throws Exception {
+        // Предел 100 относится к файлу: вокруг него форма добавляет границы и заголовки, и это не должно съедать допустимый размер файла
+        MockHttpServletRequest within = request(ORDINARY, 100 + 200, true);
+        within.setContentType("multipart/form-data; boundary=xyz");
+        MockHttpServletResponse ok = new MockHttpServletResponse();
+        filter.doFilter(within, ok, readingChain());
+        assertEquals(200, ok.getStatus());
+        assertEquals(300, read.get().length());
+
+        MockHttpServletRequest beyond = request(ORDINARY, 100 + (int) RequestBodies.MULTIPART_ENVELOPE + 1, true);
+        beyond.setContentType("multipart/form-data; boundary=xyz");
+        MockHttpServletResponse tooLarge = new MockHttpServletResponse();
+        filter.doFilter(beyond, tooLarge, readingChain());
+        assertEquals(413, tooLarge.getStatus());
+        assertEquals("payload-too-large", code(tooLarge));
+        assertTrue(tooLarge.getContentAsString().contains("100 байт"), "клиенту назван предел файла, а не тела с запасом");
+    }
+
+    @Test
+    void multipartEnvelopeIsCountedWhileReadingToo() throws Exception {
+        MockHttpServletRequest chunked = request(ORDINARY, 100 + (int) RequestBodies.MULTIPART_ENVELOPE + 1, false);
+        chunked.setContentType("Multipart/Form-Data; boundary=xyz");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilter(chunked, response, readingChain());
+        assertEquals(413, response.getStatus());
+        assertNull(read.get());
+    }
+
+    @Test
+    void ordinaryBodyDoesNotGetTheEnvelope() throws Exception {
+        MockHttpServletRequest json = request(ORDINARY, 101, true);
+        json.setContentType("application/json");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilter(json, response, readingChain());
+        assertEquals(413, response.getStatus());
+    }
+
+    @Test
+    void requestBodiesKnowsMultipartAndItsLimit() {
+        MockHttpServletRequest form = request(ORDINARY, 1, true);
+        form.setContentType("multipart/form-data; boundary=b");
+        assertTrue(RequestBodies.isMultipart(form));
+        assertEquals(100 + RequestBodies.MULTIPART_ENVELOPE, RequestBodies.limitFor(form, 100));
+        MockHttpServletRequest plain = request(ORDINARY, 1, true);
+        assertEquals(100, RequestBodies.limitFor(plain, 100));
+        assertEquals(100, RequestBodies.limitFor(new MockHttpServletRequest(), 100), "типа содержимого нет");
+        assertTrue(RequestBodies.fileTooLarge(2L * 1024 * 1024).getMessage().contains("Файл больше допустимых 2 МБ"));
+    }
+
+    @Test
     void limitMustBePositive() {
         assertThrows(IllegalArgumentException.class, () -> new BodyLimitFilter(0, 10));
         assertThrows(IllegalArgumentException.class, () -> new BodyLimitFilter(10, -1));
