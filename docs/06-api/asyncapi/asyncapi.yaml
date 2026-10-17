@@ -512,23 +512,23 @@ operations:
       $ref: '#/channels/catalogEvents'
     messages:
     - $ref: '#/channels/catalogEvents/messages/sellerApproved'
-    summary: Назначить пользователю роль `seller` в Keycloak, включить требование 2FA, записать `user.role-assigned`
+    summary: Назначить пользователю роль `seller` и записать `seller_id`, включить в Keycloak роль, атрибут `seller_id` и требование 2FA, записать `user.role-assigned`
     tags:
     - name: R1
     x-consumer:
       service: platform-service
       handler: seller-role-handler
-      effect: Назначить пользователю роль `seller` в Keycloak, включить требование 2FA, записать `user.role-assigned`
+      effect: Назначить пользователю роль `seller` и записать `seller_id`, включить в Keycloak роль, атрибут `seller_id` и требование 2FA, записать `user.role-assigned`
       release: R1
       idempotency:
         level2: processed_event
         key: (consumer = 'seller-role-handler', event_id)
-        businessGuard: Назначение той же роли повторно безопасно (операция Keycloak идемпотентна), флаг `keycloak_synced`
-          в учётной записи показывает, дошло ли изменение
+        businessGuard: Роль и seller_id уже записаны, повторная доставка ничего не пишет и повторяет идемпотентный вызов Keycloak.
+          Обращение к Keycloak идёт после фиксации транзакции, недоставленное изменение догоняет сверка раз в минуту
       errorHandling:
-        retries: блокирующие, паузы 1, 5, 25 секунд
+        retries: блокирующие, паузы 1, 5, 25 секунд, когда учётной записи пользователя в платформе ещё нет
         deadLetterTopic: catalog.events.dlq
-        onPermanentFailure: В DLQ сразу, без повторов
+        onPermanentFailure: В DLQ сразу, без повторов, если у учётной записи уже другой профиль продавца или в событии нет идентификаторов
       consumerGroup: platform-service
       offsetCommit: после фиксации транзакции базы
   receiveSellerApprovedByPlatformServiceNotificationHandler:
