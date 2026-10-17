@@ -64,7 +64,7 @@ public final class AuditRecords {
      */
     public static Map<String, Object> staffAction(Instant at, UUID actorId, String actorRole, String actorIp, String action, String objectType,
                                                   String objectId, List<Map<String, Object>> changes) {
-        if (!ROLES.contains(actorRole)) {
+        if (actorRole == null || !ROLES.contains(actorRole)) {
             throw new IllegalArgumentException("Роль исполнителя вне схемы события: " + actorRole);
         }
         if (action == null || action.length() > MAX_ACTION || !ACTION.matcher(action).matches()) {
