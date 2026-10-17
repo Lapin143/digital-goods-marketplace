@@ -7,6 +7,7 @@ import dgm.kit.route.RouteRule;
 import dgm.kit.security.AccessRules;
 import dgm.kit.security.AuthenticatedUser;
 import dgm.kit.trace.TraceContext;
+import dgm.kit.web.BodyLimits;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -136,9 +137,11 @@ public final class EntryFilter implements WebFilter, Ordered {
             return reject(exchange, trace, ProblemType.NOT_FOUND, "Такого маршрута нет.", Map.of(), "not_found");
         }
         RouteTable.Target target = found.get();
-        long limit = (target.kind() == RouteTable.Kind.WEBHOOK ? properties.getWebhookMaxBody() : properties.getMaxBody()).toBytes();
+        long base = (target.kind() == RouteTable.Kind.WEBHOOK ? properties.getWebhookMaxBody() : properties.getMaxBody()).toBytes();
+        // Предел относится к файлу: у формы multipart вокруг файла есть границы и заголовки, их размер сверх предела не считается
+        long limit = target.kind() != RouteTable.Kind.WEBHOOK ? BodyLimits.limitFor(headers.getFirst(HttpHeaders.CONTENT_TYPE), base) : base;
         if (headers.getContentLength() > limit) {
-            return reject(exchange, trace, ProblemType.PAYLOAD_TOO_LARGE, "Тело запроса больше допустимого (" + limit + " байт).", Map.of(),
+            return reject(exchange, trace, ProblemType.PAYLOAD_TOO_LARGE, "Тело запроса больше допустимого (" + base + " байт).", Map.of(),
                     "payload_too_large");
         }
         exchange.getAttributes().put(TARGET, target);
@@ -229,9 +232,16 @@ public final class EntryFilter implements WebFilter, Ordered {
      * {@code trusted-proxies}): он видит уже очищенный запрос, поэтому клиентским значениям не верит никто.
      */
     private static Mono<Void> forward(ServerWebExchange exchange, WebFilterChain chain, TraceContext trace) {
+        boolean toStorage = exchange.getAttributes().get(TARGET) instanceof RouteTable.Target target && "object-storage".equals(target.service());
         ServerHttpRequest sanitized = exchange.getRequest().mutate().headers(h -> {
             for (String name : NOT_FROM_CLIENT) {
                 h.remove(name);
+            }
+            if (toStorage) {
+                // Хранилищу нужна только подпись в адресе. Токен и куки пользователя ему не принадлежат, а заголовок Authorization
+                // вместе с подписью в адресе хранилище отвергает как два способа входа сразу
+                h.remove(HttpHeaders.AUTHORIZATION);
+                h.remove(HttpHeaders.COOKIE);
             }
             h.set(TRACEPARENT, trace.traceparent());
             h.set(CORRELATION_ID, trace.correlationId());
@@ -270,8 +280,22 @@ public final class EntryFilter implements WebFilter, Ordered {
             setIfAbsent(h, "X-Content-Type-Options", "nosniff");
             setIfAbsent(h, "X-Frame-Options", "DENY");
             setIfAbsent(h, "Referrer-Policy", "no-referrer");
+            if (exchange.getAttributes().get(TARGET) instanceof RouteTable.Target target && "object-storage".equals(target.service())) {
+                downloadHeaders(h);
+            }
             return Mono.empty();
         });
+    }
+
+    /**
+     * Документ продавца это чужой файл, и открывать его в браузере нельзя (T-36, Р-23): только скачивание, без исполнения содержимого
+     * и без встраивания в страницы. Заголовки ставятся всегда, а не «если нет»: значение хранилища им не равнозначно.
+     */
+    private static void downloadHeaders(HttpHeaders h) {
+        h.set(HttpHeaders.CONTENT_DISPOSITION, "attachment");
+        h.set("Content-Security-Policy", "default-src 'none'; sandbox");
+        h.set(HttpHeaders.CACHE_CONTROL, "private, no-store");
+        h.set("Cross-Origin-Resource-Policy", "same-origin");
     }
 
     private static void setIfAbsent(HttpHeaders headers, String name, String value) {

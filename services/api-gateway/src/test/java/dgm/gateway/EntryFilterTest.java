@@ -224,12 +224,60 @@ class EntryFilterTest {
     }
 
     @Test
+    void documentFormGetsRoomForItsEnvelopeButOnlyForMultipart() {
+        String bearer = "Bearer " + tokens.token().scopes("seller.apply").build();
+        long limit = 2L * 1024 * 1024;
+        String form = "multipart/form-data; boundary=----b";
+        String upload = "/api/v1/seller-applications/current/documents";
+
+        Result fileOfTwoMegabytes = run(MockServerHttpRequest.post(upload).header("Authorization", bearer).header("Content-Type", form)
+                .header("Content-Length", String.valueOf(limit + 400)).build());
+        assertTrue(fileOfTwoMegabytes.passed(), "файл в 2 МБ вместе с границами формы проходит");
+
+        Result beyondEnvelope = run(MockServerHttpRequest.post(upload).header("Authorization", bearer).header("Content-Type", form)
+                .header("Content-Length", String.valueOf(limit + 16 * 1024 + 1)).build());
+        assertEquals(413, beyondEnvelope.status());
+        assertEquals("payload-too-large", beyondEnvelope.code());
+        assertTrue(beyondEnvelope.body().contains("(" + limit + " байт)"), "клиенту назван предел файла: " + beyondEnvelope.body());
+
+        Result notAForm = run(MockServerHttpRequest.post(upload).header("Authorization", bearer).header("Content-Type", "application/pdf")
+                .header("Content-Length", String.valueOf(limit + 400)).build());
+        assertEquals(413, notAForm.status(), "запас есть только у формы");
+    }
+
+    @Test
     void webhookBodyIsLimitedToSixtyFourKilobytes() {
         Result tooBig = run(MockServerHttpRequest.post("/api/v1/webhooks/payment-gateway").header("Content-Length", "65537").build());
         assertEquals(413, tooBig.status());
         Result fine = run(MockServerHttpRequest.post("/api/v1/webhooks/payment-gateway").header("Content-Length", "65536").build());
         assertTrue(fine.passed());
         assertEquals(RouteTable.Kind.WEBHOOK, ((RouteTable.Target) fine.forwarded().getAttribute(EntryFilter.TARGET)).kind());
+    }
+
+    // ---------------------------------------------------------------------------------------------------- документы из хранилища (Р-23)
+
+    @Test
+    void storedDocumentsAreAlwaysDownloadsNeverPages() {
+        Result r = run(MockServerHttpRequest.get("/files/seller-documents/0199e0a0-0000-7000-8000-000000000101/0199e0a0-0000-7000-8000-000000000901")
+                .header("Authorization", "Bearer user-token").header("Cookie", "a=b").build());
+        assertTrue(r.passed());
+        assertNull(r.forwardedHeader("Authorization"), "токен пользователя хранилищу не передаётся");
+        assertNull(r.forwardedHeader("Cookie"));
+        assertEquals("object-storage", ((RouteTable.Target) r.forwarded().getAttribute(EntryFilter.TARGET)).service());
+        assertEquals("attachment", r.header("Content-Disposition"));
+        assertEquals("default-src 'none'; sandbox", r.header("Content-Security-Policy"));
+        assertEquals("private, no-store", r.header("Cache-Control"));
+        assertEquals("nosniff", r.header("X-Content-Type-Options"));
+        assertEquals("same-origin", r.header("Cross-Origin-Resource-Policy"));
+    }
+
+    @Test
+    void ordinaryResponsesDoNotGetDownloadHeaders() {
+        Result r = run(MockServerHttpRequest.get("/api/v1/products").build());
+        assertTrue(r.passed());
+        assertNull(r.header("Content-Disposition"));
+        assertNull(r.header("Content-Security-Policy"));
+        assertEquals("nosniff", r.header("X-Content-Type-Options"));
     }
 
     // ---------------------------------------------------------------------------------------------------- токен (ST-03)

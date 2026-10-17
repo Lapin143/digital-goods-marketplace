@@ -49,6 +49,12 @@ class GatewayConfiguration {
     /** Имя пакета сертификатов (spring.ssl.bundle.pem.dgm): сертификат и ключ шлюза, центр сертификации стенда. */
     static final String BUNDLE = "dgm";
 
+    /** Получатель маршрута {@code /files}: объектное хранилище документов продавцов. */
+    static final String STORAGE = "object-storage";
+
+    /** Путь вида {@code /files/seller-documents/ключ} без префикса; строка запроса с подписью остаётся как есть. */
+    static final String FILES_PREFIX = "/files(?<segment>/?.*)";
+
     @Bean
     RouteTable routeTable(GatewayProperties properties) {
         return RouteTable.fromClasspath("dgm/gateway-routes.json", properties.getUpstreams().keySet());
@@ -63,11 +69,21 @@ class GatewayConfiguration {
     RouteLocator dgmRoutes(RouteLocatorBuilder builder, GatewayProperties properties) {
         RouteLocatorBuilder.Builder routes = builder.routes();
         properties.getUpstreams().forEach((service, uri) -> {
-            boolean keepHost = service.equals("keycloak") || service.equals("object-storage");
+            boolean keepHost = service.equals("keycloak") || service.equals(STORAGE);
             routes.route(service, r -> r.predicate(exchange -> {
                 RouteTable.Target target = exchange.getAttribute(EntryFilter.TARGET);
                 return target != null && target.service().equals(service);
-            }).filters(f -> keepHost ? f.preserveHostHeader() : f).uri(uri));
+            }).filters(f -> {
+                if (keepHost) {
+                    f.preserveHostHeader();
+                }
+                if (service.equals(STORAGE)) {
+                    // Снаружи документы лежат под /files, а в хранилище путь начинается с имени бакета. Подпись ссылки считается
+                    // для пути без префикса и для того Host, под которым ссылку открыли, поэтому префикс срезается, а Host остаётся
+                    f.rewritePath(FILES_PREFIX, "${segment}");
+                }
+                return f;
+            }).uri(uri));
         });
         return routes.build();
     }

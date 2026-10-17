@@ -53,6 +53,7 @@ class GatewayProxyTest {
     private static final int GATEWAY_PORT = freePort();
     private static final Upstream CATALOG = Upstream.start();
     private static final Upstream ORDERS = Upstream.start();
+    private static final Upstream STORAGE = Upstream.start();
     private static final int DEAD_PORT = freePort();     // порт, на котором никто не слушает: «сервис не запущен»
     private static final TestLimiter LIMITER = new TestLimiter();
 
@@ -63,6 +64,7 @@ class GatewayProxyTest {
         registry.add("server.port", () -> GATEWAY_PORT);
         registry.add("dgm.gateway.upstreams.catalog-service", () -> "http://localhost:" + CATALOG.port());
         registry.add("dgm.gateway.upstreams.order-service", () -> "http://localhost:" + ORDERS.port());
+        registry.add("dgm.gateway.upstreams.object-storage", () -> "http://localhost:" + STORAGE.port());
         registry.add("dgm.gateway.upstreams.platform-service", () -> "http://localhost:" + DEAD_PORT);
         registry.add("dgm.security.jwt.issuer", () -> TestTokens.ISSUER);
         registry.add("dgm.security.jwt.jwks-uri", () -> "http://localhost:9/unused");
@@ -93,6 +95,7 @@ class GatewayProxyTest {
     void reset() {
         CATALOG.seen.clear();
         ORDERS.seen.clear();
+        STORAGE.seen.clear();
         LIMITER.next = RequestLimiter.Decision.allow();
     }
 
@@ -100,6 +103,7 @@ class GatewayProxyTest {
     static void stop() {
         CATALOG.close();
         ORDERS.close();
+        STORAGE.close();
     }
 
     // ---------------------------------------------------------------------------------------------------- заглушки
@@ -137,6 +141,11 @@ class GatewayProxyTest {
                     byte[] body = "{\"ok\":true}".getBytes(StandardCharsets.UTF_8);
                     exchange.getResponseHeaders().add("Content-Type", "application/json");
                     exchange.getResponseHeaders().add("ETag", "\"v1\"");
+                    if (exchange.getRequestURI().getPath().startsWith("/seller-documents/")) {
+                        // Хранилище отдаёт файл как есть: без запрета открытия в браузере и с разрешённым кэшем
+                        exchange.getResponseHeaders().add("Content-Disposition", "inline");
+                        exchange.getResponseHeaders().add("Cache-Control", "public, max-age=3600");
+                    }
                     exchange.sendResponseHeaders(200, body.length);
                     try (OutputStream out = exchange.getResponseBody()) {
                         out.write(body);
@@ -208,6 +217,38 @@ class GatewayProxyTest {
         String forwardedHost = seen.headers().getFirst("X-Forwarded-Host");
         assertNotNull(forwardedHost, "имя исходного запроса для Keycloak: " + seen.headers());
         assertTrue(forwardedHost.startsWith("localhost"), "имя из заголовка Host клиента: " + forwardedHost);
+    }
+
+    @Test
+    void documentLinkIsProxiedToTheStorageWithoutPrefixAndWithTheSameHost() throws Exception {
+        String path = "/files/seller-documents/0199e0a0-0000-7000-8000-000000000101/0199e0a0-0000-7000-8000-000000000901";
+        String query = "X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=catalog-service%2F20261011%2Fus-east-1%2Fs3%2Faws4_request"
+                + "&X-Amz-Date=20261011T100000Z&X-Amz-Expires=300&X-Amz-SignedHeaders=host&X-Amz-Signature=abc123";
+        HttpResponse<String> response = call("GET", path + "?" + query, "Authorization", "Bearer must-not-reach-the-storage", "Cookie", "session=secret");
+
+        assertEquals(200, response.statusCode());
+        assertEquals(1, STORAGE.seen.size());
+        Upstream.Seen seen = STORAGE.seen.get(0);
+        assertEquals("/seller-documents/0199e0a0-0000-7000-8000-000000000101/0199e0a0-0000-7000-8000-000000000901?" + query, seen.uri(),
+                "префикс /files срезан, подписанная строка запроса не изменена");
+        assertEquals("localhost:" + GATEWAY_PORT, seen.headers().getFirst("Host"), "Host остаётся тем, под которым подписана ссылка");
+        assertNull(seen.headers().getFirst("Authorization"), "токен пользователя хранилищу не передаётся");
+        assertNull(seen.headers().getFirst("Cookie"), "куки пользователя хранилищу не передаются");
+        assertTrue(CATALOG.seen.isEmpty());
+        assertTrue(ORDERS.seen.isEmpty());
+
+        assertEquals("attachment", response.headers().firstValue("Content-Disposition").orElse(null), "заголовок хранилища заменён");
+        assertEquals("default-src 'none'; sandbox", response.headers().firstValue("Content-Security-Policy").orElse(null));
+        assertEquals("private, no-store", response.headers().firstValue("Cache-Control").orElse(null));
+        assertEquals("nosniff", response.headers().firstValue("X-Content-Type-Options").orElse(null));
+    }
+
+    @Test
+    void storageIsReadOnlyAndOnlyUnderFiles() throws Exception {
+        assertEquals(404, call("PUT", "/files/seller-documents/a/b").statusCode());
+        assertEquals(404, call("DELETE", "/files/seller-documents/a/b").statusCode());
+        assertEquals(404, call("GET", "/seller-documents/a/b").statusCode());
+        assertTrue(STORAGE.seen.isEmpty(), "запись и обход префикса до хранилища не доходят");
     }
 
     @Test
