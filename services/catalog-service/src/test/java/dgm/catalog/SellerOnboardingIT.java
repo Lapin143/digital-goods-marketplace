@@ -54,7 +54,7 @@ class SellerOnboardingIT extends CatalogStandIT {
 
     private static final String BASE = "/api/v1/seller-applications";
     private static final String CURRENT = BASE + "/current";
-    private static final String FORM = """
+    static final String FORM = """
             {"sellerType":"self_employed","name":"Студия «Лунный свет»",
              "payoutDetails":{"recipientName":"Иванов Иван Иванович","bankName":"Банк «Пример»","bik":"044525000","accountNumber":"40817810000000000001"},
              "assortmentDescription":"Ключи к инди-играм для Steam"}""";
@@ -137,7 +137,7 @@ class SellerOnboardingIT extends CatalogStandIT {
         return (String) doc.json().get("documentId");
     }
 
-    private static byte[] pdf(int size) {
+    static byte[] pdf(int size) {
         return content("%PDF-1.7\n".getBytes(StandardCharsets.US_ASCII), size);
     }
 
@@ -682,14 +682,14 @@ class SellerOnboardingIT extends CatalogStandIT {
     }
 
     /** Ответ хранилища на запрос по ссылке. */
-    private record Fetched(int status, Map<String, String> headers, byte[] body) {
+    record Fetched(int status, Map<String, String> headers, byte[] body) {
 
         String header(String name) {
             return headers.get(name.toLowerCase(java.util.Locale.ROOT));
         }
     }
 
-    private static Fetched fetch(String url) throws IOException {
+    static Fetched fetch(String url) throws IOException {
         return fetch(url, URI.create(url).getAuthority());
     }
 
