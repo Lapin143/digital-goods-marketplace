@@ -90,22 +90,35 @@ echo "== Содержимое"
 HEAD_OUT=$(gw_curl -D - -o /tmp/web_index.html "$WEB/")
 header() { grep -i "^$1:" <<<"$HEAD_OUT" | head -n 1 | tr -d '\r' | cut -d: -f2- | sed 's/^ *//'; }
 check "страница: text/html с кодировкой UTF-8" test "$(header Content-Type)" = "text/html; charset=utf-8"
-page_ok() { grep -q 'Маркетплейс цифровых товаров' /tmp/web_index.html && grep -q 'href="/api/v1/products"' /tmp/web_index.html; }
-check "на странице название и ссылка на витрину /api/v1/products" page_ok
+page_ok() { grep -q '<title>Маркетплейс цифровых товаров</title>' /tmp/web_index.html && grep -q 'id="root"' /tmp/web_index.html; }
+check "на странице название и точка входа приложения React (#root)" page_ok
+JS_FILE=$(grep -o '/assets/[^"]*\.js' /tmp/web_index.html | head -n 1)
+CSS_FILE=$(grep -o '/assets/[^"]*\.css' /tmp/web_index.html | head -n 1)
+check "на странице один скрипт и один файл стилей из /assets/ (имена с хешем)" test -n "$JS_FILE" -a -n "$CSS_FILE"
+no_inline() { ! grep -Eq '<script[^>]*>[^<]+</script>|<style|style="' /tmp/web_index.html; }
+check "в странице нет встроенных скриптов и стилей (политика содержимого их не пустит)" no_inline
 csp_ok() { header Content-Security-Policy | grep -q "default-src 'none'" && header Content-Security-Policy | grep -q "frame-ancestors 'none'"; }
 check "строгая политика содержимого (CSP)" csp_ok
+csp_strict() { ! header Content-Security-Policy | grep -Eq "unsafe-(inline|eval)"; }
+check "в политике содержимого нет unsafe-inline и unsafe-eval" csp_strict
 check "X-Content-Type-Options: nosniff" test "$(header X-Content-Type-Options)" = nosniff
 check "X-Frame-Options: DENY" test "$(header X-Frame-Options)" = DENY
 check "Referrer-Policy: no-referrer" test "$(header Referrer-Policy)" = no-referrer
 check "страница не кэшируется (Cache-Control: no-cache)" test "$(header Cache-Control)" = no-cache
 check "версия nginx в заголовке Server не раскрывается" test "$(header Server)" = nginx
 type_of() { gw_curl -o /dev/null -w '%{content_type}' "$WEB/$1"; }
-css_ok() { type_of styles.css | grep -Eq '^text/css(;|$)'; }
-check "styles.css: text/css" css_ok
-js_ok() { type_of status.js | grep -Eq '^(text|application)/javascript'; }
-check "status.js: javascript" js_ok
+css_ok() { type_of "${CSS_FILE#/}" | grep -Eq '^text/css(;|$)'; }
+check "файл стилей: text/css" css_ok
+js_ok() { type_of "${JS_FILE#/}" | grep -Eq '^(text|application)/javascript'; }
+check "скрипт приложения: javascript" js_ok
 check "favicon.svg: image/svg+xml" test "$(type_of favicon.svg)" = "image/svg+xml"
-check "файлы кэшируются на час (Cache-Control: public, max-age=3600)" test "$(gw_curl -D - -o /dev/null "$WEB/styles.css" | tr -d '\r' | grep -i '^cache-control:' | cut -d: -f2- | sed 's/^ *//')" = "public, max-age=3600"
+cache_of() { gw_curl -D - -o /dev/null "$WEB/$1" | tr -d '\r' | grep -i '^cache-control:' | cut -d: -f2- | sed 's/^ *//'; }
+check "файлы с хешем в имени кэшируются на год (public, max-age=31536000, immutable)" test "$(cache_of "${JS_FILE#/}")" = "public, max-age=31536000, immutable"
+check "остальные файлы кэшируются на час (Cache-Control: public, max-age=3600)" test "$(cache_of favicon.svg)" = "public, max-age=3600"
+spa_ok() { local c; c=$(gw_curl -o /tmp/web_spa.html -w '%{http_code} %{content_type}' "$WEB/seller/products"); [ "$c" = "200 text/html; charset=utf-8" ] && grep -q 'id="root"' /tmp/web_spa.html; }
+check "адрес клиентского маршрутизатора (/seller/products) отдаёт страницу приложения" spa_ok
+check "адрес клиентского маршрутизатора не кэшируется (no-cache)" test "$(cache_of seller/products)" = no-cache
+check "пропавший файл /assets/: 404, а не страница" test "$(gw_curl -o /dev/null -w '%{http_code}' "$WEB/assets/no-such.js")" = 404
 check "HEAD /: 200" test "$(gw_curl -I -o /dev/null -w '%{http_code}' "$WEB/")" = 200
 check "POST /: 405" test "$(gw_curl -X POST -d x=1 -o /dev/null -w '%{http_code}' "$WEB/")" = 405
 check "DELETE /: 405" test "$(gw_curl -X DELETE -o /dev/null -w '%{http_code}' "$WEB/")" = 405

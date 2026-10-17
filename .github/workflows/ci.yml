@@ -739,7 +739,7 @@ jobs:
   # только у этого задания. Образы получают теги: короткий хеш коммита и main.
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [docs, build, kit, services, gateway, stand, e2e, obs, scan, images, infra, storage, stubs, keycloak, pki, security]
+    needs: [docs, build, web, kit, services, gateway, stand, e2e, obs, scan, images, infra, storage, stubs, keycloak, pki, security]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -779,6 +779,68 @@ jobs:
             echo "опубликован ghcr.io/$owner/$repo/$s:${GITHUB_SHA::12}"
           done
           echo "::notice title=GHCR::образы сервисов опубликованы: ghcr.io/$owner/$repo/<сервис>:${GITHUB_SHA::12} и :main"
+
+  # Веб-интерфейс (шаг 16 Ф4): зависимости строго по package-lock.json, типы из OpenAPI, ESLint (русских текстов в коде нет, NFT-7.0), tsc, Vitest,
+  # сборка Vite и размер пакета. Первый запуск без lock-файла падает на установке и выдаёт новый lock-файл в аннотациях (tools/ci/web_install.sh).
+  # Образ web-app собирают задания стенда (Compose, docker/Dockerfile.web).
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Версии Node и npm
+        run: node --version && npm --version
+
+      - name: Зависимости (npm ci по package-lock.json)
+        env:
+          DIAG_TAIL: "30"
+        run: tools/ci/diag.sh "npm ci" tools/ci/web_install.sh
+
+      - name: Типы из OpenAPI
+        env:
+          DIAG_TAIL: "30"
+        run: tools/ci/diag.sh "Типы из OpenAPI" npm --prefix frontend/web-app run gen:api
+
+      - name: ESLint
+        env:
+          DIAG_FILTER: '^/|  error  |  warning  |problems'
+          DIAG_MAX: "40"
+          DIAG_TAIL: "5"
+        run: tools/ci/diag.sh "ESLint" npm --prefix frontend/web-app run lint
+
+      - name: Правило «русских текстов в коде нет» краснеет от намеренной ошибки
+        env:
+          DIAG_TAIL: "40"
+        run: tools/ci/diag.sh "Контроль правила ESLint" tools/ci/web_lint_probe.sh
+
+      - name: Проверка типов (tsc)
+        env:
+          DIAG_FILTER: 'error TS'
+          DIAG_MAX: "40"
+          DIAG_TAIL: "5"
+        run: tools/ci/diag.sh "tsc" npm --prefix frontend/web-app run typecheck
+
+      - name: Тесты (Vitest)
+        env:
+          DIAG_FILTER: 'FAIL|Error|expected|Expected|Received|Test Files|Tests '
+          DIAG_MAX: "40"
+          DIAG_TAIL: "15"
+        run: tools/ci/diag.sh "Vitest" npm --prefix frontend/web-app test
+
+      - name: Сборка (Vite)
+        env:
+          DIAG_TAIL: "30"
+        run: tools/ci/diag.sh "Сборка Vite" npm --prefix frontend/web-app run build
+
+      - name: Размер собранного пакета
+        run: tools/ci/diag.sh "Размер пакета" npm --prefix frontend/web-app run size
 
   images:
     runs-on: ubuntu-24.04

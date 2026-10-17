@@ -1,20 +1,35 @@
 # syntax=docker/dockerfile:1
-# Образ веб-интерфейса (frontend/web-app): nginx и статические файлы. Внешних пакетов нет. Сборка из корня репозитория:
+# Образ веб-интерфейса (frontend/web-app), два этапа. Сборка из корня репозитория:
 #   docker build -f docker/Dockerfile.web -t dgm/web-app:dev .
-# Версия nginx берётся из docs/09-operations/versions.md; тот же тег записан в аргументе NGINX_IMAGE в compose.yaml и Makefile,
+# 1) build: Node собирает React-приложение (npm ci по package-lock.json, vite build). Типы из OpenAPI, линтер и тесты в образ не входят:
+#    их запускает задание web в CI (npm run check), образ только собирает статику.
+# 2) итоговый образ: nginx и готовые файлы из dist, без Node и без пакетов.
+# Версии берутся из docs/09-operations/versions.md; те же теги записаны в аргументах NODE_IMAGE и NGINX_IMAGE в compose.yaml и Makefile,
 # совпадение сверяет tools/docs-checks/check_compose.py.
+ARG NODE_IMAGE=node:24.21.0-alpine3.24
 ARG NGINX_IMAGE=nginx:1.30.5-alpine3.24
+
+FROM ${NODE_IMAGE} AS build
+WORKDIR /src/frontend/web-app
+# Сначала описание зависимостей: слой с node_modules переиспользуется, пока package-lock.json не изменился
+COPY frontend/web-app/package.json frontend/web-app/package-lock.json ./
+RUN npm ci --ignore-scripts --no-audit --no-fund
+COPY frontend/web-app/index.html frontend/web-app/tsconfig.json frontend/web-app/vite.config.ts ./
+COPY frontend/web-app/public/ ./public/
+COPY frontend/web-app/src/ ./src/
+RUN npx vite build
+
 FROM ${NGINX_IMAGE}
 ARG NGINX_IMAGE
 LABEL org.opencontainers.image.title="web-app" \
-      org.opencontainers.image.description="Веб-интерфейс стенда: заглушка Ф3 на nginx, настоящий интерфейс React в Ф4" \
+      org.opencontainers.image.description="Веб-интерфейс маркетплейса: React, статика на nginx" \
       org.opencontainers.image.source="https://github.com/Lapin143/digital-goods-marketplace" \
       org.opencontainers.image.base.name="${NGINX_IMAGE}"
 
 # Скрипты запуска базового образа и его конфигурация по умолчанию не нужны: они правят файлы под root и пишут строки не в формате JSON
 RUN rm -rf /docker-entrypoint.sh /docker-entrypoint.d /etc/nginx/conf.d /usr/share/nginx/html/*
 COPY frontend/web-app/nginx.conf /etc/nginx/nginx.conf
-COPY frontend/web-app/public/ /usr/share/nginx/html/
+COPY --from=build /src/frontend/web-app/dist/ /usr/share/nginx/html/
 RUN chmod -R a+rX /etc/nginx /usr/share/nginx/html
 
 # Пользователь 10001, как у сервисов. Корневая файловая система в Compose только для чтения, запись в /tmp (tmpfs).

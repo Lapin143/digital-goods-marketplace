@@ -1,0 +1,15 @@
+.panel {
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  margin-bottom: var(--space-3);
+}
+
+.error {
+  border-color: var(--color-danger);
+}
+
+.panel p:last-child {
+  margin-bottom: 0;
+}
