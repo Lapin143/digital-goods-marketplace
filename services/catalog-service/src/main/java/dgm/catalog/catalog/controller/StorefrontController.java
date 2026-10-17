@@ -32,7 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class StorefrontController {
 
-    static final MediaType JSON = new MediaType("application", "json", StandardCharsets.UTF_8);
+    public static final MediaType JSON = new MediaType("application", "json", StandardCharsets.UTF_8);
     private static final Set<String> PRODUCT_TYPES = Set.of("game_key", "software_license", "gift_card", "subscription");
     private static final Pattern COUNTRY = Pattern.compile("^[A-Z]{2}$");
 

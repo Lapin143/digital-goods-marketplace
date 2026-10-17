@@ -19,17 +19,17 @@ getSellerApplicationCard       done
 approveSellerApplication       done
 rejectSellerApplication        done
 returnSellerApplication        done
+archiveSellerProduct           done
+createSellerProduct            done
+getSellerProduct               done
+listSellerProducts             done
+replaceSellerProduct           done
+restoreSellerProduct           done
+submitSellerProduct            done
 
 approveProduct                 slice1
-archiveSellerProduct           slice1
 blockProduct                   slice1
-createSellerProduct            slice1
 getProductForModeration        slice1
-getSellerProduct               slice1
 getStorefrontProduct           slice1
 listProductModerationQueue     slice1
-listSellerProducts             slice1
 rejectProduct                  slice1
-replaceSellerProduct           slice1
-restoreSellerProduct           slice1
-submitSellerProduct            slice1
