@@ -203,7 +203,7 @@ sellers-check: ## Проверить заявку продавца сквозь 
 	$(KC_ENV) python3 tools/stand-checks/sellers_checks.py
 
 .PHONY: seller-approval-check
-seller-approval-check: ## Проверить решения модератора и роль продавца сквозь стенд: отказ и пауза, доработка, одобрение, роль и TOTP в Keycloak, токен с seller_id, запрет кабинета без второго фактора, аудит (набор full, DEBUG=1, make keycloak-users)
+seller-approval-check: ## Проверить решения модератора и роль продавца сквозь стенд: отказ и пауза, доработка, одобрение, роль и TOTP в Keycloak, токен с seller_id, запрет кабинета без второго фактора, роль вручную не назначается (набор full, DEBUG=1, make keycloak-users)
 	$(KC_ENV) python3 tools/stand-checks/seller_approval_checks.py
 
 .PHONY: gateway-check

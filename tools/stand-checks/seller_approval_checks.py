@@ -6,7 +6,7 @@
 
 Нужен набор full (платформа, Keycloak, шлюз, каталог, Kafka) с отладочным файлом: make up SET=full DEBUG=1, затем make keycloak-users.
 Заявки подают два одноразовых покупателя, которых проверка регистрирует через страницу регистрации; решает moderator-1 настоящим входом
-с TOTP, журнал смотрит admin-1. Что проверяется:
+с TOTP, роли смотрит admin-1. Что проверяется:
 
   очередь       заявка на проверке видна модератору, карточка даёт анкету и ссылку на документ, ссылка открывается через /files шлюза;
   отказ         без причины 422, с причиной 200, повтор решения 409, заявитель видит причину и срок новой заявки, раньше срока подать нельзя;
@@ -14,11 +14,12 @@
   одобрение     платформа по событию seller.approved ставит роль seller вместо buyer, атрибут seller_id и обязательную настройку TOTP;
   вход          после пароля Keycloak ведёт на настройку TOTP, первый токен (amr = pwd) кабинет не открывает (ST-13), токен после входа
                 с кодом (amr = pwd и otp) открывает и несёт claim seller_id;
-  роль вручную  администратор не может ни назначить роль seller, ни снять её (U8, INV-36);
-  аудит         администратор видит решения модератора и назначение роли системой (INV-43).
+  роль вручную  администратор не может ни назначить роль seller, ни снять её (U8, INV-36).
 
-Обязательность второго фактора у продавца без устройства (seller-2) проверяет keycloak_checks.py, границы срока рассмотрения и откат
-решения при сбое записи проверяет SellerModerationIT. Только стандартная библиотека Python.
+Обязательность второго фактора у продавца без устройства (seller-2) проверяет keycloak_checks.py, границы срока рассмотрения, откат
+решения при сбое записи и запись аудита в Outbox (одно событие решения и одна запись аудита) проверяет SellerModerationIT, роль и
+аудит на стороне платформы PlatformServiceIT: журнал аудита и операция чтения журнала появятся позже (listAuditRecords). Только стандартная
+библиотека Python.
 """
 import os
 import sys
@@ -37,7 +38,6 @@ import sms_login_checks as S  # noqa: E402
 expect = G.expect
 QUEUE = '/api/v1/staff/seller-applications'
 CABINET = '/api/v1/seller/products'
-ZERO_UUID = '00000000-0000-0000-0000-000000000000'
 
 
 # --------------------------------------------------------------------------------------------------- вспомогательное
@@ -55,9 +55,6 @@ class Staff:
             self.value = token or self.value
             self.issued = time.time()
         return self.value
-
-    def subject(self):
-        return K.decode_jwt(self.token())[1]['sub']
 
 
 def applicant(kc, admin, stamp, tag):
@@ -112,12 +109,6 @@ def keycloak_is_seller(admin, user_id, seller_id):
     roles = A.realm_roles(admin, user_id)
     return ('seller' in roles and 'buyer' not in roles and (rep.get('attributes') or {}).get('seller_id') == [seller_id]
             and 'CONFIGURE_TOTP' in (rep.get('requiredActions') or []))
-
-
-def audit_records(administrator, object_type, object_id):
-    r = G.call('GET', '/api/v1/staff/audit-records?objectType=%s&objectId=%s&limit=50' % (object_type, urllib.parse.quote(object_id)),
-               headers=SC.auth(administrator.token()))
-    return r.json().get('items') or [] if r.status == 200 else []
 
 
 # --------------------------------------------------------------------------------------------------- проверки
@@ -245,26 +236,6 @@ def manual_role_checks(admin_user, buyer_seller, buyer_rejected):
     expect('отклонённый заявитель остаётся покупателем', len(items) == 1 and items[0].get('role') == 'buyer', '%s %s' % (rejected.status, rejected.text[:300]))
 
 
-def audit_checks(admin_user, moderator, buyer_seller, buyer_rejected):
-    print('== Журнал аудита: решения модератора и назначение роли системой (INV-43)')
-    mod_id = moderator.subject()
-
-    def decisions():
-        records = audit_records(admin_user, 'seller', buyer_seller['sellerId'])
-        return sorted(r.get('action') for r in records) == ['seller.approved', 'seller.returned'] and records
-
-    records = A.eventually(decisions, wait=45) or audit_records(admin_user, 'seller', buyer_seller['sellerId'])
-    expect('аудит заявки одобренного продавца: «доработка» и «одобрение» от модератора', sorted(r.get('action') for r in records) == ['seller.approved', 'seller.returned']
-           and all(r.get('actorRole') == 'moderator' and r.get('actorId') == mod_id for r in records), str(records)[:300])
-    rejected = A.eventually(lambda: audit_records(admin_user, 'seller', buyer_rejected['sellerId']), wait=30)
-    expect('аудит отказа: действие seller.rejected, причина в изменениях', len(rejected) == 1 and rejected[0].get('action') == 'seller.rejected'
-           and 'decisionReason' in str(rejected[0].get('changes')), str(rejected)[:300])
-
-    role = A.eventually(lambda: audit_records(admin_user, 'user', buyer_seller['id']), wait=45)
-    expect('аудит роли: назначение seller записала система (нулевой исполнитель), не человек',
-           any(r.get('action') == 'user.role_assigned' and r.get('actorRole') == 'system' and r.get('actorId') == ZERO_UUID for r in role), str(role)[:300])
-
-
 def main():
     kc, admin = K.from_env(dict(os.environ))
     people = G.users()
@@ -284,7 +255,6 @@ def main():
         if rework_and_approval(moderator, for_approval, admin):
             first_login_and_cabinet(kc, for_approval)
             manual_role_checks(administrator, for_approval, for_rejection)
-            audit_checks(administrator, moderator, for_approval, for_rejection)
     print('\nПроверок успешно: %d, с ошибками: %d' % (G.PASSED, len(G.FAILED)))
     for name in G.FAILED:
         print('  - %s' % name)
