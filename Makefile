@@ -198,6 +198,10 @@ sms-login-check: ## Проверить вход по SMS на настоящей
 accounts-check: ## Проверить учётные записи сквозь стенд: вход, VK ID, жизненный цикл записи сотрудника, второй фактор, внутренние операции (набор full, DEBUG=1, make keycloak-users)
 	$(KC_ENV) python3 tools/stand-checks/accounts_checks.py
 
+.PHONY: sellers-check
+sellers-check: ## Проверить заявку продавца сквозь стенд: черновик, ETag, документы, ссылка через /files шлюза, заголовки «только скачать», подача (набор full, DEBUG=1, make keycloak-users)
+	$(KC_ENV) python3 tools/stand-checks/sellers_checks.py
+
 .PHONY: gateway-check
 gateway-check: ## Проверить шлюз: маршруты, токены Keycloak, лимиты, отказ открытым (подняты dev-auth и dev-purchase с DEBUG=1, make keycloak-users)
 	$(KC_ENV) tools/stand-checks/gateway_checks.sh

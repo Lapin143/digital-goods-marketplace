@@ -528,10 +528,18 @@ jobs:
           DIAG_TAIL: "60"
         run: tools/ci/diag.sh "Учётные записи" make accounts-check
 
+      # Заявка продавца и документы (шаг 10 Ф4): настоящая загрузка через шлюз в хранилище, ссылка на /files, заголовки «только скачать», удаление, подача
+      - name: Заявка продавца (документы, ссылка через шлюз, подача)
+        env:
+          DIAG_FILTER: 'ОШИБКА|Traceback|Error'
+          DIAG_MAX: "30"
+          DIAG_TAIL: "60"
+        run: tools/ci/diag.sh "Заявка продавца" make sellers-check
+
       # Итог замеров: пик каждого контейнера против лимита; красный шаг, если пик выше 90 % лимита (лимиты назначены по правилу 85 %)
       - name: Замеры памяти, итог
         if: always()
-        run: python3 tools/stand-checks/memory.py stop "$RUNNER_TEMP/mem.jsonl" --label "набор full, проверки учётных записей" --strict --fail 90
+        run: python3 tools/stand-checks/memory.py stop "$RUNNER_TEMP/mem.jsonl" --label "набор full, проверки учётных записей и заявки продавца" --strict --fail 90
 
       # Причина отказа проверок учётных записей чаще всего в вызовах платформы к Keycloak и обратно: строки предупреждений и ошибок журналов попадают в аннотацию
       - name: Журналы платформы и Keycloak (предупреждения и ошибки)
