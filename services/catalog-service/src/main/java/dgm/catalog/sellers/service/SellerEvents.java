@@ -1,0 +1,71 @@
+package dgm.catalog.sellers.service;
+
+import dgm.catalog.sellers.domain.Moderator;
+import dgm.catalog.sellers.domain.SellerProfile;
+import dgm.kit.outbox.AuditRecords;
+import dgm.kit.time.Timestamps;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Данные событий решения по заявке и запись аудита к ним по схемам AsyncAPI ({@code SellerApprovedData}, {@code SellerRejectedData},
+ * {@code SellerReturnedData}, {@code AuditRecordedData}). Схемы закрыты, лишних полей нет; персональных данных в событиях нет, только
+ * идентификаторы, тип профиля и текст решения модератора.
+ */
+final class SellerEvents {
+
+    static final String TOPIC = "catalog.events";
+    static final String AGGREGATE = "SellerProfile";
+    static final String APPROVED = "seller.approved";
+    static final String REJECTED = "seller.rejected";
+    static final String RETURNED = "seller.returned";
+    static final int SCHEMA_VERSION = 1;
+
+    /** Тип объекта и коды действий в журнале аудита (ADR-014): действие названо так же, как событие решения. */
+    static final String AUDIT_OBJECT = "seller";
+
+    private SellerEvents() {
+    }
+
+    static Map<String, Object> approved(SellerProfile profile, Moderator moderator) {
+        Map<String, Object> data = base(profile, moderator);
+        data.put("sellerType", profile.form().sellerType().code());
+        return data;
+    }
+
+    static Map<String, Object> rejected(SellerProfile profile, Moderator moderator, Instant nextApplicationAt) {
+        Map<String, Object> data = base(profile, moderator);
+        data.put("reason", profile.decisionReason());
+        data.put("nextApplicationAt", Timestamps.format(nextApplicationAt));
+        return data;
+    }
+
+    static Map<String, Object> returned(SellerProfile profile, Moderator moderator) {
+        Map<String, Object> data = base(profile, moderator);
+        data.put("comment", profile.decisionReason());
+        return data;
+    }
+
+    /**
+     * Запись аудита о решении: статус до и после, а для отказа и доработки ещё и текст решения (причины решений не персональные, ADR-014).
+     */
+    static Map<String, Object> audit(Instant at, Moderator moderator, String action, SellerProfile before, SellerProfile after) {
+        List<Map<String, Object>> changes = new ArrayList<>();
+        changes.add(AuditRecords.change("status", before.status().code(), after.status().code()));
+        if (after.decisionReason() != null) {
+            changes.add(AuditRecords.change("decisionReason", before.decisionReason(), after.decisionReason()));
+        }
+        return AuditRecords.staffAction(at, moderator.id(), Moderator.ROLE, moderator.ip(), action, AUDIT_OBJECT, after.id().toString(), changes);
+    }
+
+    private static Map<String, Object> base(SellerProfile profile, Moderator moderator) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("sellerId", profile.id().toString());
+        data.put("userId", profile.userId().toString());
+        data.put("moderatorId", moderator.id().toString());
+        return data;
+    }
+}

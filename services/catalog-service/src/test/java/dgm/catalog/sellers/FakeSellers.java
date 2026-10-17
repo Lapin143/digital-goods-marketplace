@@ -1,5 +1,7 @@
 package dgm.catalog.sellers;
 
+import dgm.catalog.sellers.domain.ReviewQueueItem;
+import dgm.catalog.sellers.domain.ReviewQueuePage;
 import dgm.catalog.sellers.domain.SellerDocument;
 import dgm.catalog.sellers.domain.SellerForm;
 import dgm.catalog.sellers.domain.SellerProfile;
@@ -72,6 +74,32 @@ public final class FakeSellers implements SellerRepository {
     @Override
     public Optional<SellerProfile> lockByUser(UUID userId) {
         return findByUser(userId);
+    }
+
+    @Override
+    public Optional<SellerProfile> findById(UUID sellerId) {
+        return profiles.values().stream().filter(p -> p.id().equals(sellerId)).findFirst();
+    }
+
+    @Override
+    public Optional<SellerProfile> lockById(UUID sellerId) {
+        return findById(sellerId);
+    }
+
+    @Override
+    public List<ReviewQueueItem> reviewQueue(Optional<ReviewQueuePage.After> after, int limit) {
+        Comparator<SellerProfile> order = Comparator.comparing(SellerProfile::submittedAt).thenComparing(SellerProfile::id);
+        return profiles.values().stream().filter(p -> p.status() == SellerStatus.ON_REVIEW).sorted(order)
+                .filter(p -> after.isEmpty() || order.compare(p, onlyKey(after.get())) > 0).limit(limit)
+                .map(p -> new ReviewQueueItem(p.id(), p.form().name(), p.form().sellerType(), countDocuments(p.id()), p.submittedAt(),
+                        p.reviewDeadlineAt()))
+                .toList();
+    }
+
+    /** Профиль-пробник с ключом сортировки очереди: для сравнения с курсором. */
+    private static SellerProfile onlyKey(ReviewQueuePage.After after) {
+        return new SellerProfile(after.id(), after.id(), SellerStatus.ON_REVIEW, SellerForm.empty(), null, null, after.submittedAt(), null, null, 1,
+                after.submittedAt(), after.submittedAt());
     }
 
     @Override

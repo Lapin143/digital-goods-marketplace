@@ -100,6 +100,57 @@ public record SellerProfile(UUID id, UUID userId, SellerStatus status, SellerFor
                 version + 1, createdAt, now);
     }
 
+    /**
+     * Решение модератора «одобрить»: SM-05/T3. Комментарий и причина пусты, срок рассмотрения остаётся в записи для истории.
+     *
+     * @throws ProblemException {@code state-conflict} с текущим статусом, если заявка не на проверке (её уже решил другой модератор)
+     */
+    public SellerProfile approve(Instant now) {
+        requireOnReview();
+        return decided(SellerStatus.APPROVED, null, lastRejectedAt, now);
+    }
+
+    /**
+     * Решение «отклонить»: SM-05/T4. Причина записывается, от этого момента идёт пауза перед новой заявкой (FT-2.4).
+     *
+     * @throws ProblemException {@code state-conflict}, если заявка не на проверке
+     */
+    public SellerProfile reject(String reason, Instant now) {
+        requireOnReview();
+        return decided(SellerStatus.REJECTED, reason, now, now);
+    }
+
+    /**
+     * Решение «вернуть на доработку»: SM-05/T5. Комментарий виден заявителю, паузы нет.
+     *
+     * @throws ProblemException {@code state-conflict}, если заявка не на проверке
+     */
+    public SellerProfile returnForRework(String comment, Instant now) {
+        requireOnReview();
+        return decided(SellerStatus.RETURNED, comment, lastRejectedAt, now);
+    }
+
+    private void requireOnReview() {
+        if (status != SellerStatus.ON_REVIEW) {
+            throw stateConflict();
+        }
+    }
+
+    private SellerProfile decided(SellerStatus next, String reason, Instant rejectedAt, Instant now) {
+        return new SellerProfile(id, userId, next, form, reason, rejectedAt, submittedAt, reviewDeadlineAt, overdueMarkedAt, version + 1,
+                createdAt, now);
+    }
+
+    /** Заявка в очереди модератора: она не черновик, который заявитель ещё не отправлял (после отказа и правки профиль снова черновик). */
+    public boolean visibleToModerator() {
+        return status != SellerStatus.DRAFT && submittedAt != null;
+    }
+
+    /** Срок рассмотрения вышел, а заявка всё ещё на проверке (признак {@code overdue} в очереди; пометка задания здесь не важна). */
+    public boolean pastDeadline(Instant now) {
+        return status == SellerStatus.ON_REVIEW && reviewDeadlineAt != null && !now.isBefore(reviewDeadlineAt);
+    }
+
     /** Когда после отказа можно подать новую заявку: отказ плюс пауза. Пусто, если отказа не было. */
     public Optional<Instant> nextApplicationAt(Duration pause) {
         return Optional.ofNullable(lastRejectedAt).map(at -> at.plus(pause));

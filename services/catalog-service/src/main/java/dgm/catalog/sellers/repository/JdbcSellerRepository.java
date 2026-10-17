@@ -1,6 +1,8 @@
 package dgm.catalog.sellers.repository;
 
 import dgm.catalog.sellers.domain.DocumentType;
+import dgm.catalog.sellers.domain.ReviewQueueItem;
+import dgm.catalog.sellers.domain.ReviewQueuePage;
 import dgm.catalog.sellers.domain.SellerDocument;
 import dgm.catalog.sellers.domain.SellerForm;
 import dgm.catalog.sellers.domain.SellerProfile;
@@ -33,6 +35,7 @@ public final class JdbcSellerRepository implements SellerRepository {
 
     private static final RowMapper<SellerProfile> PROFILE = JdbcSellerRepository::profile;
     private static final RowMapper<SellerDocument> DOCUMENT = JdbcSellerRepository::document;
+    private static final RowMapper<ReviewQueueItem> QUEUE = JdbcSellerRepository::queueItem;
 
     private final JdbcTemplate jdbc;
 
@@ -50,6 +53,31 @@ public final class JdbcSellerRepository implements SellerRepository {
     public Optional<SellerProfile> lockByUser(UUID userId) {
         return jdbc.query("select " + PROFILE_COLUMNS + " from seller_onboarding.seller_profile where user_id = ? for update", PROFILE, userId)
                 .stream().findFirst();
+    }
+
+    @Override
+    public Optional<SellerProfile> findById(UUID sellerId) {
+        return jdbc.query("select " + PROFILE_COLUMNS + " from seller_onboarding.seller_profile where id = ?", PROFILE, sellerId)
+                .stream().findFirst();
+    }
+
+    @Override
+    public Optional<SellerProfile> lockById(UUID sellerId) {
+        return jdbc.query("select " + PROFILE_COLUMNS + " from seller_onboarding.seller_profile where id = ? for update", PROFILE, sellerId)
+                .stream().findFirst();
+    }
+
+    @Override
+    public List<ReviewQueueItem> reviewQueue(Optional<ReviewQueuePage.After> after, int limit) {
+        String select = "select p.id, p.name, p.seller_type, p.submitted_at, p.review_deadline_at, "
+                + "(select count(*) from seller_onboarding.seller_document d where d.seller_id = p.id) as documents_count "
+                + "from seller_onboarding.seller_profile p where p.status = 'on_review' ";
+        String order = "order by p.submitted_at, p.id limit ?";
+        if (after.isEmpty()) {
+            return jdbc.query(select + order, QUEUE, limit);
+        }
+        ReviewQueuePage.After key = after.get();
+        return jdbc.query(select + "and (p.submitted_at, p.id) > (?, ?) " + order, QUEUE, time(key.submittedAt()), key.id(), limit);
     }
 
     @Override
@@ -144,6 +172,12 @@ public final class JdbcSellerRepository implements SellerRepository {
                 form, rs.getString("decision_reason"), instant(rs, "last_rejected_at"), instant(rs, "submitted_at"),
                 instant(rs, "review_deadline_at"), instant(rs, "overdue_marked_at"), rs.getInt("version"), instant(rs, "created_at"),
                 instant(rs, "updated_at"));
+    }
+
+    private static ReviewQueueItem queueItem(ResultSet rs, int row) throws SQLException {
+        return new ReviewQueueItem(rs.getObject("id", UUID.class), rs.getString("name"),
+                SellerType.fromCode(rs.getString("seller_type")).orElseThrow(), rs.getInt("documents_count"), instant(rs, "submitted_at"),
+                instant(rs, "review_deadline_at"));
     }
 
     private static SellerDocument document(ResultSet rs, int row) throws SQLException {

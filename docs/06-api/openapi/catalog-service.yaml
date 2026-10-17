@@ -720,6 +720,7 @@ paths:
       x-conditions:
       - U6
       x-sms-session: denied
+      x-module: seller_onboarding
       security:
       - bearerJwt:
         - staff.moderation
@@ -804,6 +805,7 @@ paths:
       x-conditions:
       - U6
       x-sms-session: denied
+      x-module: seller_onboarding
       security:
       - bearerJwt:
         - staff.moderation
@@ -898,6 +900,7 @@ paths:
       x-conditions:
       - U6
       x-sms-session: denied
+      x-module: seller_onboarding
       security:
       - bearerJwt:
         - staff.moderation

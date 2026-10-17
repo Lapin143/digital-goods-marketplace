@@ -14,22 +14,22 @@ getSellerDocumentLink          done
 replaceSellerApplicationDraft  done
 submitSellerApplication        done
 uploadSellerDocument           done
+listSellerApplicationQueue     done
+getSellerApplicationCard       done
+approveSellerApplication       done
+rejectSellerApplication        done
+returnSellerApplication        done
 
 approveProduct                 slice1
-approveSellerApplication       slice1
 archiveSellerProduct           slice1
 blockProduct                   slice1
 createSellerProduct            slice1
 getProductForModeration        slice1
-getSellerApplicationCard       slice1
 getSellerProduct               slice1
 getStorefrontProduct           slice1
 listProductModerationQueue     slice1
-listSellerApplicationQueue     slice1
 listSellerProducts             slice1
 rejectProduct                  slice1
-rejectSellerApplication        slice1
 replaceSellerProduct           slice1
 restoreSellerProduct           slice1
-returnSellerApplication        slice1
 submitSellerProduct            slice1

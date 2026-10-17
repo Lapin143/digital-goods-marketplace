@@ -277,4 +277,86 @@ class SellerProfileTest {
         assertFalse(marked.overdue(T0.plus(REVIEW).plusSeconds(60)), "пометка ставится один раз");
         assertFalse(profile(SellerStatus.DRAFT, FULL, null).overdue(T0.plus(Duration.ofDays(30))));
     }
+
+    // ---------------------------------------------------------------- решения модератора (T3, T4, T5)
+
+    private static SellerProfile onReview() {
+        return new SellerProfile(ID, USER, SellerStatus.ON_REVIEW, FULL, null, T0.minus(Duration.ofDays(9)), T0.minusSeconds(7200),
+                T0.minusSeconds(7200).plus(REVIEW), null, 4, T0.minusSeconds(86_400), T0.minusSeconds(7200));
+    }
+
+    @Test
+    void approveMovesToApprovedAndKeepsTheHistoryOfTheReview() {
+        SellerProfile before = onReview();
+        SellerProfile approved = before.approve(T0);
+        assertEquals(SellerStatus.APPROVED, approved.status());
+        assertEquals(5, approved.version());
+        assertEquals(T0, approved.updatedAt());
+        assertNull(approved.decisionReason());
+        assertEquals(before.lastRejectedAt(), approved.lastRejectedAt(), "прежний отказ остаётся в истории");
+        assertEquals(before.submittedAt(), approved.submittedAt());
+        assertEquals(before.reviewDeadlineAt(), approved.reviewDeadlineAt());
+        assertEquals(before.form(), approved.form());
+        assertEquals(before.createdAt(), approved.createdAt());
+        assertTrue(SellerStatus.ON_REVIEW.canMoveTo(approved.status()));
+    }
+
+    @Test
+    void rejectRecordsTheReasonAndStartsThePause() {
+        SellerProfile rejected = onReview().reject("Документ не читается", T0);
+        assertEquals(SellerStatus.REJECTED, rejected.status());
+        assertEquals("Документ не читается", rejected.decisionReason());
+        assertEquals(T0, rejected.lastRejectedAt());
+        assertEquals(5, rejected.version());
+        assertEquals(Optional.of(T0.plus(PAUSE)), rejected.nextApplicationAt(PAUSE));
+        assertTrue(rejected.pauseActive(T0.plus(PAUSE).minusMillis(1), PAUSE));
+        assertFalse(rejected.pauseActive(T0.plus(PAUSE), PAUSE));
+        assertTrue(SellerStatus.ON_REVIEW.canMoveTo(rejected.status()));
+    }
+
+    @Test
+    void returnRecordsTheCommentAndDoesNotStartAPause() {
+        SellerProfile returned = onReview().returnForRework("Приложите свидетельство", T0);
+        assertEquals(SellerStatus.RETURNED, returned.status());
+        assertEquals("Приложите свидетельство", returned.decisionReason());
+        assertEquals(onReview().lastRejectedAt(), returned.lastRejectedAt(), "возврат дату отказа не меняет");
+        assertEquals(5, returned.version());
+        assertTrue(SellerStatus.ON_REVIEW.canMoveTo(returned.status()));
+        SellerProfile neverRejected = new SellerProfile(ID, USER, SellerStatus.ON_REVIEW, FULL, null, null, T0, T0.plus(REVIEW), null, 2, T0, T0);
+        assertEquals(Optional.empty(), neverRejected.returnForRework("Дополните", T0).nextApplicationAt(PAUSE));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SellerStatus.class, names = {"DRAFT", "RETURNED", "APPROVED", "REJECTED", "BLOCKED"})
+    void decisionsAreOnlyPossibleForAnApplicationOnReview(SellerStatus status) {
+        SellerProfile profile = profile(status, FULL, T0.minusSeconds(100));
+        for (java.util.function.Supplier<SellerProfile> decision : List.<java.util.function.Supplier<SellerProfile>>of(
+                () -> profile.approve(T0), () -> profile.reject("Причина", T0), () -> profile.returnForRework("Комментарий", T0))) {
+            ProblemException e = assertThrows(ProblemException.class, decision::get);
+            assertEquals(ProblemType.STATE_CONFLICT, e.type());
+            assertEquals(status.code(), e.extensions().get("currentStatus"));
+        }
+    }
+
+    @Test
+    void theApplicationIsVisibleToTheModeratorOnceSubmittedAndNeverAsADraft() {
+        assertFalse(profile(SellerStatus.DRAFT, FULL, null).visibleToModerator(), "черновик не отправляли");
+        SellerProfile reopened = new SellerProfile(ID, USER, SellerStatus.DRAFT, FULL, "Причина", T0, T0.minusSeconds(900), T0, null, 6, T0, T0);
+        assertFalse(reopened.visibleToModerator(), "после отказа и правки заявка снова черновик заявителя");
+        assertTrue(onReview().visibleToModerator());
+        assertTrue(onReview().approve(T0).visibleToModerator());
+        assertTrue(onReview().reject("Причина", T0).visibleToModerator());
+        assertTrue(onReview().returnForRework("Комментарий", T0).visibleToModerator());
+    }
+
+    @Test
+    void pastDeadlineIgnoresTheMarkOfTheJobAndIsFalseOutsideTheQueue() {
+        SellerProfile queued = onReview();
+        Instant deadline = queued.reviewDeadlineAt();
+        assertFalse(queued.pastDeadline(deadline.minusMillis(1)));
+        assertTrue(queued.pastDeadline(deadline));
+        SellerProfile marked = new SellerProfile(ID, USER, SellerStatus.ON_REVIEW, FULL, null, null, T0, T0.plus(REVIEW), T0.plus(REVIEW), 4, T0, T0);
+        assertTrue(marked.pastDeadline(T0.plus(REVIEW).plusSeconds(60)), "в очереди просроченная заявка видна и после пометки");
+        assertFalse(onReview().approve(T0).pastDeadline(deadline.plus(Duration.ofDays(30))));
+    }
 }
