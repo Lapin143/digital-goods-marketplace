@@ -221,6 +221,8 @@ concurrency:' 'permissions:
 concurrency:' "права GITHUB_TOKEN на верхнем уровне" tools/docs-checks/check_workflows.py
     mutate_repo "check_workflows находит сохранённый токен после checkout" "$W" '          persist-credentials: false' '          persist-credentials: true' \
       "нет persist-credentials: false" tools/docs-checks/check_workflows.py
+    mutate_repo "check_workflows находит расхождение быстрой проверки интерфейса с полным CI" ".github/workflows/web-check.yml" 'npm --prefix frontend/web-app run typecheck' 'npm --prefix frontend/web-app run typecheck -- --noEmit' \
+      "отличается от задания web в ci.yml" tools/docs-checks/check_workflows.py
     mutate_repo "check_workflows находит пропавший Dependabot для compose" ".github/dependabot.yml" 'package-ecosystem: docker-compose' 'package-ecosystem: pip' \
       "не описан пакетный менеджер docker-compose" tools/docs-checks/check_workflows.py
     # 7в. Руководство разработчика и runbook (шаг 19): пропавшая цель Makefile, неверный набор, лишний порт, несуществующий файл, неверная сумма

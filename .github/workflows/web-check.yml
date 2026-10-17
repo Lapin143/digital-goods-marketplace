@@ -1,0 +1,77 @@
+name: web-check
+
+# Быстрая проверка веб-интерфейса при разработке экранов (шаги 17–19 Ф4): push в служебную ветку ci/web запускает только задание web
+# (около трёх минут вместо десяти у всего CI) и не отменяет запуски основного CI. Задание совпадает с заданием web в ci.yml
+# шаг в шаг: это проверяет check_workflows.py. Перед приёмкой шага полный CI всё равно проходит в ci/sandbox.
+#
+# Как запустить: git push --force origin <коммит>:refs/heads/ci/web
+on:
+  push:
+    branches: ['ci/web']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Версии Node и npm
+        run: node --version && npm --version
+
+      - name: Зависимости (npm ci по package-lock.json)
+        env:
+          DIAG_TAIL: "30"
+        run: tools/ci/diag.sh "npm ci" tools/ci/web_install.sh
+
+      - name: Типы из OpenAPI
+        env:
+          DIAG_TAIL: "30"
+        run: tools/ci/diag.sh "Типы из OpenAPI" npm --prefix frontend/web-app run gen:api
+
+      - name: ESLint
+        env:
+          DIAG_FILTER: '^/|  error  |  warning  |problems'
+          DIAG_MAX: "40"
+          DIAG_TAIL: "5"
+        run: tools/ci/diag.sh "ESLint" npm --prefix frontend/web-app run lint
+
+      - name: Правило «русских текстов в коде нет» краснеет от намеренной ошибки
+        env:
+          DIAG_TAIL: "40"
+        run: tools/ci/diag.sh "Контроль правила ESLint" tools/ci/web_lint_probe.sh
+
+      - name: Проверка типов (tsc)
+        env:
+          DIAG_FILTER: 'error TS'
+          DIAG_MAX: "40"
+          DIAG_TAIL: "5"
+        run: tools/ci/diag.sh "tsc" npm --prefix frontend/web-app run typecheck
+
+      - name: Тесты (Vitest)
+        env:
+          DIAG_FILTER: 'FAIL|Error|expected|Expected|Received|Test Files|Tests '
+          DIAG_MAX: "40"
+          DIAG_TAIL: "15"
+        run: tools/ci/diag.sh "Vitest" npm --prefix frontend/web-app test
+
+      - name: Сборка (Vite)
+        env:
+          DIAG_TAIL: "30"
+        run: tools/ci/diag.sh "Сборка Vite" npm --prefix frontend/web-app run build
+
+      - name: Размер собранного пакета
+        run: tools/ci/diag.sh "Размер пакета" npm --prefix frontend/web-app run size

@@ -17,6 +17,8 @@
   6. Нет триггера pull_request_target (он выполняет код с секретами репозитория для запросов из форков), в ci.yml есть concurrency.
   7. Секреты берутся только из secrets.GITHUB_TOKEN.
   8. .github/dependabot.yml описывает github-actions, gradle, docker и docker-compose.
+  9. Задание web в web-check.yml (быстрая проверка интерфейса в ветке ci/web) совпадает с заданием web в ci.yml шаг в шаг: иначе быстрая проверка
+     станет зелёной там, где полный CI красный.
 """
 import os
 import re
@@ -104,6 +106,22 @@ def verify_online(name, ln, action, sha, tag):
         err('%s:%d' % (name, ln), '%s: тег %s указывает на %s, в файле %s: комментарий версии не соответствует хешу' % (repo, tag, commit[:12], sha[:12]))
 
 
+def check_web_twin():
+    ci_path = os.path.join(WORKFLOWS, 'ci.yml')
+    twin_path = os.path.join(WORKFLOWS, 'web-check.yml')
+    if not os.path.exists(twin_path):
+        err('web-check.yml', 'файла нет')
+        return
+    ci = yaml.safe_load(open(ci_path, encoding='utf-8'))
+    twin = yaml.safe_load(open(twin_path, encoding='utf-8'))
+    a = (ci.get('jobs') or {}).get('web')
+    b = (twin.get('jobs') or {}).get('web')
+    if a is None or b is None:
+        err('web-check.yml', 'в ci.yml и web-check.yml должно быть задание web')
+    elif a != b:
+        err('web-check.yml', 'задание web отличается от задания web в ci.yml: быстрая проверка должна повторять полный CI шаг в шаг')
+
+
 def check_dependabot():
     path = os.path.join(REPO, '.github', 'dependabot.yml')
     if not os.path.exists(path):
@@ -127,6 +145,7 @@ def main():
     for n in names:
         check_file(n, online)
     check_dependabot()
+    check_web_twin()
     if errors:
         print('ПРОВЕРКА НЕ ПРОЙДЕНА:')
         for e in errors:
