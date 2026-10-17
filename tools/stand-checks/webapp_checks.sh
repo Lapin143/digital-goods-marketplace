@@ -123,7 +123,8 @@ check "HEAD /: 200" test "$(gw_curl -I -o /dev/null -w '%{http_code}' "$WEB/")" 
 check "POST /: 405" test "$(gw_curl -X POST -d x=1 -o /dev/null -w '%{http_code}' "$WEB/")" = 405
 check "DELETE /: 405" test "$(gw_curl -X DELETE -o /dev/null -w '%{http_code}' "$WEB/")" = 405
 check "неизвестный файл: 404" test "$(gw_curl -o /dev/null -w '%{http_code}' "$WEB/no-such-file.html")" = 404
-check "/health на порту TLS не отдаётся: 404" test "$(gw_curl -o /dev/null -w '%{http_code}' "$WEB/health")" = 404
+health_hidden() { [ "$(gw_curl "$WEB/health")" != "UP" ]; }
+check "/health на порту TLS не отдаёт технический ответ UP (это адрес маршрутизатора, откроется страница приложения)" health_hidden
 traversal() { local c; c=$(gw_curl --path-as-is -o /dev/null -w '%{http_code}' "$WEB/../../etc/passwd"); [ "$c" = 400 ] || [ "$c" = 404 ]; }
 check "обход каталогов (/../../etc/passwd) закрыт" traversal
 check "конфигурация nginx и секреты по адресу не доступны: 404" test "$(gw_curl --path-as-is -o /dev/null -w '%{http_code}' "$WEB/../../run/secrets/tls_web-app.key")" != 200
