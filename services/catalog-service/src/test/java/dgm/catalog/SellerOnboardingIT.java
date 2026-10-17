@@ -114,7 +114,8 @@ class SellerOnboardingIT extends CatalogStandIT {
     }
 
     private static Response upload(Applicant a, String idempotencyKey, String fileName, String declaredType, byte[] content) throws IOException {
-        String boundary = "----dgm" + UUID.randomUUID().toString().replace("-", "");
+        // Граница выводится из ключа: повтор с тем же ключом и тем же файлом даёт то же тело, иначе это «ключ с другим телом» (422)
+        String boundary = "----dgm" + idempotencyKey.replace("-", "");
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         body.writeBytes(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"" + fileName + "\"\r\n"
                 + "Content-Type: " + declaredType + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
@@ -291,7 +292,7 @@ class SellerOnboardingIT extends CatalogStandIT {
         Response repeat = gateway.post(BASE, FORM, with(a.auth, "Idempotency-Key", same));
         assertEquals(201, repeat.status());
         assertEquals("true", repeat.header("Idempotency-Replayed"));
-        assertEquals(first.body(), repeat.body());
+        assertEquals(first.json(), repeat.json(), "тело хранится как jsonb: порядок полей может измениться, содержимое нет");
         assertEquals(first.header("ETag"), repeat.header("ETag"));
 
         Response otherKey = gateway.post(BASE, FORM, with(a.auth, "Idempotency-Key", key()));

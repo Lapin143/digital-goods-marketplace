@@ -2,6 +2,7 @@ package dgm.gateway;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -247,7 +248,8 @@ class GatewayProxyTest {
     void storageIsReadOnlyAndOnlyUnderFiles() throws Exception {
         assertEquals(404, call("PUT", "/files/seller-documents/a/b").statusCode());
         assertEquals(404, call("DELETE", "/files/seller-documents/a/b").statusCode());
-        assertEquals(404, call("GET", "/seller-documents/a/b").statusCode());
+        // Путь без префикса /files это маршрут веб-интерфейса (получателя которого в тесте нет): до хранилища он не доходит
+        assertNotEquals(200, call("GET", "/seller-documents/a/b").statusCode());
         assertTrue(STORAGE.seen.isEmpty(), "запись и обход префикса до хранилища не доходят");
     }
 
