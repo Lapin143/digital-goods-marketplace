@@ -7,7 +7,15 @@ on:
     branches: [main, 'ci/**', '!ci/wrapper']
   pull_request:
     branches: [main]
+  # Серия из 50 запусков тестов гонок: раз в сутки ночью (задание concurrency)
+  schedule:
+    - cron: '17 0 * * *'
   workflow_dispatch:
+    inputs:
+      repeat:
+        description: 'Сколько раз подряд запустить тесты гонок (задание concurrency)'
+        required: false
+        default: '50'
 
 permissions:
   contents: read
@@ -189,6 +197,13 @@ jobs:
       - name: Контракт сервисов с OpenAPI
         run: tools/ci/diag.sh "Контракт сервисов с OpenAPI" python3 tools/stand-checks/check_contract.py
 
+      # Три запуска тестов гонок при каждом прогоне: проверяют сам сценарий серии (tools/ci/concurrency_series.sh) и ловят частую гонку сразу;
+      # полная серия из 50 идёт в задании concurrency
+      - name: Тесты гонок, короткая серия
+        env:
+          DGM_SECRETS_DIR: ${{ github.workspace }}/secrets
+        run: tools/ci/diag.sh "Тесты гонок, короткая серия" tools/ci/concurrency_series.sh 3
+
       - name: Сводка тестов
         if: always()
         run: python3 tools/ci/test_summary.py . "Интеграционные тесты каркаса и сервисов"
@@ -200,6 +215,52 @@ jobs:
             echo "::group::$s"; docker compose --profile '*' logs --no-color --tail 40 "$s" || true; echo "::endgroup::"
             msg=$(docker compose --profile '*' logs --no-color --tail 12 "$s" 2>&1 | cut -c1-240 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
             echo "::warning title=журнал $s::$msg"
+          done
+
+  # Серия из 50 запусков тестов гонок (шаг 15 Ф4). Не входит в обычный прогон: идёт ночью по расписанию, вручную (workflow_dispatch) и на
+  # ветке ci/series, куда можно отправить коммит, чтобы получить серию без доступа к кнопке запуска. Нестабильный тест разбирается сначала
+  # как возможная ошибка кода, карантин до 7 суток с записью причины (test-strategy.md, раздел «Конкуренция»).
+  concurrency:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/ci/series'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Подъём набора dev-kit с отладочными портами
+        env:
+          DIAG_TAIL: "70"
+        run: tools/ci/diag.sh "make up SET=dev-kit DEBUG=1" make up SET=dev-kit DEBUG=1
+
+      - name: Миграции order-service и inventory-service
+        run: tools/ci/diag.sh "Миграции для тестов гонок" make db-migrate S="order-service inventory-service"
+
+      - name: Серия тестов гонок
+        env:
+          DGM_SECRETS_DIR: ${{ github.workspace }}/secrets
+          CONCURRENCY_REPEAT: ${{ github.event.inputs.repeat || '50' }}
+        run: tools/ci/diag.sh "Серия тестов гонок" tools/ci/concurrency_series.sh "$CONCURRENCY_REPEAT"
+
+      - name: Сводка серии
+        if: always()
+        run: |
+          if [ -f build/concurrency-series.txt ]; then
+            { echo '### Серия тестов гонок'; echo '```'; tail -n 5 build/concurrency-series.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Журналы контейнеров при ошибке
+        if: failure()
+        run: |
+          for s in postgres kafka; do
+            echo "::group::$s"; docker compose --profile '*' logs --no-color --tail 40 "$s" || true; echo "::endgroup::"
           done
 
   # Контейнеры сервисов (шаг 12 Ф3): образы собираются из jar, сервисы стартуют на стенде в Compose с настоящими секретами, mTLS, лимитами

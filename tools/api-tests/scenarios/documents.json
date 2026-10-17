@@ -1,0 +1,31 @@
+{
+  "id": "DOC-01",
+  "title": "Документы заявки продавца: тип по содержимому, пустой файл, ссылка, удаление (ST-12, T-36, FT-2.0)",
+  "steps": [
+    {"name": "ST-12. Черновик заявки покупателя (если он уже есть, 409)", "op": "createSellerApplication", "as": "buyer",
+     "body": {"sellerType": "self_employed", "name": "Студия Newman"}, "expect": [201, 409]},
+    {"name": "ST-12. PDF по началу файла принимается: 201, тип application/pdf", "op": "uploadSellerDocument", "as": "buyer",
+     "multipart": {"field": "file", "filename": "scan.pdf", "contentType": "application/pdf", "content": "%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n"},
+     "expect": 201, "save": {"documentId": "documentId"},
+     "assert": [{"path": "contentType", "equals": "application/pdf"}, {"path": "fileName", "equals": "scan.pdf"}, {"path": "documentId", "exists": true}]},
+    {"name": "ST-12. Текст под видом PDF: 415 unsupported-media-type, ответ problem+json", "op": "uploadSellerDocument", "as": "buyer",
+     "multipart": {"field": "file", "filename": "letter.pdf", "contentType": "application/pdf", "content": "Это просто текст, а не PDF"},
+     "expect": 415, "assert": [{"path": "code", "equals": "unsupported-media-type"}, {"header": "Content-Type", "contains": "application/problem+json"}]},
+    {"name": "ST-12. HTML со скриптом под видом PNG: 415", "op": "uploadSellerDocument", "as": "buyer",
+     "multipart": {"field": "file", "filename": "photo.png", "contentType": "image/png", "content": "<html><script>alert(1)</script></html>"},
+     "expect": 415, "assert": [{"path": "code", "equals": "unsupported-media-type"}]},
+    {"name": "ST-12. SVG под видом JPEG: 415", "op": "uploadSellerDocument", "as": "buyer",
+     "multipart": {"field": "file", "filename": "image.jpeg", "contentType": "image/jpeg", "content": "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>"},
+     "expect": 415, "assert": [{"path": "code", "equals": "unsupported-media-type"}]},
+    {"name": "ST-12. Пустой файл: 422", "op": "uploadSellerDocument", "as": "buyer",
+     "multipart": {"field": "file", "filename": "empty.pdf", "contentType": "application/pdf", "content": ""},
+     "expect": 422, "assert": [{"path": "errors.0.pointer", "equals": "/file"}]},
+    {"name": "ST-12. Ссылка на загруженный документ: 200, адрес и срок", "op": "getSellerDocumentLink", "as": "buyer",
+     "path": {"documentId": "{{documentId}}"}, "expect": 200,
+     "assert": [{"path": "url", "exists": true}, {"path": "expiresAt", "exists": true}, {"header": "Cache-Control", "contains": "no-store"}]},
+    {"name": "ST-12. Удаление документа: 204", "op": "deleteSellerDocument", "as": "buyer",
+     "path": {"documentId": "{{documentId}}"}, "expect": 204},
+    {"name": "ST-12. Ссылка на удалённый документ: 404", "op": "getSellerDocumentLink", "as": "buyer",
+     "path": {"documentId": "{{documentId}}"}, "expect": 404}
+  ]
+}

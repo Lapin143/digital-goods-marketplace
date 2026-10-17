@@ -14,9 +14,11 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Реестр товаров по событиям каталога: версия, статус, сообщения без значений (раздел 5 доменной модели). */
+@Tag("TC-407")
 class ProductRegistryServiceTest {
 
     private static final UUID PRODUCT = UUID.fromString("0199e0a0-0000-7000-8000-000000000201");

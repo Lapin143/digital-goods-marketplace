@@ -33,6 +33,7 @@ from datetime import datetime
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import accounts_checks as A  # noqa: E402
+import canary_checks as C  # noqa: E402
 import gateway_checks as G  # noqa: E402
 import kc_client as K  # noqa: E402
 import sellers_checks as SC  # noqa: E402
@@ -300,6 +301,7 @@ def product_to_storefront(moderator, seller_token, stamp):
     final = staff_decide(moderator, pid, 'approve')
     back = A.eventually(lambda: storefront(pid).status == 200, wait=10)
     expect('после повторной модерации товар снова на витрине', final.status == 200 and back, '%s %s' % (final.status, storefront(pid).status))
+    return pid if final.status == 200 and back else None
 
 
 def manual_role_checks(admin_user, buyer_seller, buyer_rejected):
@@ -337,7 +339,9 @@ def main():
         if rework_and_approval(moderator, for_approval, admin):
             seller_token = first_login_and_cabinet(kc, for_approval)
             if seller_token:
-                product_to_storefront(moderator, seller_token, stamp)
+                product_id = product_to_storefront(moderator, seller_token, stamp)
+                if product_id:
+                    C.run(seller_token, moderator, product_id)
             manual_role_checks(administrator, for_approval, for_rejection)
     print('\nПроверок успешно: %d, с ошибками: %d' % (G.PASSED, len(G.FAILED)))
     for name in G.FAILED:

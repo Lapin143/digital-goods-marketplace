@@ -68,8 +68,10 @@ val standLock = gradle.sharedServices.registerIfAbsent("standLock", StandLock::c
     maxParallelUsages.set(1)
 }
 
-val integrationTest = tasks.register<Test>("integrationTest") {
-    description = "Интеграционные тесты на поднятом стенде (тег integration)"
+// Задачи на живом стенде различаются тегом: integration (все интеграционные тесты) и concurrency (только гонки, их серию из 50 запусков
+// ведёт задание CI concurrency, tools/ci/concurrency_series.sh). Тест с тегом concurrency входит и в integrationTest: он идёт при каждом прогоне CI.
+fun registerStandTest(taskName: String, taskDescription: String, tag: String) = tasks.register<Test>(taskName) {
+    description = taskDescription
     group = "verification"
     usesService(standLock)
     // Результат зависит от стенда, а не только от входов задачи; образцы ответов (build/contract-samples) в выходы не входят.
@@ -80,14 +82,19 @@ val integrationTest = tasks.register<Test>("integrationTest") {
     testClassesDirs = testSources.output.classesDirs
     classpath = testSources.runtimeClasspath
     useJUnitPlatform {
-        includeTags("integration")
+        includeTags(tag)
     }
     shouldRunAfter(tasks.named("test"))
 }
 
+val integrationTest = registerStandTest("integrationTest", "Интеграционные тесты на поднятом стенде (тег integration)", "integration")
+val concurrencyTest = registerStandTest("concurrencyTest", "Тесты гонок на поднятом стенде (тег concurrency)", "concurrency")
+
 // Интеграционные тесты идут без агента JaCoCo: покрытие считают модульные тесты, а агент замедляет задачи с ограничениями по времени (окна счётчиков Redis, ожидание повторов)
-integrationTest.configure {
-    extensions.configure<JacocoTaskExtension> {
-        isEnabled = false
+listOf(integrationTest, concurrencyTest).forEach { task ->
+    task.configure {
+        extensions.configure<JacocoTaskExtension> {
+            isEnabled = false
+        }
     }
 }

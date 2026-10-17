@@ -13,9 +13,11 @@ import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.UUID;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Шифрование значений ключей (ADR-009): цикл, AAD, nonce, мастер-ключ, обёртка DEK, сообщения без значений. */
+@Tag("TC-410")
 class KeyCipherTest {
 
     private static final UUID KEY = UUID.fromString("0199e0a0-0000-7000-8000-000000000001");

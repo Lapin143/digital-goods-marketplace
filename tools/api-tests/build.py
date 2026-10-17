@@ -24,7 +24,11 @@
   path    значения параметров пути (все параметры обязательны); query, headers, body как есть (в строках работают {{переменные}})
   expect  код ответа или список кодов; каждый код должен быть описан в OpenAPI операции
   save    переменная -> путь в JSON ответа через точку (items.0.id); переменная доступна следующим шагам и сценариям
-  assert  проверки тела: {"path": "status", "equals": "published"}, {"path": "items", "notEmpty": true}, {"path": "id", "exists": true}
+  assert  проверки тела: {"path": "status", "equals": "published"}, {"path": "items", "notEmpty": true}, {"path": "id", "exists": true};
+          проверка заголовка ответа: {"header": "Content-Type", "contains": "application/problem+json"} (регистр имени не важен);
+          строки нет в теле ответа: {"bodyNotContains": "NEWMAN-CANARY-1"} (значение, которое шаг сам отправил)
+  multipart  вместо body: форма с одним файлом, {"field": "file", "filename": "a.pdf", "contentType": "application/pdf", "content": "текст файла"};
+          содержимое только текстовое (Newman отправляет строку), двоичные файлы проверяют Java-тесты и стендовые проверки
 Для операций с ключом идемпотентности заголовок Idempotency-Key добавляется сам (новый UUID на каждый запрос), если шаг не задал его явно.
 """
 import argparse
@@ -49,7 +53,17 @@ def js(value):
     return json.dumps(value, ensure_ascii=False)
 
 
-def make_request(op, role, path_values, query=None, headers=None, body=None):
+BOUNDARY = '----dgmnewman'
+
+
+def multipart_body(part):
+    """Тело формы с одним файлом; границу выбирает сборщик, части в тексте нет."""
+    return ('--%s\r\nContent-Disposition: form-data; name="%s"; filename="%s"\r\nContent-Type: %s\r\n\r\n%s\r\n--%s--\r\n'
+            % (BOUNDARY, part.get('field', 'file'), part.get('filename', 'file.bin'), part.get('contentType', 'application/octet-stream'),
+               part.get('content', ''), BOUNDARY))
+
+
+def make_request(op, role, path_values, query=None, headers=None, body=None, multipart=None):
     segments = op.path.split('/')[1:]
     segments = [path_values.get(s[1:-1], s) if s.startswith('{') else s for s in segments]
     header = {}
@@ -68,6 +82,9 @@ def make_request(op, role, path_values, query=None, headers=None, body=None):
     if body is not None:
         request['header'].append({'key': 'Content-Type', 'value': 'application/json'})
         request['body'] = {'mode': 'raw', 'raw': json.dumps(body, ensure_ascii=False), 'options': {'raw': {'language': 'json'}}}
+    if multipart is not None:
+        request['header'].append({'key': 'Content-Type', 'value': 'multipart/form-data; boundary=' + BOUNDARY})
+        request['body'] = {'mode': 'raw', 'raw': multipart_body(multipart), 'options': {'raw': {'language': 'text'}}}
     return request
 
 
@@ -124,20 +141,33 @@ def step_item(scenario, index, step, ops, saved, problems, ledgers):
     for code in codes:
         if str(code) not in op.responses and 'default' not in op.responses:
             problems.append('%s: код %s не описан в OpenAPI операции %s (описаны: %s)' % (where, code, op.id, ', '.join(sorted(op.responses))))
-    text = json.dumps([step.get('path'), step.get('query'), step.get('headers'), step.get('body')], ensure_ascii=False)
+    if step.get('multipart') is not None and (step.get('body') is not None or op.method != 'POST'):
+        problems.append('%s: multipart допустим только у POST и вместо body' % where)
+    text = json.dumps([step.get('path'), step.get('query'), step.get('headers'), step.get('body'), step.get('multipart')], ensure_ascii=False)
     for name in VARIABLE.findall(text):
         if name not in saved and not name.startswith('$') and name != 'baseUrl':
             problems.append('%s: переменная {{%s}} не сохранена предыдущими шагами (save)' % (where, name))
     script = ['const code = pm.response.code;',
               'pm.test(%s + " (код " + code + ")", function () { pm.expect(code).to.be.oneOf(%s); });'
               % (js('%s / %s: %s' % (scenario['id'], step.get('name', op.id), op.id)), js(codes))]
-    if step.get('save') or step.get('assert'):
+    if step.get('save') or any('path' in c for c in step.get('assert') or []):
         script.append('let json = null; try { json = pm.response.json(); } catch (e) { json = null; }')
         script.append('const at = (path) => path.split(".").reduce((v, k) => (v === null || v === undefined) ? undefined : v[k], json);')
     for var, path in (step.get('save') or {}).items():
         script.append('pm.collectionVariables.set(%s, at(%s));' % (js(var), js(path)))
         saved.add(var)
     for check in step.get('assert') or []:
+        if 'header' in check:
+            label = js('%s / %s: заголовок %s' % (scenario['id'], step.get('name', op.id), check['header']))
+            if 'contains' in check:
+                script.append('pm.test(%s, function () { pm.expect(pm.response.headers.get(%s) || "").to.include(%s); });' % (label, js(check['header']), js(check['contains'])))
+            else:
+                problems.append('%s: проверка заголовка без contains' % where)
+            continue
+        if 'bodyNotContains' in check:
+            label = js('%s / %s: в ответе нет отправленного значения' % (scenario['id'], step.get('name', op.id)))
+            script.append('pm.test(%s, function () { pm.expect(pm.response.text()).to.not.include(%s); });' % (label, js(check['bodyNotContains'])))
+            continue
         label = js('%s / %s: тело %s' % (scenario['id'], step.get('name', op.id), check.get('path')))
         path = js(check.get('path', ''))
         if 'equals' in check:
@@ -148,7 +178,7 @@ def step_item(scenario, index, step, ops, saved, problems, ledgers):
             script.append('pm.test(%s, function () { pm.expect(at(%s)).to.exist; });' % (label, path))
         else:
             problems.append('%s: проверка assert без equals, notEmpty или exists' % where)
-    request = make_request(op, role, path_values, step.get('query'), step.get('headers'), step.get('body'))
+    request = make_request(op, role, path_values, step.get('query'), step.get('headers'), step.get('body'), step.get('multipart'))
     return item(step.get('name', op.id), request, script)
 
 

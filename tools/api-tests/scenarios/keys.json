@@ -1,0 +1,22 @@
+{
+  "id": "KEY-01",
+  "title": "Пул ключей: продавец без профиля ничего не загружает и не видит, значение ключа в ответ не попадает (TC-408; ST-01, ST-02)",
+  "steps": [
+    {"name": "TC-408. Загрузка списком без claim seller_id: отказ 403, значение из тела в ответе не повторяется", "op": "uploadKeyBatch", "as": "seller",
+     "path": {"productId": "0199e0a0-0000-7000-8000-0000000000a1"}, "body": {"keys": ["NEWMAN-CANARY-1", "NEWMAN-CANARY-2"]}, "expect": 403,
+     "assert": [{"header": "Content-Type", "contains": "application/problem+json"}, {"bodyNotContains": "NEWMAN-CANARY-1"}, {"bodyNotContains": "NEWMAN-CANARY-2"}]},
+    {"name": "TC-408. Остаток товара без профиля продавца: отказ 403", "op": "getProductStock", "as": "seller",
+     "path": {"productId": "0199e0a0-0000-7000-8000-0000000000a1"}, "expect": 403},
+    {"name": "TC-408. Модератор не загружает ключи: 403 (ключи вне его области)", "op": "uploadKeyBatch", "as": "moderator",
+     "path": {"productId": "0199e0a0-0000-7000-8000-0000000000a1"}, "body": {"keys": ["NEWMAN-CANARY-3"]}, "expect": 403,
+     "assert": [{"bodyNotContains": "NEWMAN-CANARY-3"}]},
+    {"name": "TC-408. Администратор не загружает ключи: 403", "op": "uploadKeyBatch", "as": "admin",
+     "path": {"productId": "0199e0a0-0000-7000-8000-0000000000a1"}, "body": {"keys": ["NEWMAN-CANARY-4"]}, "expect": 403,
+     "assert": [{"bodyNotContains": "NEWMAN-CANARY-4"}]},
+    {"name": "TC-408. Покупатель не смотрит остаток пула: 403", "op": "getProductStock", "as": "buyer",
+     "path": {"productId": "0199e0a0-0000-7000-8000-0000000000a1"}, "expect": 403},
+    {"name": "TC-408. Гость не загружает ключи: 401, значение в ответ не попадает", "op": "uploadKeyBatch", "as": "guest",
+     "path": {"productId": "0199e0a0-0000-7000-8000-0000000000a1"}, "body": {"keys": ["NEWMAN-CANARY-5"]}, "expect": 401,
+     "assert": [{"bodyNotContains": "NEWMAN-CANARY-5"}]}
+  ]
+}

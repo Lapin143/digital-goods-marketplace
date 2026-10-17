@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -90,6 +91,7 @@ class KeyPoolControllerTest {
         return ((List<Map<String, Object>>) e.extensions().get("errors")).stream().map(m -> (String) m.get("pointer")).toList();
     }
 
+    @Tag("TC-401")
     @Test
     void theBatchAnswers200WithTheReportOfTheSchemaAndNoStoreAndNeverTheValues() throws IOException {
         ResponseEntity<String> response = controller.uploadBatch(PRODUCT.toString(), json("{\"keys\":[\"XXXXX-00001\",\"XXXXX-00002\",\"XXXXX-00002\",\"\",\"XXXXX-00004\"]}"));
@@ -105,6 +107,7 @@ class KeyPoolControllerTest {
         assertFalse(response.getBody().contains("XXXXX"), "значений ключей в ответе нет");
     }
 
+    @Tag("TC-402")
     @Test
     void theFileAnswersWithTheSameReportAndTakesCrLfAndTheLastLineWithoutANewline() throws IOException {
         ResponseEntity<String> response = controller.uploadFile(PRODUCT.toString(), csv("A-1\r\nA-2\r\n\r\nA-1\r\nA-3"));
@@ -114,12 +117,14 @@ class KeyPoolControllerTest {
         assertEquals("no-store", response.getHeaders().getCacheControl());
     }
 
+    @Tag("TC-402")
     @Test
     void theTrailingNewlineDoesNotMakeAnEmptyLineAndTheByteOrderMarkIsDropped() throws IOException {
         MockHttpServletRequest request = csv("\uFEFFA-1\nA-2\n");
         assertEquals(List.of("A-1", "A-2"), KeyBodies.csv(request));
     }
 
+    @Tag("TC-403")
     @Test
     void batchBodyViolationsAreValidationErrorsWithPointers() {
         assertEquals(List.of("/keys"), pointers(refused(() -> KeyBodies.batch(json("{}")))));
@@ -135,6 +140,7 @@ class KeyPoolControllerTest {
         assertEquals(0, pool.keys.stored(PRODUCT));
     }
 
+    @Tag("TC-403")
     @Test
     void exactlyTenThousandKeysAreAccepted() throws IOException {
         List<String> many = new ArrayList<>();
@@ -144,6 +150,7 @@ class KeyPoolControllerTest {
         assertEquals(10_000, KeyBodies.batch(json("{\"keys\":[" + String.join(",", many) + "]}")).size());
     }
 
+    @Tag("TC-403")
     @Test
     void theMediaTypeIsCheckedPerOperation() {
         ProblemException wrongForBatch = refused(() -> KeyBodies.batch(csv("A-1")));
@@ -153,12 +160,14 @@ class KeyPoolControllerTest {
         assertEquals(ProblemType.UNSUPPORTED_MEDIA_TYPE, refused(() -> KeyBodies.csv(request("POST", BASE, SELLER, null, new byte[0]))).type());
     }
 
+    @Tag("TC-403")
     @Test
     void aBodyThatIsNotAJsonObjectIs400() {
         assertEquals(ProblemType.BAD_REQUEST, refused(() -> KeyBodies.batch(json("это не JSON"))).type());
         assertEquals(ProblemType.BAD_REQUEST, refused(() -> KeyBodies.batch(json("[\"A\"]"))).type());
     }
 
+    @Tag("TC-403")
     @Test
     void anEmptyFileAndAFileInAnotherEncodingAreValidationErrors() {
         assertEquals(List.of("/file"), pointers(refused(() -> KeyBodies.csv(csv("")))));
@@ -166,6 +175,7 @@ class KeyPoolControllerTest {
         assertEquals(List.of("/file"), pointers(refused(() -> KeyBodies.csv(latin1))));
     }
 
+    @Tag("TC-403")
     @Test
     void moreThanTenThousandLinesIs413AndExactlyTenThousandIsFine() throws IOException {
         StringBuilder ok = new StringBuilder();
@@ -176,6 +186,7 @@ class KeyPoolControllerTest {
         assertEquals(ProblemType.PAYLOAD_TOO_LARGE, refused(() -> KeyBodies.csv(csv(ok + "K-extra\n"))).type());
     }
 
+    @Tag("TC-403")
     @Test
     void aBodyOverTwoMegabytesIs413() {
         byte[] big = new byte[2 * 1024 * 1024 + 1];
@@ -183,6 +194,7 @@ class KeyPoolControllerTest {
         assertEquals(ProblemType.PAYLOAD_TOO_LARGE, refused(() -> KeyBodies.csv(request("POST", BASE, SELLER, "text/csv", big))).type());
     }
 
+    @Tag("TC-403")
     @Test
     void aBadProductIdentifierIs400BeforeTheBodyIsRead() {
         assertEquals(ProblemType.BAD_REQUEST, refused(() -> controller.uploadBatch("x", json("{\"keys\":[\"A\"]}"))).type());
@@ -190,12 +202,14 @@ class KeyPoolControllerTest {
         assertEquals(ProblemType.BAD_REQUEST, refused(() -> controller.stock("x", request("GET", BASE + "/stock", SELLER, null, null))).type());
     }
 
+    @Tag("TC-408")
     @Test
     void aTokenWithoutTheSellerIdClaimIsNotAnOwner() {
         MockHttpServletRequest noSeller = request("POST", BASE + "/key-batches", null, "application/json", "{\"keys\":[\"A\"]}".getBytes(StandardCharsets.UTF_8));
         assertEquals(ProblemType.FORBIDDEN, refused(() -> controller.uploadBatch(PRODUCT.toString(), noSeller)).type());
     }
 
+    @Tag("TC-408")
     @Test
     void anotherSellersProductIsNotFound() {
         UUID stranger = UUID.fromString("0199e0a0-0000-4000-8000-0000000000b2");
@@ -204,6 +218,7 @@ class KeyPoolControllerTest {
         assertEquals(0, pool.keys.stored(PRODUCT));
     }
 
+    @Tag("TC-406")
     @Test
     void stockMatchesTheSchemaAndIsNotCached() throws IOException {
         controller.uploadBatch(PRODUCT.toString(), json("{\"keys\":[\"A-1\",\"A-2\"]}"));

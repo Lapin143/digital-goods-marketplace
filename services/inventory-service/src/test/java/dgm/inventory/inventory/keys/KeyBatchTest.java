@@ -11,9 +11,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Разбор загружаемого списка (US-4.2, US-4.3, Р-12): номера строк и причины отказа. */
+@Tag("TC-401")
 class KeyBatchTest {
 
     private static final UUID PRODUCT = UUID.fromString("0199e0a0-0000-7000-8000-000000000201");

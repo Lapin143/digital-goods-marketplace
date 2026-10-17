@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Пул ключей: права, статусы, дубли, предел, шифрование и событие остатка (US-4.2, US-4.3, US-4.5, ADR-009). */
@@ -55,6 +56,7 @@ class KeyPoolServiceTest {
         return assertThrows(ProblemException.class, call::run);
     }
 
+    @Tag("TC-401")
     @Test
     void anUploadStoresEncryptedKeysAndReportsTheStock() {
         UploadReport report = service.upload(SELLER, PRODUCT, List.of("A-1", "A-2", "A-3"));
@@ -72,6 +74,7 @@ class KeyPoolServiceTest {
         }
     }
 
+    @Tag("TC-410")
     @Test
     void theFirstUploadCreatesTheDataKeyUnderTheAdvisoryLockAndLaterUploadsReuseIt() {
         service.upload(SELLER, PRODUCT, List.of("A-1"));
@@ -81,6 +84,7 @@ class KeyPoolServiceTest {
         assertEquals(60, pool.dataKeys.rows.get(0).wrapped().length);
     }
 
+    @Tag("TC-401")
     @Test
     void emptyLongAndRepeatedLinesAreRejectedWithNumbersAndNoValues() {
         UploadReport report = service.upload(SELLER, PRODUCT, List.of("A-1", "A-2", "A-2", "", "x".repeat(1025), "A-3"));
@@ -91,6 +95,7 @@ class KeyPoolServiceTest {
         assertEquals(3, report.available());
     }
 
+    @Tag("TC-401")
     @Test
     void aValueAlreadyInThePoolIsRejectedAndTheOtherLinesAreAccepted() {
         service.upload(SELLER, PRODUCT, List.of("A-1", "A-2"));
@@ -101,6 +106,7 @@ class KeyPoolServiceTest {
         assertEquals(4, pool.keys.stored(PRODUCT));
     }
 
+    @Tag("TC-401")
     @Test
     void theSameValueInAnotherProductIsNotADuplicate() {
         UUID other = UUID.fromString("0199e0a0-0000-7000-8000-000000000202");
@@ -109,12 +115,14 @@ class KeyPoolServiceTest {
         assertEquals(1, service.upload(SELLER, other, List.of("A-1")).accepted());
     }
 
+    @Tag("TC-404")
     @Test
     void theProductRowIsLockedBeforeTheChecksSoParallelUploadsGoOneByOne() {
         service.upload(SELLER, PRODUCT, List.of("A-1"));
         assertEquals(List.of(PRODUCT), pool.products.locked);
     }
 
+    @Tag("TC-406")
     @Test
     void stockChangedIsWrittenInTheSameTransactionWithTheNewStock() {
         service.upload(SELLER, PRODUCT, List.of("A-1", "A-2"));
@@ -129,6 +137,7 @@ class KeyPoolServiceTest {
         assertEquals(Map.of("productId", PRODUCT.toString(), "available", 2, "version", CLOCK.millis()), event.data());
     }
 
+    @Tag("TC-406")
     @Test
     void anUploadThatAddsNothingWritesNoEvent() {
         service.upload(SELLER, PRODUCT, List.of("A-1"));
@@ -139,6 +148,7 @@ class KeyPoolServiceTest {
         assertEquals(1, again.available());
     }
 
+    @Tag("TC-408")
     @Test
     void anotherSellersProductAndAnUnknownProductAreNotFound() {
         UUID stranger = UUID.fromString("0199e0a0-0000-4000-8000-0000000000b2");
@@ -148,6 +158,7 @@ class KeyPoolServiceTest {
         assertEquals(0, pool.keys.stored(PRODUCT));
     }
 
+    @Tag("TC-407")
     @Test
     void onlyKeyPoolProductsInAnAllowedStatusAcceptKeys() {
         for (String status : List.of("draft", "on_moderation", "published", "rejected")) {
@@ -165,6 +176,7 @@ class KeyPoolServiceTest {
         assertEquals(4, pool.keys.stored(PRODUCT));
     }
 
+    @Tag("TC-405")
     @Test
     void theWholeListIsRefusedWhenThePoolWouldGrowPastTheLimit() {
         pool.keys.extra.put(PRODUCT, Map.of("free", 99_000, "reserved", 500, "issued", 495));
@@ -175,6 +187,7 @@ class KeyPoolServiceTest {
         assertEquals(5, pool.keys.stored(PRODUCT), "загрузка отклонена целиком, частично не принята");
     }
 
+    @Tag("TC-405")
     @Test
     void rejectedLinesDoNotCountAgainstThePoolLimit() {
         pool.keys.extra.put(PRODUCT, Map.of("free", 99_999));
@@ -183,6 +196,7 @@ class KeyPoolServiceTest {
         assertEquals(2, report.rejectedTotal());
     }
 
+    @Tag("TC-401")
     @Test
     void theReportShowsAtMostAThousandRejectedLinesButCountsAll() {
         List<String> lines = new ArrayList<>(List.of("A-1"));
@@ -195,6 +209,7 @@ class KeyPoolServiceTest {
         assertEquals(2, report.rejected().get(0).line());
     }
 
+    @Tag("TC-406")
     @Test
     void stockCountsKeysByStatus() {
         pool.keys.extra.put(PRODUCT, Map.of("reserved", 3, "issued", 10));

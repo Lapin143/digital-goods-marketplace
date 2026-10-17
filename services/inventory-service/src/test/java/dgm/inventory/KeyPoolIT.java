@@ -19,147 +19,36 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * Пул ключей на стенде (шаг 14 фазы 4, US-4.2, US-4.3, US-4.5, ADR-009, INV-03, INV-20): реестр товаров по событиям каталога, загрузка
  * списком и файлом, отчёт без значений, шифрование в базе, дубли в пуле и при параллельной загрузке, предел пула, остаток и событие
  * {@code stock.changed} в той же транзакции, права по трём операциям (ST-02). Сервис работает в процессе теста, база и Kafka это набор
- * {@code dev-kit} (общая основа {@link InventoryStandIT}).
+ * {@code dev-kit} (общая основа {@link KeyStandIT}).
  */
-class KeyPoolIT extends InventoryStandIT {
+class KeyPoolIT extends KeyStandIT {
 
-    private static final String PRODUCTS = "/api/v1/seller/products";
-
-    private static StandHttp gateway;
-    private static JdbcTemplate db;
     private static KafkaProducer<String, String> catalog;
 
     @BeforeAll
     static void clients() {
-        gateway = StandHttp.asService("api-gateway", PORT);
-        db = new JdbcTemplate(Stand.dataSource("migrator_inventory", "inventory_db"));
         catalog = KafkaClients.producer(Stand.kafkaBootstrap(), Stand.kafkaSecurity("catalog-service"), "catalog-service-it");
     }
 
     @AfterAll
     static void close() {
         catalog.close(Duration.ofSeconds(5));
-    }
-
-    // ---------------------------------------------------------------- помощники
-
-    /** Продавец с токеном кабинета: роль seller, область seller.catalog, второй фактор и claim seller_id. */
-    private static final class Seller {
-        final UUID sellerId = UUID.randomUUID();
-        final String[] auth = StandHttp.bearer(TOKENS.token().subject(UUID.randomUUID().toString()).scopes("seller.catalog").roles("seller")
-                .amr("pwd", "otp").sellerId(sellerId.toString()).build());
-
-        /** Товар продавца в реестре: копия, как её завёл бы обработчик событий каталога. */
-        UUID product(String status, String issuance) {
-            UUID productId = UUID.randomUUID();
-            db.update("insert into inventory.product_copy (product_id, seller_id, issuance_method, status, source_version) values (?, ?, ?, ?, 1)",
-                    productId, sellerId, issuance, status);
-            return productId;
-        }
-
-        UUID product() {
-            return product("draft", "key_pool");
-        }
-    }
-
-    private static String[] with(String[] auth, String... extra) {
-        String[] all = new String[auth.length + extra.length];
-        System.arraycopy(auth, 0, all, 0, auth.length);
-        System.arraycopy(extra, 0, all, auth.length, extra.length);
-        return all;
-    }
-
-    private static String key() {
-        return UUID.randomUUID().toString();
-    }
-
-    private static String code(Response response) {
-        return (String) response.json().get("code");
-    }
-
-    private static String batchBody(String... keys) {
-        List<Object> list = new ArrayList<>(List.of((Object[]) keys));
-        return Json.write(Map.of("keys", list));
-    }
-
-    private static Response batch(Seller seller, UUID productId, String... keys) throws IOException {
-        return gateway.post(PRODUCTS + "/" + productId + "/key-batches", batchBody(keys), with(seller.auth, "Idempotency-Key", key()));
-    }
-
-    private static Response file(Seller seller, UUID productId, String csv) throws IOException {
-        return gateway.request("POST", PRODUCTS + "/" + productId + "/key-files", "text/csv", csv.getBytes(StandardCharsets.UTF_8),
-                with(seller.auth, "Idempotency-Key", key()));
-    }
-
-    private static Response stock(Seller seller, UUID productId) throws IOException {
-        return gateway.get(PRODUCTS + "/" + productId + "/stock", seller.auth);
-    }
-
-    private static List<Map<String, Object>> rejected(Response response) {
-        List<Map<String, Object>> rejected = new ArrayList<>();
-        for (Object item : (List<?>) response.json().get("rejected")) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> line = (Map<String, Object>) item;
-            rejected.add(line);
-        }
-        return rejected;
-    }
-
-    private static Map<String, Object> line(int number, String reason) {
-        Map<String, Object> line = new LinkedHashMap<>();
-        line.put("line", number);
-        line.put("reason", reason);
-        return line;
-    }
-
-    private static List<Map<String, Object>> stockEvents(UUID productId) {
-        List<Map<String, Object>> events = new ArrayList<>();
-        for (String payload : db.queryForList("select payload::text from public.outbox where aggregate_id = ? and event_type = 'stock.changed' order by id",
-                String.class, productId.toString())) {
-            events.add(Json.parseObject(payload));
-        }
-        return events;
-    }
-
-    private static int count(UUID productId) {
-        Integer n = db.queryForObject("select count(*) from inventory.key where product_id = ?", Integer.class, productId);
-        return n == null ? 0 : n;
-    }
-
-    private interface Condition {
-        boolean holds() throws Exception;
-    }
-
-    private static boolean await(Duration limit, Condition condition) throws Exception {
-        long deadline = System.nanoTime() + limit.toNanos();
-        while (System.nanoTime() < deadline) {
-            if (condition.holds()) {
-                return true;
-            }
-            Thread.sleep(200);
-        }
-        return condition.holds();
     }
 
     /** Публикует событие товара от имени каталога: права Kafka выданы по CN сертификата. Ключ записи равен {@code subject}. */
@@ -191,6 +80,7 @@ class KeyPoolIT extends InventoryStandIT {
 
     // ---------------------------------------------------------------- реестр товаров
 
+    @Tag("TC-407")
     @Test
     void theRegistryFollowsCatalogEventsByVersionAndDecisions() throws Exception {
         UUID productId = UUID.randomUUID();
@@ -216,6 +106,8 @@ class KeyPoolIT extends InventoryStandIT {
 
     // ---------------------------------------------------------------- загрузка списком
 
+    @Tag("TC-401")
+    @Tag("TC-410")
     @Test
     void aBatchIsEncryptedInTheDatabaseAndTheReportCarriesNoValues() throws IOException {
         Seller seller = new Seller();
@@ -246,6 +138,7 @@ class KeyPoolIT extends InventoryStandIT {
         assertEquals(1, db.queryForObject("select count(*) from inventory.data_key where status = 'active'", Integer.class));
     }
 
+    @Tag("TC-406")
     @Test
     void stockChangedIsInTheSameTransactionAndTheStockMatches() throws IOException {
         Seller seller = new Seller();
@@ -270,6 +163,7 @@ class KeyPoolIT extends InventoryStandIT {
         assertNotNull(stock.json().get("updatedAt"));
     }
 
+    @Tag("TC-406")
     @Test
     void anUploadThatAcceptsNothingWritesNoEvent() throws IOException {
         Seller seller = new Seller();
@@ -283,6 +177,7 @@ class KeyPoolIT extends InventoryStandIT {
         assertEquals(before, stockEvents(productId).size());
     }
 
+    @Tag("TC-401")
     @Test
     void duplicatesInThePoolAreRejectedWithLineNumbersAndOtherProductsAreIndependent() throws IOException {
         Seller seller = new Seller();
@@ -297,34 +192,7 @@ class KeyPoolIT extends InventoryStandIT {
         assertEquals(4, count(first));
     }
 
-    @Test
-    void theSameValueUploadedByTwoSessionsAtOnceIsAcceptedExactlyOnce() throws Exception {
-        Seller seller = new Seller();
-        UUID productId = seller.product();
-        int sessions = 6;
-        ExecutorService pool = Executors.newFixedThreadPool(sessions);
-        try {
-            List<Future<Response>> calls = new ArrayList<>();
-            for (int i = 0; i < sessions; i++) {
-                Callable<Response> call = () -> batch(seller, productId, "RACE-0001");
-                calls.add(pool.submit(call));
-            }
-            int accepted = 0;
-            int duplicates = 0;
-            for (Future<Response> call : calls) {
-                Response response = call.get(60, TimeUnit.SECONDS);
-                assertEquals(200, response.status(), response.body());
-                accepted += (Integer) response.json().get("accepted");
-                duplicates += rejected(response).stream().filter(r -> "duplicate_in_pool".equals(r.get("reason"))).count();
-            }
-            assertEquals(1, accepted, "ровно одна сессия приняла значение");
-            assertEquals(sessions - 1, duplicates);
-            assertEquals(1, count(productId));
-        } finally {
-            pool.shutdownNow();
-        }
-    }
-
+    @Tag("TC-409")
     @Test
     void theSameIdempotencyKeyRepeatsTheAnswerAndTheKeyIsRequired() throws IOException {
         Seller seller = new Seller();
@@ -347,6 +215,7 @@ class KeyPoolIT extends InventoryStandIT {
         assertEquals("idempotency-key-reuse", code(reused));
     }
 
+    @Tag("TC-403")
     @Test
     void invalidBodiesAreRefusedWithoutStoringAnything() throws IOException {
         Seller seller = new Seller();
@@ -368,6 +237,7 @@ class KeyPoolIT extends InventoryStandIT {
 
     // ---------------------------------------------------------------- загрузка файлом
 
+    @Tag("TC-402")
     @Test
     void aCsvFileIsReadLineByLineAndTheReportNamesTheRejectedLines() throws IOException {
         Seller seller = new Seller();
@@ -386,6 +256,7 @@ class KeyPoolIT extends InventoryStandIT {
         assertEquals(List.of(line(1, "duplicate_in_pool"), line(2, "duplicate_in_pool")), rejected(again));
     }
 
+    @Tag("TC-403")
     @Test
     void aFileOverTheLimitsIsRefusedAndNothingIsSaved() throws IOException {
         Seller seller = new Seller();
@@ -407,26 +278,29 @@ class KeyPoolIT extends InventoryStandIT {
 
     // ---------------------------------------------------------------- пределы и состояния товара
 
+    @Tag("TC-405")
     @Test
     void thePoolIsLimitedToOneHundredThousandAndAnOverflowingUploadIsRefusedWhole() throws IOException {
         Seller seller = new Seller();
         UUID productId = seller.product();
         assertEquals(1, batch(seller, productId, "BASE-1").json().get("accepted"), "первая загрузка заводит ключ данных");
-        Integer dekId = db.queryForObject("select dek_id from inventory.key where product_id = ?", Integer.class, productId);
-        db.update("insert into inventory.key (id, product_id, dek_id, nonce, ciphertext, hmac) "
-                + "select gen_random_uuid(), ?, ?, decode('000000000000000000000000', 'hex'), decode(repeat('00', 17), 'hex'), "
-                + "decode(md5(i::text) || md5(i::text), 'hex') from generate_series(1, 99994) i", productId, dekId);
-        assertEquals(99_995, count(productId));
+        fillPool(productId, 99_995);
+        try {
+            assertEquals(99_995, count(productId));
 
-        Response over = batch(seller, productId, "N-1", "N-2", "N-3", "N-4", "N-5", "N-6");
-        assertEquals(409, over.status(), over.body());
-        assertEquals("pool-limit-exceeded", code(over));
-        assertEquals(99_995, count(productId), "загрузка отклонена целиком");
-        assertEquals(5, batch(seller, productId, "N-1", "N-2", "N-3", "N-4", "N-5").json().get("accepted"), "ровно до предела");
-        assertEquals(100_000, count(productId));
-        assertEquals(409, batch(seller, productId, "N-6").status());
+            Response over = batch(seller, productId, "N-1", "N-2", "N-3", "N-4", "N-5", "N-6");
+            assertEquals(409, over.status(), over.body());
+            assertEquals("pool-limit-exceeded", code(over));
+            assertEquals(99_995, count(productId), "загрузка отклонена целиком");
+            assertEquals(5, batch(seller, productId, "N-1", "N-2", "N-3", "N-4", "N-5").json().get("accepted"), "ровно до предела");
+            assertEquals(100_000, count(productId));
+            assertEquals(409, batch(seller, productId, "N-6").status());
+        } finally {
+            dropPool(productId);
+        }
     }
 
+    @Tag("TC-407")
     @Test
     void onlyKeyPoolProductsInAnAllowedStatusAcceptKeys() throws IOException {
         Seller seller = new Seller();
@@ -445,6 +319,7 @@ class KeyPoolIT extends InventoryStandIT {
         assertEquals("state-conflict", code(api));
     }
 
+    @Tag("TC-408")
     @Test
     void anotherSellersProductAndAnUnknownProductAreNotFoundForEveryOperation() throws IOException {
         Seller owner = new Seller();
@@ -464,6 +339,7 @@ class KeyPoolIT extends InventoryStandIT {
      * Права рабочей роли на {@code key}: читает, вставляет, обновляет, но не удаляет и не очищает таблицу (единица товара не исчезает,
      * аннулирование это статус). Проверка по каталогу прав: у роли {@code app_inventory} предел 8 соединений, и все они заняты сервисом.
      */
+    @Tag("TC-411")
     @Test
     void theApplicationRoleHasNoDeleteOrTruncateOnKeys() {
         for (String right : List.of("SELECT", "INSERT", "UPDATE")) {
@@ -497,6 +373,7 @@ class KeyPoolIT extends InventoryStandIT {
         return gateway.post(operation.path, batchBody("A-1"), with(auth, "Idempotency-Key", key()));
     }
 
+    @Tag("TC-408")
     @Test
     void everyOperationRefusesCallersWithoutTheRight() throws IOException {
         String sellerId = UUID.randomUUID().toString();
@@ -522,6 +399,7 @@ class KeyPoolIT extends InventoryStandIT {
         }
     }
 
+    @Tag("TC-408")
     @Test
     void aSellerTokenWithoutTheSellerIdClaimOwnsNothing() throws IOException {
         String token = TOKENS.token().subject(UUID.randomUUID().toString()).scopes("seller.catalog").roles("seller").amr("pwd", "otp").build();

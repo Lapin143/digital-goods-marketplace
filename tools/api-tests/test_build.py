@@ -73,6 +73,40 @@ class BuildTest(unittest.TestCase):
         self.assertEqual('Bearer {{token_buyer}}', steps[1]['request']['header'][0]['value'])
         self.assertIn('pm.collectionVariables.set("firstProduct"', ''.join(steps[0]['event'][0]['script']['exec']))
 
+    def test_multipart_header_and_not_contains_steps_are_built(self):
+        scenario = {'id': 'T-02', 'title': 'форма и заголовок', 'steps': [
+            {'name': 'документ', 'op': 'uploadSellerDocument', 'as': 'buyer', 'expect': 415,
+             'multipart': {'field': 'file', 'filename': 'a.pdf', 'contentType': 'application/pdf', 'content': 'не pdf'},
+             'assert': [{'header': 'Content-Type', 'contains': 'application/problem+json'}, {'bodyNotContains': 'не pdf'}]}]}
+        collection, summary, problems = run([scenario], with_matrix=False)
+        self.assertEqual([], problems)
+        step = collection['item'][0]['item'][0]
+        headers = {h['key']: h['value'] for h in step['request']['header']}
+        self.assertTrue(headers['Content-Type'].startswith('multipart/form-data; boundary='))
+        raw = step['request']['body']['raw']
+        self.assertTrue(raw.startswith('--' + build.BOUNDARY + '\r\nContent-Disposition: form-data; name="file"; filename="a.pdf"\r\nContent-Type: application/pdf\r\n\r\nне pdf'))
+        self.assertTrue(raw.endswith('\r\n--' + build.BOUNDARY + '--\r\n'))
+        script = ''.join(step['event'][0]['script']['exec'])
+        self.assertIn('pm.response.headers.get("Content-Type")', script)
+        self.assertIn('application/problem+json', script)
+        self.assertIn('to.not.include("не pdf")', script)
+
+    def test_multipart_is_refused_next_to_a_json_body_or_on_a_get(self):
+        both = {'id': 'T-03', 'title': 'x', 'steps': [
+            {'name': 'и то и другое', 'op': 'uploadSellerDocument', 'as': 'buyer', 'expect': 415, 'body': {}, 'multipart': {'content': 'x'}}]}
+        _, _, problems = run([both], with_matrix=False)
+        self.assertTrue(any('multipart допустим только у POST и вместо body' in p for p in problems), problems)
+        on_get = {'id': 'T-04', 'title': 'x', 'steps': [
+            {'name': 'GET с формой', 'op': 'listStorefrontProducts', 'as': 'guest', 'expect': 200, 'multipart': {'content': 'x'}}]}
+        _, _, problems = run([on_get], with_matrix=False)
+        self.assertTrue(any('multipart допустим только у POST' in p for p in problems), problems)
+
+    def test_a_header_check_without_contains_is_refused(self):
+        scenario = {'id': 'T-05', 'title': 'x', 'steps': [
+            {'name': 'витрина', 'op': 'listStorefrontProducts', 'as': 'guest', 'expect': 200, 'assert': [{'header': 'ETag'}]}]}
+        _, _, problems = run([scenario], with_matrix=False)
+        self.assertTrue(any('проверка заголовка без contains' in p for p in problems), problems)
+
     def test_sabotage_flips_the_first_denial_and_reports_nothing_to_flip_without_one(self):
         collection, _, _ = run([])
         self.assertTrue(runner.sabotage(collection))

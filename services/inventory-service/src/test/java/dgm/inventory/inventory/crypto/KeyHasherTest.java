@@ -12,9 +12,11 @@ import java.util.Base64;
 import java.util.UUID;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** HMAC значения ключа (ADR-009, INV-03): состав подписи, нормализация, раздельность товаров. */
+@Tag("TC-410")
 class KeyHasherTest {
 
     private static final UUID PRODUCT = UUID.fromString("0199e0a0-0000-7000-8000-000000000201");
