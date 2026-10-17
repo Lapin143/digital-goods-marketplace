@@ -91,7 +91,7 @@ flowchart TB
             payment-service["<b>Сервис платежей</b><br/><i>[Контейнер: Java, Spring Boot]</i><br/>8443"]
             delivery-service["<b>Сервис выдачи</b><br/><i>[Контейнер: Java, Spring Boot]</i><br/>8443"]
         end
-        subgraph p-sellers["<b>Профиль sellers, 672 МБ</b>"]
+        subgraph p-sellers["<b>Профиль sellers, 704 МБ</b>"]
             inventory-service["<b>Сервис остатков и ключей</b><br/><i>[Контейнер: Java, Spring Boot]</i><br/>8443"]
             catalog-service["<b>Сервис каталога</b><br/><i>[Контейнер: Java, Spring Boot]</i><br/>8443"]
         end
@@ -101,7 +101,7 @@ flowchart TB
         subgraph p-storage["<b>Профиль storage, 224 МБ</b>"]
             object-storage[("<b>Объектное хранилище</b><br/><i>[Контейнер: RustFS, S3 API]</i><br/>9000")]
         end
-        subgraph p-infra["<b>Профиль infra, 1216 МБ</b>"]
+        subgraph p-infra["<b>Профиль infra, 1248 МБ</b>"]
             postgres[("<b>Реляционные базы</b><br/><i>[Контейнер: PostgreSQL 16]</i><br/>5432")]
             kafka[("<b>Брокер событий</b><br/><i>[Контейнер: Kafka KRaft]</i><br/>9093")]
             redis[("<b>Кэш и таймеры</b><br/><i>[Контейнер: Redis]</i><br/>6379")]

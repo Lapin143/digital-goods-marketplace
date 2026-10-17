@@ -209,7 +209,7 @@ class ProductModerationControllerTest {
     }
 
     @Test
-    void theReasonIsRequiredNonEmptyAtMostAThousandCharactersAndTheOnlyField() {
+    void theReasonIsRequiredNonEmptyAtMostAThousandCharactersAndTheOnlyField() throws IOException {
         products.with(queued(1, T0));
         String uri = BASE + "/" + id(1) + "/reject";
         String thousandOne = "ж".repeat(1001);

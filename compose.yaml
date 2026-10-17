@@ -126,8 +126,8 @@ services:
     user: "1000:1000"
     entrypoint: ["/bin/bash", "/etc/dgm/kafka/entrypoint.sh"]
     command: []
-    mem_limit: 480m
-    memswap_limit: 480m
+    mem_limit: 512m
+    memswap_limit: 512m
     networks: [data]
     volumes:
       - kafkadata:/var/lib/kafka/data
@@ -350,8 +350,8 @@ services:
     image: dgm/catalog-service:${IMAGE_TAG:-dev}
     profiles: [sellers]
     user: "10001:10001"
-    mem_limit: 352m
-    memswap_limit: 352m
+    mem_limit: 384m
+    memswap_limit: 384m
     networks: [app, data, obs]
     depends_on:
       postgres:
@@ -369,8 +369,8 @@ services:
       DGM_STORAGE_PUBLIC_BASE_URL: ${DGM_PUBLIC_ORIGIN:-https://localhost:8443}/files
       # Тестовые данные ходячего скелета (миграции db/testdata). На сервере переменная пустая: DGM_SPRING_PROFILES=
       SPRING_PROFILES_ACTIVE: ${DGM_SPRING_PROFILES-testdata}
-      # Куча 192 МБ из лимита 352 МБ: под нагрузкой пик занимал 85-90% прежних 320 МБ (memory-measurements.md)
-      JAVA_TOOL_OPTIONS: -Xmx192m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED
+      # Куча 224 МБ из лимита 384 МБ: с клиентом Redis и обработчиком событий пик в CI вырос до 322 МБ (92% от 352 МБ), memory-budget.md
+      JAVA_TOOL_OPTIONS: -Xmx224m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED
     tmpfs:
       - /tmp:uid=10001,gid=10001,mode=1777,size=48m
     secrets:
