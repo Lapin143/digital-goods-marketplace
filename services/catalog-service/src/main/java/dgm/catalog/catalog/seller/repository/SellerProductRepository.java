@@ -1,5 +1,7 @@
 package dgm.catalog.catalog.seller.repository;
 
+import dgm.catalog.catalog.domain.ModerationQueueItem;
+import dgm.catalog.catalog.domain.ModerationQueuePage;
 import dgm.catalog.catalog.domain.Product;
 import dgm.catalog.catalog.domain.ProductPage;
 import dgm.catalog.catalog.domain.ProductStatus;
@@ -12,6 +14,20 @@ import java.util.UUID;
  * (404, ST-02). Изменения идут в транзакции вызывающего сервиса; блокировка {@link #lock} вне транзакции ничего не держит.
  */
 public interface SellerProductRepository {
+
+    /** Товар любого продавца для модератора, без блокировки. */
+    Optional<Product> findById(UUID productId);
+
+    /** Товар любого продавца для решения модератора, с блокировкой строки до конца транзакции. */
+    Optional<Product> lockById(UUID productId);
+
+    /**
+     * Очередь модерации: товары {@code on_moderation}, старые выше (индекс {@code ix_product_moderation_queue}).
+     *
+     * @param after строго после этой пары; пусто: с начала
+     * @param limit сколько строк вернуть
+     */
+    List<ModerationQueueItem> moderationQueue(Optional<ModerationQueuePage.After> after, int limit);
 
     /** Товар продавца без блокировки. */
     Optional<Product> find(UUID sellerId, UUID productId);

@@ -107,6 +107,45 @@ public record Product(UUID id, UUID sellerId, ProductForm form, String rejection
                 createdAt, now);
     }
 
+    /**
+     * T3: модератор одобрил товар из очереди. Товар публикуется (порядок витрины «новые выше» идёт от этого момента), срок проверки
+     * закрывается, причина прошлого отклонения снимается.
+     */
+    public Product approve(Instant now) {
+        requireOnModeration();
+        return new Product(id, sellerId, form, null, null, null, null, null, null, null, now, ProductStatus.PUBLISHED, version + 1, createdAt, now);
+    }
+
+    /** T4: модератор отклонил товар из очереди; причина видна продавцу, исправленный товар он отправляет заново (T5). */
+    public Product reject(String reason, Instant now) {
+        requireOnModeration();
+        return new Product(id, sellerId, form, reason, null, null, null, null, null, null, publishedAt, ProductStatus.REJECTED, version + 1,
+                createdAt, now);
+    }
+
+    /**
+     * T8: модератор заблокировал опубликованный товар; он исчезает с витрины, текст причины виден продавцу (Р-21). Путь назад идёт через
+     * правку продавца и новую модерацию (T11).
+     */
+    public Product block(String note, Instant now) {
+        if (status != ProductStatus.PUBLISHED) {
+            throw stateConflict();
+        }
+        return new Product(id, sellerId, form, null, ProductStatus.PUBLISHED, BlockReason.MODERATOR_DECISION, note, null, null, null,
+                publishedAt, ProductStatus.BLOCKED, version + 1, createdAt, now);
+    }
+
+    /** Черновик модератору не виден: пока продавец не отправил товар, его как будто нет (Р-73 для товаров). */
+    public boolean visibleToModerator() {
+        return status != ProductStatus.DRAFT;
+    }
+
+    private void requireOnModeration() {
+        if (status != ProductStatus.ON_MODERATION) {
+            throw stateConflict();
+        }
+    }
+
     /** Блокировка по решению модератора: продавец может исправить товар и отправить заново (T11). */
     public boolean moderatorBlocked() {
         return status == ProductStatus.BLOCKED && blockReason == BlockReason.MODERATOR_DECISION;

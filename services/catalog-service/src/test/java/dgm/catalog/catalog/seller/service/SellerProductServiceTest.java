@@ -16,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dgm.catalog.catalog.FakeCatalogTransaction;
+import dgm.catalog.catalog.cache.MemoryCache;
 import dgm.catalog.catalog.domain.Product;
 import dgm.catalog.catalog.domain.ProductPage;
 import dgm.catalog.catalog.domain.ProductSettings;
@@ -38,6 +39,7 @@ class SellerProductServiceTest {
     private ManualClock clock;
     private FakeSellerProducts products;
     private FakeCatalogTransaction transaction;
+    private final MemoryCache memory = new MemoryCache();
     private FakeApprovedSellers sellers;
     private SellerProductService service;
 
@@ -47,7 +49,7 @@ class SellerProductServiceTest {
         products = new FakeSellerProducts();
         transaction = new FakeCatalogTransaction();
         sellers = new FakeApprovedSellers().approve(SELLER).approve(OTHER_SELLER);
-        service = new SellerProductService(products, transaction, sellers, clock, new ProductSettings(REVIEW));
+        service = new SellerProductService(products, transaction, sellers, clock, new ProductSettings(REVIEW), memory.cache());
     }
 
     private static ProblemType problem(Runnable action) {
@@ -105,7 +107,7 @@ class SellerProductServiceTest {
                 throw new IllegalStateException("база недоступна");
             }
         };
-        SellerProductService failing = new SellerProductService(broken, transaction, sellers, clock, new ProductSettings(REVIEW));
+        SellerProductService failing = new SellerProductService(broken, transaction, sellers, clock, new ProductSettings(REVIEW), memory.cache());
         assertThrows(IllegalStateException.class, () -> failing.create(SELLER, form()));
         assertEquals(List.of(), transaction.published());
     }
@@ -235,7 +237,7 @@ class SellerProductServiceTest {
                 return false;
             }
         }.with(p);
-        SellerProductService racingService = new SellerProductService(racing, transaction, sellers, clock, new ProductSettings(REVIEW));
+        SellerProductService racingService = new SellerProductService(racing, transaction, sellers, clock, new ProductSettings(REVIEW), memory.cache());
         assertEquals(ProblemType.VERSION_CONFLICT, problem(() -> racingService.replace(SELLER, p.id(), 1, withTitle(form(), "Гонка"))));
         assertEquals(events, transaction.published().size());
     }
@@ -302,5 +304,50 @@ class SellerProductServiceTest {
         assertEquals(ProductStatus.DRAFT, products.row(id).status());
         assertNotNull(products.row(id));
         assertFalse(transaction.published("product.updated").size() > 0);
+    }
+
+    // ------------------------------------------------------------------ кэш витрины
+
+    @Test
+    void aChangeToAPublishedProductDropsItsCachedCardAfterCommit() {
+        products.with(in(ProductStatus.PUBLISHED, 3));
+        memory.set("catalog:product:" + id(1), "{}", Duration.ofSeconds(30));
+        service.replace(SELLER, id(1), 3, withPrice(form(), 99_900L));
+        assertFalse(memory.has(id(1)), "карточка с прежней ценой в кэше не остаётся");
+        assertEquals(1, transaction.afterCommitRuns());
+    }
+
+    @Test
+    void archivingDropsTheCachedCardToo() {
+        products.with(in(ProductStatus.PUBLISHED, 3));
+        memory.set("catalog:product:" + id(1), "{}", Duration.ofSeconds(30));
+        service.archive(SELLER, id(1));
+        assertFalse(memory.has(id(1)));
+    }
+
+    @Test
+    void anEditWithoutDifferencesLeavesTheCachedCardAlone() {
+        products.with(in(ProductStatus.PUBLISHED, 3));
+        memory.set("catalog:product:" + id(1), "{}", Duration.ofSeconds(30));
+        service.replace(SELLER, id(1), 3, form());
+        assertTrue(memory.has(id(1)));
+    }
+
+    @Test
+    void aRefusedChangeKeepsTheCachedCard() {
+        products.with(in(ProductStatus.PUBLISHED, 3));
+        memory.set("catalog:product:" + id(1), "{}", Duration.ofSeconds(30));
+        assertEquals(ProblemType.VERSION_CONFLICT, problem(() -> service.replace(SELLER, id(1), 2, withPrice(form(), 99_900L))));
+        assertTrue(memory.has(id(1)), "откатившаяся транзакция кэш не трогает");
+        assertEquals(0, transaction.afterCommitRuns());
+    }
+
+    @Test
+    void anUnavailableRedisDoesNotBreakTheChange() {
+        products.with(in(ProductStatus.PUBLISHED, 3));
+        memory.down(true);
+        Product after = service.replace(SELLER, id(1), 3, withPrice(form(), 99_900L));
+        assertEquals(4, after.version());
+        assertEquals(99_900L, products.row(id(1)).form().price());
     }
 }

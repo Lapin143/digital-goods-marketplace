@@ -17,7 +17,9 @@ public final class FakeCatalogTransaction implements CatalogTransaction {
     }
 
     private final List<Published> committed = new ArrayList<>();
+    private final List<Runnable> afterCommitActions = new ArrayList<>();
     private List<Published> pending;
+    private List<Runnable> pendingActions;
     private int executions;
 
     @Override
@@ -27,13 +29,36 @@ public final class FakeCatalogTransaction implements CatalogTransaction {
             return action.get();
         }
         pending = new ArrayList<>();
+        pendingActions = new ArrayList<>();
+        List<Runnable> actions = pendingActions;
         try {
             T result = action.get();
             committed.addAll(pending);
+            afterCommitActions.addAll(actions);
+            pending = null;
+            pendingActions = null;
+            actions.forEach(Runnable::run);
             return result;
         } finally {
             pending = null;
+            pendingActions = null;
         }
+    }
+
+    /** Как в настоящей транзакции: действие, зарегистрированное в откатившейся транзакции, не выполняется; вне транзакции оно идёт сразу. */
+    @Override
+    public void afterCommit(Runnable action) {
+        if (pendingActions == null) {
+            afterCommitActions.add(action);
+            action.run();
+            return;
+        }
+        pendingActions.add(action);
+    }
+
+    /** Сколько действий «после фиксации» выполнено. */
+    public int afterCommitRuns() {
+        return afterCommitActions.size();
     }
 
     @Override

@@ -32,7 +32,7 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(REPO, 'tools', 'docs-checks'))
 import check_stub_contract as S  # noqa: E402  (load/resolve по файлам OpenAPI)
 
-# Операции и коды, образцы которых обязательны: ходячий скелет (шаг 12 Ф3), товары продавца (шаг 12 Ф4, SellerProductIT), пул ключей (шаг 4 Ф4, образцы появятся в шаге 14), учётные записи
+# Операции и коды, образцы которых обязательны: ходячий скелет (шаг 12 Ф3), товары продавца (шаг 12 Ф4, SellerProductIT), модерация товаров и карточка витрины (шаг 13 Ф4, ProductModerationIT), пул ключей (шаг 4 Ф4, образцы появятся в шаге 14), учётные записи
 # сотрудников (шаг 5 Ф4) и подтверждение телефона с внутренними операциями входа по SMS (шаг 6 Ф4). Ответ 200 вебхука статуса SMS тела не имеет,
 # поэтому у receiveSmsStatus обязательны только отказы
 REQUIRED = {
@@ -40,7 +40,11 @@ REQUIRED = {
                         ('createSellerProduct', 201), ('createSellerProduct', 422), ('listSellerProducts', 200), ('listSellerProducts', 422),
                         ('getSellerProduct', 200), ('getSellerProduct', 404), ('replaceSellerProduct', 200), ('replaceSellerProduct', 412),
                         ('replaceSellerProduct', 428), ('submitSellerProduct', 200), ('submitSellerProduct', 409), ('archiveSellerProduct', 200),
-                        ('restoreSellerProduct', 200)],
+                        ('restoreSellerProduct', 200),
+                        ('getStorefrontProduct', 200), ('getStorefrontProduct', 404), ('listProductModerationQueue', 200),
+                        ('listProductModerationQueue', 422), ('getProductForModeration', 200), ('getProductForModeration', 404),
+                        ('approveProduct', 200), ('approveProduct', 409), ('rejectProduct', 200), ('rejectProduct', 422),
+                        ('blockProduct', 200), ('blockProduct', 409)],
     'order-service': [('listOrders', 200), ('listOrders', 422)],
     'inventory-service': [('uploadKeyBatch', 200), ('uploadKeyBatch', 422), ('uploadKeyFile', 200), ('uploadKeyFile', 415),
                           ('getProductStock', 200), ('getProductStock', 404)],

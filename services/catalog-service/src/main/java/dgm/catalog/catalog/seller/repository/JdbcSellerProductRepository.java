@@ -2,6 +2,8 @@ package dgm.catalog.catalog.seller.repository;
 
 import dgm.catalog.catalog.domain.BlockReason;
 import dgm.catalog.catalog.domain.IssuanceMethod;
+import dgm.catalog.catalog.domain.ModerationQueueItem;
+import dgm.catalog.catalog.domain.ModerationQueuePage;
 import dgm.catalog.catalog.domain.Product;
 import dgm.catalog.catalog.domain.ProductForm;
 import dgm.catalog.catalog.domain.ProductPage;
@@ -40,6 +42,31 @@ public final class JdbcSellerProductRepository implements SellerProductRepositor
 
     public JdbcSellerProductRepository(ModuleDatabases databases) {
         this.jdbc = databases.jdbc(MODULE);
+    }
+
+    @Override
+    public Optional<Product> findById(UUID productId) {
+        return jdbc.query("select " + COLUMNS + " from catalog.product where id = ?", PRODUCT, productId).stream().findFirst();
+    }
+
+    @Override
+    public Optional<Product> lockById(UUID productId) {
+        return jdbc.query("select " + COLUMNS + " from catalog.product where id = ? for update", PRODUCT, productId).stream().findFirst();
+    }
+
+    @Override
+    public List<ModerationQueueItem> moderationQueue(Optional<ModerationQueuePage.After> after, int limit) {
+        String select = "select id, seller_id, title, product_type, price, currency, submitted_at, review_deadline_at "
+                + "from catalog.product where status = 'on_moderation' ";
+        String order = "order by submitted_at, id limit ?";
+        RowMapper<ModerationQueueItem> mapper = (rs, row) -> new ModerationQueueItem(rs.getObject("id", UUID.class),
+                rs.getObject("seller_id", UUID.class), rs.getString("title"), rs.getString("product_type"), rs.getLong("price"),
+                rs.getString("currency").trim(), instant(rs, "submitted_at"), instant(rs, "review_deadline_at"));
+        if (after.isEmpty()) {
+            return jdbc.query(select + order, mapper, limit);
+        }
+        ModerationQueuePage.After key = after.get();
+        return jdbc.query(select + "and (submitted_at, id) > (?, ?) " + order, mapper, time(key.submittedAt()), key.id(), limit);
     }
 
     @Override

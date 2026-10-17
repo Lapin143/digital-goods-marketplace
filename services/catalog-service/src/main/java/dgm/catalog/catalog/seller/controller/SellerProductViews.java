@@ -14,17 +14,17 @@ import java.util.List;
 import java.util.Map;
 
 /** Тела ответов по схемам {@code SellerProduct} и {@code SellerProductPage} (catalog-service.yaml). */
-final class SellerProductViews {
+public final class SellerProductViews {
 
     private SellerProductViews() {
     }
 
     /** ETag товара: версия в кавычках (conventions.md, раздел 8). */
-    static String etag(Product product) {
+    public static String etag(Product product) {
         return IfMatch.etag(product.version());
     }
 
-    static Map<String, Object> product(Product p) {
+    public static Map<String, Object> product(Product p) {
         ProductForm f = p.form();
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("productId", p.id().toString());

@@ -27,9 +27,9 @@ replaceSellerProduct           done
 restoreSellerProduct           done
 submitSellerProduct            done
 
-approveProduct                 slice1
-blockProduct                   slice1
-getProductForModeration        slice1
-getStorefrontProduct           slice1
-listProductModerationQueue     slice1
-rejectProduct                  slice1
+approveProduct                 done
+blockProduct                   done
+getProductForModeration        done
+getStorefrontProduct           done
+listProductModerationQueue     done
+rejectProduct                  done

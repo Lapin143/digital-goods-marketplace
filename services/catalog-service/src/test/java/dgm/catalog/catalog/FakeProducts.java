@@ -1,6 +1,7 @@
 package dgm.catalog.catalog;
 
 import dgm.catalog.catalog.domain.ProductCard;
+import dgm.catalog.catalog.domain.StorefrontCard;
 import dgm.catalog.catalog.domain.StorefrontFilter;
 import dgm.catalog.catalog.domain.StorefrontItem;
 import dgm.catalog.catalog.repository.ProductRepository;
@@ -25,6 +26,8 @@ public final class FakeProducts implements ProductRepository {
 
     private final List<StorefrontItem> items = new ArrayList<>();
     private final Map<UUID, ProductCard> cards = new HashMap<>();
+    private final Map<UUID, StorefrontCard> published = new HashMap<>();
+    private int cardReads;
     private StorefrontFilter lastFilter;
 
     public static UUID id(int n) {
@@ -43,6 +46,23 @@ public final class FakeProducts implements ProductRepository {
     public FakeProducts withCard(ProductCard card) {
         cards.put(card.id(), card);
         return this;
+    }
+
+    /** Опубликованная карточка для {@code findPublishedCard}. */
+    public FakeProducts withPublished(StorefrontCard card) {
+        published.put(card.id(), card);
+        return this;
+    }
+
+    /** Убирает карточку: товар снят с витрины. */
+    public FakeProducts withdraw(UUID id) {
+        published.remove(id);
+        return this;
+    }
+
+    /** Сколько раз карточки читали из «базы». */
+    public int cardReads() {
+        return cardReads;
     }
 
     public StorefrontFilter lastFilter() {
@@ -70,5 +90,11 @@ public final class FakeProducts implements ProductRepository {
     @Override
     public Optional<ProductCard> findCard(UUID id) {
         return Optional.ofNullable(cards.get(id));
+    }
+
+    @Override
+    public Optional<StorefrontCard> findPublishedCard(UUID id) {
+        cardReads++;
+        return Optional.ofNullable(published.get(id));
     }
 }

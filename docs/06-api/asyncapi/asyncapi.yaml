@@ -860,8 +860,8 @@ operations:
       idempotency:
         level2: processed_event
         key: (consumer = 'stock-view-service', event_id)
-        businessGuard: 'Запись по `productId`, применяется, только если `version` больше сохранённой: событие после
-          возврата из DLQ не откатывает остаток'
+        businessGuard: 'Запись по `productId`, применяется, только если метка времени события (`time` конверта) не меньше
+          сохранённой в `stock_view.last_event_at`: событие после возврата из DLQ не откатывает остаток'
       errorHandling:
         retries: блокирующие, паузы 1, 5, 25 секунд
         deadLetterTopic: inventory.events.dlq

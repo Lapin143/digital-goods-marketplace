@@ -13,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dgm.catalog.catalog.FakeCatalogTransaction;
+import dgm.catalog.catalog.cache.MemoryCache;
 import dgm.catalog.catalog.domain.ProductSettings;
 import dgm.catalog.catalog.domain.ProductStatus;
 import dgm.catalog.catalog.seller.FakeApprovedSellers;
@@ -49,6 +50,7 @@ class SellerProductControllerTest {
     private ManualClock clock;
     private FakeSellerProducts products;
     private FakeCatalogTransaction transaction;
+    private final MemoryCache memory = new MemoryCache();
     private SellerProductController controller;
 
     @BeforeEach
@@ -57,7 +59,7 @@ class SellerProductControllerTest {
         products = new FakeSellerProducts();
         transaction = new FakeCatalogTransaction();
         FakeApprovedSellers sellers = new FakeApprovedSellers().approve(SELLER).approve(OTHER_SELLER);
-        controller = new SellerProductController(new SellerProductService(products, transaction, sellers, clock, new ProductSettings(REVIEW)));
+        controller = new SellerProductController(new SellerProductService(products, transaction, sellers, clock, new ProductSettings(REVIEW), memory.cache()));
     }
 
     private static MockHttpServletRequest request(String method, String uri, UUID seller) {

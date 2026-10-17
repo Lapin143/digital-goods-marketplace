@@ -29,6 +29,12 @@ dgm:
         pool-size: 3
   kafka:
     bootstrap: ${DGM_KAFKA_BOOTSTRAP:kafka:9093}
+  # Redis (ADR-022): кэш карточек витрины. Пользователь ACL catalog видит только ключи catalog:*, пароль лежит в секрете redis_catalog.
+  # Redis для каталога только кэш: недоступный Redis не останавливает ни сервис, ни ответы, карточка читается из базы
+  redis:
+    host: ${DGM_REDIS_HOST:redis}
+    port: ${DGM_REDIS_PORT:6379}
+    user: catalog
   storage:
     # Закрытый бакет seller-documents в RustFS (ADR-024). Учётная запись catalog-service с паролем из секрета storage_catalog:
     # права только на этот бакет (infra/storage). Клиент создаётся без соединения: хранилище не нужно для старта сервиса
@@ -50,5 +56,9 @@ dgm:
 seller:
   reapplication-pause-seconds: 86400     # пауза после отказа, 24 часа (3600 … 604800)
   document-link-ttl-seconds: 300         # срок подписанной ссылки на документ, 5 минут (60 … 900)
+catalog:
+  cache:
+    # Срок жизни карточки в кэше витрины (1 … 3600). Сброс по решению модератора, правке и stock.changed идёт раньше этого срока
+    product-ttl-seconds: 30
 moderation:
   review-deadline-seconds: 259200        # срок рассмотрения заявки от каждой подачи, 3 суток (в профиле fast-time 10 секунд)

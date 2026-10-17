@@ -1,6 +1,7 @@
 package dgm.catalog.catalog.repository;
 
 import dgm.catalog.catalog.domain.ProductCard;
+import dgm.catalog.catalog.domain.StorefrontCard;
 import dgm.catalog.catalog.domain.StorefrontFilter;
 import dgm.catalog.catalog.domain.StorefrontItem;
 import dgm.kit.boot.ModuleDatabases;
@@ -84,6 +85,17 @@ public final class JdbcProductRepository implements ProductRepository {
                 rs.getString("issuance_method"),
                 rs.getString("product_type")), id);
         return found.stream().findFirst();
+    }
+
+    @Override
+    public Optional<StorefrontCard> findPublishedCard(UUID id) {
+        return jdbc.query("select p.id, p.seller_id, p.title, p.description, p.product_type, p.platform, p.activation_regions, p.price, "
+                + "p.currency, coalesce(s.available, 0) as available "
+                + "from catalog.product p left join catalog.stock_view s on s.product_id = p.id where p.id = ? and p.status = 'published'",
+                (rs, row) -> new StorefrontCard(rs.getObject("id", UUID.class), rs.getObject("seller_id", UUID.class), rs.getString("title"),
+                        rs.getString("description"), rs.getString("product_type"), rs.getString("platform"),
+                        List.of((String[]) rs.getArray("activation_regions").getArray()), rs.getLong("price"),
+                        rs.getString("currency").trim(), rs.getInt("available")), id).stream().findFirst();
     }
 
     /** Знаки шаблона LIKE в тексте поиска теряют особый смысл: «50%» ищет именно «50%». */

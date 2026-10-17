@@ -1,5 +1,6 @@
 package dgm.catalog.catalog.seller.service;
 
+import dgm.catalog.catalog.cache.ProductCache;
 import dgm.catalog.catalog.domain.Product;
 import dgm.catalog.catalog.domain.ProductForm;
 import dgm.catalog.catalog.domain.ProductPage;
@@ -25,7 +26,8 @@ import org.springframework.stereotype.Component;
  * <p>Условие U3: продавец одобрен (интерфейс модуля {@code sellers}) и товар его (идентификатор профиля из токена). Одобрение
  * проверяется до транзакции, отдельным чтением: транзакция каталога не держит соединение соседнего модуля. Чужой товар не отличается
  * от несуществующего: 404 (ST-02). Порядок отказов при изменении: профиль не одобрен (403), нет товара (404), статус (409), версия (412).
- * Каждое изменение пишет событие в Outbox той же транзакцией: {@code product.created} при создании, {@code product.updated} при остальных.
+ * Каждое изменение пишет событие в Outbox той же транзакцией: {@code product.created} при создании, {@code product.updated} при остальных,
+ * и сбрасывает карточку в кэше витрины после фиксации.
  */
 @Component
 public final class SellerProductService {
@@ -35,14 +37,16 @@ public final class SellerProductService {
     private final ApprovedSellers sellers;
     private final Clock clock;
     private final ProductSettings settings;
+    private final ProductCache cache;
 
     public SellerProductService(SellerProductRepository repository, CatalogTransaction transaction, ApprovedSellers sellers, Clock clock,
-                                ProductSettings settings) {
+                                ProductSettings settings, ProductCache cache) {
         this.repository = repository;
         this.transaction = transaction;
         this.sellers = sellers;
         this.clock = clock;
         this.settings = settings;
+        this.cache = cache;
     }
 
     /** SM-04/T1: товар в черновике. Повтор запроса с тем же ключом идемпотентности товар не дублирует (охранник каркаса). */
@@ -135,6 +139,8 @@ public final class SellerProductService {
         }
         transaction.publish(ProductEvents.TOPIC, ProductEvents.AGGREGATE, product.id().toString(), ProductEvents.UPDATED,
                 ProductEvents.SCHEMA_VERSION, ProductEvents.updated(product, changedFields));
+        // Карточка опубликованного товара (цена, наличие, статус) могла измениться: кэш сбрасывается после фиксации, не в потоке запроса
+        transaction.afterCommit(() -> cache.evictLater(product.id()));
     }
 
     private void requireApproved(UUID sellerId) {

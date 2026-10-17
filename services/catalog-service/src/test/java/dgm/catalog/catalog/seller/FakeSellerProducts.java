@@ -1,5 +1,7 @@
 package dgm.catalog.catalog.seller;
 
+import dgm.catalog.catalog.domain.ModerationQueueItem;
+import dgm.catalog.catalog.domain.ModerationQueuePage;
 import dgm.catalog.catalog.domain.Product;
 import dgm.catalog.catalog.domain.ProductPage;
 import dgm.catalog.catalog.domain.ProductStatus;
@@ -41,6 +43,32 @@ public class FakeSellerProducts implements SellerProductRepository {
     /** Сколько раз запись прошла (версия совпала). */
     public int updates() {
         return updates;
+    }
+
+    @Override
+    public Optional<Product> findById(UUID productId) {
+        return Optional.ofNullable(rows.get(productId));
+    }
+
+    @Override
+    public Optional<Product> lockById(UUID productId) {
+        return findById(productId);
+    }
+
+    @Override
+    public List<ModerationQueueItem> moderationQueue(Optional<ModerationQueuePage.After> after, int limit) {
+        Comparator<Product> oldestFirst = Comparator.comparing(Product::submittedAt).thenComparing(Product::id);
+        return rows.values().stream()
+                .filter(p -> p.status() == ProductStatus.ON_MODERATION)
+                .sorted(oldestFirst)
+                .filter(p -> after.map(a -> {
+                    int byTime = p.submittedAt().compareTo(a.submittedAt());
+                    return byTime > 0 || (byTime == 0 && p.id().compareTo(a.id()) > 0);
+                }).orElse(true))
+                .limit(limit)
+                .map(p -> new ModerationQueueItem(p.id(), p.sellerId(), p.form().title(), p.form().productType().code(), p.form().price(), "RUB",
+                        p.submittedAt(), p.reviewDeadlineAt()))
+                .toList();
     }
 
     @Override

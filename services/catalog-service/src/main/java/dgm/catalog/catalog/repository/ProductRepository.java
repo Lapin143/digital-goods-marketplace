@@ -1,6 +1,7 @@
 package dgm.catalog.catalog.repository;
 
 import dgm.catalog.catalog.domain.ProductCard;
+import dgm.catalog.catalog.domain.StorefrontCard;
 import dgm.catalog.catalog.domain.StorefrontFilter;
 import dgm.catalog.catalog.domain.StorefrontItem;
 import java.util.List;
@@ -15,4 +16,7 @@ public interface ProductRepository {
 
     /** Карточка товара в любом статусе. */
     Optional<ProductCard> findCard(UUID id);
+
+    /** Карточка опубликованного товара для витрины с числом свободных ключей из копии остатка. Товар в другом статусе не возвращается. */
+    Optional<StorefrontCard> findPublishedCard(UUID id);
 }

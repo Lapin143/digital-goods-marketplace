@@ -341,6 +341,10 @@ def build_queries():
     Q(c, 'C-14', 'US-3.3 очередь модерации товаров',
       "select id, title, submitted_at from catalog.product where status = 'on_moderation' order by submitted_at, id limit 20",
       ['ix_product_moderation_queue'], True)
+    Q(c, 'C-14b', 'US-3.3 следующая страница очереди модерации товаров (курсор по submitted_at и id; шаг 13 Ф4)',
+      "select id, seller_id, title, product_type, price, currency, submitted_at, review_deadline_at from catalog.product where status = 'on_moderation' "
+      "and (submitted_at, id) > (now() - interval '1 day', %s) order by submitted_at, id limit 20" % U('p', 3000),
+      ['ix_product_moderation_queue'], True)
     Q(c, 'C-15', 'US-8.8 просрочка модерации товаров (задание раз в 5 минут)',
       "select id from catalog.product where status = 'on_moderation' and overdue_marked_at is null and review_deadline_at <= now()",
       ['ix_product_overdue'])

@@ -358,8 +358,12 @@ services:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     environment:
       <<: *service-env
+      # Кэш карточки витрины (ADR-022, шаг 13 среза 1): пользователь catalog задан в application.yml, секрет redis_catalog смонтирован ниже
+      DGM_REDIS_HOST: redis
       # Документы заявок продавцов (ADR-024): запись идёт напрямую в хранилище, ссылка для браузера подписана для публичного адреса шлюза
       DGM_STORAGE_ENDPOINT: https://object-storage:9000
       DGM_STORAGE_PUBLIC_BASE_URL: ${DGM_PUBLIC_ORIGIN:-https://localhost:8443}/files

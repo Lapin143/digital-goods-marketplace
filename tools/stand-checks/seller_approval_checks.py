@@ -14,7 +14,10 @@
   одобрение     платформа по событию seller.approved ставит роль seller вместо buyer, атрибут seller_id и обязательную настройку TOTP;
   вход          после пароля Keycloak ведёт на настройку TOTP, первый токен (amr = pwd) кабинет не открывает (ST-13), токен после входа
                 с кодом (amr = pwd и otp) открывает и несёт claim seller_id;
-  роль вручную  администратор не может ни назначить роль seller, ни снять её (U8, INV-36).
+  роль вручную  администратор не может ни назначить роль seller, ни снять её (U8, INV-36);
+  товар         сквозной сценарий К2 (шаг 13): продавец, одобренный по заявке, заводит товар и подаёт его, модератор открывает карточку и
+                одобряет, карточка на витрине без токена (ETag и 304, «нет в наличии», поиск по названию), отклонение с причиной, блокировка
+                убирает товар с витрины (кэш сброшен), продавец исправляет и подаёт снова.
 
 Обязательность второго фактора у продавца без устройства (seller-2) проверяет keycloak_checks.py, границы срока рассмотрения, откат
 решения при сбое записи и запись аудита в Outbox (одно событие решения и одна запись аудита) проверяет SellerModerationIT, роль и
@@ -38,6 +41,8 @@ import sms_login_checks as S  # noqa: E402
 expect = G.expect
 QUEUE = '/api/v1/staff/seller-applications'
 CABINET = '/api/v1/seller/products'
+STAFF_PRODUCTS = '/api/v1/staff/products'
+STOREFRONT = '/api/v1/products'
 
 
 # --------------------------------------------------------------------------------------------------- вспомогательное
@@ -192,6 +197,7 @@ def rework_and_approval(moderator, buyer, admin):
 
 
 def first_login_and_cabinet(kc, buyer):
+    """Возвращает токен продавца со вторым фактором (amr = pwd и otp) или None."""
     print('== Вход нового продавца: настройка TOTP, кабинет только со вторым фактором (ST-13, INV-37)')
     sid = buyer['sellerId']
     d = kc.start('dgm-staff')
@@ -218,6 +224,82 @@ def first_login_and_cabinet(kc, buyer):
         expect('кабинет продавца открыт токеном с otp: шлюз не отвечает 401 или 403 (%s)' % opened.status, opened.status not in (401, 403), '%s %s' % (opened.status, opened.text[:200]))
         old = G.call('GET', SC.CURRENT, headers=bearer)
         expect('продавец заявку на статус продавца больше не подаёт: 403 (роль не buyer)', old.status == 403, '%s %s' % (old.status, old.text[:160]))
+        return again.tokens['access_token']
+    return None
+
+
+def product_form(title, amount=149900):
+    return {'title': title, 'description': 'Приключенческая игра, ключ активации Steam', 'productType': 'game_key', 'platform': 'Steam',
+            'activationRegions': ['RU', 'KZ'], 'price': {'amount': amount, 'currency': 'RUB'}, 'issuanceMethod': 'key_pool'}
+
+
+def staff_decide(moderator, product_id, decision, body=None):
+    return SC.post_json('%s/%s/%s' % (STAFF_PRODUCTS, product_id, decision), moderator.token(), body)
+
+
+def storefront(product_id, **headers):
+    return G.call('GET', '%s/%s' % (STOREFRONT, product_id), headers=headers)
+
+
+def product_to_storefront(moderator, seller_token, stamp):
+    print('== Товар от заявки до витрины: подача, решения модератора, карточка с кэшем (шаг 13, К2, US-3.3 – US-3.5, US-4.5)')
+    title = 'Лунная тропа %d: ключ Steam' % stamp
+    created = SC.post_json(CABINET, seller_token, product_form(title))
+    if not expect('продавец завёл товар: 201, черновик', created.status == 201 and created.json().get('status') == 'draft', '%s %s' % (created.status, created.text[:200])):
+        return
+    pid = created.json()['productId']
+    expect('черновика нет ни на витрине, ни у модератора: 404 и 404', storefront(pid).status == 404
+           and G.call('GET', '%s/%s' % (STAFF_PRODUCTS, pid), headers=SC.auth(moderator.token())).status == 404)
+    submitted = SC.post_json('%s/%s/submit' % (CABINET, pid), seller_token)
+    expect('товар подан: 200, on_moderation', submitted.status == 200 and submitted.json().get('status') == 'on_moderation', '%s %s' % (submitted.status, submitted.text[:200]))
+
+    queue = G.call('GET', STAFF_PRODUCTS + '?limit=100', headers=SC.auth(moderator.token()))
+    ids = [i.get('productId') for i in queue.json().get('items') or []] if queue.status == 200 else []
+    expect('товар в очереди модератора: 200', queue.status == 200 and pid in ids, '%s %s' % (queue.status, queue.text[:200]))
+    card = G.call('GET', '%s/%s' % (STAFF_PRODUCTS, pid), headers=SC.auth(moderator.token()))
+    expect('карточка модератора: 200, no-store, значений ключей в ответе нет', card.status == 200 and 'no-store' in (card.header('Cache-Control') or '')
+           and card.json().get('title') == title and 'keys' not in card.json(), '%s %s' % (card.status, card.text[:200]))
+
+    blank = staff_decide(moderator, pid, 'reject', {})
+    expect('отклонение без причины: 422', blank.status == 422, '%s %s' % (blank.status, blank.text[:160]))
+    rejected = staff_decide(moderator, pid, 'reject', {'reason': 'В описании не указан регион активации'})
+    expect('отклонение с причиной: 200, rejected', rejected.status == 200 and rejected.json().get('status') == 'rejected', '%s %s' % (rejected.status, rejected.text[:200]))
+    own = G.call('GET', '%s/%s' % (CABINET, pid), headers=SC.auth(seller_token))
+    expect('продавец видит причину отклонения', own.status == 200 and own.json().get('rejectionReason') == 'В описании не указан регион активации', own.text[:200])
+    again = SC.post_json('%s/%s/submit' % (CABINET, pid), seller_token)
+    expect('продавец подал товар снова (T5): 200, on_moderation', again.status == 200 and again.json().get('status') == 'on_moderation', '%s %s' % (again.status, again.text[:200]))
+
+    approved = staff_decide(moderator, pid, 'approve')
+    expect('одобрение: 200, published', approved.status == 200 and approved.json().get('status') == 'published', '%s %s' % (approved.status, approved.text[:200]))
+    repeat = staff_decide(moderator, pid, 'approve')
+    expect('повторное одобрение: 409 state-conflict', repeat.status == 409 and SC.code_of(repeat) == 'state-conflict', '%s %s' % (repeat.status, repeat.text[:160]))
+
+    shown = storefront(pid)
+    body = shown.json() if shown.status == 200 else {}
+    expect('витрина без токена: 200, название и цена верные', shown.status == 200 and body.get('title') == title and (body.get('price') or {}).get('amount') == 149900,
+           '%s %s' % (shown.status, shown.text[:200]))
+    expect('ключей нет: inStock false, maxOrderQuantity 0 (FT-4.4)', body.get('inStock') is False and body.get('maxOrderQuantity') == 0, str(body)[:200])
+    etag = shown.header('ETag')
+    expect('карточка: ETag и публичный Cache-Control', bool(etag) and 'public' in (shown.header('Cache-Control') or ''), '%s %s' % (etag, shown.header('Cache-Control')))
+    again304 = storefront(pid, **{'If-None-Match': etag or ''})
+    expect('повторный запрос с If-None-Match: 304 без тела', again304.status == 304 and not again304.body, '%s, %d байт' % (again304.status, len(again304.body)))
+    search = G.call('GET', '%s?q=%s&limit=5' % (STOREFRONT, urllib.parse.quote('лунная тропа %d' % stamp)))
+    found = [i.get('productId') for i in search.json().get('items') or []] if search.status == 200 else []
+    expect('поиск по части названия находит товар: 200', search.status == 200 and pid in found, '%s %s' % (search.status, search.text[:200]))
+
+    blocked = staff_decide(moderator, pid, 'block', {'reason': 'Жалоба правообладателя'})
+    expect('блокировка: 200, blocked', blocked.status == 200 and blocked.json().get('status') == 'blocked', '%s %s' % (blocked.status, blocked.text[:200]))
+    gone = A.eventually(lambda: storefront(pid).status == 404, wait=20)
+    expect('заблокированный товар исчез с витрины: 404 (кэш карточки сброшен решением, а не истёк по TTL)', gone, str(storefront(pid).status))
+    seen = G.call('GET', '%s/%s' % (CABINET, pid), headers=SC.auth(seller_token))
+    expect('продавец видит причину блокировки', seen.status == 200 and seen.json().get('blockReason') == 'Жалоба правообладателя', seen.text[:200])
+    fixed = SC.put_json('%s/%s' % (CABINET, pid), seller_token, seen.header('ETag'), product_form(title + ' (исправлено)'))
+    resubmitted = SC.post_json('%s/%s/submit' % (CABINET, pid), seller_token)
+    expect('продавец исправил товар и подал снова (T11): 200 и 200', fixed.status == 200 and resubmitted.status == 200 and resubmitted.json().get('status') == 'on_moderation',
+           '%s %s' % (fixed.status, resubmitted.status))
+    final = staff_decide(moderator, pid, 'approve')
+    back = A.eventually(lambda: storefront(pid).status == 200, wait=10)
+    expect('после повторной модерации товар снова на витрине', final.status == 200 and back, '%s %s' % (final.status, storefront(pid).status))
 
 
 def manual_role_checks(admin_user, buyer_seller, buyer_rejected):
@@ -253,7 +335,9 @@ def main():
         queue_and_card(moderator, for_approval)
         rejection(moderator, for_rejection)
         if rework_and_approval(moderator, for_approval, admin):
-            first_login_and_cabinet(kc, for_approval)
+            seller_token = first_login_and_cabinet(kc, for_approval)
+            if seller_token:
+                product_to_storefront(moderator, seller_token, stamp)
             manual_role_checks(administrator, for_approval, for_rejection)
     print('\nПроверок успешно: %d, с ошибками: %d' % (G.PASSED, len(G.FAILED)))
     for name in G.FAILED:

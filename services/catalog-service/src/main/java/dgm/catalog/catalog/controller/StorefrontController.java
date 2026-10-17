@@ -1,10 +1,14 @@
 package dgm.catalog.catalog.controller;
 
+import dgm.catalog.catalog.domain.StorefrontCard;
 import dgm.catalog.catalog.domain.StorefrontFilter;
 import dgm.catalog.catalog.domain.StorefrontItem;
 import dgm.catalog.catalog.domain.StorefrontPage;
+import dgm.catalog.catalog.service.StorefrontProductService;
 import dgm.catalog.catalog.service.StorefrontService;
 import dgm.kit.json.Json;
+import dgm.kit.problem.ProblemException;
+import dgm.kit.problem.ProblemType;
 import dgm.kit.web.Etags;
 import dgm.kit.web.PageCursor;
 import dgm.kit.web.QueryParams;
@@ -26,9 +30,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
-/** {@code listStorefrontProducts}: каталог, поиск и фильтры. Публичный маршрут, ответ кэшируется на 30 секунд (OP-28). */
+/**
+ * {@code listStorefrontProducts} и {@code getStorefrontProduct}: каталог, поиск, фильтры и карточка товара. Публичные маршруты, ответ
+ * кэшируется на 30 секунд (OP-28); у карточки есть ETag, повторный запрос с {@code If-None-Match} получает 304 без тела.
+ */
 @RestController
 public class StorefrontController {
 
@@ -36,10 +44,27 @@ public class StorefrontController {
     private static final Set<String> PRODUCT_TYPES = Set.of("game_key", "software_license", "gift_card", "subscription");
     private static final Pattern COUNTRY = Pattern.compile("^[A-Z]{2}$");
 
-    private final StorefrontService service;
+    private static final Pattern ID = Pattern.compile("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
 
-    public StorefrontController(StorefrontService service) {
+    private final StorefrontService service;
+    private final StorefrontProductService products;
+
+    public StorefrontController(StorefrontService service, StorefrontProductService products) {
         this.service = service;
+        this.products = products;
+    }
+
+    @GetMapping("/api/v1/products/{productId}")
+    public ResponseEntity<String> get(@PathVariable("productId") String productId, HttpServletRequest request) {
+        if (!ID.matcher(productId).matches()) {
+            throw new ProblemException(ProblemType.BAD_REQUEST, "Идентификатор товара должен быть UUID в нижнем регистре.");
+        }
+        String body = products.body(UUID.fromString(productId), card -> Json.write(toJson(card)));
+        String etag = Etags.of(body);
+        if (Etags.matches(request.getHeader(HttpHeaders.IF_NONE_MATCH), etag)) {
+            return ResponseEntity.status(HttpStatus.NOT_MODIFIED).eTag(etag).build();
+        }
+        return ResponseEntity.ok().contentType(JSON).eTag(etag).header(HttpHeaders.CACHE_CONTROL, "public, max-age=30").body(body);
     }
 
     @GetMapping("/api/v1/products")
@@ -82,6 +107,22 @@ public class StorefrontController {
 
     private static Optional<Long> boxed(OptionalLong value) {
         return value.isPresent() ? Optional.of(value.getAsLong()) : Optional.empty();
+    }
+
+    /** Схема {@code StorefrontProduct}: карточка с наличием и предельным количеством в заказе. */
+    static Map<String, Object> toJson(StorefrontCard card) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("productId", card.id().toString());
+        body.put("sellerId", card.sellerId().toString());
+        body.put("title", card.title());
+        body.put("description", card.description());
+        body.put("productType", card.productType());
+        body.put("platform", card.platform());
+        body.put("activationRegions", card.activationRegions());
+        body.put("price", Views.money(card.price(), card.currency()));
+        body.put("inStock", card.inStock());
+        body.put("maxOrderQuantity", card.maxOrderQuantity());
+        return body;
     }
 
     static Map<String, Object> toJson(StorefrontPage page) {

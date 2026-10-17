@@ -46,8 +46,16 @@ abstract class CatalogStandIT {
         // Хранилище с хоста: отладочный порт набора storage. Ссылки подписываются для имени шлюза, как у пользователя
         registry.add("dgm.storage.endpoint", Stand::storageEndpoint);
         registry.add("dgm.storage.public-base-url", () -> "https://localhost:8443/files");
+        // Redis набора infra с хоста: отладочный порт, пользователь ACL catalog (кэш карточек витрины)
+        registry.add("dgm.redis.host", () -> env("DGM_REDIS_HOST", "localhost"));
+        registry.add("dgm.redis.port", () -> env("DGM_REDIS_PORT", "16379"));
         // Задание контроля сроков в тестах запускают вручную: фоновый запуск мешал бы подсчёту помеченных заявок
         registry.add("dgm.moderation.deadline-initial-delay", () -> "PT24H");
         registry.add("dgm.moderation.deadline-interval", () -> "PT24H");
+    }
+
+    static String env(String name, String fallback) {
+        String value = System.getenv(name);
+        return value == null || value.isBlank() ? fallback : value;
     }
 }

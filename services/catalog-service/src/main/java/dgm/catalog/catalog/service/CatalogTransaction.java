@@ -18,4 +18,10 @@ public interface CatalogTransaction {
      * @throws IllegalStateException вызов вне {@link #execute(Supplier)}
      */
     void publish(String topic, String aggregateType, String aggregateId, String eventType, int schemaVersion, Map<String, Object> data);
+
+    /**
+     * Регистрирует действие на фиксацию текущей транзакции. Вне транзакции действие выполняется сразу. Исключение действия после
+     * фиксации перехватывается: оно не должно ни откатывать принятое решение, ни превращать его в повторную доставку.
+     */
+    void afterCommit(Runnable action);
 }

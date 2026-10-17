@@ -14,6 +14,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import dgm.catalog.catalog.FakeProducts;
+import dgm.catalog.catalog.cache.MemoryCache;
+import dgm.catalog.catalog.service.StorefrontProductService;
 import dgm.catalog.catalog.service.StorefrontService;
 import dgm.kit.problem.ProblemAdvice;
 import dgm.kit.web.PageCursor;
@@ -40,7 +42,8 @@ class StorefrontControllerTest {
     @BeforeEach
     void setUp() {
         products = new FakeProducts().with(item(1, T0), item(2, T0.plusSeconds(60)), item(3, T0.plusSeconds(120)));
-        mvc = MockMvcBuilders.standaloneSetup(new StorefrontController(new StorefrontService(products)))
+        mvc = MockMvcBuilders.standaloneSetup(new StorefrontController(new StorefrontService(products),
+                new StorefrontProductService(products, new MemoryCache().cache())))
                 .setControllerAdvice(new ProblemAdvice()).build();
     }
 
