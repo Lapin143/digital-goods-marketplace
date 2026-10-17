@@ -34,3 +34,10 @@
   color: var(--color-danger);
   font-size: 0.875rem;
 }
+
+.area {
+  min-height: 112px;
+  padding: var(--space-2);
+  resize: vertical;
+  font-family: inherit;
+}

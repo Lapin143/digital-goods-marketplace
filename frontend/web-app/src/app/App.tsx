@@ -1,4 +1,4 @@
-import { Route, Routes } from 'react-router-dom';
+import { Outlet, Route, Routes } from 'react-router-dom';
 import { SELLER_ROLES, STAFF_ROLES } from '../auth/claims';
 import { RequireAccess } from './Guards';
 import { Layout } from './Layout';
@@ -6,6 +6,10 @@ import { CallbackPage, HomePage, NotFoundPage, SellerHome, StaffHome, WorkEntry 
 import { EmailHelpPage } from '../screens/account/EmailHelpPage';
 import { PhonePage } from '../screens/account/PhonePage';
 import { SmsHome } from '../screens/account/SmsHome';
+import { ApplicationPage } from '../screens/seller/ApplicationPage';
+import { KeysPage } from '../screens/seller/KeysPage';
+import { SellerProductPage } from '../screens/seller/SellerProductPage';
+import { SellerProductsPage } from '../screens/seller/SellerProductsPage';
 import { ProductListPage } from '../screens/storefront/ProductListPage';
 import { ProductPage } from '../screens/storefront/ProductPage';
 
@@ -48,13 +52,28 @@ export function App() {
           }
         />
         <Route
-          path="seller/*"
+          path="apply"
           element={
-            <RequireAccess kind="staff" roles={SELLER_ROLES} secondFactor>
-              <SellerHome />
+            <RequireAccess kind="web" roles={['buyer', ...SELLER_ROLES]}>
+              <ApplicationPage />
             </RequireAccess>
           }
         />
+        <Route
+          path="seller"
+          element={
+            <RequireAccess kind="staff" roles={SELLER_ROLES} secondFactor>
+              <Outlet />
+            </RequireAccess>
+          }
+        >
+          <Route index element={<SellerHome />} />
+          <Route path="products" element={<SellerProductsPage />} />
+          <Route path="products/new" element={<SellerProductPage />} />
+          <Route path="products/:productId" element={<SellerProductPage />} />
+          <Route path="products/:productId/keys" element={<KeysPage />} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
         <Route
           path="staff/*"
           element={

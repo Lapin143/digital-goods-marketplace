@@ -56,6 +56,7 @@ export function Layout() {
           </NavLink>
           <NavLink to="/products">{t('nav.catalog')}</NavLink>
           {buyer ? <NavLink to="/account/phone">{t('nav.phone')}</NavLink> : null}
+          {buyer ? <NavLink to="/apply">{t('nav.apply')}</NavLink> : null}
           {worker && hasAnyRole(worker.claims, SELLER_ROLES) ? <NavLink to="/seller">{t('nav.seller')}</NavLink> : null}
           {worker && hasAnyRole(worker.claims, STAFF_ROLES) ? <NavLink to="/staff">{t('nav.staff')}</NavLink> : null}
           {worker ? null : <NavLink to="/work">{t('nav.work')}</NavLink>}

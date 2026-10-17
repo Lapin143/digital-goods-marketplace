@@ -95,6 +95,14 @@ export function SellerHome() {
     <section>
       <h1>{t('work.seller.title')}</h1>
       <p>{t('work.seller.lead')}</p>
+      <ul>
+        <li>
+          <Link to="/seller/products">{t('seller.home.products')}</Link>
+        </li>
+        <li>
+          <Link to="/seller/products/new">{t('seller.home.newProduct')}</Link>
+        </li>
+      </ul>
     </section>
   );
 }

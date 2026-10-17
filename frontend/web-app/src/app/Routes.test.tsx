@@ -74,3 +74,71 @@ describe('маршруты витрины и аккаунта', () => {
     expect(await screen.findByRole('heading', { level: 1, name: t('sms.title') })).toBeInTheDocument();
   });
 });
+
+describe('маршруты кабинета продавца', () => {
+  const noApplication = () => respond(404, { code: 'not-found' });
+
+  it('заявка продавца без входа отправляет на Keycloak (dgm-web) и возвращает на /apply', async () => {
+    const web = fakeManager(null);
+    renderScreen(<App />, { route: '/apply', managers: { web } });
+    await waitFor(() => expect(web.signinRedirect).toHaveBeenCalledTimes(1));
+    expect(web.signinRedirect).toHaveBeenCalledWith({ state: { returnTo: '/apply' }, prompt: undefined });
+  });
+
+  it('заявка продавца для покупателя открыта, в навигации есть ссылка на неё', async () => {
+    const web = fakeManager(fakeUser(claimsFor(['buyer'])));
+    renderScreen(<App />, { route: '/apply', managers: { web }, handler: noApplication });
+    expect(await screen.findByRole('heading', { level: 1, name: t('application.title') })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: t('nav.apply') })).toHaveAttribute('href', '/apply');
+  });
+
+  it('кабинет без входа отправляет на Keycloak (dgm-staff) и возвращает в кабинет', async () => {
+    const staff = fakeManager(null);
+    renderScreen(<App />, { route: '/seller/products', managers: { staff } });
+    await waitFor(() => expect(staff.signinRedirect).toHaveBeenCalledTimes(1));
+    expect(staff.signinRedirect).toHaveBeenCalledWith({ state: { returnTo: '/seller/products' }, prompt: undefined });
+  });
+
+  it('кабинет с входом без одноразового кода не открывается: предлагается войти с кодом', async () => {
+    const staff = fakeManager(fakeUser(claimsFor(['seller'], ['pwd'])));
+    const { calls } = renderScreen(<App />, { route: '/seller/products', managers: { staff }, handler: () => respond(200, { items: [], page: { limit: 20, nextCursor: null } }) });
+    expect(await screen.findByRole('heading', { level: 1, name: t('auth.secondFactor.title') })).toBeInTheDocument();
+    expect(calls).toHaveLength(0);
+  });
+
+  it('кабинет покупателю без роли продавца закрыт', async () => {
+    const staff = fakeManager(fakeUser(claimsFor(['buyer'], ['pwd', 'otp'])));
+    renderScreen(<App />, { route: '/seller', managers: { staff } });
+    expect(await screen.findByRole('heading', { level: 1, name: t('auth.forbidden.title') })).toBeInTheDocument();
+  });
+
+  it('продавец с кодом видит кабинет и список товаров', async () => {
+    const staff = fakeManager(fakeUser(claimsFor(['seller'], ['pwd', 'otp'])));
+    renderScreen(<App />, { route: '/seller/products', managers: { staff }, handler: () => respond(200, { items: [], page: { limit: 20, nextCursor: null } }) });
+    expect(await screen.findByRole('heading', { level: 1, name: t('seller.products.title') })).toBeInTheDocument();
+    expect(await screen.findByText(t('seller.products.empty'))).toBeInTheDocument();
+  });
+
+  it('главная кабинета ведёт к товарам и к созданию товара', async () => {
+    const staff = fakeManager(fakeUser(claimsFor(['seller'], ['pwd', 'otp'])));
+    renderScreen(<App />, { route: '/seller', managers: { staff } });
+    expect(await screen.findByRole('link', { name: t('seller.home.products') })).toHaveAttribute('href', '/seller/products');
+    expect(screen.getByRole('link', { name: t('seller.home.newProduct') })).toHaveAttribute('href', '/seller/products/new');
+  });
+
+  it('страница ключей товара открывается по адресу товара', async () => {
+    const staff = fakeManager(fakeUser(claimsFor(['seller'], ['pwd', 'otp'])));
+    renderScreen(<App />, {
+      route: '/seller/products/p-1/keys',
+      managers: { staff },
+      handler: () => respond(200, { productId: 'p-1', available: 0, reserved: 0, issued: 0, poolSize: 0, poolLimit: 100000, updatedAt: '2026-10-17T09:00:00Z' }),
+    });
+    expect(await screen.findByRole('heading', { level: 1, name: t('keys.title') })).toBeInTheDocument();
+  });
+
+  it('неизвестный адрес внутри кабинета даёт страницу «не найдено»', async () => {
+    const staff = fakeManager(fakeUser(claimsFor(['seller'], ['pwd', 'otp'])));
+    renderScreen(<App />, { route: '/seller/unknown', managers: { staff } });
+    expect(await screen.findByRole('heading', { level: 1, name: t('notFound.title') })).toBeInTheDocument();
+  });
+});

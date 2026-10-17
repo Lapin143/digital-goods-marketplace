@@ -1,0 +1,29 @@
+.badge {
+  display: inline-block;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.good {
+  border-color: #166534;
+  color: #166534;
+}
+
+.warn {
+  border-color: #92400e;
+  color: #92400e;
+}
+
+.bad {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.neutral {
+  color: var(--color-muted);
+}
