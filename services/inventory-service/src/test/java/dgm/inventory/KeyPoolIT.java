@@ -231,6 +231,10 @@ class KeyPoolIT extends KeyStandIT {
         assertEquals(200, csv.status());
         Response wrongType = gateway.request("POST", path, "text/csv", "A-9".getBytes(StandardCharsets.UTF_8), with(seller.auth, "Idempotency-Key", key()));
         assertEquals(415, wrongType.status());
+        // Обратная пара: файловая загрузка принимает только text/csv, список в JSON сюда не годится
+        Response jsonToFile = gateway.request("POST", PRODUCTS + "/" + productId + "/key-files", "application/json",
+                batchBody("A-8").getBytes(StandardCharsets.UTF_8), with(seller.auth, "Idempotency-Key", key()));
+        assertEquals(415, jsonToFile.status());
         assertEquals(1, count(productId));
         assertEquals(400, gateway.post(PRODUCTS + "/not-a-uuid/key-batches", batchBody("A"), with(seller.auth, "Idempotency-Key", key())).status());
     }
