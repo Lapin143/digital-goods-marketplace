@@ -145,14 +145,15 @@ def run(seller_token, moderator, product_id):
         seen.append((response.status, str(response.headers), response.text))
         return response
 
-    # Копия товара в inventory-service приходит из события каталога: до её появления загрузка отвечает 404
+    # Копия товара в inventory-service приходит из событий каталога и догоняет его не сразу: до первого события загрузка отвечает 404,
+    # пока копия не вернулась из статуса «заблокирован» после повторной модерации (шаг 13) отвечает 409. Отказ ничего не сохраняет
     box = {}
 
     def attempt():
         box['response'] = keep(upload_list(seller_token, product_id, [values[0], values[1], values[2], values[0], '  '],
                                            headers=json_headers(seller_token, **{'X-Correlation-Id': correlation})))
-        return box['response'].status != 404
-    expect('TC-407. Товар из каталога появился в inventory-service (загрузка не отвечает 404)', A.eventually(attempt, wait=60), describe(box['response']))
+        return box['response'].status not in (404, 409)
+    expect('TC-407. Копия товара в inventory-service догнала каталог (загрузка не отвечает 404 и 409)', A.eventually(attempt, wait=60), describe(box['response']))
     first = box['response']
     expect('TC-401. Первая загрузка списком: принято три значения, повтор в загрузке и пустая строка названы по номерам',
            first.status == 200 and first.json().get('accepted') == 3 and rejected(first) == [(4, 'duplicate_in_upload'), (5, 'empty')], describe(first))
