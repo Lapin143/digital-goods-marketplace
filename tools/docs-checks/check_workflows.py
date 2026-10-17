@@ -9,10 +9,10 @@
   1. Каждое стороннее действие закреплено хешем коммита (40 знаков) с комментарием версии: «uses: owner/name@<sha> # v1.2.3». Тег можно
      перенести на другой коммит (так взломали tj-actions/changed-files), хеш нельзя. С ключом --online хеш сверяется с тегом из комментария,
      то есть комментарий не может врать.
-  2. Права GITHUB_TOKEN минимальны: на верхнем уровне contents: read (wrapper.yml, который возвращает файлы коммитом, contents: write);
+  2. Права GITHUB_TOKEN минимальны: на верхнем уровне contents: read (wrapper.yml и web-lock.yml, которые возвращают файлы коммитом, contents: write);
      в задании можно добавить только packages: write и только в задании publish.
   3. У каждого задания есть timeout-minutes: зависший раннер не должен съедать часы.
-  4. У каждого actions/checkout persist-credentials: false: токен не остаётся в .git/config для следующих шагов (кроме wrapper.yml).
+  4. У каждого actions/checkout persist-credentials: false: токен не остаётся в .git/config для следующих шагов (кроме wrapper.yml и web-lock.yml).
   5. У каждого actions/setup-java в ci.yml включён кэш Gradle (cache: gradle).
   6. Нет триггера pull_request_target (он выполняет код с секретами репозитория для запросов из форков), в ci.yml есть concurrency.
   7. Секреты берутся только из secrets.GITHUB_TOKEN.
@@ -30,7 +30,7 @@ WORKFLOWS = os.path.join(REPO, '.github', 'workflows')
 USES = re.compile(r'^\s*-?\s*uses:\s*([^@\s]+)@(\S+)(?:\s+#\s*(\S+))?\s*$')
 SHA = re.compile(r'^[0-9a-f]{40}$')
 VERSION = re.compile(r'^v?\d+(\.\d+){0,2}([-+.\w]*)$')
-WRITE_EXEMPT = {'wrapper.yml'}          # возвращает файлы коммитом в ветку
+WRITE_EXEMPT = {'wrapper.yml', 'web-lock.yml'}          # возвращают файлы коммитом в свою служебную ветку
 PACKAGES_JOB = 'publish'
 
 errors = []

@@ -2,9 +2,10 @@ name: ci
 
 # Запуск: каждый push в main и в ветки ci/*, pull request в main, ручной запуск.
 # Ветка ci/sandbox нужна для отладки CI: итерации идут в ней, а main остаётся зелёным (tools/ci/README.md).
+# Служебные ветки ci/wrapper и ci/web-lock запускают свои рабочие процессы (wrapper.yml, web-lock.yml), основной CI на них не идёт.
 on:
   push:
-    branches: [main, 'ci/**', '!ci/wrapper']
+    branches: [main, 'ci/**', '!ci/wrapper', '!ci/web-lock']
   pull_request:
     branches: [main]
   # Серия из 50 запусков тестов гонок: раз в сутки ночью (задание concurrency)

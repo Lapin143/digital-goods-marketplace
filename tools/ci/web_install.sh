@@ -3,17 +3,15 @@
 #
 #   tools/ci/web_install.sh
 #
-# Обычный путь: `npm ci` (строго по lock-файлу). Если файла нет или он не сходится с package.json, скрипт собирает новый lock-файл
-# (`npm install --package-lock-only`), выдаёт его в аннотациях задания (tools/ci/lock_emit.sh) и падает: зависимости фиксируются
-# коммитом, а не меняются молча на каждом запуске. В рабочей среде разработки npm недоступен (реестр закрыт), поэтому lock-файл
-# забирается из аннотаций командой `python3 tools/ci/lock_fetch.py <ветка>`.
+# Строго `npm ci`: пакеты и контрольные суммы берутся из lock-файла, файл не меняется. Если файла нет или он не сходится с package.json,
+# задание падает. Новый lock-файл создаёт задание web-lock (tools/ci/web_lock.sh) и кладёт в ветку ci/web-lock: в рабочей среде
+# разработки реестр npm закрыт, поэтому файл создаёт только CI, а в репозиторий его переносит человек коммитом (Р-106).
 set -uo pipefail
 cd "$(dirname "$0")/../../frontend/web-app"
 
 if npm ci --ignore-scripts --no-audit --no-fund; then
   exit 0
 fi
-echo "npm ci не прошёл: package-lock.json отсутствует или не сходится с package.json. Собираю новый и выдаю его в аннотациях."
-npm install --package-lock-only --ignore-scripts --no-audit --no-fund || exit 1
-bash ../../tools/ci/lock_emit.sh package-lock.json
+echo "npm ci не прошёл: package-lock.json отсутствует или не сходится с package.json."
+echo "Новый файл собирает задание web-lock и кладёт в ветку ci/web-lock; перенести: git fetch origin ci/web-lock && git checkout FETCH_HEAD -- frontend/web-app/package-lock.json"
 exit 1

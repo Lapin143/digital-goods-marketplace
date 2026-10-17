@@ -28,7 +28,7 @@
 
 Шаг 11 Ф3 добавил задание `kit` (интеграционные тесты каркаса на стенде), следующие шаги добавляют задание `stand` (подъём всего набора `full` и дымовой тест).
 
-Отдельный рабочий процесс `wrapper.yml` создаёт и обновляет Gradle wrapper на раннере (запуск: коммит в ветку `ci/wrapper`, файлы возвращаются в ту же ветку).
+Отдельный рабочий процесс `wrapper.yml` создаёт и обновляет Gradle wrapper на раннере (запуск: коммит в ветку `ci/wrapper`, файлы возвращаются в ту же ветку). Так же устроен `web-lock.yml` для `package-lock.json` интерфейса (ветка `ci/web-lock`).
 
 ## Почему CI устроен именно так
 
@@ -61,8 +61,8 @@ python3 tools/ci/ci_status.py --all-steps     # печатать все шаги
 | `check-image.sh` | Проверка образа: UID, запуск с `--read-only`, `/actuator/health` |
 | `check-images.sh` | Теги образов стенда существуют в реестрах |
 | `storage-spike.sh` | Спайк выбора объектного хранилища ([ADR-024](../../docs/05-architecture/adr/ADR-024-object-storage.md)): одинаковые проверки для SeaweedFS, RustFS и Garage с ограничениями стенда, итог аннотациями. Запускался в ветке `ci/spike`, сохранён как доказательство выбора и для повторной проверки кандидатов (`storage-spike.sh run <кандидат>`) |
-| `web_install.sh` | Установка пакетов интерфейса `npm ci`. Нет `package-lock.json` или он не сходится с `package.json`: собирает новый и выдаёт его в аннотациях (`lock_emit.sh`), задание падает |
-| `lock_emit.sh`, `lock_fetch.py` | Передача lock-файла из CI в репозиторий без входа в GitHub: части gzip и base64 в аннотациях, `python3 tools/ci/lock_fetch.py ci/sandbox` склеивает их в `frontend/web-app/package-lock.json`. Нужны, потому что в рабочей среде разработки реестр npm закрыт |
+| `web_install.sh` | Установка пакетов интерфейса `npm ci` строго по `package-lock.json`; нет файла или он не сходится с `package.json`, задание `web` падает |
+| `web_lock.sh`, `../../.github/workflows/web-lock.yml` | Создание `package-lock.json` на раннере (в рабочей среде разработки реестр npm закрыт): пуш коммита в ветку `ci/web-lock` запускает рабочий процесс, он собирает lock-файл и возвращает его в ту же ветку. Забрать: `git fetch origin ci/web-lock && git checkout FETCH_HEAD -- frontend/web-app/package-lock.json`. Основной CI на эту ветку не идёт |
 | `web_lint_probe.sh` | Контроль правила ESLint «в коде и разметке нет русских текстов» (NFT-7.0): намеренно плохие файлы отвергаются именно этим правилом, чистый проходит |
 | `concurrency_series.sh` | Серия повторов тестов гонок (задание `concurrency`, К3) |
 | `../../.gitleaks.toml` | Настройки Gitleaks: стандартные правила и исключения проекта |

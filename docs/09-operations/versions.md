@@ -99,8 +99,8 @@
 | `actions/upload-artifact` 7.0.2 | HTML-отчёт JaCoCo и отчёты Newman в артефакте запуска | Хеш коммита `cf430e030ddbb5b0abf93d22962f4752f3646cd9` |
 | JaCoCo 0.8.14 | Покрытие кода модульными тестами (шаг 4 Ф4), версия в `gradle/libs.versions.toml`. Понимает файлы классов Java 25 | Каталог версий Gradle |
 | `@stoplight/spectral-cli` 6.15.0 | Второй линтер контрактов OpenAPI (NFT-6.2), правила в `.spectral.yaml` | Переменная `SPECTRAL_CLI_VERSION` в `ci.yml`, установка `npm install -g` |
-| `actions/setup-node` 7.1.0 | Node 24 в задании `web` (сборка, ESLint, tsc, Vitest интерфейса) | Хеш коммита `949feb2413d6458794dcd2491c4babbbce0c15c1` |
-| Пакеты интерфейса (`frontend/web-app`) | React 19, Vite 7, TypeScript 5.9, React Router 7, TanStack Query 5, `oidc-client-ts` 3, ESLint 9, Vitest 3 (ADR-026). Диапазоны в `package.json`, точные версии и контрольные суммы в `package-lock.json`; `npm ci` не меняет файл | Lock-файл в репозитории. В рабочей среде реестр npm закрыт, поэтому файл создаёт CI и отдаёт аннотациями (`tools/ci/web_install.sh`, `tools/ci/lock_fetch.py`) |
+| `actions/setup-node` 7.1.0 | Node 24 в задании `web` и в `web-lock.yml` (сборка, ESLint, tsc, Vitest интерфейса) | Хеш коммита `949feb2413d6458794dcd2491c4babbbce0c15c1` |
+| Пакеты интерфейса (`frontend/web-app`) | React 19, Vite 7, TypeScript 5.9, React Router 7, TanStack Query 5, `oidc-client-ts` 3, ESLint 9, Vitest 3 (ADR-026). Диапазоны в `package.json`, точные версии и контрольные суммы в `package-lock.json`; `npm ci` не меняет файл | Lock-файл в репозитории. В рабочей среде реестр npm закрыт, поэтому файл создаёт CI (`.github/workflows/web-lock.yml`, ветка `ci/web-lock`) |
 | `newman` 6.2.1 | API-тесты ST-02 и сквозные сценарии (`tools/api-tests`) | Переменная `NEWMAN_VERSION` в `ci.yml`, установка `npm install -g` |
 | Раннер `ubuntu-24.04` | Среда CI | Метка в workflow. Фактические параметры (4 ядра, 16 ГБ, Docker 28, Compose 2.38) проверены 4 октября 2026 года |
 
