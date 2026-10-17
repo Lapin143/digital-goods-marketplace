@@ -160,6 +160,10 @@ def registration_checks(kc, admin, users):
         d.post(email=email, password=password, **{'password-confirm': password if confirm is None else confirm})
         return d, time.time() - t0
 
+    # Кнопка «Регистрация» интерфейса (шаг 17 Ф4) отправляет на Keycloak с prompt=create; без него пришлось бы вести через страницу входа
+    d_create = kc.start('dgm-web', extra={'prompt': 'create'})
+    expect('регистрация: запрос с prompt=create открывает форму регистрации, а не вход (кнопка «Регистрация» интерфейса)', d_create.kind == 'register', d_create.kind)
+
     stamp = int(time.time())
     free = 'new-%d@example.test' % stamp
     taken = users['buyer-2']['email']

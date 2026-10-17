@@ -1,0 +1,44 @@
+.back {
+  display: inline-block;
+  margin-bottom: var(--space-3);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-1) var(--space-4);
+  margin: 0 0 var(--space-3);
+}
+
+.facts dt {
+  font-weight: 600;
+}
+
+.facts dd {
+  margin: 0;
+}
+
+.price {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.stock {
+  font-weight: 600;
+  color: #166534;
+}
+
+.out {
+  color: var(--color-danger);
+}
+
+.description {
+  max-width: 70ch;
+  white-space: pre-line;
+}
+
+@media (max-width: 480px) {
+  .facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

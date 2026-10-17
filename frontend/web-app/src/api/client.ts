@@ -45,6 +45,8 @@ export interface ApiClient {
   post: <T>(path: string, body?: unknown, options?: Omit<RequestOptions, 'method' | 'body'>) => Promise<ApiResponse<T>>;
   put: <T>(path: string, body: unknown, options?: Omit<RequestOptions, 'method' | 'body'>) => Promise<ApiResponse<T>>;
   del: <T>(path: string, options?: Omit<RequestOptions, 'method' | 'body'>) => Promise<ApiResponse<T>>;
+  /** Новый `Idempotency-Key`: экран создаёт его один раз на действие и передаёт в каждый повтор этого действия. */
+  newKey: () => string;
 }
 
 export function buildUrl(path: string, query?: Query): string {
@@ -149,5 +151,6 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     post: (path, body, options) => request(path, { ...options, method: 'POST', body }),
     put: (path, body, options) => request(path, { ...options, method: 'PUT', body }),
     del: (path, options) => request(path, { ...options, method: 'DELETE' }),
+    newKey,
   };
 }

@@ -13,6 +13,9 @@ export function HomePage() {
       <h1>{t('home.title')}</h1>
       <p>{t('home.lead')}</p>
       <p>
+        <Link to="/products">{t('home.catalogLink')}</Link>
+      </p>
+      <p>
         <Link to="/work">{t('home.workLink')}</Link>
       </p>
     </section>

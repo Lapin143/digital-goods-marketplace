@@ -1,4 +1,4 @@
-import { Link, NavLink, Outlet } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { SELLER_ROLES, STAFF_ROLES, hasAnyRole } from '../auth/claims';
 import { t } from '../i18n';
@@ -7,6 +7,8 @@ import styles from './Layout.module.css';
 
 function AuthControls() {
   const auth = useAuth();
+  const location = useLocation();
+  const returnTo = `${location.pathname}${location.search}`;
   const buyer = auth.session('web');
   const worker = auth.session('staff');
   return (
@@ -16,9 +18,14 @@ function AuthControls() {
           {t('nav.signOut')}
         </Button>
       ) : (
-        <Button variant="secondary" onClick={() => void auth.signIn('web', '/')}>
-          {t('nav.signIn')}
-        </Button>
+        <>
+          <Button variant="secondary" onClick={() => void auth.signIn('web', returnTo)}>
+            {t('nav.signIn')}
+          </Button>
+          <Button variant="secondary" onClick={() => void auth.signIn('web', returnTo, { prompt: 'create' })}>
+            {t('nav.register')}
+          </Button>
+        </>
       )}
       {worker ? (
         <Button variant="secondary" onClick={() => void auth.signOut('staff')}>
@@ -33,6 +40,7 @@ function AuthControls() {
 export function Layout() {
   const auth = useAuth();
   const worker = auth.session('staff');
+  const buyer = auth.session('web');
   return (
     <>
       <a className="skip-link" href="#content">
@@ -46,6 +54,8 @@ export function Layout() {
           <NavLink to="/" end>
             {t('nav.home')}
           </NavLink>
+          <NavLink to="/products">{t('nav.catalog')}</NavLink>
+          {buyer ? <NavLink to="/account/phone">{t('nav.phone')}</NavLink> : null}
           {worker && hasAnyRole(worker.claims, SELLER_ROLES) ? <NavLink to="/seller">{t('nav.seller')}</NavLink> : null}
           {worker && hasAnyRole(worker.claims, STAFF_ROLES) ? <NavLink to="/staff">{t('nav.staff')}</NavLink> : null}
           {worker ? null : <NavLink to="/work">{t('nav.work')}</NavLink>}
@@ -55,6 +65,9 @@ export function Layout() {
       <main id="content" className={styles.content} tabIndex={-1}>
         <Outlet />
       </main>
+      <footer className={styles.footer}>
+        <Link to="/help/email">{t('footer.noEmail')}</Link>
+      </footer>
     </>
   );
 }

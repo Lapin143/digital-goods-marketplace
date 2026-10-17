@@ -16,8 +16,11 @@ export interface Session {
 }
 
 export interface SignInOptions {
-  /** `login` заставляет Keycloak спросить пароль и код заново (повторный вход после настройки второго фактора). */
-  prompt?: 'login';
+  /**
+   * `login` заставляет Keycloak спросить пароль и код заново (повторный вход после настройки второго фактора).
+   * `create` открывает форму регистрации вместо входа (OIDC `prompt=create`).
+   */
+  prompt?: 'login' | 'create';
 }
 
 export interface AuthApi {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { t } from '../i18n';
-import { ApiError, fieldMessages, parseProblem, problemMessage, retryDelay } from './problem';
+import { ApiError, fieldMessages, parseProblem, problemMessage, retryDelay, waitText } from './problem';
 
 describe('разбор проблемы', () => {
   it('берёт код из поля code и расширения', () => {
@@ -63,6 +63,13 @@ describe('текст для пользователя', () => {
   it('429 показывает время ожидания', () => {
     const error = new ApiError(parseProblem(429, { code: 'rate-limited' }), 45_000);
     expect(problemMessage(error)).toBe(`${t('problem.rate-limited')} ${t('problem.retryAfter', { seconds: 45 })}`);
+  });
+
+  it('долгое ожидание показывается в минутах с округлением вверх', () => {
+    const error = new ApiError(parseProblem(429, { code: 'otp-locked' }), 601_000);
+    expect(problemMessage(error)).toBe(`${t('problem.otp-locked')} ${t('problem.retryAfterMinutes', { minutes: 11 })}`);
+    expect(waitText(119_000)).toBe(t('problem.retryAfter', { seconds: 119 }));
+    expect(waitText(120_000)).toBe(t('problem.retryAfterMinutes', { minutes: 2 }));
   });
 
   it('503 показывает нейтральный текст и время ожидания', () => {

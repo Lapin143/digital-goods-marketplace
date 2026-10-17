@@ -121,6 +121,12 @@ export function retryDelay(problem: ApiProblem, retryAfterHeader: string | null,
   return undefined;
 }
 
+/** «Повторите через 45 с.» до двух минут, дальше в минутах (с округлением вверх, чтобы не обещать лишнего). */
+export function waitText(milliseconds: number): string {
+  const seconds = Math.max(1, Math.ceil(milliseconds / 1000));
+  return seconds < 120 ? t('problem.retryAfter', { seconds }) : t('problem.retryAfterMinutes', { minutes: Math.ceil(seconds / 60) });
+}
+
 /**
  * Текст ошибки для пользователя. Берётся из словаря по коду, а не из `detail`: detail написан для разработчика
  * (conventions.md, раздел 9) и может содержать внутренние подробности. Для 429 и 503 добавляется время ожидания.
@@ -136,8 +142,7 @@ export function problemMessage(error: unknown): string {
   const key = `problem.${problem.code}`;
   let message = hasText(key) ? t(key, { limit: problem.limit ?? '', attempts: problem.attemptsLeft ?? '' }) : t('problem.unknown');
   if (error.retryAfterMs !== undefined && (problem.status === 429 || problem.status === 503)) {
-    const seconds = Math.max(1, Math.ceil(error.retryAfterMs / 1000));
-    message = `${message} ${t('problem.retryAfter', { seconds })}`;
+    message = `${message} ${waitText(error.retryAfterMs)}`;
   }
   return message;
 }
