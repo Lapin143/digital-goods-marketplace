@@ -31,6 +31,7 @@ entities:
       previous_email: Прежний адрес после смены e-mail на 7 суток для письма на него (SEQ-04, шаг 22)
       previous_email_until: Срок очистки прежнего адреса (identity-reconciler)
       phone_synced_to_idp: Признак «передан в Keycloak» для сверки раз в минуту (SEQ-05, раздел 7)
+      seller_id: Профиль продавца для атрибута seller_id в токене, ставится вместе с ролью по seller.approved (Р-18, ADR-025)
       audit_salt: Соль пользователя для HMAC журнала аудита, удаляется при анонимизации (ADR-014)
       version: Версия строки, увеличивается триггером
       updated_at: Время последнего изменения строки

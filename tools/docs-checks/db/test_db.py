@@ -637,6 +637,21 @@ def t_user_phone_race():
     assert results.count('ok') == 1 and results.count('23505') == 3, results
 
 
+@test('user_account: профиль продавца есть только у роли seller и привязан к одной записи, роль со снятием профиля меняется одним оператором', 'INV-36')
+def t_user_seller_id():
+    c = conn('platform_db')
+    profile = uid()
+    first = new_user(c, role='seller')
+    ok(c, "update identity.user_account set seller_id = %s where id = %s" % (q(profile), q(first)))
+    second = new_user(c, role='seller')
+    raises(c, "update identity.user_account set seller_id = %s where id = %s" % (q(profile), q(second)), '23505', 'uq_user_account_seller_id')
+    buyer = new_user(c)
+    raises(c, "update identity.user_account set seller_id = %s where id = %s" % (q(uid()), q(buyer)), '23514', 'ck_user_account_seller_id')
+    ok(c, "update identity.user_account set role = 'seller', seller_id = %s where id = %s" % (q(uid()), q(buyer)))     # так назначает обработчик seller.approved
+    raises(c, "update identity.user_account set role = 'buyer' where id = %s" % q(buyer), '23514', 'ck_user_account_seller_id')
+    ok(c, "update identity.user_account set role = 'buyer', seller_id = null where id = %s" % q(buyer))
+
+
 @test('user_account: всегда есть хотя бы один активный администратор, в том числе при одновременном снятии двух', 'INV-38')
 def t_last_admin():
     c = conn('platform_db')

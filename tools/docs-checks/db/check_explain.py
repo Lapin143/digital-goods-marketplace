@@ -228,13 +228,14 @@ select id, 'delivered', created_at, now() - (row_number() over (order by id)) * 
         nu, nt, nv, nn, na = n(100000, s), n(20000, s), n(150000, s), n(400000, s), n(200000, s)
         return """
 insert into identity.user_account (id, email, previous_email, previous_email_until, phone, phone_confirmed, phone_synced_to_idp,
-    name, role, has_2fa, audit_salt, status, registered_at, updated_at)
+    name, role, seller_id, has_2fa, audit_salt, status, registered_at, updated_at)
 select md5('u' || i)::uuid, 'user' || i || '@example.com',
        case when i % 2000 = 0 then 'old' || i || '@example.com' end,
        case when i % 2000 = 0 then now() + ((i / 2000) % 10 - 3) * interval '1 day' end,
        '+7900' || lpad(i::text, 7, '0'), i % 10 <> 0, (i % 10 <> 0 and i % 3000 <> 1),
        'Пользователь ' || i,
        case when i <= 40 then (array['moderator', 'support-operator', 'admin', 'seller'])[1 + i % 4] else 'buyer' end,
+       case when i <= 40 and i % 4 = 3 then md5('s' || i)::uuid end,
        i <= 40, decode(md5('salt' || i), 'hex'), 'active', now() - i * interval '5 minutes', now()
 from generate_series(1, {nu}) i;
 insert into support.order_view (order_id, order_number, buyer_id, order_status, issued_at, delivery_status, delivery_updated_at, updated_at)
@@ -449,6 +450,8 @@ def build_queries():
     Q(f, 'F-05', 'INV-34 пользователь по номеру телефона', "select id from identity.user_account where phone = '+79000004242'", ['uq_user_account_phone'])
     Q(f, 'F-06', 'Сверка identity-reconciler: телефоны не переданы в Keycloak',
       "select id from identity.user_account where phone_confirmed and not phone_synced_to_idp", ['ix_user_account_phone_unsynced'])
+    Q(f, 'F-26', 'Р-18 учётная запись по SellerID: сверка передаёт seller_id в Keycloak, обработчик seller.approved ищет занятый профиль',
+      "select id from identity.user_account where seller_id = md5('s3')::uuid", ['uq_user_account_seller_id'])
     Q(f, 'F-07', 'Очистка прежних адресов e-mail',
       "select id from identity.user_account where previous_email is not null and previous_email_until <= now()", ['ix_user_account_previous_email_until'])
     Q(f, 'F-08', 'US-7.2 очередь обращений',

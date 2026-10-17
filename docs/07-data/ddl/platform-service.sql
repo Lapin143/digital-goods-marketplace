@@ -142,6 +142,7 @@ create table identity.user_account (
     phone_synced_to_idp  boolean     not null default false,
     name                 text        not null,
     role                 text        not null default 'buyer',
+    seller_id            uuid,
     has_2fa              boolean     not null default false,
     audit_salt           bytea,
     anonymized           boolean     not null default false,
@@ -155,6 +156,8 @@ create table identity.user_account (
     constraint uq_user_account_email unique (email),
     constraint ck_user_account_status check (status in ('active', 'deactivated')),
     constraint ck_user_account_role check (role in ('buyer', 'seller', 'moderator', 'support-operator', 'admin')),
+    -- Р-18: профиль продавца хранится только у роли seller; обратное не требуется (продавец, заведённый в консоли Keycloak, профиля в платформе не имеет)
+    constraint ck_user_account_seller_id check (seller_id is null or role = 'seller'),
     constraint ck_user_account_email check (email = lower(btrim(email)) and char_length(email) between 3 and 254 and position('@' in email) > 1),
     constraint ck_user_account_previous_email check (
         (previous_email is null) = (previous_email_until is null)
@@ -185,6 +188,7 @@ comment on column identity.user_account.phone_confirmed is 'Признак по�
 comment on column identity.user_account.phone_synced_to_idp is 'Признак «передан в Keycloak»: атрибут phone_verified для токена. Сверка раз в минуту повторяет передачу, если false (ADR-010)';
 comment on column identity.user_account.name is 'Отображаемое имя. После анонимизации «Удалён»';
 comment on column identity.user_account.role is 'Роль: buyer, seller, moderator, support-operator, admin. «Гость» не хранится. Роль seller появляется только по событию seller.approved (INV-36)';
+comment on column identity.user_account.seller_id is 'SellerID: идентификатор профиля продавца в catalog-service. Проставляется вместе с ролью seller по событию seller.approved (INV-36, Р-18), сверка передаёт его в Keycloak атрибутом seller_id для токена. Пуст у остальных ролей';
 comment on column identity.user_account.has_2fa is 'Признак включённой 2FA. Для ролей кроме buyer обязателен для входа в кабинет (INV-37), контроль на стороне Keycloak и кода: роль можно назначить до настройки второго фактора';
 comment on column identity.user_account.audit_salt is 'Соль пользователя для ключа хеширования аудита, 16 байт случайных. Удаляется при анонимизации: хеши в журнале становятся несопоставимыми (ADR-014)';
 comment on column identity.user_account.anonymized is 'Персональные данные заменены обезличенными значениями (FT-1.4, INV-44)';
@@ -199,6 +203,8 @@ create index ix_user_account_role on identity.user_account (role, registered_at 
 comment on index identity.ix_user_account_role is 'GET /api/v1/staff/users?role= (US-8.1): новые выше, фильтр status накладывается поверх, роль «покупатель» не читает весь список';
 create index ix_user_account_registered_at on identity.user_account (registered_at desc, id desc);
 comment on index identity.ix_user_account_registered_at is 'GET /api/v1/staff/users (US-8.1) без фильтров и только со status: новые выше, курсор по (registered_at, id). Поиск по точному e-mail идёт уникальным индексом uq_user_account_email';
+create unique index uq_user_account_seller_id on identity.user_account (seller_id) where seller_id is not null;
+comment on index identity.uq_user_account_seller_id is 'Один профиль продавца привязан только к одной учётной записи; закрывает гонку двух событий seller.approved и обеспечивает поиск записи по SellerID';
 create index ix_user_account_phone_unsynced on identity.user_account (id) where phone_confirmed and not phone_synced_to_idp;
 comment on index identity.ix_user_account_phone_unsynced is 'Сверка identity-reconciler раз в минуту: подтверждённые телефоны, не переданные в Keycloak';
 create index ix_user_account_previous_email_until on identity.user_account (previous_email_until) where previous_email is not null;

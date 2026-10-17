@@ -53,6 +53,7 @@ erDiagram
         bool phone_synced_to_idp
         text name
         text role
+        uuid seller_id
         bool has_2fa
         bytea audit_salt
         bool anonymized
@@ -255,6 +256,7 @@ erDiagram
 | `phone_synced_to_idp` | `boolean` | да | `false` | Признак «передан в Keycloak»: атрибут phone_verified для токена. Сверка раз в минуту повторяет передачу, если false (ADR-010) |
 | `name` | `text` | да |  | Отображаемое имя. После анонимизации «Удалён» |
 | `role` | `text` | да | `'buyer'::text` | Роль: buyer, seller, moderator, support-operator, admin. «Гость» не хранится. Роль seller появляется только по событию seller.approved (INV-36) |
+| `seller_id` | `uuid` | нет |  | SellerID: идентификатор профиля продавца в catalog-service. Проставляется вместе с ролью seller по событию seller.approved (INV-36, Р-18), сверка передаёт его в Keycloak атрибутом seller_id для токена. Пуст у остальных ролей |
 | `has_2fa` | `boolean` | да | `false` | Признак включённой 2FA. Для ролей кроме buyer обязателен для входа в кабинет (INV-37), контроль на стороне Keycloak и кода: роль можно назначить до настройки второго фактора |
 | `audit_salt` | `bytea` | нет |  | Соль пользователя для ключа хеширования аудита, 16 байт случайных. Удаляется при анонимизации: хеши в журнале становятся несопоставимыми (ADR-014) |
 | `anonymized` | `boolean` | да | `false` | Персональные данные заменены обезличенными значениями (FT-1.4, INV-44) |
@@ -281,6 +283,7 @@ erDiagram
 | `ck_user_account_previous_email` | проверка | `CHECK ((((previous_email IS NULL) = (previous_email_until IS NULL)) AND ((previous_email IS NULL) OR ((previous_email = lower(btrim(previous_email))) AND ((char_length(previous_email) >= 3) AND (char_length(previous_email) <= 254))))))` |
 | `ck_user_account_role` | проверка | `CHECK ((role = ANY (ARRAY['buyer'::text, 'seller'::text, 'moderator'::text, 'support-operator'::text, 'admin'::text])))` |
 | `ck_user_account_salt_state` | проверка | `CHECK ((anonymized OR (audit_salt IS NOT NULL)))` |
+| `ck_user_account_seller_id` | проверка | `CHECK (((seller_id IS NULL) OR (role = 'seller'::text)))` |
 | `ck_user_account_status` | проверка | `CHECK ((status = ANY (ARRAY['active'::text, 'deactivated'::text])))` |
 | `ck_user_account_version` | проверка | `CHECK ((version >= 1))` |
 
@@ -293,6 +296,7 @@ erDiagram
 | `ix_user_account_registered_at` | `ix_user_account_registered_at ON identity.user_account USING btree (registered_at DESC, id DESC)` | GET /api/v1/staff/users (US-8.1) без фильтров и только со status: новые выше, курсор по (registered_at, id). Поиск по точному e-mail идёт уникальным индексом uq_user_account_email |
 | `ix_user_account_role` | `ix_user_account_role ON identity.user_account USING btree (role, registered_at DESC, id DESC)` | GET /api/v1/staff/users?role= (US-8.1): новые выше, фильтр status накладывается поверх, роль «покупатель» не читает весь список |
 | `uq_user_account_phone` | `UNIQUE uq_user_account_phone ON identity.user_account USING btree (phone) WHERE (phone IS NOT NULL)` | INV-34: один номер привязан только к одной учётной записи (FT-1.5), проверка идёт индексом базы и закрывает гонку двух подтверждений |
+| `uq_user_account_seller_id` | `UNIQUE uq_user_account_seller_id ON identity.user_account USING btree (seller_id) WHERE (seller_id IS NOT NULL)` | Один профиль продавца привязан только к одной учётной записи; закрывает гонку двух событий seller.approved и обеспечивает поиск записи по SellerID |
 
 **Триггеры**
 
