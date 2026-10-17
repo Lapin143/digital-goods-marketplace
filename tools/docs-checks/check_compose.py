@@ -56,7 +56,8 @@ BUILT_FROM_REPO = {'catalog-service', 'inventory-service', 'order-service', 'pay
 # Элемент: (аргумент сборки, Dockerfile, переменная Makefile, строка versions.md, в которой записан образ)
 BASE_IMAGE_ARGS = {
     'external-stubs': [('NODE_IMAGE', 'docker/Dockerfile.stubs', 'NODE_IMAGE', 'external-stubs')],
-    'web-app': [('NGINX_IMAGE', 'docker/Dockerfile.web', 'NGINX_IMAGE', 'web-app')],
+    'web-app': [('NGINX_IMAGE', 'docker/Dockerfile.web', 'NGINX_IMAGE', 'web-app'),
+                ('NODE_IMAGE', 'docker/Dockerfile.web', 'NODE_IMAGE', 'external-stubs')],     # Node собирает статику (этап build), тег общий с заглушками
     'keycloak': [('KEYCLOAK_IMAGE', 'docker/Dockerfile.keycloak', None, 'keycloak'),
                  ('JDK_IMAGE', 'docker/Dockerfile.keycloak', None, 'keycloak-spi'),
                  ('UBI_IMAGE', 'docker/Dockerfile.keycloak', None, 'keycloak-curl')],

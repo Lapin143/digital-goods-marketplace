@@ -186,13 +186,24 @@ def routes_and_tokens(kc, kc_gateway, people):
 
     page = call('GET', '/', headers={'Accept': 'text/html'})
     expect('страница / через шлюз: 200 text/html от web-app', page.status == 200 and (page.header('Content-Type') or '').startswith('text/html')
-           and 'Маркетплейс цифровых товаров' in page.text, '%s %s' % (page.status, page.text[:120]))
+           and 'Маркетплейс цифровых товаров' in page.text and 'id="root"' in page.text, '%s %s' % (page.status, page.text[:120]))
     expect('страница через шлюз: HSTS шлюза и политика содержимого nginx, по одному разу', page.count('Strict-Transport-Security') == 1
            and page.count('Content-Security-Policy') == 1 and page.count('X-Content-Type-Options') == 1, str(page.headers))
-    r = call('GET', '/styles.css')
-    expect('файл страницы через шлюз: /styles.css 200 text/css', r.status == 200 and (r.header('Content-Type') or '').startswith('text/css'), '%s %s' % (r.status, r.headers))
+    # Vite кладёт в имя файла хеш содержимого, поэтому адреса скрипта и стилей берутся из самой страницы (шаг 16 Ф4)
+    script = re.search(r'src="(/assets/[^"]+\.js)"', page.text)
+    sheet = re.search(r'href="(/assets/[^"]+\.css)"', page.text)
+    r = call('GET', script.group(1) if script else '/assets/нет-скрипта.js')
+    expect('скрипт страницы через шлюз: /assets/….js 200, JavaScript, кэш на год', r.status == 200 and 'javascript' in (r.header('Content-Type') or '')
+           and 'immutable' in (r.header('Cache-Control') or ''), '%s %s' % (r.status, r.headers))
+    r = call('GET', sheet.group(1) if sheet else '/assets/нет-стилей.css')
+    expect('стили страницы через шлюз: /assets/….css 200 text/css', r.status == 200 and (r.header('Content-Type') or '').startswith('text/css'), '%s %s' % (r.status, r.headers))
     r = call('GET', '/no-such-page.html')
     expect('неизвестный файл страницы: 404 от nginx (HTML, не Problem)', r.status == 404 and 'json' not in (r.header('Content-Type') or ''), '%s %s' % (r.status, r.text[:120]))
+    r = call('GET', '/seller/products', headers={'Accept': 'text/html'})
+    expect('адрес клиентского маршрутизатора (/seller/products) отдаёт страницу приложения: 200 text/html, no-cache', r.status == 200
+           and (r.header('Content-Type') or '').startswith('text/html') and 'id="root"' in r.text and 'no-cache' in (r.header('Cache-Control') or ''), '%s %s' % (r.status, r.headers))
+    r = call('GET', '/oidc/callback/staff?code=x&state=y', headers={'Accept': 'text/html'})
+    expect('адрес возврата из Keycloak отдаёт страницу приложения: 200', r.status == 200 and 'id="root"' in r.text, '%s %s' % (r.status, r.text[:120]))
     r = call('POST', '/', body=b'x=1', headers={'Content-Type': 'application/x-www-form-urlencoded'})
     expect('POST / через шлюз: 404 Problem (у страницы только GET и HEAD)', r.status == 404 and r.code() == 'not-found', '%s %s' % (r.status, r.text[:120]))
 

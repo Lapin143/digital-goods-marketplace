@@ -1,0 +1,30 @@
+name: web-lock
+
+# Создание package-lock.json веб-интерфейса. Реестр npm из рабочей среды проекта закрыт, поэтому lock-файл создаётся на раннере
+# и возвращается в ту же ветку коммитом (так же работает wrapper.yml для Gradle wrapper, решение Р-106 руководства Ф4).
+#
+# Как запустить: git push --force origin <коммит>:refs/heads/ci/web-lock (workflow_dispatch недоступен без входа в GitHub).
+# После запуска: git fetch origin ci/web-lock && git checkout FETCH_HEAD -- frontend/web-app/package-lock.json, затем коммит в рабочую ветку.
+# Если lock-файл в коммите уже есть и сходится с package.json, ничего не меняется.
+on:
+  push:
+    branches: ['ci/web-lock']
+
+permissions:
+  contents: write
+
+jobs:
+  web-lock:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Lock-файл сходится с package.json или создаётся новый
+        env:
+          DIAG_TAIL: "40"
+        run: tools/ci/diag.sh "web-lock" tools/ci/web_lock.sh

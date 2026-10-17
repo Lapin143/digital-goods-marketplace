@@ -1,0 +1,6 @@
+node_modules/
+dist/
+coverage/
+# Типы из OpenAPI создаёт `npm run gen:api`, в репозиторий они не входят
+src/api/generated/
+*.tsbuildinfo

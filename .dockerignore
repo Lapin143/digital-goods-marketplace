@@ -1,5 +1,5 @@
 # В контекст сборки образов попадают только исполняемые jar сервисов, исходники заглушек (без тестов), исходники расширения Keycloak,
-# конфигурация и страница веб-интерфейса и сами Dockerfile
+# конфигурация и исходники веб-интерфейса (без тестов и каталога node_modules) и сами Dockerfile
 *
 !services/*/build/libs/*.jar
 !docker/
@@ -7,4 +7,14 @@
 !tools/external-stubs/src/
 !infra/keycloak/sms-otp/
 !frontend/web-app/nginx.conf
+!frontend/web-app/package.json
+!frontend/web-app/package-lock.json
+!frontend/web-app/index.html
+!frontend/web-app/tsconfig.json
+!frontend/web-app/vite.config.ts
 !frontend/web-app/public/
+!frontend/web-app/src/
+frontend/web-app/src/**/*.test.ts
+frontend/web-app/src/**/*.test.tsx
+frontend/web-app/src/test/
+frontend/web-app/src/api/generated/

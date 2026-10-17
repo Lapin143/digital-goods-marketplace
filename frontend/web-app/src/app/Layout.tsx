@@ -1,0 +1,60 @@
+import { Link, NavLink, Outlet } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
+import { SELLER_ROLES, STAFF_ROLES, hasAnyRole } from '../auth/claims';
+import { t } from '../i18n';
+import { Button } from '../ui/Button';
+import styles from './Layout.module.css';
+
+function AuthControls() {
+  const auth = useAuth();
+  const buyer = auth.session('web');
+  const worker = auth.session('staff');
+  return (
+    <div className={styles.controls}>
+      {buyer ? (
+        <Button variant="secondary" onClick={() => void auth.signOut('web')}>
+          {t('nav.signOut')}
+        </Button>
+      ) : (
+        <Button variant="secondary" onClick={() => void auth.signIn('web', '/')}>
+          {t('nav.signIn')}
+        </Button>
+      )}
+      {worker ? (
+        <Button variant="secondary" onClick={() => void auth.signOut('staff')}>
+          {t('nav.signOutStaff')}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+/** Общая раскладка: ссылка пропуска навигации, шапка с меню и входом, область содержимого. */
+export function Layout() {
+  const auth = useAuth();
+  const worker = auth.session('staff');
+  return (
+    <>
+      <a className="skip-link" href="#content">
+        {t('app.skipToContent')}
+      </a>
+      <header className={styles.header}>
+        <Link to="/" className={styles.brand}>
+          {t('app.title')}
+        </Link>
+        <nav aria-label={t('nav.main')} className={styles.nav}>
+          <NavLink to="/" end>
+            {t('nav.home')}
+          </NavLink>
+          {worker && hasAnyRole(worker.claims, SELLER_ROLES) ? <NavLink to="/seller">{t('nav.seller')}</NavLink> : null}
+          {worker && hasAnyRole(worker.claims, STAFF_ROLES) ? <NavLink to="/staff">{t('nav.staff')}</NavLink> : null}
+          {worker ? null : <NavLink to="/work">{t('nav.work')}</NavLink>}
+        </nav>
+        <AuthControls />
+      </header>
+      <main id="content" className={styles.content} tabIndex={-1}>
+        <Outlet />
+      </main>
+    </>
+  );
+}
