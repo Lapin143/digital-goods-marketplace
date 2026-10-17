@@ -234,8 +234,8 @@ concurrency:' "права GITHUB_TOKEN на верхнем уровне" tools/d
       "порт 19095 из compose.debug.yaml не описан" tools/docs-checks/check_guide_commands.py
     mutate_repo "check_guide_commands находит несуществующий файл в руководстве" "$G" '`tools/docs-checks/check_guide_commands.py`' '`tools/docs-checks/check_guide_commandz.py`' \
       "check_guide_commandz.py нет в репозитории" tools/docs-checks/check_guide_commands.py
-    mutate_repo "check_guide_commands находит расхождение суммы набора с memory-budget.md" "$G" '| `dev-min` | PostgreSQL, Kafka, Redis, заглушки | 1344 |' '| `dev-min` | PostgreSQL, Kafka, Redis, заглушки | 1345 |' \
-      "лимиты набора dev-min 1345" tools/docs-checks/check_guide_commands.py
+    mutate_repo "check_guide_commands находит расхождение суммы набора с memory-budget.md" "$G" '| `dev-min` | PostgreSQL, Kafka, Redis, заглушки | 1376 |' '| `dev-min` | PostgreSQL, Kafka, Redis, заглушки | 1377 |' \
+      "лимиты набора dev-min 1377" tools/docs-checks/check_guide_commands.py
     mutate_repo "check_guide_commands находит переменную, которой нет в коде" "$G" '`DGM_PG_HOST`, `DGM_PG_PORT`' '`DGM_PG_HOSTX`, `DGM_PG_PORT`' \
       "переменной DGM_PG_HOSTX нет" tools/docs-checks/check_guide_commands.py
     mutate_repo "check_guide_commands находит недокументированную цель Makefile" "Makefile" 'otp: ## Текущий код' 'otp2: ## Текущий код' \

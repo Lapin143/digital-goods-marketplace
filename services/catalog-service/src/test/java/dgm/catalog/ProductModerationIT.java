@@ -27,7 +27,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BooleanSupplier;
 import javax.sql.DataSource;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -185,15 +184,20 @@ class ProductModerationIT extends CatalogStandIT {
         return events;
     }
 
-    private static boolean await(Duration limit, BooleanSupplier condition) throws InterruptedException {
+    /** Условие ожидания; обращение к сервису может бросить {@link IOException}. */
+    private interface Condition {
+        boolean holds() throws Exception;
+    }
+
+    private static boolean await(Duration limit, Condition condition) throws Exception {
         long deadline = System.nanoTime() + limit.toNanos();
         while (System.nanoTime() < deadline) {
-            if (condition.getAsBoolean()) {
+            if (condition.holds()) {
                 return true;
             }
             Thread.sleep(200);
         }
-        return condition.getAsBoolean();
+        return condition.holds();
     }
 
     private String cacheKey(String productId) {
@@ -348,7 +352,8 @@ class ProductModerationIT extends CatalogStandIT {
 
         assertEquals(422, decide(productId, "reject", "{}").status());
         assertEquals(422, decide(productId, "reject", "{\"reason\":\"   \"}").status());
-        assertEquals(415, gateway.post(STAFF + "/" + productId + "/reject", "причина", with(moderator(), "Idempotency-Key", key(), "Content-Type", "text/plain")).status());
+        assertEquals(415, gateway.request("POST", STAFF + "/" + productId + "/reject", "text/plain", "причина".getBytes(StandardCharsets.UTF_8),
+                with(moderator(), "Idempotency-Key", key())).status());
         assertEquals("on_moderation", card(productId).json().get("status"), "ошибка тела решение не принимает");
 
         Response rejected = decide(productId, "reject", "{\"reason\":\"В описании есть запрещённое содержимое\"}");
