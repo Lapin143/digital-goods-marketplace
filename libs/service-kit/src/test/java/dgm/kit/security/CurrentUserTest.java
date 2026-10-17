@@ -50,4 +50,19 @@ class CurrentUserTest {
         assertEquals(ProblemType.UNAUTHENTICATED, e.type());
         assertThrows(ProblemException.class, () -> CurrentUser.id(user(null)));
     }
+
+    @Test
+    void sellerIdIsUuidFromClaim() {
+        AuthenticatedUser seller = new AuthenticatedUser("0199e0a0-0000-4000-8000-0000000000a1", Set.of("seller.catalog"), Set.of("seller"),
+                List.of("pwd", "otp"), true, "0199e0a0-0000-7000-8000-000000000101");
+        assertEquals(UUID.fromString("0199e0a0-0000-7000-8000-000000000101"), CurrentUser.sellerId(seller));
+    }
+
+    @Test
+    void missingOrBrokenSellerIdIsForbidden() {
+        ProblemException none = assertThrows(ProblemException.class, () -> CurrentUser.sellerId(user("0199e0a0-0000-4000-8000-0000000000a1")));
+        assertEquals(ProblemType.FORBIDDEN, none.type());
+        AuthenticatedUser odd = new AuthenticatedUser("0199e0a0-0000-4000-8000-0000000000a1", Set.of(), Set.of("seller"), List.of("pwd"), true, "not-a-uuid");
+        assertEquals(ProblemType.FORBIDDEN, assertThrows(ProblemException.class, () -> CurrentUser.sellerId(odd)).type());
+    }
 }

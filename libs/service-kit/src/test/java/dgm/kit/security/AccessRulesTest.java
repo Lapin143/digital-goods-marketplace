@@ -1,6 +1,7 @@
 package dgm.kit.security;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dgm.kit.problem.ProblemType;
@@ -84,5 +85,15 @@ class AccessRulesTest {
         assertTrue(u.roles().isEmpty());
         assertTrue(u.amr().isEmpty());
         assertEquals(false, u.phoneVerified());
+    }
+
+    @Test
+    void sellerIdClaimReachesTheUserAndBlankMeansNone() {
+        Jwt.Builder base = Jwt.withTokenValue("t").header("alg", "RS256").subject("u-1").claim("scope", "orders.read")
+                .claim("realm_access", Map.of("roles", List.of("seller"))).claim("amr", List.of("pwd", "otp"))
+                .issuedAt(Instant.parse("2026-10-04T10:00:00Z")).expiresAt(Instant.parse("2026-10-04T10:05:00Z"));
+        assertEquals("0199e0a0-0000-7000-8000-000000000101",
+                AuthenticatedUser.from(base.claim("seller_id", "0199e0a0-0000-7000-8000-000000000101").build()).sellerId());
+        assertNull(AuthenticatedUser.from(base.claim("seller_id", " ").build()).sellerId());
     }
 }

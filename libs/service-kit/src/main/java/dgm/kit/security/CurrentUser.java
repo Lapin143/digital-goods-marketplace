@@ -27,4 +27,16 @@ public final class CurrentUser {
             throw new ProblemException(ProblemType.UNAUTHENTICATED, "Идентификатор пользователя в токене не распознан.");
         }
     }
+
+    /**
+     * Идентификатор профиля продавца из claim {@code seller_id} (Р-18). Нет claim или он не UUID: 403, потому что роль продавца есть,
+     * а профиля в токене нет, например токен выдан до одобрения заявки; продавцу нужно войти заново.
+     */
+    public static UUID sellerId(AuthenticatedUser user) {
+        try {
+            return UUID.fromString(user.sellerId());
+        } catch (IllegalArgumentException | NullPointerException e) {
+            throw new ProblemException(ProblemType.FORBIDDEN, "В токене нет профиля продавца: войдите заново после одобрения заявки.");
+        }
+    }
 }

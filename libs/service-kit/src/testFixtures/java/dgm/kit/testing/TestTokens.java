@@ -72,6 +72,7 @@ public final class TestTokens {
         private List<String> roles = List.of("buyer");
         private List<String> amr = List.of("pwd");
         private boolean phoneVerified = true;
+        private String sellerId;
         private Duration expiresIn = Duration.ofMinutes(5);
         private RSAPrivateKey signWith;
 
@@ -115,6 +116,12 @@ public final class TestTokens {
             return this;
         }
 
+        /** Профиль продавца в токене (claim {@code seller_id}, Р-18); без вызова claim в токене нет. */
+        public Spec sellerId(String value) {
+            this.sellerId = value;
+            return this;
+        }
+
         /** Срок действия от текущего момента часов; отрицательный даёт уже просроченный токен. */
         public Spec expiresIn(Duration value) {
             this.expiresIn = value;
@@ -146,7 +153,7 @@ public final class TestTokens {
         private JWTClaimsSet claims() {
             Map<String, Object> realmAccess = new LinkedHashMap<>();
             realmAccess.put("roles", roles);
-            return new JWTClaimsSet.Builder()
+            JWTClaimsSet.Builder builder = new JWTClaimsSet.Builder()
                     .issuer(issuer)
                     .subject(subject)
                     .audience(audience)
@@ -155,8 +162,11 @@ public final class TestTokens {
                     .claim("scope", String.join(" ", scopes))
                     .claim("realm_access", realmAccess)
                     .claim("amr", amr)
-                    .claim("phone_verified", phoneVerified)
-                    .build();
+                    .claim("phone_verified", phoneVerified);
+            if (sellerId != null) {
+                builder.claim("seller_id", sellerId);
+            }
+            return builder.build();
         }
     }
 }

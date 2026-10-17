@@ -15,13 +15,21 @@ import org.springframework.security.oauth2.jwt.Jwt;
  * @param roles         роли realm (claim realm_access.roles); у пользователя одна роль
  * @param amr           способы входа: pwd, otp, vk, sms
  * @param phoneVerified номер телефона подтверждён (claim phone_verified)
+ * @param sellerId      идентификатор профиля продавца (claim seller_id, Р-18): Keycloak кладёт его после одобрения заявки; у остальных
+ *                      пользователей и в токенах, выданных до одобрения, его нет ({@code null})
  */
-public record AuthenticatedUser(String subject, Set<String> scopes, Set<String> roles, List<String> amr, boolean phoneVerified) {
+public record AuthenticatedUser(String subject, Set<String> scopes, Set<String> roles, List<String> amr, boolean phoneVerified,
+                                String sellerId) {
 
     public AuthenticatedUser {
         scopes = Set.copyOf(scopes);
         roles = Set.copyOf(roles);
         amr = List.copyOf(amr);
+    }
+
+    /** Пользователь без профиля продавца в токене. */
+    public AuthenticatedUser(String subject, Set<String> scopes, Set<String> roles, List<String> amr, boolean phoneVerified) {
+        this(subject, scopes, roles, amr, phoneVerified, null);
     }
 
     public static AuthenticatedUser from(Jwt jwt) {
@@ -38,8 +46,9 @@ public record AuthenticatedUser(String subject, Set<String> scopes, Set<String> 
             }
         }
         List<String> amr = jwt.getClaimAsStringList("amr");
+        String sellerId = jwt.getClaimAsString("seller_id");
         return new AuthenticatedUser(jwt.getSubject(), scopes, roles, amr == null ? List.of() : amr,
-                Boolean.TRUE.equals(jwt.getClaimAsBoolean("phone_verified")));
+                Boolean.TRUE.equals(jwt.getClaimAsBoolean("phone_verified")), sellerId == null || sellerId.isBlank() ? null : sellerId);
     }
 
     public boolean hasScope(String scope) {
