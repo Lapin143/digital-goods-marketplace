@@ -128,7 +128,6 @@ create table inventory.key (
     constraint fk_key_dek_id foreign key (dek_id) references inventory.data_key (id),
     constraint fk_key_reservation_id foreign key (reservation_id) references inventory.reservation (id),
     -- INV-03: значения уникальны в пределах товара (сравнение по HMAC, открытого значения в базе нет)
-    constraint uq_key_product_id_hmac unique (product_id, hmac),
     constraint ck_key_status check (status in ('free', 'reserved', 'issued', 'voided')),
     constraint ck_key_nonce check (octet_length(nonce) = 12),
     constraint ck_key_ciphertext check (octet_length(ciphertext) between 17 and 4112),

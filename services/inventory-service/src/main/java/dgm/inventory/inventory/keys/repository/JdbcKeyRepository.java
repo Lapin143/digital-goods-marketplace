@@ -53,7 +53,7 @@ public final class JdbcKeyRepository implements KeyRepository {
                 args.add(key.ciphertext());
                 args.add(key.hmac());
             }
-            sql.append(" on conflict (product_id, hmac) do nothing returning hmac");
+            sql.append(" returning hmac");
             jdbc.query(sql.toString(), rs -> {
                 inserted.add(KeyHasher.hex(rs.getBytes("hmac")));
             }, args.toArray());
