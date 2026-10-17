@@ -131,7 +131,7 @@
 | Профиль одобрен | `seller.approved` | `seller-profile-service` | `seller-role-handler`, `notification-handler` |
 | Профиль отклонён, возвращён на доработку | `seller.rejected`, `seller.returned` | `seller-profile-service` | `notification-handler` |
 | Товар создан, изменён | `product.created`, `product.updated` | `product-service` | `event-consumer` → `product-registry` (`inventory-service`) |
-| Товар опубликован, отклонён, заблокирован | `product.published`, `product.rejected`, `product.blocked` | `product-service` | `notification-handler` |
+| Товар опубликован, отклонён, заблокирован | `product.published`, `product.rejected`, `product.blocked` | `product-service` | `notification-handler`, `product-registry` |
 | Остаток изменился | `stock.changed` | `reservation-service`, `key-pool-service` | `event-consumer` → `stock-view-service` (`catalog-service`) |
 | Резерв истёк, резерв снят | `reservation.expired`, `reservation.released` | `reservation-service` | `event-consumer` → `saga-orchestrator` (`order-service`, только `reservation.expired`) |
 | Заказ оплачен | `order.paid` | `order-domain` | `event-consumer` → `delivery-domain` (`delivery-service`), `notification-handler` |

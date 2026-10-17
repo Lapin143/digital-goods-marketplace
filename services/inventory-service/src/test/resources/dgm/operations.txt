@@ -5,9 +5,9 @@
 # Статус меняется в том же commit, где появляется обработчик. Тест RoutesTest сервиса сверяет реестр с OpenAPI и контроллерами,
 # а tools/docs-checks/check_ledger.py показывает, сколько операций среза ещё не готово.
 
-getProductStock     slice1
-uploadKeyBatch      slice1
-uploadKeyFile       slice1
+getProductStock     done
+uploadKeyBatch      done
+uploadKeyFile       done
 
 confirmReservation  later
 getKeyValues        later

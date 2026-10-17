@@ -1,0 +1,63 @@
+package dgm.inventory.inventory.keys.repository;
+
+import dgm.inventory.inventory.crypto.KeyHasher;
+import dgm.inventory.inventory.registry.JdbcProductCopyRepository;
+import dgm.kit.boot.ModuleDatabases;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Component;
+
+/** Ключи пула в PostgreSQL под ролью {@code app_inventory} (прав DELETE на таблицу у роли нет). */
+@Component
+public final class JdbcKeyRepository implements KeyRepository {
+
+    /** Вставка пачками по 500 строк (ADR-009). */
+    static final int CHUNK = 500;
+
+    private final JdbcTemplate jdbc;
+
+    public JdbcKeyRepository(ModuleDatabases databases) {
+        this.jdbc = databases.jdbc(JdbcProductCopyRepository.MODULE);
+    }
+
+    @Override
+    public Map<String, Integer> countByStatus(UUID productId) {
+        Map<String, Integer> counts = new HashMap<>();
+        jdbc.query("select status, count(*) as n from inventory.key where product_id = ? group by status",
+                rs -> {
+                    counts.put(rs.getString("status"), rs.getInt("n"));
+                }, productId);
+        return counts;
+    }
+
+    @Override
+    public Set<String> insertNew(UUID productId, List<NewKey> keys) {
+        Set<String> inserted = new HashSet<>();
+        for (int from = 0; from < keys.size(); from += CHUNK) {
+            List<NewKey> chunk = keys.subList(from, Math.min(from + CHUNK, keys.size()));
+            StringBuilder sql = new StringBuilder("insert into inventory.key (id, product_id, dek_id, nonce, ciphertext, hmac) values ");
+            List<Object> args = new ArrayList<>(chunk.size() * 6);
+            for (int i = 0; i < chunk.size(); i++) {
+                NewKey key = chunk.get(i);
+                sql.append(i == 0 ? "(?, ?, ?, ?, ?, ?)" : ", (?, ?, ?, ?, ?, ?)");
+                args.add(key.id());
+                args.add(productId);
+                args.add(key.dekId());
+                args.add(key.nonce());
+                args.add(key.ciphertext());
+                args.add(key.hmac());
+            }
+            sql.append(" on conflict (product_id, hmac) do nothing returning hmac");
+            jdbc.query(sql.toString(), rs -> {
+                inserted.add(KeyHasher.hex(rs.getBytes("hmac")));
+            }, args.toArray());
+        }
+        return inserted;
+    }
+}

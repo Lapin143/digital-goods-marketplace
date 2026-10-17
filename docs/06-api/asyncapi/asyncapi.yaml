@@ -750,6 +750,30 @@ operations:
         onPermanentFailure: В DLQ сразу, без повторов
       consumerGroup: platform-service
       offsetCommit: после фиксации транзакции базы
+  receiveProductPublishedByInventoryServiceProductRegistry:
+    action: receive
+    channel:
+      $ref: '#/channels/catalogEvents'
+    messages:
+    - $ref: '#/channels/catalogEvents/messages/productPublished'
+    summary: Обновить статус копии товара на опубликован (решение модератора)
+    tags:
+    - name: R1
+    x-consumer:
+      service: inventory-service
+      handler: product-registry
+      effect: Обновить статус копии товара на опубликован (решение модератора)
+      release: R1
+      idempotency:
+        level2: processed_event
+        key: (consumer = 'product-registry', event_id)
+        businessGuard: Только статус копии; повтор того же решения ничего не меняет, версия копии не трогается, неизвестный товар пропускается
+      errorHandling:
+        retries: блокирующие, паузы 1, 5, 25 секунд
+        deadLetterTopic: catalog.events.dlq
+        onPermanentFailure: В DLQ сразу, без повторов
+      consumerGroup: inventory-service
+      offsetCommit: после фиксации транзакции базы
   publishProductRejected:
     action: send
     channel:
@@ -789,6 +813,30 @@ operations:
         onPermanentFailure: В DLQ сразу, без повторов
       consumerGroup: platform-service
       offsetCommit: после фиксации транзакции базы
+  receiveProductRejectedByInventoryServiceProductRegistry:
+    action: receive
+    channel:
+      $ref: '#/channels/catalogEvents'
+    messages:
+    - $ref: '#/channels/catalogEvents/messages/productRejected'
+    summary: Обновить статус копии товара на отклонён (решение модератора)
+    tags:
+    - name: R1
+    x-consumer:
+      service: inventory-service
+      handler: product-registry
+      effect: Обновить статус копии товара на отклонён (решение модератора)
+      release: R1
+      idempotency:
+        level2: processed_event
+        key: (consumer = 'product-registry', event_id)
+        businessGuard: Только статус копии; повтор того же решения ничего не меняет, версия копии не трогается, неизвестный товар пропускается
+      errorHandling:
+        retries: блокирующие, паузы 1, 5, 25 секунд
+        deadLetterTopic: catalog.events.dlq
+        onPermanentFailure: В DLQ сразу, без повторов
+      consumerGroup: inventory-service
+      offsetCommit: после фиксации транзакции базы
   publishProductBlocked:
     action: send
     channel:
@@ -827,6 +875,30 @@ operations:
         deadLetterTopic: catalog.events.dlq
         onPermanentFailure: В DLQ сразу, без повторов
       consumerGroup: platform-service
+      offsetCommit: после фиксации транзакции базы
+  receiveProductBlockedByInventoryServiceProductRegistry:
+    action: receive
+    channel:
+      $ref: '#/channels/catalogEvents'
+    messages:
+    - $ref: '#/channels/catalogEvents/messages/productBlocked'
+    summary: Обновить статус копии товара на заблокирован, загрузка ключей закрывается
+    tags:
+    - name: R1
+    x-consumer:
+      service: inventory-service
+      handler: product-registry
+      effect: Обновить статус копии товара на заблокирован, загрузка ключей закрывается
+      release: R1
+      idempotency:
+        level2: processed_event
+        key: (consumer = 'product-registry', event_id)
+        businessGuard: Только статус копии; повтор того же решения ничего не меняет, версия копии не трогается, неизвестный товар пропускается
+      errorHandling:
+        retries: блокирующие, паузы 1, 5, 25 секунд
+        deadLetterTopic: catalog.events.dlq
+        onPermanentFailure: В DLQ сразу, без повторов
+      consumerGroup: inventory-service
       offsetCommit: после фиксации транзакции базы
   publishStockChanged:
     action: send

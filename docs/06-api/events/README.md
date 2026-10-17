@@ -47,9 +47,9 @@
 | [`seller.returned`](examples/seller.returned.json) | `sellerId` | `seller-profile-service` | Профиль продавца возвращён на доработку. | `platform-service`: `notification-handler` |
 | [`product.created`](examples/product.created.json) | `productId` | `product-service` | Товар создан. | `inventory-service`: `product-registry` |
 | [`product.updated`](examples/product.updated.json) | `productId` | `product-service` | Товар изменён. | `inventory-service`: `product-registry` |
-| [`product.published`](examples/product.published.json) | `productId` | `product-service` | Товар опубликован. | `platform-service`: `notification-handler` |
-| [`product.rejected`](examples/product.rejected.json) | `productId` | `product-service` | Товар отклонён. | `platform-service`: `notification-handler` |
-| [`product.blocked`](examples/product.blocked.json) | `productId` | `product-service` | Товар заблокирован. | `platform-service`: `notification-handler` |
+| [`product.published`](examples/product.published.json) | `productId` | `product-service` | Товар опубликован. | `platform-service`: `notification-handler`; `inventory-service`: `product-registry` |
+| [`product.rejected`](examples/product.rejected.json) | `productId` | `product-service` | Товар отклонён. | `platform-service`: `notification-handler`; `inventory-service`: `product-registry` |
+| [`product.blocked`](examples/product.blocked.json) | `productId` | `product-service` | Товар заблокирован. | `platform-service`: `notification-handler`; `inventory-service`: `product-registry` |
 
 #### `inventory.events`
 
@@ -192,6 +192,9 @@
 | `key-replacement-handler` | `dispute.key-replacement-requested` | R2 | Аннулировать ключ, выбрать новый, записать `key.voided` и `key.replaced` | Переход ключа по SM-03 проверяет статус |
 | `product-registry` | `product.created` | R1 | Создать копию товара: продавец и способ выдачи для проверки прав загрузки (INV-09) | Запись по `productId`, применяется, только если `version` больше сохранённой, поэтому поздний повтор старой версии ничего не портит |
 | `product-registry` | `product.updated` | R1 | Обновить копию товара | Запись по `productId`, применяется, только если `version` больше сохранённой |
+| `product-registry` | `product.published` | R1 | Обновить статус копии товара на опубликован (решение модератора) | Только статус копии; повтор того же решения ничего не меняет, версия копии не трогается, неизвестный товар пропускается |
+| `product-registry` | `product.rejected` | R1 | Обновить статус копии товара на отклонён (решение модератора) | Только статус копии; повтор того же решения ничего не меняет, версия копии не трогается, неизвестный товар пропускается |
+| `product-registry` | `product.blocked` | R1 | Обновить статус копии товара на заблокирован, загрузка ключей закрывается | Только статус копии; повтор того же решения ничего не меняет, версия копии не трогается, неизвестный товар пропускается |
 | `reservation-service` | `order.cancelled` | R1 | Снять активный резерв заказа (SM-08, причина `order_cancelled`), вернуть ключи в «свободен» | Частичный `unique (order_id) where status = 'active'` и условие обновления по статусу: повторная отмена не имеет эффекта (INV-06) |
 
 #### `order-service`
