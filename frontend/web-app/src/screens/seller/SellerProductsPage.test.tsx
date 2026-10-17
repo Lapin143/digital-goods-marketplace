@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest';
 import { plural, t } from '../../i18n';
 import { renderScreen, respond } from '../../test/harness';
 import type { Handler } from '../../test/harness';
-import { formatMoney } from '../storefront/money';
 import { SellerProductsPage } from './SellerProductsPage';
 
 function item(index: number, overrides: Record<string, unknown> = {}) {
@@ -37,7 +36,7 @@ describe('товары продавца: список', () => {
     const { calls } = renderScreen(<SellerProductsPage />, { handler: () => page([item(1), item(2, { status: 'on_moderation' })]) });
     const table = await screen.findByRole('table');
     expect(within(table).getByRole('link', { name: 'Товар 1' })).toHaveAttribute('href', '/seller/products/p-1');
-    expect(within(table).getByText(formatMoney({ amount: 100001, currency: 'RUB' }))).toBeInTheDocument();
+    expect(within(table).getByText(/1\s000,01\s₽/)).toBeInTheDocument();
     expect(within(table).getByText(t('productStatus.on_moderation'))).toBeInTheDocument();
     expect(screen.getByText(plural(2, { one: 'seller.products.count.one', few: 'seller.products.count.few', many: 'seller.products.count.many' }))).toBeInTheDocument();
     expect(calls[0]?.url.searchParams.get('limit')).toBe('20');
