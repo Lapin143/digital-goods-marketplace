@@ -26,8 +26,19 @@ public interface UserAccountRepository {
      */
     boolean insert(NewAccount account);
 
-    /** @throws dgm.platform.identity.domain.LastAdminException снятие роли у последнего активного администратора (INV-38) */
+    /**
+     * Меняет роль. Профиль продавца ({@code seller_id}) остаётся только у роли {@code seller}, при любой другой роли он снимается.
+     *
+     * @throws dgm.platform.identity.domain.LastAdminException снятие роли у последнего активного администратора (INV-38)
+     */
     void updateRole(UUID id, String role);
+
+    /**
+     * Назначает роль продавца вместе с идентификатором его профиля (INV-36, Р-18): единственный путь к роли {@code seller}.
+     *
+     * @throws org.springframework.dao.DuplicateKeyException профиль уже привязан к другой учётной записи
+     */
+    void assignSeller(UUID id, UUID sellerId);
 
     /** @throws dgm.platform.identity.domain.LastAdminException деактивация последнего активного администратора (INV-38) */
     void deactivate(UUID id, Instant at);

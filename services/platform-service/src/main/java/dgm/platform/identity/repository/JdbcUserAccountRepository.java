@@ -32,7 +32,7 @@ public final class JdbcUserAccountRepository implements UserAccountRepository {
 
     static final String MODULE = "identity";
     private static final String COLUMNS = "id, email, name, role, has_2fa, status, phone_confirmed, phone_synced_to_idp, anonymized, "
-            + "registered_at, deactivated_at, version";
+            + "registered_at, deactivated_at, version, seller_id";
     private static final SecureRandom RANDOM = new SecureRandom();
     /** Текст исключения из триггера {@code identity.keep_last_admin}: по нему отличается нарушение INV-38 от остальных проверок. */
     private static final String LAST_ADMIN_MESSAGE = "последнего активного администратора";
@@ -77,10 +77,16 @@ public final class JdbcUserAccountRepository implements UserAccountRepository {
     @Override
     public void updateRole(UUID id, String role) {
         try {
-            jdbc.update("update identity.user_account set role = ? where id = ?", role, id);
+            jdbc.update("update identity.user_account set role = ?, seller_id = case when ? = 'seller' then seller_id else null end where id = ?",
+                    role, role, id);
         } catch (DataIntegrityViolationException e) {
             throw translate(e);
         }
+    }
+
+    @Override
+    public void assignSeller(UUID id, UUID sellerId) {
+        jdbc.update("update identity.user_account set role = 'seller', seller_id = ? where id = ?", sellerId, id);
     }
 
     @Override
@@ -185,7 +191,8 @@ public final class JdbcUserAccountRepository implements UserAccountRepository {
                 rs.getBoolean("anonymized"),
                 rs.getObject("registered_at", OffsetDateTime.class).toInstant(),
                 Optional.ofNullable(rs.getObject("deactivated_at", OffsetDateTime.class)).map(OffsetDateTime::toInstant),
-                rs.getInt("version"));
+                rs.getInt("version"),
+                Optional.ofNullable(rs.getObject("seller_id", UUID.class)));
     }
 
     private static OffsetDateTime utc(Instant instant) {

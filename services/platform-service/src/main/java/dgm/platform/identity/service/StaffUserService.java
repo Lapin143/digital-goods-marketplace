@@ -153,7 +153,8 @@ public final class StaffUserService {
 
     /** Роль уже в базе; Keycloak догоняет после фиксации. Для записи без изменений вызов тоже идёт: он идемпотентен и чинит прошлый сбой. */
     private void pushRole(UserAccount account) {
-        attempt("назначение роли", account.id(), () -> provider.applyRole(account.id(), account.role(), Roles.staff(account.role()) && !account.has2fa()));
+        boolean requireTotp = Roles.secondFactorRequired(account.role()) && !account.has2fa();
+        attempt("назначение роли", account.id(), () -> provider.applyRole(account.id(), account.role(), requireTotp));
     }
 
     private static void attempt(String what, UUID id, Runnable call) {

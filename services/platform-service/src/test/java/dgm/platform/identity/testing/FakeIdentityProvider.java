@@ -82,6 +82,12 @@ public final class FakeIdentityProvider implements IdentityProvider {
         return users.get(id).enabled();
     }
 
+    /** Атрибут {@code seller_id} пользователя в Keycloak; пусто, если не выставлен. */
+    public Optional<String> sellerIdOf(UUID id) {
+        KeycloakUser u = users.get(id);
+        return u == null ? Optional.empty() : Optional.ofNullable(u.attribute("seller_id"));
+    }
+
     public boolean phoneVerified(UUID id) {
         return phoneVerified.contains(id);
     }
@@ -134,6 +140,18 @@ public final class FakeIdentityProvider implements IdentityProvider {
     public void applyRole(UUID id, String role, boolean requireTotp) {
         enter("applyRole " + role + " totp=" + requireTotp, id);
         roles.put(id, new HashSet<>(Set.of(role)));
+    }
+
+    @Override
+    public void setSellerId(UUID id, UUID sellerId) {
+        enter("setSellerId", id);
+        KeycloakUser u = users.get(id);
+        if (u != null) {
+            Map<String, List<String>> attributes = new LinkedHashMap<>(u.attributes());
+            attributes.put("seller_id", List.of(sellerId.toString()));
+            users.put(id, new KeycloakUser(u.id(), u.username(), u.email(), u.firstName(), u.lastName(), u.enabled(), u.emailVerified(),
+                    u.createdTimestamp(), attributes));
+        }
     }
 
     @Override

@@ -14,7 +14,9 @@ public final class FakeTransaction implements IdentityTransaction {
     }
 
     private final List<Event> committed = new ArrayList<>();
+    private final List<Class<? extends RuntimeException>> failedAfterCommit = new ArrayList<>();
     private List<Event> pending;
+    private List<Runnable> afterCommit;
 
     @Override
     public <T> T execute(Supplier<T> action) {
@@ -22,13 +24,45 @@ public final class FakeTransaction implements IdentityTransaction {
             throw new IllegalStateException("Транзакция уже открыта");
         }
         pending = new ArrayList<>();
+        afterCommit = new ArrayList<>();
+        T result;
         try {
-            T result = action.get();
+            result = action.get();
             committed.addAll(pending);
-            return result;
+        } catch (RuntimeException | Error e) {
+            afterCommit = null;
+            throw e;
         } finally {
             pending = null;
         }
+        List<Runnable> callbacks = afterCommit;
+        afterCommit = null;
+        callbacks.forEach(this::runAfterCommit);
+        return result;
+    }
+
+    /** Откладывает действие до фиксации; при откате оно пропадает, вне транзакции выполняется сразу. */
+    @Override
+    public void afterCommit(Runnable action) {
+        if (afterCommit == null) {
+            runAfterCommit(action);
+        } else {
+            afterCommit.add(action);
+        }
+    }
+
+    /** Как в настоящей транзакции: исключение действия после фиксации наружу не выходит, ошибка проверки (Error) выходит. */
+    private void runAfterCommit(Runnable action) {
+        try {
+            action.run();
+        } catch (RuntimeException e) {
+            failedAfterCommit.add(e.getClass());
+        }
+    }
+
+    /** Классы исключений, которыми закончились действия после фиксации. */
+    public List<Class<? extends RuntimeException>> failedAfterCommit() {
+        return List.copyOf(failedAfterCommit);
     }
 
     @Override

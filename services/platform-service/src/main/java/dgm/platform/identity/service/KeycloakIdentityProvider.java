@@ -25,6 +25,7 @@ public final class KeycloakIdentityProvider implements IdentityProvider {
     static final String TOTP_ACTION = "CONFIGURE_TOTP";
     static final String OTP_CREDENTIAL = "otp";
     static final String PHONE_ATTRIBUTE = "phone_verified";
+    static final String SELLER_ATTRIBUTE = "seller_id";
 
     private final KeycloakAdminClient keycloak;
     private final String defaultRole;
@@ -113,6 +114,11 @@ public final class KeycloakIdentityProvider implements IdentityProvider {
     @Override
     public void delete(UUID id) {
         keycloak.deleteUser(id.toString());
+    }
+
+    @Override
+    public void setSellerId(UUID id, UUID sellerId) {
+        keycloak.setAttributes(id.toString(), Map.of(SELLER_ATTRIBUTE, sellerId.toString()));
     }
 
     @Override

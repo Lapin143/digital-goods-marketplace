@@ -28,7 +28,8 @@ import org.springframework.stereotype.Component;
  *   <li>запись анонимизирована, а пользователь в Keycloak остался: пользователь удаляется;</li>
  *   <li>запись деактивирована, а пользователь включён: он отключается, сессии завершаются. Обратного пути нет, включённым платформа деактивированного
  *       не делает никогда;</li>
- *   <li>роль в Keycloak отличается от записи: Keycloak приводится к записи (образец платформа, пункт 6 ADR-025);</li>
+ *   <li>роль в Keycloak отличается от записи или у продавца в Keycloak нет атрибута {@code seller_id} с профилем из записи: Keycloak
+ *       приводится к записи (образец платформа, пункт 6 ADR-025); так сверка закрывает сбой Keycloak в момент одобрения заявки;</li>
  *   <li>признак второго фактора отличается от наличия учётных данных {@code otp}: обновляется запись платформы (образец Keycloak).</li>
  * </ul>
  * Затем повторяется передача {@code phone_verified} для подтверждённых телефонов, не переданных в Keycloak. Ошибка по одному пользователю проход
@@ -42,6 +43,8 @@ import org.springframework.stereotype.Component;
 public final class IdentityReconciler {
 
     static final int PAGE_SIZE = 100;
+    /** Атрибут профиля Keycloak, который маппер кладёт в токен утверждением {@code seller_id} (Р-18). */
+    static final String SELLER_ATTRIBUTE = KeycloakIdentityProvider.SELLER_ATTRIBUTE;
     private static final int PHONE_BATCH = 100;
     /** Предохранитель от бесконечного чтения, если Keycloak вернёт одну и ту же страницу: 100 000 пользователей. */
     private static final int MAX_PAGES = 1000;
@@ -145,8 +148,16 @@ public final class IdentityReconciler {
             provider.disable(id);
             counters.disabled++;
         }
-        if (!provider.platformRoles(id).equals(Set.of(account.role()))) {
-            provider.applyRole(id, account.role(), Roles.staff(account.role()) && !account.has2fa());
+        // Профиль продавца идёт раньше роли: токен между двумя вызовами лучше с профилем и без роли, чем с ролью и без профиля
+        boolean sellerIdDiffers = account.sellerId().isPresent() && !account.sellerId().get().toString().equals(user.attribute(SELLER_ATTRIBUTE));
+        if (sellerIdDiffers) {
+            provider.setSellerId(id, account.sellerId().get());
+        }
+        boolean roleDiffers = !provider.platformRoles(id).equals(Set.of(account.role()));
+        if (roleDiffers) {
+            provider.applyRole(id, account.role(), Roles.secondFactorRequired(account.role()) && !account.has2fa());
+        }
+        if (roleDiffers || sellerIdDiffers) {
             counters.rolesFixed++;
         }
         boolean otp = provider.hasSecondFactor(id);

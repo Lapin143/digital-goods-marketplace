@@ -54,6 +54,15 @@ public final class IdentityEvents {
         return data;
     }
 
+    /** Роль продавца назначена по решению модератора: {@code assignedBy} отсутствует (схема {@code UserRoleAssignedData}). */
+    public static Map<String, Object> sellerRoleAssigned(UUID userId) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("userId", userId.toString());
+        data.put("role", "seller");
+        data.put("source", "seller_approval");
+        return data;
+    }
+
     public static Map<String, Object> deactivated(UUID userId, UUID deactivatedBy) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("userId", userId.toString());

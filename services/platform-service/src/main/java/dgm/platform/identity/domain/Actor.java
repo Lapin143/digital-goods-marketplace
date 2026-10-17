@@ -10,4 +10,10 @@ import java.util.UUID;
  * @param ip   адрес, с которого пришёл запрос (у сотрудника в аудит идёт как есть)
  */
 public record Actor(UUID id, String role, String ip) {
+
+    /**
+     * Платформа действует сама, по событию: назначение роли продавца по решению модератора. Идентификатор нулевой, адреса нет; в журнале
+     * аудита исполнитель читается как роль {@code system}.
+     */
+    public static final Actor SYSTEM = new Actor(new UUID(0L, 0L), "system", "");
 }

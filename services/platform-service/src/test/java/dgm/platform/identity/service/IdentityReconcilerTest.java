@@ -99,6 +99,60 @@ class IdentityReconcilerTest {
     }
 
     @Test
+    void sellerProfileMissingInKeycloakIsPassedOnceAndBeforeTheRole() {
+        UUID profile = UUID.fromString("0199e0a0-0000-4000-8000-0000000000c1");
+        accounts.add(id(1), "user1@mail.example", "buyer", NOW);
+        accounts.assignSeller(id(1), profile);
+        keycloakUser(1, "buyer", true);
+
+        IdentityReconciler.Summary first = reconciler.runPass();
+        IdentityReconciler.Summary second = reconciler.runPass();
+
+        assertEquals(1, first.rolesFixed());
+        assertEquals(0, second.rolesFixed());
+        assertEquals(java.util.Optional.of(profile.toString()), keycloak.sellerIdOf(id(1)));
+        assertEquals(java.util.Set.of("seller"), keycloak.rolesOf(id(1)));
+        assertEquals(List.of("setSellerId " + id(1), "applyRole seller totp=true " + id(1)),
+                keycloak.calls().stream().filter(c -> c.startsWith("setSellerId") || c.startsWith("applyRole")).toList());
+    }
+
+    @Test
+    void sellerWithTheRightRoleAndTheProfileInKeycloakIsLeftAlone() {
+        UUID profile = UUID.fromString("0199e0a0-0000-4000-8000-0000000000c1");
+        accounts.add(id(1), "user1@mail.example", "seller", NOW);
+        accounts.assignSeller(id(1), profile);
+        keycloakUser(1, "seller", true);
+        keycloak.setSellerId(id(1), profile);
+        int before = keycloak.calls().size();
+
+        IdentityReconciler.Summary summary = reconciler.runPass();
+
+        assertEquals(0, summary.rolesFixed());
+        assertTrue(keycloak.calls().stream().skip(before).noneMatch(c -> c.startsWith("setSellerId") || c.startsWith("applyRole")));
+    }
+
+    @Test
+    void sellerCreatedInTheConsoleWithoutAProfileKeepsTheKeycloakAttributeAlone() {
+        accounts.add(id(1), "user1@mail.example", "seller", NOW);
+        keycloakUser(1, "seller", true);
+
+        IdentityReconciler.Summary summary = reconciler.runPass();
+
+        assertEquals(0, summary.rolesFixed());
+        assertTrue(keycloak.sellerIdOf(id(1)).isEmpty());
+    }
+
+    @Test
+    void lostSellerRoleWithoutSecondFactorIsRepeatedWithTheTotpRequirement() {
+        accounts.add(id(1), "user1@mail.example", "seller", NOW);
+        keycloakUser(1, "buyer", true);
+
+        reconciler.runPass();
+
+        assertTrue(keycloak.calls().contains("applyRole seller totp=true " + id(1)));
+    }
+
+    @Test
     void deactivatedAccountDisablesTheKeycloakUserAndNeverEnablesItBack() {
         UserAccount account = accounts.add(id(1), "user1@mail.example", "buyer", NOW);
         accounts.deactivate(account.id(), NOW);

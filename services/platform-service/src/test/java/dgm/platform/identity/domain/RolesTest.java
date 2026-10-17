@@ -30,6 +30,16 @@ class RolesTest {
     }
 
     @Test
+    void secondFactorIsRequiredForSellerAndStaffButNotForBuyerOrUnknownRoles() {
+        for (String role : List.of(Roles.SELLER, Roles.MODERATOR, Roles.SUPPORT_OPERATOR, Roles.ADMIN)) {
+            assertTrue(Roles.secondFactorRequired(role), role);
+        }
+        assertFalse(Roles.secondFactorRequired(Roles.BUYER));
+        assertFalse(Roles.secondFactorRequired("guest"));
+        assertFalse(Roles.secondFactorRequired("default-roles-dgm"));
+    }
+
+    @Test
     void bestRolePicksTheMostPrivilegedAndIgnoresRealmServiceRoles() {
         assertEquals(Roles.BUYER, Roles.best(Set.of()));
         assertEquals(Roles.BUYER, Roles.best(Set.of("default-roles-dgm", "offline_access", "uma_authorization")));

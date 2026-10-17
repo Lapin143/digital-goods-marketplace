@@ -19,12 +19,20 @@ import java.util.UUID;
  * @param registeredAt   дата регистрации
  * @param deactivatedAt  дата деактивации
  * @param version        версия строки
+ * @param sellerId       профиль продавца в каталоге (SellerID); есть только у роли {@code seller}, проставляется по {@code seller.approved} (Р-18)
  */
 public record UserAccount(UUID id, String email, String name, String role, boolean has2fa, String status, boolean phoneConfirmed,
-                          boolean phoneSynced, boolean anonymized, Instant registeredAt, Optional<Instant> deactivatedAt, int version) {
+                          boolean phoneSynced, boolean anonymized, Instant registeredAt, Optional<Instant> deactivatedAt, int version,
+                          Optional<UUID> sellerId) {
 
     public static final String ACTIVE = "active";
     public static final String DEACTIVATED = "deactivated";
+
+    /** Запись без профиля продавца: так создаются учётные записи и так они выглядят в тестах до одобрения заявки. */
+    public UserAccount(UUID id, String email, String name, String role, boolean has2fa, String status, boolean phoneConfirmed,
+                       boolean phoneSynced, boolean anonymized, Instant registeredAt, Optional<Instant> deactivatedAt, int version) {
+        this(id, email, name, role, has2fa, status, phoneConfirmed, phoneSynced, anonymized, registeredAt, deactivatedAt, version, Optional.empty());
+    }
 
     public boolean active() {
         return ACTIVE.equals(status);

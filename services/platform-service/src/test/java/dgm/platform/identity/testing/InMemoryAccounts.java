@@ -42,7 +42,7 @@ public final class InMemoryAccounts implements UserAccountRepository {
     public UserAccount confirmPhone(UUID id) {
         UserAccount a = rows.get(id);
         return put(new UserAccount(a.id(), a.email(), a.name(), a.role(), a.has2fa(), a.status(), true, false, a.anonymized(), a.registeredAt(),
-                a.deactivatedAt(), a.version()));
+                a.deactivatedAt(), a.version(), a.sellerId()));
     }
 
     /** Номер у записи (для проверок); пусто, если не привязан. */
@@ -98,7 +98,17 @@ public final class InMemoryAccounts implements UserAccountRepository {
         UserAccount a = rows.get(id);
         requireAnotherAdmin(a, !role.equals("admin"));
         put(new UserAccount(a.id(), a.email(), a.name(), role, a.has2fa(), a.status(), a.phoneConfirmed(), a.phoneSynced(), a.anonymized(),
-                a.registeredAt(), a.deactivatedAt(), a.version() + 1));
+                a.registeredAt(), a.deactivatedAt(), a.version() + 1, role.equals("seller") ? a.sellerId() : Optional.empty()));
+    }
+
+    @Override
+    public void assignSeller(UUID id, UUID sellerId) {
+        if (rows.values().stream().anyMatch(o -> !o.id().equals(id) && o.sellerId().filter(sellerId::equals).isPresent())) {
+            throw new org.springframework.dao.DuplicateKeyException("uq_user_account_seller_id");
+        }
+        UserAccount a = rows.get(id);
+        put(new UserAccount(a.id(), a.email(), a.name(), "seller", a.has2fa(), a.status(), a.phoneConfirmed(), a.phoneSynced(), a.anonymized(),
+                a.registeredAt(), a.deactivatedAt(), a.version() + 1, Optional.of(sellerId)));
     }
 
     @Override
@@ -106,7 +116,7 @@ public final class InMemoryAccounts implements UserAccountRepository {
         UserAccount a = rows.get(id);
         requireAnotherAdmin(a, true);
         put(new UserAccount(a.id(), a.email(), a.name(), a.role(), a.has2fa(), UserAccount.DEACTIVATED, a.phoneConfirmed(), a.phoneSynced(),
-                a.anonymized(), a.registeredAt(), Optional.of(at), a.version() + 1));
+                a.anonymized(), a.registeredAt(), Optional.of(at), a.version() + 1, a.sellerId()));
     }
 
     /** INV-38: активного администратора нельзя убрать, если других активных нет. */
@@ -122,14 +132,14 @@ public final class InMemoryAccounts implements UserAccountRepository {
         UserAccount a = rows.get(id);
         phones.remove(id);
         put(new UserAccount(a.id(), "anonymized-" + id + "@invalid", "Удалён", a.role(), a.has2fa(), a.status(), false, false, true,
-                a.registeredAt(), a.deactivatedAt(), a.version() + 1));
+                a.registeredAt(), a.deactivatedAt(), a.version() + 1, a.sellerId()));
     }
 
     @Override
     public void updateHas2fa(UUID id, boolean has2fa) {
         UserAccount a = rows.get(id);
         put(new UserAccount(a.id(), a.email(), a.name(), a.role(), has2fa, a.status(), a.phoneConfirmed(), a.phoneSynced(), a.anonymized(),
-                a.registeredAt(), a.deactivatedAt(), a.version() + 1));
+                a.registeredAt(), a.deactivatedAt(), a.version() + 1, a.sellerId()));
     }
 
     @Override
@@ -166,7 +176,7 @@ public final class InMemoryAccounts implements UserAccountRepository {
         }
         phones.put(id, phone);
         put(new UserAccount(a.id(), a.email(), a.name(), a.role(), a.has2fa(), a.status(), true, false, a.anonymized(), a.registeredAt(),
-                a.deactivatedAt(), a.version() + 1));
+                a.deactivatedAt(), a.version() + 1, a.sellerId()));
         return true;
     }
 
@@ -190,6 +200,6 @@ public final class InMemoryAccounts implements UserAccountRepository {
     public void markPhoneSynced(UUID id) {
         UserAccount a = rows.get(id);
         put(new UserAccount(a.id(), a.email(), a.name(), a.role(), a.has2fa(), a.status(), a.phoneConfirmed(), true, a.anonymized(),
-                a.registeredAt(), a.deactivatedAt(), a.version() + 1));
+                a.registeredAt(), a.deactivatedAt(), a.version() + 1, a.sellerId()));
     }
 }

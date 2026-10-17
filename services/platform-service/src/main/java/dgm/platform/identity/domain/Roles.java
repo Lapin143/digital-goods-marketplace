@@ -33,6 +33,14 @@ public final class Roles {
         return STAFF.contains(role);
     }
 
+    /**
+     * Вход в кабинет роли требует второго фактора (INV-37): у всех ролей, кроме покупателя. Продавец в их числе, но сотрудником не
+     * считается ({@link #staff}): роль продавца ставится только по событию, роли сотрудников только администратором.
+     */
+    public static boolean secondFactorRequired(String role) {
+        return known(role) && !BUYER.equals(role);
+    }
+
     /** Старшая из известных платформе ролей среди присланных; {@code buyer}, если известных нет. Лишние роли realm (default-roles-dgm и др.) игнорируются. */
     public static String best(Collection<String> roles) {
         String best = BUYER;
