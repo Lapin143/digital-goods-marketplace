@@ -85,10 +85,28 @@ public final class IdempotencyGuard {
      *                          {@code request-in-progress} (409), если первый запрос не завершился за время ожидания
      */
     public Outcome execute(IdempotencyRequest request, Supplier<StoredResponse> action) {
+        return run(request, action, true);
+    }
+
+    /**
+     * Выполняет действие один раз на ключ, но без общей транзакции (Р-150). Для операций, которые по ходу дела вызывают соседей или
+     * внешние системы: вызов внутри открытой транзакции базы держит соединение на всё время ожидания и нарушает правило 9, а откат
+     * общей транзакции стёр бы то, что операция должна оставить при сбое (платёж «создан» без внешнего идентификатора после 503).
+     *
+     * <p>Каждый шаг действия фиксируется сам. Ответ сохраняется отдельной короткой транзакцией после действия, поэтому между
+     * действием и сохранением возможен сбой процесса: ключ останется {@code in_progress}, его подхватит повтор через
+     * {@link Settings#abandonedAfter()} и выполнит действие заново. Действие обязано выдерживать повтор само: уникальные ограничения
+     * предметной области и ключи идемпотентности вызовов соседей (ADR-006, уровни 1 и 3). Остальные правила как у {@link #execute}.
+     */
+    public Outcome executeOutsideTransaction(IdempotencyRequest request, Supplier<StoredResponse> action) {
+        return run(request, action, false);
+    }
+
+    private Outcome run(IdempotencyRequest request, Supplier<StoredResponse> action, boolean inTransaction) {
         Instant deadline = clock.instant().plus(settings.waitForOther());
         while (true) {
             if (store.claim(request)) {
-                return runOwned(request, action);
+                return runOwned(request, action, inTransaction);
             }
             Optional<IdempotencyStore.Entry> found = store.find(request.scope(), request.key());
             if (found.isPresent()) {
@@ -100,7 +118,7 @@ public final class IdempotencyGuard {
                     return new Outcome(entry.response(), true);
                 }
                 if (store.takeOver(request.scope(), request.key(), settings.abandonedAfter().toSeconds())) {
-                    return runOwned(request, action);
+                    return runOwned(request, action, inTransaction);
                 }
             }
             // Записи нет (её освободили между проверками) или первый запрос ещё выполняется: ждём и пробуем снова до срока
@@ -118,21 +136,36 @@ public final class IdempotencyGuard {
         }
     }
 
-    private Outcome runOwned(IdempotencyRequest request, Supplier<StoredResponse> action) {
+    private StoredResponse runInTransaction(IdempotencyRequest request, Supplier<StoredResponse> action) {
+        return transactions.execute(status -> {
+            StoredResponse result = action.get();
+            if (result == null) {
+                throw new IllegalStateException("Действие под охранником идемпотентности вернуло пустой результат");
+            }
+            if (result.successful()) {
+                store.complete(request, result);
+            } else {
+                status.setRollbackOnly();
+            }
+            return result;
+        });
+    }
+
+    private StoredResponse runOutsideTransaction(IdempotencyRequest request, Supplier<StoredResponse> action) {
+        StoredResponse result = action.get();
+        if (result == null) {
+            throw new IllegalStateException("Действие под охранником идемпотентности вернуло пустой результат");
+        }
+        if (result.successful()) {
+            transactions.executeWithoutResult(status -> store.complete(request, result));
+        }
+        return result;
+    }
+
+    private Outcome runOwned(IdempotencyRequest request, Supplier<StoredResponse> action, boolean inTransaction) {
         boolean stored = false;
         try {
-            StoredResponse response = transactions.execute(status -> {
-                StoredResponse result = action.get();
-                if (result == null) {
-                    throw new IllegalStateException("Действие под охранником идемпотентности вернуло пустой результат");
-                }
-                if (result.successful()) {
-                    store.complete(request, result);
-                } else {
-                    status.setRollbackOnly();
-                }
-                return result;
-            });
+            StoredResponse response = inTransaction ? runInTransaction(request, action) : runOutsideTransaction(request, action);
             stored = response != null && response.successful();
             return new Outcome(response, false);
         } finally {

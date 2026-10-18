@@ -109,8 +109,12 @@ abstract class PaymentStandIT {
         return Instant.now().plus(Duration.ofMinutes(12));
     }
 
+    /** Срок сессии по ключу идемпотентности: повтор с тем же ключом шлёт то же тело, иначе охранник ответит 422 {@code idempotency-key-reuse}. */
+    private static final Map<String, Instant> SESSION_ENDS = new java.util.concurrent.ConcurrentHashMap<>();
+
     static Response open(StandHttp caller, UUID orderId, long amount, String idempotencyKey) throws IOException {
-        return caller.post(SESSIONS, openBody(orderId, amount, sessionEnd()), "Idempotency-Key", idempotencyKey);
+        Instant end = SESSION_ENDS.computeIfAbsent(idempotencyKey, k -> sessionEnd());
+        return caller.post(SESSIONS, openBody(orderId, amount, end), "Idempotency-Key", idempotencyKey);
     }
 
     /** Вызов от имени {@code order-service} с новым ключом идемпотентности. */

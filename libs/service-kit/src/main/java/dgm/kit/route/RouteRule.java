@@ -17,9 +17,12 @@ import java.util.regex.Pattern;
  * @param idempotent  операция принимает {@code Idempotency-Key}: заголовок обязателен, повтор получает прежний ответ (ADR-006)
  * @param module      модуль базы сервиса, в котором работает операция ({@code x-module}); {@code null}: модуль по умолчанию
  * @param webhookSecret имя секрета подписи вебхука ({@code x-webhook-secret}); {@code null}: маршрут не вебхук
+ * @param externalSteps операция по ходу дела вызывает соседей или внешние системы ({@code x-idempotency-external-steps}): охранник
+ *                      идемпотентности не оборачивает её в транзакцию базы (Р-150, ADR-006)
  */
 public record RouteRule(String method, String path, String operationId, List<String> scopes, List<String> roles,
-                        boolean smsSessionDenied, List<String> callers, boolean idempotent, String module, String webhookSecret) {
+                        boolean smsSessionDenied, List<String> callers, boolean idempotent, String module, String webhookSecret,
+                        boolean externalSteps) {
 
     public RouteRule {
         scopes = List.copyOf(scopes);
@@ -30,7 +33,13 @@ public record RouteRule(String method, String path, String operationId, List<Str
     /** Маршрут без ключа идемпотентности и не вебхук: так выглядит большинство правил. */
     public RouteRule(String method, String path, String operationId, List<String> scopes, List<String> roles, boolean smsSessionDenied,
                      List<String> callers) {
-        this(method, path, operationId, scopes, roles, smsSessionDenied, callers, false, null, null);
+        this(method, path, operationId, scopes, roles, smsSessionDenied, callers, false, null, null, false);
+    }
+
+    /** Маршрут с ключом идемпотентности, модулем и секретом вебхука, но без внешних шагов. */
+    public RouteRule(String method, String path, String operationId, List<String> scopes, List<String> roles, boolean smsSessionDenied,
+                     List<String> callers, boolean idempotent, String module, String webhookSecret) {
+        this(method, path, operationId, scopes, roles, smsSessionDenied, callers, idempotent, module, webhookSecret, false);
     }
 
     /** Маршрут вебхука: тело читает и подпись проверяет {@code WebhookSignatureFilter}, предел тела меньше обычного. */

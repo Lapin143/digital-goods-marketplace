@@ -37,6 +37,7 @@ paths:
       x-allowed-roles:
       - system
       x-conditions: []
+      x-idempotency-external-steps: true
       x-allowed-callers:
       - order-service
       x-internal: true

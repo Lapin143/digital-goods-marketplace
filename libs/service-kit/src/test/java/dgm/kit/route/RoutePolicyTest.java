@@ -83,12 +83,16 @@ class RoutePolicyTest {
                 {"service": "platform-service", "routes": [
                   {"method": "POST", "path": "/api/v1/tickets", "operationId": "createTicket", "scopes": ["support.write"], "roles": ["buyer"],
                    "idempotent": true, "module": "support"},
+                  {"method": "POST", "path": "/internal/v1/payment-sessions", "operationId": "openPaymentSession", "callers": ["order-service"],
+                   "idempotent": true, "externalSteps": true},
                   {"method": "POST", "path": "/api/v1/webhooks/sms-status", "operationId": "receiveSmsStatus", "webhookSecret": "platform_webhook_secret"},
                   {"method": "GET", "path": "/api/v1/tickets", "operationId": "listTickets", "scopes": ["support.read"], "roles": ["buyer"]}
                 ]}
                 """);
         RouteRule ticket = extended.match("POST", "/api/v1/tickets").orElseThrow();
         assertTrue(ticket.idempotent());
+        assertFalse(ticket.externalSteps(), "по умолчанию охранник оборачивает операцию в транзакцию");
+        assertTrue(extended.match("POST", "/internal/v1/payment-sessions").orElseThrow().externalSteps());
         assertEquals("support", ticket.module());
         assertFalse(ticket.webhook());
         RouteRule webhook = extended.match("POST", "/api/v1/webhooks/sms-status").orElseThrow();

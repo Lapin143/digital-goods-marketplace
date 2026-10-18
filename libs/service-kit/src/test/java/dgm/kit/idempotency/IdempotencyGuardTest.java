@@ -12,12 +12,16 @@ import dgm.kit.problem.ProblemType;
 import dgm.kit.time.ManualClock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionOperations;
 
 /** Состояния ключа идемпотентности (ADR-006, уровень 1) на хранилище в памяти. */
@@ -159,6 +163,96 @@ class IdempotencyGuardTest {
     void emptyResultOfActionIsProgrammingError() {
         assertThrows(IllegalStateException.class, () -> guard.execute(request("u1", "POST /orders", "{}"), () -> null));
         assertEquals(0, store.size());
+    }
+
+    /** «Транзакция» с пометкой: показывает, открыта ли она в момент вызова действия. */
+    private static final class Marking implements TransactionOperations {
+        boolean open;
+        final List<String> log = new ArrayList<>();
+
+        @Override
+        public <T> T execute(TransactionCallback<T> action) {
+            open = true;
+            log.add("begin");
+            try {
+                TransactionStatus status = new SimpleTransactionStatus();
+                return action.doInTransaction(status);
+            } finally {
+                open = false;
+                log.add("end");
+            }
+        }
+    }
+
+    private IdempotencyGuard marked(Marking marking) {
+        IdempotencyGuard.Settings settings = new IdempotencyGuard.Settings(Duration.ofSeconds(2), Duration.ofMillis(50), Duration.ofSeconds(60));
+        return new IdempotencyGuard(store, marking, settings, clock, duration -> clock.advance(duration));
+    }
+
+    @Test
+    void theOrdinaryModeRunsTheActionInsideTheTransaction() {
+        Marking marking = new Marking();
+        AtomicInteger openInside = new AtomicInteger();
+        marked(marking).execute(request("u1", "POST /orders", "{}"), () -> {
+            openInside.set(marking.open ? 1 : 0);
+            return CREATED;
+        });
+        assertEquals(1, openInside.get(), "действие идёт внутри транзакции, вместе с ней сохраняется ответ");
+        assertEquals(List.of("begin", "end"), marking.log);
+    }
+
+    @Test
+    void theOutsideModeRunsTheActionWithoutATransactionAndStoresTheResponseInAShortOne() {
+        Marking marking = new Marking();
+        AtomicInteger openInside = new AtomicInteger(-1);
+        IdempotencyGuard.Outcome outcome = marked(marking).executeOutsideTransaction(request("u1", "POST /payment-sessions", "{}"), () -> {
+            openInside.set(marking.open ? 1 : 0);
+            return CREATED;
+        });
+        assertEquals(0, openInside.get(), "вызовы соседей внутри действия не держат транзакцию базы (правило 9)");
+        assertFalse(outcome.replayed());
+        assertSame(CREATED, outcome.response());
+        assertEquals(List.of("begin", "end"), marking.log, "одна короткая транзакция: сохранение ответа");
+        assertEquals(List.of("claim", "complete"), store.calls);
+    }
+
+    @Test
+    void theOutsideModeReplaysTheStoredResponseWithoutRunningTheActionAgain() {
+        IdempotencyRequest request = request("u1", "POST /payment-sessions", "{\"a\":1}");
+        AtomicInteger runs = new AtomicInteger();
+        guard.executeOutsideTransaction(request, () -> {
+            runs.incrementAndGet();
+            return CREATED;
+        });
+        IdempotencyGuard.Outcome second = guard.executeOutsideTransaction(request, () -> {
+            runs.incrementAndGet();
+            return CREATED;
+        });
+        assertEquals(1, runs.get());
+        assertTrue(second.replayed());
+    }
+
+    @Test
+    void theOutsideModeReleasesTheKeyAfterAFailureResponseOrAnException() {
+        IdempotencyRequest request = request("u1", "POST /payment-sessions", "{}");
+        IdempotencyGuard.Outcome failed = guard.executeOutsideTransaction(request, () -> new StoredResponse(503, "{\"code\":\"payment-session-unavailable\"}"));
+        assertEquals(503, failed.response().status());
+        assertEquals(0, store.size(), "ответ с ошибкой не запоминается");
+        IllegalArgumentException boom = new IllegalArgumentException("boom");
+        assertSame(boom, assertThrows(IllegalArgumentException.class, () -> guard.executeOutsideTransaction(request, () -> {
+            throw boom;
+        })));
+        assertEquals(0, store.size());
+        assertEquals(201, guard.executeOutsideTransaction(request, () -> CREATED).response().status(), "повтор выполняется заново");
+    }
+
+    @Test
+    void theOutsideModeKeepsTheSameRulesForAnotherBodyAndForAnEmptyResult() {
+        guard.executeOutsideTransaction(request("u1", "POST /payment-sessions", "{\"a\":1}"), () -> CREATED);
+        ProblemException e = assertThrows(ProblemException.class,
+                () -> guard.executeOutsideTransaction(request("u1", "POST /payment-sessions", "{\"a\":2}"), () -> CREATED));
+        assertEquals(ProblemType.IDEMPOTENCY_KEY_REUSE, e.type());
+        assertThrows(IllegalStateException.class, () -> guard.executeOutsideTransaction(request("u2", "POST /payment-sessions", "{}"), () -> null));
     }
 
     @Test

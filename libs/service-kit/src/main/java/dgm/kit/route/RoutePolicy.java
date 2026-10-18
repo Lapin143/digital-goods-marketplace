@@ -54,7 +54,8 @@ public final class RoutePolicy {
                     strings(raw, "callers"),
                     Boolean.TRUE.equals(raw.get("idempotent")),
                     optionalText(raw, "module"),
-                    optionalText(raw, "webhookSecret"));
+                    optionalText(raw, "webhookSecret"),
+                    Boolean.TRUE.equals(raw.get("externalSteps")));
             compiled.add(new Compiled(rule, rule.pattern()));
         }
         // Точные шаблоны раньше общих: /orders/current раньше /orders/{id}

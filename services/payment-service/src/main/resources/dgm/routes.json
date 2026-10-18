@@ -47,7 +47,8 @@
       "callers": [
         "order-service"
       ],
-      "idempotent": true
+      "idempotent": true,
+      "externalSteps": true
     }
   ]
 }

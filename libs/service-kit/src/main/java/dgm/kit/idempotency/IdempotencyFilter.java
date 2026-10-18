@@ -19,6 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
@@ -93,14 +94,17 @@ public final class IdempotencyFilter extends OncePerRequestFilter {
 
         IdempotencyGuard.Outcome outcome;
         try {
-            outcome = guards.apply(rule).execute(idempotencyRequest, () -> {
+            Supplier<StoredResponse> action = () -> {
                 try {
                     chain.doFilter(cached, wrapper);
                 } catch (IOException | ServletException e) {
                     throw new ChainFailure(e);
                 }
                 return capture(wrapper);
-            });
+            };
+            IdempotencyGuard guard = guards.apply(rule);
+            // Операция с вызовами соседей идёт без общей транзакции: каждый её шаг фиксируется сам (Р-150)
+            outcome = rule.externalSteps() ? guard.executeOutsideTransaction(idempotencyRequest, action) : guard.execute(idempotencyRequest, action);
         } catch (ProblemException e) {
             write(request, response, e);
             return;

@@ -102,6 +102,10 @@ def rule(service, path, method, op, item_parameters=None):
         if method == 'get' or not (kinds & {'bearerJwt', 'mutualTls'}):
             raise SpecError('%s: Idempotency-Key допустим у изменяющих операций с токеном или клиентским сертификатом' % where)
         item['idempotent'] = True
+    if op.get('x-idempotency-external-steps') is not None:
+        if op.get('x-idempotency-external-steps') is not True or not item.get('idempotent'):
+            raise SpecError('%s: x-idempotency-external-steps допустим только как true у операции с Idempotency-Key' % where)
+        item['externalSteps'] = True
     if 'webhookSignature' in kinds:
         secret = op.get('x-webhook-secret')
         if not isinstance(secret, str) or not secret:

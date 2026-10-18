@@ -23,6 +23,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionOperations;
 
 /** Фильтр ключа идемпотентности: заголовок, область ключа, воспроизведение ответа, что не запоминается. */
@@ -33,6 +35,8 @@ class IdempotencyFilterTest {
             List.of(), true, null, null);
     private static final RouteRule READ = new RouteRule("GET", "/api/v1/orders", "listOrders", List.of("orders.read"), List.of("buyer"), false,
             List.of());
+    private static final RouteRule EXTERNAL = new RouteRule("POST", "/internal/v1/payment-sessions", "openPaymentSession", List.of(), List.of(), false,
+            List.of("order-service"), true, null, null, true);
     private static final RouteRule INTERNAL = new RouteRule("POST", "/internal/v1/otp/issue", "issueOtpCode", List.of(), List.of(), false,
             List.of("keycloak"), true, null, null);
 
@@ -87,6 +91,43 @@ class IdempotencyFilterTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
         filter.doFilter(request, response, chain());
         return response;
+    }
+
+    @Test
+    void aRouteWithExternalStepsRunsTheChainOutsideTheGuardTransactionAndAnOrdinaryRouteInsideIt() throws Exception {
+        boolean[] open = new boolean[1];
+        TransactionOperations marking = new TransactionOperations() {
+            @Override
+            public <T> T execute(TransactionCallback<T> action) {
+                open[0] = true;
+                try {
+                    return action.doInTransaction(new SimpleTransactionStatus());
+                } finally {
+                    open[0] = false;
+                }
+            }
+        };
+        ManualClock clock = new ManualClock(Instant.parse("2026-10-11T10:00:00Z"));
+        IdempotencyGuard guard = new IdempotencyGuard(store, marking,
+                new IdempotencyGuard.Settings(Duration.ZERO, Duration.ofMillis(10), Duration.ofSeconds(60)), clock);
+        filter = new IdempotencyFilter(rule -> guard, 1024);
+        List<Boolean> seen = new ArrayList<>();
+        FilterChain observing = (request, response) -> {
+            seen.add(open[0]);
+            HttpServletResponse http = (HttpServletResponse) response;
+            http.setStatus(201);
+            http.setContentType("application/json");
+            http.getWriter().write("{\"id\":\"42\"}");
+        };
+        for (RouteRule route : List.of(EXTERNAL, ORDER)) {
+            MockHttpServletRequest request = new MockHttpServletRequest(route.method(), route.path());
+            request.setAttribute(JwtFilter.ROUTE_ATTRIBUTE, route);
+            request.addHeader("Idempotency-Key", route == EXTERNAL ? REQUEST_UUID : "4f2b8c6e-1a4d-4e0b-9d7a-5c1e2f3a4b5c");
+            request.setAttribute(CallerFilter.CALLER_ATTRIBUTE, "order-service");
+            request.setContent("{}".getBytes(StandardCharsets.UTF_8));
+            filter.doFilter(request, new MockHttpServletResponse(), observing);
+        }
+        assertEquals(List.of(false, true), seen, "операция с внешними шагами идёт без транзакции охранника, обычная внутри неё");
     }
 
     @Test
