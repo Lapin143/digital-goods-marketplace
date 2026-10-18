@@ -206,6 +206,10 @@ sellers-check: ## Проверить заявку продавца сквозь 
 seller-approval-check: ## Проверить решения модератора и роль продавца сквозь стенд: отказ и пауза, доработка, одобрение, роль и TOTP в Keycloak, токен с seller_id, запрет кабинета без второго фактора, роль вручную не назначается, товар от заявки до витрины (К2: модерация, кэш, поиск), загрузка ключей и канарейка ST-01 (журналы, тема inventory.events, дамп базы) (набор full, DEBUG=1, make keycloak-users)
 	$(KC_ENV) python3 tools/stand-checks/seller_approval_checks.py
 
+.PHONY: ui-smoke
+ui-smoke: ## Дымовой сценарий интерфейса в браузере (К4): модератор входит с TOTP и решает заявку и товары щелчками, гость находит опубликованный товар (набор full, DEBUG=1, make keycloak-users, пакет playwright из tools/stand-checks/requirements-ui.txt и Chromium)
+	$(KC_ENV) python3 tools/stand-checks/ui_smoke.py
+
 .PHONY: gateway-check
 gateway-check: ## Проверить шлюз: маршруты, токены Keycloak, лимиты, отказ открытым (подняты dev-auth и dev-purchase с DEBUG=1, make keycloak-users)
 	$(KC_ENV) tools/stand-checks/gateway_checks.sh

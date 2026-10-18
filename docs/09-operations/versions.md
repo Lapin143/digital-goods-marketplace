@@ -101,6 +101,7 @@
 | `@stoplight/spectral-cli` 6.15.0 | Второй линтер контрактов OpenAPI (NFT-6.2), правила в `.spectral.yaml` | Переменная `SPECTRAL_CLI_VERSION` в `ci.yml`, установка `npm install -g` |
 | `actions/setup-node` 7.1.0 | Node 24 в задании `web` и в `web-lock.yml` (сборка, ESLint, tsc, Vitest интерфейса) | Хеш коммита `949feb2413d6458794dcd2491c4babbbce0c15c1` |
 | Пакеты интерфейса (`frontend/web-app`) | React 19, Vite 7, TypeScript 5.9, React Router 7, TanStack Query 5, `oidc-client-ts` 3, ESLint 9, Vitest 3 (ADR-026). Диапазоны в `package.json`, точные версии и контрольные суммы в `package-lock.json`; `npm ci` не меняет файл | Lock-файл в репозитории. В рабочей среде реестр npm закрыт, поэтому файл создаёт CI (`.github/workflows/web-lock.yml`, ветка `ci/web-lock`) |
+| `playwright` 1.56.0 (Python) | Дымовой сценарий интерфейса в настоящем браузере (К4, `tools/stand-checks/ui_smoke.py`). Chromium берётся из набора самого пакета (`python3 -m playwright install --with-deps chromium`), отдельной версии браузера нет | Файл `tools/stand-checks/requirements-ui.txt`, установка `pip install` в задании `e2e` |
 | `newman` 6.2.1 | API-тесты ST-02 и сквозные сценарии (`tools/api-tests`) | Переменная `NEWMAN_VERSION` в `ci.yml`, установка `npm install -g` |
 | Раннер `ubuntu-24.04` | Среда CI | Метка в workflow. Фактические параметры (4 ядра, 16 ГБ, Docker 28, Compose 2.38) проверены 4 октября 2026 года |
 

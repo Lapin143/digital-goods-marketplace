@@ -63,9 +63,10 @@ class Staff:
         return self.value
 
 
-def applicant(kc, admin, stamp, tag):
+def applicant(kc, admin, stamp, tag, form=None):
     """Покупатель с поданной заявкой: (покупатель, токен, идентификатор профиля) или None. Первое обращение к платформе создаёт её запись о покупателе
-    заранее: иначе событие одобрения пришло бы раньше записи и ждало сверки (платформа повторяет обработку 1, 5 и 25 секунд, потом DLQ)."""
+    заранее: иначе событие одобрения пришло бы раньше записи и ждало сверки (платформа повторяет обработку 1, 5 и 25 секунд, потом DLQ).
+    form: анкета вместо SC.FORM (дымовой сценарий интерфейса даёт заявке своё название, чтобы найти её в очереди)."""
     buyer = A.new_buyer(kc, admin, stamp, tag)
     if not buyer:
         return None
@@ -75,7 +76,7 @@ def applicant(kc, admin, stamp, tag):
     token = logged.tokens['access_token']
     known = A.post('/api/v1/phone-confirmations', token, {'phone': S.fresh_phone()})
     expect('%s: первый запрос к платформе создаёт её запись о покупателе: 201' % tag, known.status == 201, '%s %s' % (known.status, known.text[:160]))
-    created = SC.post_json(SC.BASE, token, SC.FORM)
+    created = SC.post_json(SC.BASE, token, form or SC.FORM)
     uploaded = SC.upload(token, 'справка.pdf', SC.pdf(4096))
     submitted = SC.post_json(SC.CURRENT + '/submit', token)
     ok = created.status == 201 and uploaded.status == 201 and submitted.status == 200 and submitted.json().get('status') == 'on_review'

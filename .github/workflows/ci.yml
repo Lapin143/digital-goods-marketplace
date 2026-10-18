@@ -547,6 +547,12 @@ jobs:
       - name: Проверка сборщика коллекции
         run: tools/ci/diag.sh "Сборщик API-тестов" python3 -m unittest discover -s tools/api-tests
 
+      # Браузер для дымового сценария интерфейса (шаг 19 Ф4, К4): пакет Playwright закреплён в tools/stand-checks/requirements-ui.txt, Chromium ставится вместе с системными библиотеками
+      - name: Playwright и Chromium
+        run: |
+          tools/ci/diag.sh "Пакет Playwright" python3 -m pip install --break-system-packages --user -r tools/stand-checks/requirements-ui.txt
+          tools/ci/diag.sh "Chromium для Playwright" python3 -m playwright install --with-deps chromium
+
       # Замеры памяти (К1 шага 9 Ф4): пик каждого контейнера набора full за всё время задания, в том числе платформенного сервиса под проверками учётных записей
       - name: Замеры памяти, начало
         run: python3 tools/stand-checks/memory.py start "$RUNNER_TEMP/mem.jsonl"
@@ -607,6 +613,15 @@ jobs:
           DIAG_TAIL: "60"
         run: tools/ci/diag.sh "Решения модератора" make seller-approval-check
 
+      # Дымовой сценарий интерфейса (шаг 19 Ф4, К4): настоящий браузер ходит по странице шлюза; модератор входит через Keycloak с TOTP и решает заявку и товары щелчками,
+      # гость находит опубликованный товар на витрине. Данные готовятся через API, итог каждого решения сверяется по API
+      - name: Дымовой сценарий интерфейса (вход модератора с TOTP, решения, витрина)
+        env:
+          DIAG_FILTER: 'ОШИБКА|Traceback|Error|страница:|текст:'
+          DIAG_MAX: "30"
+          DIAG_TAIL: "60"
+        run: tools/ci/diag.sh "Дымовой сценарий интерфейса" make ui-smoke
+
       # Итог замеров: пик каждого контейнера против лимита; красный шаг, если пик выше 90 % лимита (лимиты назначены по правилу 85 %)
       - name: Замеры памяти, итог
         if: always()
@@ -620,6 +635,15 @@ jobs:
             msg=$(docker compose --profile '*' logs --no-color --tail 600 "$s" 2>&1 | grep -E 'WARN|ERROR|Exception|Forbidden|не выполнил' | tail -n 14 | cut -c1-320 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
             echo "::warning title=журнал $s (предупреждения и ошибки)::$msg"
           done
+
+      - name: Снимки экрана дымового сценария в артефакте запуска
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ui-smoke-report
+          path: build/ui-smoke/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Отчёты Newman в артефакте запуска
         if: ${{ !cancelled() }}
