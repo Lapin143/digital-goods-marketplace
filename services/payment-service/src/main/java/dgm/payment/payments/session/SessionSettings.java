@@ -32,7 +32,8 @@ public record SessionSettings(Duration reservationTtl, Duration sessionTtl, Dura
         if (margin == null || margin.isNegative()) {
             throw new IllegalStateException("Запас " + MARGIN_KEY + " не может быть отрицательным");
         }
-        if (sessionTtl.plus(margin).compareTo(reservationTtl) > 0) {
+        // сессия строго короче резерва даже при нулевом запасе: равные сроки оставляют покупателю оплату в ту секунду, когда резерв снимается
+        if (sessionTtl.compareTo(reservationTtl) >= 0 || sessionTtl.plus(margin).compareTo(reservationTtl) > 0) {
             throw new IllegalStateException("INV-07: платёжная сессия (" + sessionTtl.toSeconds() + " с) должна быть короче резерва ("
                     + reservationTtl.toSeconds() + " с) не меньше чем на " + margin.toSeconds() + " с");
         }
