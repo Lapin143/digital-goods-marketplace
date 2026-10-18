@@ -78,7 +78,8 @@ class ConfirmationIT extends ReservationStandIT {
         Response replay = confirm(orders, orderId, pool.productId(), 2, firstKey);
         assertEquals(200, replay.status(), replay.body());
         assertEquals("true", replay.header("Idempotency-Replayed"));
-        assertEquals(first.body(), replay.body(), "охранник идемпотентности возвращает прежний ответ");
+        // хранилище ключей держит ответ в jsonb: порядок полей и пробелы другие, поэтому сравниваются документы, а не строки
+        assertEquals(first.json(), replay.json(), "охранник идемпотентности возвращает прежний ответ");
 
         Response another = confirm(orders, orderId, pool.productId(), 2, key());
         assertEquals(200, another.status(), another.body());
