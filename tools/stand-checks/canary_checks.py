@@ -99,6 +99,25 @@ def kafka_events():
     return r.stdout, (r.stderr or '')[-300:]
 
 
+def catalog_version(token, product_id):
+    """Версия товара в карточке продавца (совпадает с ETag и с полем version событий каталога)."""
+    response = G.call('GET', '%s/%s' % (SELLER_PRODUCTS, product_id), headers=SC.auth(token))
+    try:
+        return response.json().get('version') if response.status == 200 else None
+    except ValueError:
+        return None
+
+
+def copy_state(product_id):
+    """Статус и версия источника у копии товара в inventory_db: (status, source_version) или None, пока копии нет."""
+    r = sh(G.COMPOSE + ['exec', '-T', 'postgres', 'psql', '-U', 'postgres', '-d', 'inventory_db', '-tA', '-F', '|', '-c',
+                        "select status, source_version from inventory.product_copy where product_id = '%s'" % product_id], timeout=60)
+    parts = r.stdout.strip().split('|')
+    if r.returncode != 0 or len(parts) != 2 or not parts[1].isdigit():
+        return None
+    return parts[0], int(parts[1])
+
+
 def database_dump():
     r = sh(G.COMPOSE + ['exec', '-T', 'postgres', 'pg_dump', '-U', 'postgres', '-d', 'inventory_db', '--column-inserts', '--no-owner'], timeout=240)
     return r.stdout, (r.stderr or '')[-300:]
@@ -148,6 +167,17 @@ def run(seller_token, moderator, product_id):
     # Копия товара в inventory-service приходит из событий каталога и догоняет его не сразу: до первого события загрузка отвечает 404,
     # пока копия не вернулась из статуса «заблокирован» после повторной модерации (шаг 13) отвечает 409. Отказ ничего не сохраняет
     box = {}
+
+    # Копия догоняет каталог по очереди событий (товар прошёл модерацию, блокировку и повторную модерацию): до последнего события она
+    # может быть на промежуточной версии, в том числе «опубликован», и позже сменить статус. Поэтому сначала ждём версию и статус карточки
+    state = {}
+
+    def caught_up():
+        state['catalog'] = catalog_version(seller_token, product_id)
+        state['copy'] = copy_state(product_id)
+        return state['catalog'] is not None and state['copy'] == ('published', state['catalog'])
+    expect('TC-407. Версия и статус копии в inventory_db совпали с карточкой продавца (последнее событие каталога применено)',
+           A.eventually(caught_up, wait=90), 'карточка: версия %s, копия: %s' % (state.get('catalog'), state.get('copy')))
 
     def attempt():
         box['response'] = keep(upload_list(seller_token, product_id, [values[0], values[1], values[2], values[0], '  '],
