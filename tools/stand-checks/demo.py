@@ -6,6 +6,7 @@
     make -s token             только токен доступа на выводе (для curl); другой пользователь: make -s token WHO=seller-1
     make otp WHO=seller-1     текущий код второго фактора (TOTP) тестового пользователя для входа в браузере: у продавца, модератора,
                               оператора поддержки и администратора с номером 1 секрет в secrets/test_users.json (у пользователей с номером 2 его нет)
+    make otp KEY="ABCD EFGH …"  то же для продавца, которого завели через заявку: ключ тот, что Keycloak показывает под QR-кодом («Не удаётся отсканировать?»)
 
 Нужен поднятый набор с шлюзом и сервисами (make up SET=full DEBUG=1) и тестовые пользователи (make keycloak-users). Токен настоящий:
 вход идёт по коду авторизации с PKCE через Keycloak, как у браузера. Через шлюз ходят запросы по адресу https://localhost:8443, центр
@@ -99,7 +100,22 @@ def otp(name):
     return 0
 
 
+def otp_for_key(text):
+    """Код для продавца, которого завели через заявку: его секрет не в secrets/test_users.json, а в ключе под QR-кодом на странице настройки."""
+    try:
+        secret = K.secret_from_key(text)
+    except ValueError as e:
+        print('Ключ не разобран: %s' % e, file=sys.stderr)
+        return 1
+    step = 30
+    left = step - int(time.time()) % step
+    print('%s (действует ещё около %d с)' % (K.totp_code(secret, int(time.time() // step)), left))
+    return 0
+
+
 def main(argv):
+    if argv and argv[0] == 'otp' and len(argv) > 1 and argv[1] == '--key':
+        return otp_for_key(' '.join(argv[2:]))
     if argv and argv[0] == 'otp':
         return otp(argv[1] if len(argv) > 1 else 'seller-1')
     if argv and argv[0] == 'token':

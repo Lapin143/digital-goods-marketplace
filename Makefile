@@ -267,8 +267,8 @@ token: ## Напечатать токен доступа тестового по
 	@$(KC_ENV) python3 tools/stand-checks/demo.py token $(WHO)
 
 .PHONY: otp
-otp: ## Текущий код второго фактора (TOTP) тестового пользователя для входа в браузере: make otp WHO=seller-1 (секрет в secrets/test_users.json)
-	@python3 tools/stand-checks/demo.py otp $(WHO)
+otp: ## Текущий код второго фактора (TOTP) для входа в браузере: make otp WHO=seller-1 (секрет в secrets/test_users.json) или make otp KEY="ABCD EFGH …" (ключ со страницы настройки Keycloak, для продавца из заявки)
+	@if [ -n "$(KEY)" ]; then python3 tools/stand-checks/demo.py otp --key "$(KEY)"; else python3 tools/stand-checks/demo.py otp $(WHO); fi
 
 .PHONY: ide-check
 ide-check: ## Проверить рецепт запуска сервиса из IDE: order-service из Gradle при инфраструктуре в Compose (make up SET=dev-min DEBUG=1, make db-migrate S=order-service, JDK 25)

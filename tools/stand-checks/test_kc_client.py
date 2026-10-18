@@ -31,6 +31,22 @@ class OtpTest(unittest.TestCase):
                         (1234567890, '89005924'), (2000000000, '69279037'), (20000000000, '65353130')]:
             self.assertEqual(K.totp_code(RFC_KEY, t // 30, digits=8), code, t)
 
+    def test_secret_from_key_as_keycloak_shows_it(self):
+        # base32 от ключа RFC: так Keycloak показывает его под QR-кодом, группами по четыре символа
+        shown = 'GEZD GNBV GY3T QOJQ GEZD GNBV GY3T QOJQ'
+        self.assertEqual(K.secret_from_key(shown), RFC_KEY)
+        self.assertEqual(K.secret_from_key(shown.lower().replace(' ', '-')), RFC_KEY)
+        self.assertEqual(K.totp_code(K.secret_from_key(shown), 1), '287082')
+
+    def test_secret_from_key_without_padding_and_with(self):
+        self.assertEqual(K.secret_from_key('MZXW6==='), b'foo')
+        self.assertEqual(K.secret_from_key('MZXW6'), b'foo')
+
+    def test_secret_from_key_rejects_garbage(self):
+        for bad in ('', '   ', 'MZXW1', 'привет', 'AB!CD'):
+            with self.assertRaises(ValueError, msg=bad):
+                K.secret_from_key(bad)
+
     def test_wrong_secret_gives_other_code(self):
         self.assertNotEqual(K.totp_code(RFC_KEY, 1), K.totp_code(b'12345678901234567891', 1))
 

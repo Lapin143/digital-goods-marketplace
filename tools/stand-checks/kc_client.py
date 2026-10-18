@@ -149,6 +149,16 @@ def totp_code(secret, counter, digits=6):
     return str(num).zfill(digits)
 
 
+def secret_from_key(text):
+    """Байты секрета TOTP по ключу, который Keycloak показывает на странице настройки («Не удаётся отсканировать?»): base32, группы по четыре
+    символа через пробел, регистр и недостающее выравнивание не важны. Приложение-аутентификатор делает то же самое."""
+    key = re.sub(r'[\s-]', '', text).upper()
+    if not key or re.search(r'[^A-Z2-7=]', key):
+        raise ValueError('ключ состоит из букв A-Z и цифр 2-7 (base32), других символов в нём нет')
+    key = key.rstrip('=')
+    return base64.b32decode(key + '=' * (-len(key) % 8))
+
+
 class TotpClock:
     """Выдаёт код для следующего свободного шага: тот же код Keycloak во второй раз не принимает (codeReusable=false)."""
 
