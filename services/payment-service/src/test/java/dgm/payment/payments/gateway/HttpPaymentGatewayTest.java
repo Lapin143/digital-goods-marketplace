@@ -40,6 +40,7 @@ import org.junit.jupiter.api.Test;
  */
 @Tag("TC-501")
 @Tag("TC-508")
+@Tag("TC-522")
 class HttpPaymentGatewayTest {
 
     private static final String SECRET = "gateway-secret-key-0001";
@@ -312,5 +313,65 @@ class HttpPaymentGatewayTest {
 
         script.add(new Reply(200, "не JSON", 0));
         assertThrows(GatewayUnavailableException.class, () -> gateway(settings()).lookupStatus("pay_1"));
+    }
+    @Test
+    void theRefundIsRequestedForTheFullAmountWithTheRefundKeyOfThePayment() {
+        script.add(new Reply(201, "{\"refundId\":\"ref_1\",\"status\":\"completed\",\"paymentId\":\"pay_1\"}", 0));
+
+        GatewayRefund refund = gateway(settings()).createRefund(PAYMENT, "pay_1", 299800, "RUB");
+
+        assertEquals(new GatewayRefund("ref_1", true), refund);
+        Seen call = seen.get(0);
+        assertEquals("POST /payment/v1/payments/pay_1/refunds", call.method() + " " + call.path());
+        assertEquals("refund-" + PAYMENT, call.headers().get("idempotency-key"));
+        assertEquals("Bearer " + SECRET, call.headers().get("authorization"));
+        assertEquals(Map.of("amount", Map.of("amount", 299800, "currency", "RUB")), Json.parseObject(call.body()));
+    }
+
+    @Test
+    void aRefundTheGatewayOnlyAcceptedIsNotCompletedYet() {
+        script.add(new Reply(201, "{\"refundId\":\"ref_2\",\"status\":\"pending\"}", 0));
+
+        GatewayRefund refund = gateway(settings()).createRefund(PAYMENT, "pay_1", 299800, "RUB");
+
+        assertEquals(new GatewayRefund("ref_2", false), refund);
+    }
+
+    @Test
+    void aTemporaryFailureOfTheRefundIsRepeatedWithTheSameKeyAndAReplayIsAccepted() {
+        script.add(new Reply(503, "{}", 0));
+        script.add(new Reply(200, "{\"refundId\":\"ref_1\",\"status\":\"pending\"}", 0));
+
+        GatewayRefund refund = gateway(settings()).createRefund(PAYMENT, "pay_1", 299800, "RUB");
+
+        assertEquals("ref_1", refund.id());
+        assertEquals(2, seen.size());
+        assertEquals(seen.get(0).headers().get("idempotency-key"), seen.get(1).headers().get("idempotency-key"));
+    }
+
+    @Test
+    void aRefusedRefundIsNotRepeated() {
+        for (int status : new int[] {409, 422}) {
+            seen.clear();
+            script.add(new Reply(status, "{\"error\":{\"code\":\"refund_rejected\"}}", 0));
+            GatewayRejectedException e = assertThrows(GatewayRejectedException.class, () -> gateway(settings()).createRefund(PAYMENT, "pay_1", 299800, "RUB"));
+            assertEquals(status, e.status());
+            assertEquals(1, seen.size());
+            assertFalse(String.valueOf(e.getMessage()).contains(SECRET));
+        }
+    }
+
+    @Test
+    void threeFailedAttemptsMakeTheRefundUnavailableAndAnAnswerWithoutTheRefundIdIsTemporary() {
+        for (int i = 0; i < 3; i++) {
+            script.add(new Reply(503, "{}", 0));
+        }
+        assertThrows(GatewayUnavailableException.class, () -> gateway(settings()).createRefund(PAYMENT, "pay_1", 299800, "RUB"));
+        assertEquals(3, seen.size());
+
+        script.add(new Reply(201, "{\"status\":\"completed\"}", 0));
+        GatewayUnavailableException e = assertThrows(GatewayUnavailableException.class,
+                () -> gateway(settings()).createRefund(PAYMENT, "pay_1", 299800, "RUB"));
+        assertTrue(e.getMessage().contains("refundId"), e.getMessage());
     }
 }

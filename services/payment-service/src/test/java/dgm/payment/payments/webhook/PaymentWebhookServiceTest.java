@@ -10,12 +10,18 @@ import dgm.kit.problem.ProblemType;
 import dgm.kit.time.ManualClock;
 import dgm.payment.payments.FakePayments;
 import dgm.payment.payments.domain.Payment;
+import dgm.payment.payments.domain.RefundAttempt;
+import dgm.payment.payments.domain.RefundSchedule;
+import dgm.payment.payments.gateway.GatewayRefund;
 import dgm.payment.payments.gateway.GatewayStatus;
 import dgm.payment.payments.repository.PaymentEventRepository;
 import dgm.payment.payments.service.PaymentOutcomes;
+import dgm.payment.payments.service.RefundOutcomes;
 import dgm.payment.payments.webhook.PaymentWebhookService.Result;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.Random;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -33,14 +39,17 @@ class PaymentWebhookServiceTest {
     private FakePayments fake;
     private SimpleMeterRegistry meters;
     private PaymentWebhookService service;
+    private RefundOutcomes refundOutcomes;
+    private ManualClock clock;
 
     @BeforeEach
     void setUp() {
         fake = new FakePayments();
         meters = new SimpleMeterRegistry();
-        ManualClock clock = new ManualClock(NOW);
+        clock = new ManualClock(NOW);
         PaymentOutcomes outcomes = new PaymentOutcomes(fake.payments, fake.events, fake.transaction, clock, meters);
-        service = new PaymentWebhookService(fake.payments, fake.events, fake.unmatched, fake.gateway, outcomes, clock, meters);
+        refundOutcomes = new RefundOutcomes(fake.refunds, fake.events, fake.transaction, RefundSchedule.parse("0s,30s,2m,5m,10m", 0, new Random(1)), clock, meters);
+        service = new PaymentWebhookService(fake.payments, fake.events, fake.unmatched, fake.gateway, outcomes, refundOutcomes, clock, meters);
     }
 
     private Payment payment(String gatewayId) {
@@ -105,15 +114,15 @@ class PaymentWebhookServiceTest {
 
     @Tag("TC-504")
     @Test
-    void sessionExpiryRefundsAndUnknownTypesAreAcceptedAndIgnored() {
+    void sessionExpiryAndUnknownTypesAreAcceptedAndIgnored() {
         payment("pay_1");
-        for (String type : new String[] {"payment.session-expired", "refund.completed", "payment.something-new"}) {
+        for (String type : new String[] {"payment.session-expired", "payment.something-new"}) {
             assertEquals(Result.IGNORED, service.receive(notification(type, "pay_1", ORDER, AMOUNT, "RUB")), type);
         }
         assertEquals(Payment.CREATED, fake.payments.byOrder.get(ORDER).status());
         assertTrue(fake.events.rows.isEmpty());
         assertTrue(fake.gateway.statusCalls.isEmpty());
-        assertEquals(3, count("ignored"));
+        assertEquals(2, count("ignored"));
     }
 
     @Tag("TC-507")
@@ -276,5 +285,98 @@ class PaymentWebhookServiceTest {
         assertEquals(Result.DUPLICATE, service.receive(paid("pay_1")));
 
         assertEquals(1, fake.transaction.events.size(), "событие payment.confirmed записано один раз");
+    }
+    /** Платёж подтверждён, возврат запрошен и принят шлюзом в обработку: ждём {@code refund.completed}. */
+    private void refundInProcessing() {
+        fake.confirmedPayment(PAYMENT, ORDER, "pay_1", AMOUNT);
+        refundOutcomes.request(new RefundOutcomes.Request(ORDER, AMOUNT, "RUB", "late_payment"));
+        RefundAttempt attempt = fake.refunds.claimDue(NOW, Duration.ofMinutes(2), 10).get(0);
+        refundOutcomes.accepted(attempt, new GatewayRefund("ref_1", false));
+    }
+
+    private static GatewayNotification refundCompleted(String paymentId, UUID order, long amount, String currency, String refundId) {
+        return new GatewayNotification("evt_r1", "refund.completed", OCCURRED, paymentId, order, amount, currency, refundId, null);
+    }
+
+    @Tag("TC-523")
+    @Test
+    void aRefundCompletedNotificationRefundsThePaymentWithoutAskingTheGateway() {
+        refundInProcessing();
+
+        assertEquals(Result.APPLIED, service.receive(refundCompleted("pay_1", ORDER, AMOUNT, "RUB", "ref_1")));
+
+        assertEquals(Payment.REFUNDED, fake.refunds.payment(PAYMENT).status());
+        assertEquals(OCCURRED, fake.refunds.payment(PAYMENT).refundedAt());
+        assertEquals(1, fake.transaction.events.size());
+        assertEquals("payment.refunded", fake.transaction.events.get(0).type());
+        assertEquals(false, fake.transaction.events.get(0).data().get("manual"));
+        assertEquals(PaymentEventRepository.APPLIED, fake.events.row("pay_1", "refund.completed").outcome());
+        assertTrue(fake.gateway.statusCalls.isEmpty(), "возврат товар не отдаёт: запрос статуса не нужен");
+        assertEquals(1, count("applied"));
+    }
+
+    @Tag("TC-523")
+    @Test
+    void theSameRefundNotificationAgainIsADuplicateAndWritesNothing() {
+        refundInProcessing();
+        GatewayNotification n = refundCompleted("pay_1", ORDER, AMOUNT, "RUB", "ref_1");
+        service.receive(n);
+
+        assertEquals(Result.DUPLICATE, service.receive(n));
+
+        assertEquals(1, fake.transaction.events.size());
+        assertEquals(1, count("duplicate"));
+    }
+
+    @Tag("TC-523")
+    @Test
+    void aRefundNotificationAfterTheAdministratorMarkedTheRefundIsADuplicateNotAnAnomaly() {
+        refundInProcessing();
+        fake.transaction.execute(() -> refundOutcomes.markRefunded(fake.refunds.payment(PAYMENT), "manual-1", NOW, true));
+        int events = fake.transaction.events.size();
+
+        assertEquals(Result.DUPLICATE, service.receive(refundCompleted("pay_1", ORDER, AMOUNT, "RUB", "ref_1")));
+
+        assertEquals(events, fake.transaction.events.size());
+        assertEquals(0, meters.find("payment_anomalies_total").counters().size());
+    }
+
+    @Tag("TC-523")
+    @Test
+    void aRefundNotificationForAnUnknownPaymentIsAnAnomalyWithoutBindingTheForeignId() {
+        payment(null);
+
+        assertEquals(Result.ANOMALY, service.receive(refundCompleted("pay_9", ORDER, AMOUNT, "RUB", "ref_1")));
+
+        assertNull(fake.payments.byOrder.get(ORDER).gatewayPaymentId(), "чужой идентификатор по возврату к платежу не привязывается");
+        assertTrue(fake.unmatched.items.isEmpty());
+        assertEquals(1, meters.find("payment_anomalies_total").tag("reason", "refund-unknown-payment").counter().count());
+        assertEquals(1, count("anomaly"));
+    }
+
+    @Tag("TC-523")
+    @Test
+    void aRefundNotificationWithAnotherOrderOrAmountChangesNothing() {
+        refundInProcessing();
+        UUID other = UUID.fromString("0199e0a0-0000-7000-8000-000000000999");
+
+        assertEquals(Result.ANOMALY, service.receive(refundCompleted("pay_1", other, AMOUNT, "RUB", "ref_1")));
+        assertEquals(Result.AMOUNT_MISMATCH, service.receive(refundCompleted("pay_1", ORDER, AMOUNT - 100, "RUB", "ref_1")));
+        assertEquals(Result.AMOUNT_MISMATCH, service.receive(refundCompleted("pay_1", ORDER, AMOUNT, "USD", "ref_1")));
+
+        assertEquals(Payment.CONFIRMED, fake.refunds.payment(PAYMENT).status());
+        assertTrue(fake.transaction.events.isEmpty());
+    }
+
+    @Tag("TC-523")
+    @Test
+    void aRefundNotificationForARefundNobodyRequestedIsAnAnomalyAndTheStatusStays() {
+        fake.confirmedPayment(PAYMENT, ORDER, "pay_1", AMOUNT);
+
+        assertEquals(Result.ANOMALY, service.receive(refundCompleted("pay_1", ORDER, AMOUNT, "RUB", "ref_1")));
+
+        assertEquals(Payment.CONFIRMED, fake.refunds.payment(PAYMENT).status());
+        assertEquals(PaymentEventRepository.ANOMALY, fake.events.row("pay_1", "refund.completed").outcome());
+        assertTrue(fake.transaction.events.isEmpty());
     }
 }

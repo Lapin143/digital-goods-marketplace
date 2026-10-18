@@ -41,4 +41,18 @@ public interface PaymentGateway {
      * @throws GatewayRejectedException    шлюз не знает такого платежа или отклонил запрос
      */
     GatewayPaymentState lookupStatus(String gatewayPaymentId);
+
+    /**
+     * Создаёт возврат на полную сумму платежа. Ключ идемпотентности это {@code refund-} и идентификатор нашего платежа (ADR-015): повтор
+     * после потерянного ответа и повтор по расписанию возвращают тот же возврат, а не создают второй (INV-15). Вызывается с повторами
+     * клиента шлюза: у исполнителя возвратов времени больше, чем у вебхука.
+     *
+     * @param paymentId        платёж платформы, от него зависит ключ
+     * @param gatewayPaymentId внешний идентификатор платежа
+     * @param amount           сумма платежа в копейках: шлюз принимает только полную
+     * @param currency         валюта платежа
+     * @throws GatewayUnavailableException шлюз не ответил за общий срок
+     * @throws GatewayRejectedException    шлюз возврат не принимает (4xx)
+     */
+    GatewayRefund createRefund(UUID paymentId, String gatewayPaymentId, long amount, String currency);
 }

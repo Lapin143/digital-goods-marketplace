@@ -11,6 +11,7 @@ import dgm.kit.secret.SecretValue;
 import dgm.kit.time.Timestamps;
 import dgm.payment.payments.gateway.GatewayPayment;
 import dgm.payment.payments.gateway.GatewayPaymentState;
+import dgm.payment.payments.gateway.GatewayRefund;
 import dgm.payment.payments.gateway.GatewayRejectedException;
 import dgm.payment.payments.gateway.GatewayStatus;
 import dgm.payment.payments.gateway.GatewayUnavailableException;
@@ -33,6 +34,8 @@ import java.util.function.Supplier;
 public final class HttpPaymentGateway implements PaymentGateway {
 
     private static final String PAYMENTS = "/payment/v1/payments";
+    /** Ключ идемпотентности возврата: этот префикс и идентификатор платежа (ADR-015). */
+    static final String REFUND_KEY_PREFIX = "refund-";
 
     private final Supplier<PeerClient> peer;
     private final Supplier<PeerClient> singleAttempt;
@@ -84,6 +87,18 @@ public final class HttpPaymentGateway implements PaymentGateway {
     @Override
     public GatewayPaymentState lookupStatus(String gatewayPaymentId) {
         return state(send(peer, statusRequest(gatewayPaymentId)), gatewayPaymentId);
+    }
+
+    @Override
+    public GatewayRefund createRefund(UUID paymentId, String gatewayPaymentId, long amount, String currency) {
+        Map<String, Object> money = new LinkedHashMap<>();
+        money.put("amount", amount);
+        money.put("currency", currency);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("amount", money);
+        String path = PAYMENTS + "/" + URLEncoder.encode(gatewayPaymentId, StandardCharsets.UTF_8) + "/refunds";
+        Map<String, Object> view = parse(send(new PeerRequest("POST", path, Json.write(body), REFUND_KEY_PREFIX + paymentId, headers())));
+        return new GatewayRefund(text(view, "refundId"), "completed".equals(view.get("status")));
     }
 
     private PeerRequest statusRequest(String gatewayPaymentId) {

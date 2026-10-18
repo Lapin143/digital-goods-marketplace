@@ -1,16 +1,22 @@
 package dgm.payment.payments;
 
+import dgm.payment.payments.domain.ManualRefund;
 import dgm.payment.payments.domain.Payment;
+import dgm.payment.payments.domain.RefundAttempt;
+import dgm.payment.payments.domain.RefundPayment;
 import dgm.payment.payments.gateway.GatewayPayment;
 import dgm.payment.payments.gateway.GatewayPaymentState;
+import dgm.payment.payments.gateway.GatewayRefund;
 import dgm.payment.payments.gateway.GatewayRejectedException;
 import dgm.payment.payments.gateway.GatewayStatus;
 import dgm.payment.payments.gateway.GatewayUnavailableException;
 import dgm.payment.payments.gateway.PaymentGateway;
 import dgm.payment.payments.repository.PaymentEventRepository;
 import dgm.payment.payments.repository.PaymentRepository;
+import dgm.payment.payments.repository.RefundRepository;
 import dgm.payment.payments.repository.UnmatchedNotificationRepository;
 import dgm.payment.payments.service.PaymentTransaction;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -30,8 +36,15 @@ public final class FakePayments {
     public final Payments payments = new Payments();
     public final Events events = new Events();
     public final Unmatched unmatched = new Unmatched();
+    public final Refunds refunds = new Refunds();
     public final Tx transaction = new Tx();
     public final Gateway gateway = new Gateway();
+
+    /** Подтверждённый платёж виден и вебхуку (по внешнему идентификатору), и возвратам. */
+    public RefundPayment confirmedPayment(UUID paymentId, UUID orderId, String gatewayPaymentId, long amount) {
+        payments.putCreated(new Payment(paymentId, orderId, gatewayPaymentId, amount, "RUB", "https://x/pay", Instant.EPOCH, Payment.CONFIRMED), Instant.EPOCH);
+        return refunds.putConfirmed(paymentId, orderId, gatewayPaymentId, amount);
+    }
 
     /** Платежи в памяти. */
     public final class Payments implements PaymentRepository {
@@ -209,6 +222,176 @@ public final class FakePayments {
         }
     }
 
+    /**
+     * Возвраты в памяти. Правила те же, что у SQL: открытая попытка по платежу одна, номер попытки уникален, завершённая попытка не меняется,
+     * возвращённый платёж не остаётся в очереди администратора, внешний идентификатор возврата записывается один раз.
+     */
+    public final class Refunds implements RefundRepository {
+        public final Map<UUID, RefundPayment> byId = new LinkedHashMap<>();
+        public final Map<UUID, RefundAttempt> attempts = new LinkedHashMap<>();
+        public final Map<UUID, Instant> finishedAt = new LinkedHashMap<>();
+        /** Исключение, которое база бросает при смене статуса (например, нарушение уникальности внешнего идентификатора возврата). */
+        public RuntimeException failOnMark;
+
+        /** Подтверждённый платёж, по которому можно запросить возврат. */
+        public RefundPayment putConfirmed(UUID paymentId, UUID orderId, String gatewayPaymentId, long amount) {
+            RefundPayment payment = new RefundPayment(paymentId, orderId, gatewayPaymentId, amount, "RUB", Payment.CONFIRMED, null, null, false, null, null);
+            byId.put(paymentId, payment);
+            return payment;
+        }
+
+        public void put(RefundPayment payment) {
+            byId.put(payment.id(), payment);
+        }
+
+        public RefundPayment payment(UUID paymentId) {
+            return byId.get(paymentId);
+        }
+
+        /** Попытки платежа по номеру. */
+        public List<RefundAttempt> attemptsOf(UUID paymentId) {
+            return attempts.values().stream().filter(a -> a.paymentId().equals(paymentId)).sorted((a, b) -> Integer.compare(a.attemptNo(), b.attemptNo())).toList();
+        }
+
+        @Override
+        public Optional<RefundPayment> findById(UUID paymentId) {
+            return Optional.ofNullable(byId.get(paymentId));
+        }
+
+        @Override
+        public Optional<RefundPayment> lockByOrder(UUID orderId) {
+            return byId.values().stream().filter(p -> p.orderId().equals(orderId)).findFirst();
+        }
+
+        @Override
+        public Optional<RefundPayment> lockById(UUID paymentId) {
+            return findById(paymentId);
+        }
+
+        @Override
+        public boolean recordReason(UUID paymentId, String reason) {
+            RefundPayment p = byId.get(paymentId);
+            if (p == null || !p.refundable() || p.refundReason() != null) {
+                return false;
+            }
+            byId.put(paymentId, new RefundPayment(p.id(), p.orderId(), p.gatewayPaymentId(), p.amount(), p.currency(), p.status(), reason, p.gatewayRefundId(),
+                    p.inAdminQueue(), p.escalatedAt(), p.refundedAt()));
+            return true;
+        }
+
+        @Override
+        public boolean insertAttempt(RefundAttempt attempt, Instant at) {
+            boolean numberTaken = attempts.values().stream().anyMatch(a -> a.paymentId().equals(attempt.paymentId()) && a.attemptNo() == attempt.attemptNo());
+            boolean openTaken = attempt.open() && attempts.values().stream().anyMatch(a -> a.paymentId().equals(attempt.paymentId()) && a.open());
+            if (numberTaken || openTaken) {
+                return false;
+            }
+            attempts.put(attempt.id(), attempt);
+            return true;
+        }
+
+        @Override
+        public List<RefundAttempt> claimDue(Instant now, Duration lease, int limit) {
+            List<RefundAttempt> due = attempts.values().stream().filter(a -> a.open() && !a.nextAttemptAt().isAfter(now))
+                    .sorted((a, b) -> a.nextAttemptAt().compareTo(b.nextAttemptAt())).limit(limit).toList();
+            List<RefundAttempt> claimed = new ArrayList<>();
+            for (RefundAttempt a : due) {
+                RefundAttempt taken = new RefundAttempt(a.id(), a.paymentId(), a.attemptNo(), RefundAttempt.IN_PROGRESS, now.plus(lease), a.errorCode());
+                attempts.put(a.id(), taken);
+                claimed.add(taken);
+            }
+            return claimed;
+        }
+
+        @Override
+        public boolean finishAttempt(UUID attemptId, String status, String errorCode, Instant at) {
+            RefundAttempt a = attempts.get(attemptId);
+            if (a == null || !(a.open() || RefundAttempt.PROCESSING.equals(a.status()))) {
+                return false;
+            }
+            attempts.put(attemptId, new RefundAttempt(a.id(), a.paymentId(), a.attemptNo(), status, null, errorCode));
+            finishedAt.put(attemptId, at);
+            return true;
+        }
+
+        @Override
+        public int closeOpenAttempts(UUID paymentId, Instant at) {
+            int closed = 0;
+            for (RefundAttempt a : List.copyOf(attempts.values())) {
+                if (a.paymentId().equals(paymentId) && (a.open() || RefundAttempt.PROCESSING.equals(a.status()))) {
+                    finishAttempt(a.id(), RefundAttempt.SUCCEEDED, null, at);
+                    closed++;
+                }
+            }
+            return closed;
+        }
+
+        @Override
+        public boolean attachRefundId(UUID paymentId, String gatewayRefundId) {
+            RefundPayment p = byId.get(paymentId);
+            if (p == null || !p.refundable() || p.gatewayRefundId() != null) {
+                return false;
+            }
+            byId.put(paymentId, new RefundPayment(p.id(), p.orderId(), p.gatewayPaymentId(), p.amount(), p.currency(), p.status(), p.refundReason(), gatewayRefundId,
+                    p.inAdminQueue(), p.escalatedAt(), p.refundedAt()));
+            return true;
+        }
+
+        @Override
+        public Optional<RefundPayment> markRefunded(UUID paymentId, String gatewayRefundId, Instant at) {
+            if (failOnMark != null) {
+                throw failOnMark;
+            }
+            RefundPayment p = byId.get(paymentId);
+            if (p == null || !p.refundable()) {
+                return Optional.empty();
+            }
+            if (p.refundReason() == null) {
+                throw new IllegalStateException("ck_payment_refunded: у возвращённого платежа должна быть причина возврата");
+            }
+            RefundPayment changed = new RefundPayment(p.id(), p.orderId(), p.gatewayPaymentId(), p.amount(), p.currency(), Payment.REFUNDED, p.refundReason(),
+                    p.gatewayRefundId() != null ? p.gatewayRefundId() : gatewayRefundId, false, p.escalatedAt(), at);
+            byId.put(paymentId, changed);
+            return Optional.of(changed);
+        }
+
+        @Override
+        public boolean escalate(UUID paymentId, Instant at) {
+            RefundPayment p = byId.get(paymentId);
+            if (p == null || !p.refundable() || p.inAdminQueue()) {
+                return false;
+            }
+            byId.put(paymentId, new RefundPayment(p.id(), p.orderId(), p.gatewayPaymentId(), p.amount(), p.currency(), p.status(), p.refundReason(),
+                    p.gatewayRefundId(), true, at, p.refundedAt()));
+            return true;
+        }
+
+        @Override
+        public int attemptCount(UUID paymentId) {
+            return attemptsOf(paymentId).size();
+        }
+
+        @Override
+        public List<RefundPayment> awaitingConfirmation(Instant processingBefore, int limit) {
+            return byId.values().stream().filter(RefundPayment::refundable).filter(p -> attemptsOf(p.id()).stream()
+                    .anyMatch(a -> RefundAttempt.PROCESSING.equals(a.status()) && !finishedAt.get(a.id()).isAfter(processingBefore))).limit(limit).toList();
+        }
+
+        @Override
+        public List<ManualRefund> queue(Optional<QueueCursor> after, int limit) {
+            return byId.values().stream().filter(RefundPayment::inAdminQueue)
+                    .sorted((a, b) -> {
+                        int byTime = a.escalatedAt().compareTo(b.escalatedAt());
+                        return byTime != 0 ? byTime : a.id().compareTo(b.id());
+                    })
+                    .filter(p -> after.isEmpty() || p.escalatedAt().isAfter(after.get().escalatedAt())
+                            || (p.escalatedAt().equals(after.get().escalatedAt()) && p.id().compareTo(after.get().paymentId()) > 0))
+                    .limit(limit)
+                    .map(p -> new ManualRefund(p.id(), p.orderId(), p.amount(), p.currency(), p.refundReason(), attemptCount(p.id()), p.escalatedAt()))
+                    .toList();
+        }
+    }
+
     /** Транзакция без базы: признак «внутри транзакции» и список записанных событий. */
     public final class Tx implements PaymentTransaction {
         public boolean active;
@@ -326,6 +509,33 @@ public final class FakePayments {
         public GatewayPaymentState lookupStatus(String gatewayPaymentId) {
             retryingCalls++;
             return status(gatewayPaymentId);
+        }
+
+        /** Возвраты у шлюза: один на платёж (ключ идемпотентности), сбои включает тест. */
+        public final Map<UUID, GatewayRefund> refundsCreated = new LinkedHashMap<>();
+        public final List<UUID> refundCalls = new ArrayList<>();
+        /** Сколько следующих запросов возврата шлюз отклоняет (4xx). */
+        public int refundRejects;
+        /** Сколько следующих запросов возврата остаются без ответа. */
+        public int refundFailures;
+        /** Шлюз возвращает деньги сразу ({@code true}) или принимает возврат в обработку ({@code false}). */
+        public boolean refundInstant = true;
+
+        @Override
+        public GatewayRefund createRefund(UUID paymentId, String gatewayPaymentId, long amount, String currency) {
+            if (transaction.active) {
+                throw new AssertionError("Создание возврата у шлюза внутри транзакции базы (правило 9)");
+            }
+            refundCalls.add(paymentId);
+            if (refundRejects > 0) {
+                refundRejects--;
+                throw new GatewayRejectedException(422, "Платёжный шлюз отклонил запрос, код 422");
+            }
+            if (refundFailures > 0) {
+                refundFailures--;
+                throw new GatewayUnavailableException("Платёжный шлюз не ответил: timeout", null);
+            }
+            return refundsCreated.computeIfAbsent(paymentId, id -> new GatewayRefund("ref_" + (refundsCreated.size() + 1), refundInstant));
         }
 
         private GatewayPaymentState status(String gatewayPaymentId) {

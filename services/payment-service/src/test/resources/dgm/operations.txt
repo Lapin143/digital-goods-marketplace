@@ -6,7 +6,7 @@
 # Статус меняется в том же commit, где появляется обработчик. Тест RoutesTest сервиса сверяет реестр с OpenAPI и контроллерами,
 # а tools/docs-checks/check_ledger.py показывает, сколько операций среза ещё не готово.
 
-completeManualRefund               slice2
-listManualRefunds                  slice2
+completeManualRefund               done  
+listManualRefunds                  done  
 openPaymentSession                 done  
 receivePaymentGatewayNotification  done  

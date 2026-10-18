@@ -75,6 +75,14 @@ abstract class PaymentStandIT {
         registry.add("dgm.payment.reconcile.initial-delay", () -> "PT1H");
         registry.add("dgm.payment.reconcile.old-initial-delay", () -> "PT1H");
         registry.add("dgm.payment.reconcile.unmatched-initial-delay", () -> "PT1H");
+        // Автовозврат: паузы 0 и четыре по секунде (±20 %), исполнитель раз в секунду; сверку принятых шлюзом возвратов тест вызывает явно,
+        // возраст «в обработке» нулевой, чтобы явный проход брал возврат сразу
+        registry.add("payment.refund-schedule", () -> "0s,1s,1s,1s,1s");
+        registry.add("dgm.payment.refund.interval", () -> "PT1S");
+        registry.add("dgm.payment.refund.initial-delay", () -> "PT1S");
+        registry.add("dgm.payment.refund.processing-age", () -> "PT0S");
+        registry.add("dgm.payment.refund.reconcile-interval", () -> "PT1H");
+        registry.add("dgm.payment.refund.reconcile-initial-delay", () -> "PT1H");
     }
 
     @BeforeAll

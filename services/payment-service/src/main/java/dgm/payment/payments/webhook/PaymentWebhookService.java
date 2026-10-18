@@ -16,6 +16,8 @@ import dgm.payment.payments.repository.UnmatchedNotificationRepository.Unmatched
 import dgm.payment.payments.service.PaymentOutcomes;
 import dgm.payment.payments.service.PaymentOutcomes.Application;
 import dgm.payment.payments.service.PaymentOutcomes.Target;
+import dgm.payment.payments.service.RefundOutcomes;
+import dgm.payment.payments.service.RefundOutcomes.Confirmation;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.util.Map;
@@ -34,8 +36,10 @@ import org.slf4j.LoggerFactory;
  *       Шлюз не ответил: 503, шлюз повторит уведомление, а сверка подберёт платёж сама;</li>
  *   <li>6: {@link PaymentOutcomes}, одна транзакция: запись события, смена статуса SM-02, запись в Outbox.</li>
  * </ol>
- * Истечение сессии статус платежа не меняет (платёж остаётся «создан» на случай поздней оплаты, SM-01/T6). Возврат
- * ({@code refund.completed}) обрабатывает модуль возвратов. Незнакомый тип принимается и игнорируется.
+ * Истечение сессии статус платежа не меняет (платёж остаётся «создан» на случай поздней оплаты, SM-01/T6). Подтверждение возврата
+ * ({@code refund.completed}) идёт по той же цепочке без запроса статуса (возврат товар не отдаёт) и применяется общим кодом возвратов
+ * {@link RefundOutcomes}: платёж «возвращён», {@code payment.refunded} в Outbox; возврат, которого платформа не запрашивала, и повтор
+ * после отметки администратора аномалией и ошибкой не становятся. Незнакомый тип принимается и игнорируется.
  */
 public final class PaymentWebhookService {
 
@@ -69,16 +73,18 @@ public final class PaymentWebhookService {
     private final UnmatchedNotificationRepository unmatched;
     private final PaymentGateway gateway;
     private final PaymentOutcomes outcomes;
+    private final RefundOutcomes refunds;
     private final Clock clock;
     private final MeterRegistry meters;
 
     public PaymentWebhookService(PaymentRepository payments, PaymentEventRepository events, UnmatchedNotificationRepository unmatched,
-                                 PaymentGateway gateway, PaymentOutcomes outcomes, Clock clock, MeterRegistry meters) {
+                                 PaymentGateway gateway, PaymentOutcomes outcomes, RefundOutcomes refunds, Clock clock, MeterRegistry meters) {
         this.payments = payments;
         this.events = events;
         this.unmatched = unmatched;
         this.gateway = gateway;
         this.outcomes = outcomes;
+        this.refunds = refunds;
         this.clock = clock;
         this.meters = meters;
     }
@@ -94,6 +100,9 @@ public final class PaymentWebhookService {
 
     private Result process(GatewayNotification n) {
         GatewayNotification.Kind kind = n.kind();
+        if (kind == GatewayNotification.Kind.REFUND_COMPLETED) {
+            return refundCompleted(n);
+        }
         if (kind != GatewayNotification.Kind.PAID && kind != GatewayNotification.Kind.DECLINED) {
             return Result.IGNORED;
         }
@@ -124,6 +133,35 @@ public final class PaymentWebhookService {
         PaymentOutcomes.Result applied = outcomes.apply(new Application(n.paymentId(), n.type(), n.eventId(), target, payment.orderId(), n.occurredAt(),
                 n.failureReason()));
         return switch (applied) {
+            case APPLIED -> Result.APPLIED;
+            case DUPLICATE -> Result.DUPLICATE;
+            case ANOMALY -> Result.ANOMALY;
+        };
+    }
+
+    /**
+     * Подтверждение возврата: платёж ищется только по внешнему идентификатору (привязывать к платежу чужой идентификатор по возврату
+     * нельзя), сумма и валюта равны платёжным, повтор отсекается до транзакции, итог применяет общий код возвратов.
+     */
+    private Result refundCompleted(GatewayNotification n) {
+        Payment payment = payments.findByGatewayPaymentId(n.paymentId()).orElse(null);
+        if (payment == null) {
+            meters.counter("payment_anomalies_total", "reason", "refund-unknown-payment").increment();
+            LOG.warn("Уведомление {} о возврате неизвестного платежа: разбор вручную", n.eventId());
+            return Result.ANOMALY;
+        }
+        if (!n.orderId().equals(payment.orderId())) {
+            outcomes.recordUnapplied(payment, n.paymentId(), n.type(), n.eventId(), n.occurredAt(), PaymentEventRepository.ANOMALY, "gateway-id-mismatch");
+            return Result.ANOMALY;
+        }
+        if (n.amount() != payment.amount() || !n.currency().equals(payment.currency())) {
+            outcomes.recordUnapplied(payment, n.paymentId(), n.type(), n.eventId(), n.occurredAt(), PaymentEventRepository.AMOUNT_MISMATCH, "amount-mismatch");
+            return Result.AMOUNT_MISMATCH;
+        }
+        if (events.exists(n.paymentId(), n.type())) {
+            return Result.DUPLICATE;
+        }
+        return switch (refunds.confirmed(new Confirmation(n.paymentId(), n.type(), n.eventId(), payment.orderId(), n.refundId(), n.occurredAt()))) {
             case APPLIED -> Result.APPLIED;
             case DUPLICATE -> Result.DUPLICATE;
             case ANOMALY -> Result.ANOMALY;

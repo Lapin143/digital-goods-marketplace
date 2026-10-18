@@ -122,12 +122,26 @@ class PaymentWebhookIT extends PaymentWebhookStandIT {
     @Test
     void sessionExpiryAndUnknownTypesAreAcceptedAndChangeNothing() throws Exception {
         Opened p = opened();
-        for (String type : new String[] {"payment.session-expired", "refund.completed", "payment.something-new"}) {
+        for (String type : new String[] {"payment.session-expired", "payment.something-new"}) {
             Response response = send(notification(type, "evt_" + UUID.randomUUID(), p, AMOUNT, "RUB"));
             assertEquals(200, response.status(), type + ": " + response.body());
         }
         assertEquals("created", status(p.orderId()), "истечение сессии статус не меняет: на случай поздней оплаты (SM-01/T6)");
         assertEquals(0, eventsOf(p.gatewayId()).size());
+        assertEquals(0, outboxCount(p.orderId()));
+    }
+
+    @Tag("TC-504")
+    @Test
+    void aRefundNoticeForAPaymentThatWasNeverRefundedIsAnAnomalyAndChangesNothing() throws Exception {
+        Opened p = opened();
+        Response response = send(notification("refund.completed", "evt_" + UUID.randomUUID(), p, AMOUNT, "RUB"));
+
+        assertEquals(200, response.status(), response.body());
+        assertEquals("created", status(p.orderId()));
+        List<Map<String, Object>> events = eventsOf(p.gatewayId());
+        assertEquals(1, events.size());
+        assertEquals("anomaly", events.get(0).get("outcome"));
         assertEquals(0, outboxCount(p.orderId()));
     }
 
