@@ -231,6 +231,8 @@
 - Почему порядок событий об остатке нельзя доверять метке времени и как это решает версия.
 - Зачем перед сменой статуса платежа спрашивать шлюз, если вебхук уже подписан.
 
+**Результат (18 октября).** Решения среза 2 перенесены в контракты и схему. Р-133: `confirmReservation` в OpenAPI `inventory-service` работает по заказу (`POST /internal/v1/reservations/confirm`, поле `reReserved`, 409 только `insufficient-stock`), `routes.json` пересобран. Р-134: шаг 4а вебхука (запрос статуса у шлюза) описан в ADR-015, SEQ-01 и `time-budgets.md`, в таблице бюджетов теперь 10 звеньев, `check_budgets.py` ждёт именно их. Р-135: столбцы `inventory.product_copy.stock_version` и `catalog.stock_view.version`, события `stock.changed` несёт `version`, миграции пересобраны `gen_migrations.py`, `test_db.py` проверяет, что событие с меньшей версией не применяется; в ADR-012 добавлен раздел «Уточнение для среза 2». Р-136: `STUBS_PAYMENT_PUBLIC_URL` в заглушках и `compose.yaml`, тест заглушек проверяет `GET /payment/v1/payments/{id}`. Р-137: `support-event-handler` стал потребителем `order.paid` (AsyncAPI, `c4-components.md` 5.3, SM-07), каталог событий перегенерирован `check_asyncapi.py --write-catalog`. Р-143: файлы `TC-concurrency.md`, `TC-orders.md`, `TC-delivery.md` создаются вместе с первыми тест-кейсами (пустые заготовки `check_testcases.py` отклоняет). Проверки: `run_all.sh --db` без замечаний, `gen_routes.py --check` чист, счётчик примеров OpenAPI в README исправлен (949), самопроверка `tools/ci/selftest.sh docs` зелёная. Зелёный запуск CI на `ci/sandbox`: 39133486029 (коммит `d4d7c6d`): интерфейс 30 проверок, сценарии продавцов 34 и 83, учётных записей 52, входа по SMS 34, API-тесты 282 запроса и 373 проверки без падений. Пики памяти: `api-gateway` 273 из 352 МБ (78 %), `platform-service` 265 из 352 МБ (75 %).
+
 ---
 
 ## Шаг 3. `service-kit`: клиент вызова соседа, повторы, таймеры Redis, e-mail покупателя
@@ -241,7 +243,7 @@
 
 **3.2. Политика повторов (`dgm.kit.retry`).** Расписание «паузы в списке» с разбросом ±20 % (ADR-011), `Clock`, а не `Thread.sleep` в логике; расписание читается из строки `1s,3s,12s,30s,60s` и из минут для рабочего профиля.
 
-**3.3. Redis.** `KitRedis` получает `zadd`, `zrangeByScore(min, max, limit)`, `zrem`, `zcard` (Р-141).
+**3.3. Redis.** `KitRedis` получает `zadd`, `zrangeByScore(min, max, limit)`, `zrem`, `zcard` (Р-141). Это прямые команды множества, а не Lua: ACL пользователя `inventory` для ключей `reservation:*` разрешает `@read`, `@write` и `@scripting`, поэтому отдельный скрипт на каждую команду не нужен; остальные операции `KitRedis` остаются скриптами. Все четыре команды ограничены по времени и превращают сбой Redis в 503 `dependency-unavailable`, как и прежние.
 
 **3.4. Покупатель в токене.** `AuthenticatedUser` получает `email` и `phoneVerified` (из утверждений токена; их выдают протокольные мапперы Keycloak из Ф3), нужные для снимка заказа и проверки FT-5.1.
 
