@@ -64,7 +64,7 @@
 | Событие | Ключ записи | Компонент издателя | Что произошло | Потребители |
 | --- | --- | --- | --- | --- |
 | [`order.created`](examples/order.created.json) | `orderId` | `order-domain` | Заказ создан и ожидает оплаты. | `platform-service`: `notification-handler` |
-| [`order.paid`](examples/order.paid.json) | `orderId` | `order-domain` | Заказ оплачен. Персональные данные. | `delivery-service`: `delivery-domain`; `platform-service`: `notification-handler` |
+| [`order.paid`](examples/order.paid.json) | `orderId` | `order-domain` | Заказ оплачен. Персональные данные. | `delivery-service`: `delivery-domain`; `platform-service`: `notification-handler`, `support-event-handler` |
 | [`order.cancelled`](examples/order.cancelled.json) | `orderId` | `order-domain` | Заказ отменён. | `inventory-service`: `reservation-service` |
 | [`order.issued`](examples/order.issued.json) | `orderId` | `order-domain` | Заказ выдан. | `platform-service`: `support-event-handler`; `finance-service`: `balance-module` (R2) |
 | [`order.refunded`](examples/order.refunded.json) | `orderId` | `order-domain` | Заказ возвращён. | `platform-service`: `notification-handler`; `finance-service`: `balance-module` (R2) |
@@ -182,7 +182,7 @@
 | `config-listener` | `config.changed` | R1 | Обновить копию параметров в памяти | Естественная идемпотентность: последнее значение по `version` побеждает |
 | `seller-block-handler` | `seller.blocked` | R2 | Заблокировать товары продавца (внутри сервиса), записать `product.blocked` | Статус товара: повторная блокировка заблокированного ничего не меняет |
 | `seller-block-handler` | `seller.unblocked` | R2 | Вернуть товары в состояние до блокировки | Восстановление только для товаров с причиной блокировки «блокировка продавца» |
-| `stock-view-service` | `stock.changed` | R1 | Обновить число для витрины и карточки (NFT-1.0) | Запись по `productId`, применяется, только если метка времени события (`time` конверта) не меньше сохранённой в `stock_view.last_event_at`: событие после возврата из DLQ не откатывает остаток |
+| `stock-view-service` | `stock.changed` | R1 | Обновить число для витрины и карточки (NFT-1.0) | Запись по `productId`, применяется, только если `version` события больше сохранённой в `stock_view.version`: равная версия это повтор, меньшая это устаревшее событие (после возврата из DLQ остаток не откатывается). `last_event_at` обновляется для диагностики |
 
 #### `inventory-service`
 
@@ -258,6 +258,7 @@
 | `notification-handler` | `withdrawal.rejected` | R2 | Письмо продавцу «Заявка отклонена» с причиной | Уникальный индекс `(event_id, template)` в таблице уведомлений: письмо по одному событию уходит один раз |
 | `notification-handler` | `user.phone-changed` | R2 | Письмо об изменении номера на e-mail пользователя | Уникальный индекс `(event_id, template)` в таблице уведомлений: письмо по одному событию уходит один раз |
 | `seller-role-handler` | `seller.approved` | R1 | Назначить пользователю роль `seller` и записать `seller_id`, включить в Keycloak роль, атрибут `seller_id` и требование 2FA, записать `user.role-assigned` | Роль и seller_id уже записаны, повторная доставка ничего не пишет и повторяет идемпотентный вызов Keycloak. Обращение к Keycloak идёт после фиксации транзакции, недоставленное изменение догоняет сверка раз в минуту |
+| `support-event-handler` | `order.paid` | R1 | Создать строку модели чтения поддержки (`support.order_view`): заказ, короткий номер, покупатель, статус «оплачен». Без неё обращение системы по `delivery.failed` и `delivery.overdue` не получило бы покупателя (F3-21) | Первичный ключ `order_id` модели чтения, повтор события вставку не повторяет (`ON CONFLICT DO NOTHING`) |
 | `support-event-handler` | `order.issued` | R1 | Обновить модель чтения очереди поддержки: покупатель и время первичной выдачи | Время первичной выдачи записывается один раз (`issued_at is null`), повтор ничего не меняет |
 | `support-event-handler` | `delivery.accepted` | R1 | Обновить статус выдачи в модели чтения очереди | Запись по `deliveryId`, значение статуса применяется, если оно «дальше» по SM-06 |
 | `support-event-handler` | `delivery.delivered` | R1 | Закрыть открытое обращение по заказу (SM-07/T4), обновить статус выдачи | Переход только из `created` и `in_progress`, для закрытого обращения игнорируется |

@@ -134,7 +134,7 @@
 | Товар опубликован, отклонён, заблокирован | `product.published`, `product.rejected`, `product.blocked` | `product-service` | `notification-handler`, `product-registry` |
 | Остаток изменился | `stock.changed` | `reservation-service`, `key-pool-service` | `event-consumer` → `stock-view-service` (`catalog-service`) |
 | Резерв истёк, резерв снят | `reservation.expired`, `reservation.released` | `reservation-service` | `event-consumer` → `saga-orchestrator` (`order-service`, только `reservation.expired`) |
-| Заказ оплачен | `order.paid` | `order-domain` | `event-consumer` → `delivery-domain` (`delivery-service`), `notification-handler` |
+| Заказ оплачен | `order.paid` | `order-domain` | `event-consumer` → `delivery-domain` (`delivery-service`), `notification-handler`, `support-event-handler` |
 | Заказ создан, возвращён | `order.created`, `order.refunded` | `order-domain` | `notification-handler` |
 | Заказ выдан | `order.issued` | `order-domain` | `support-event-handler` (R2: `finance-service`) |
 | Заказ отменён | `order.cancelled` | `order-domain` | `event-consumer` → `reservation-service` (`inventory-service`) |

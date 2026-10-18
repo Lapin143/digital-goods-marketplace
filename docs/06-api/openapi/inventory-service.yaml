@@ -323,12 +323,12 @@ paths:
           $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
         '500':
           $ref: components.yaml#/components/responses/E500InternalError
-  /internal/v1/reservations/{reservationId}/confirm:
+  /internal/v1/reservations/confirm:
     post:
       operationId: confirmReservation
       summary: Подтвердить резерв после оплаты (внутренний)
       description: |-
-        Переводит резерв в `used`, ключи из `reserved` в `issued` (SM-08, SM-03/T2), ключи закреплены за заказом окончательно. Вызов синхронный, чтобы между «оплачен» и «ключи закреплены» не было окна, в котором резерв истечёт. Если резерв уже снят или истёк, ответ 409 и заказ идёт по пути поздней оплаты (SEQ-02): повторный резерв через `POST /internal/v1/reservations`.
+        Одна атомарная операция по заказу (ADR-013, SEQ-02, SM-08/T2). Резерв заказа `active`: переводится в `used`, ключи из `reserved` в `issued` (SM-03/T4), ключи закреплены за заказом окончательно. Резерв заказа уже снят (`released`, срок истёк или заказ отменён): при тех же `productId` и `quantity` в той же транзакции берутся свободные ключи `FOR UPDATE SKIP LOCKED`, создаётся новый резерв сразу в `used`, ответ с `reReserved = true` (поздняя оплата). Свободных ключей меньше заказанного: 409 `insufficient-stock` с `available`, ничего не создаётся и не меняется (INV-05), заказ идёт к возврату. Резерва этого заказа нет совсем (ни активного, ни снятого): 404. Повтор после успеха возвращает тот же резерв без изменений. Вызов синхронный, чтобы между «оплачен» и «ключи закреплены» не было окна, в котором резерв истечёт или ключи займёт другой заказ. Отдельной операции «зарезервировать заново» нет.
 
         Матрица прав: OP-54. Истории: US-5.5.
       tags:
@@ -348,17 +348,20 @@ paths:
       - url: https://inventory-service:8443
         description: Внутренний адрес сервиса, mTLS, не через шлюз
       parameters:
-      - name: reservationId
-        in: path
-        required: true
-        description: Идентификатор резерва
-        schema:
-          $ref: components.yaml#/components/schemas/Id
-        example: 0199e0a0-0000-7000-8000-000000000701
       - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReserveRequest'
+            example:
+              orderId: 0199e0a0-0000-7000-8000-000000000301
+              productId: 0199e0a0-0000-7000-8000-000000000201
+              quantity: 2
       responses:
         '200':
-          description: Резерв подтверждён
+          description: Резерв подтверждён (при поздней оплате создан заново, `reReserved = true`)
           headers:
             X-Correlation-Id:
               $ref: components.yaml#/components/headers/CorrelationId
@@ -377,6 +380,7 @@ paths:
                 quantity: 2
                 status: used
                 expiresAt: '2026-10-03T12:15:00.123Z'
+                reReserved: false
         '400':
           $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
         '403':
@@ -384,9 +388,11 @@ paths:
         '404':
           $ref: components.yaml#/components/responses/E404NotFound
         '409':
-          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressInsufficientStock
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
         '422':
-          $ref: components.yaml#/components/responses/E422IdempotencyKeyReuse
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
         '500':
           $ref: components.yaml#/components/responses/E500InternalError
   /internal/v1/keys:
@@ -603,6 +609,10 @@ components:
           - released
         expiresAt:
           $ref: components.yaml#/components/schemas/Timestamp
+        reReserved:
+          type: boolean
+          description: Только в ответе `confirmReservation`. `true`, если резерв был снят и при поздней оплате создан
+            заново сразу в статусе `used` (SEQ-02); `false`, если подтверждён прежний активный резерв
       required:
       - reservationId
       - orderId

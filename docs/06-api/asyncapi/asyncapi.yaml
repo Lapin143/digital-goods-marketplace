@@ -932,8 +932,9 @@ operations:
       idempotency:
         level2: processed_event
         key: (consumer = 'stock-view-service', event_id)
-        businessGuard: 'Запись по `productId`, применяется, только если метка времени события (`time` конверта) не меньше
-          сохранённой в `stock_view.last_event_at`: событие после возврата из DLQ не откатывает остаток'
+        businessGuard: 'Запись по `productId`, применяется, только если `version` события больше сохранённой в `stock_view.version`:
+          равная версия это повтор, меньшая это устаревшее событие (после возврата из DLQ остаток не откатывается). `last_event_at`
+          обновляется для диагностики'
       errorHandling:
         retries: блокирующие, паузы 1, 5, 25 секунд
         deadLetterTopic: inventory.events.dlq
@@ -1149,6 +1150,32 @@ operations:
       components:
       - order-domain
       outbox: true
+  receiveOrderPaidByPlatformServiceSupportEventHandler:
+    action: receive
+    channel:
+      $ref: '#/channels/orderEvents'
+    messages:
+    - $ref: '#/channels/orderEvents/messages/orderPaid'
+    summary: 'Создать модель чтения поддержки: заказ, его короткий номер и покупатель (обращение системы может появиться
+      раньше, чем заказ станет выданным)'
+    tags:
+    - name: R1
+    x-consumer:
+      service: platform-service
+      handler: support-event-handler
+      effect: 'Создать строку модели чтения поддержки (`support.order_view`): заказ, короткий номер, покупатель, статус «оплачен».
+        Без неё обращение системы по `delivery.failed` и `delivery.overdue` не получило бы покупателя (F3-21)'
+      release: R1
+      idempotency:
+        level2: processed_event
+        key: (consumer = 'support-event-handler', event_id)
+        businessGuard: Первичный ключ `order_id` модели чтения, повтор события вставку не повторяет (`ON CONFLICT DO NOTHING`)
+      errorHandling:
+        retries: блокирующие, паузы 1, 5, 25 секунд
+        deadLetterTopic: order.events.dlq
+        onPermanentFailure: В DLQ сразу, без повторов
+      consumerGroup: platform-service
+      offsetCommit: после фиксации транзакции базы
   receiveOrderIssuedByPlatformServiceSupportEventHandler:
     action: receive
     channel:
@@ -3374,7 +3401,7 @@ components:
       title: Остаток товара изменился
       summary: Остаток товара изменился
       description: 'Число свободных ключей товара изменилось: загрузка, резерв, снятие резерва, выдача. Передаётся
-        абсолютное значение, а не разница, поэтому повтор безопасен.'
+        абсолютное значение, а не разница, поэтому повтор безопасен. Порядок задаёт поле `version`.'
       contentType: application/json
       headers:
         type: object
@@ -6976,7 +7003,10 @@ components:
         version:
           type: integer
           minimum: 1
-          description: Номер версии остатка товара, растёт при каждом изменении
+          description: Версия остатка товара (`inventory.product_copy.stock_version`). Растёт на единицу в последнем операторе
+            каждой транзакции, меняющей пул товара (загрузка, резерв, подтверждение, снятие), поэтому порядок версий равен
+            порядку фиксации изменений, а не порядку меток времени. Потребитель применяет событие, только если версия
+            больше сохранённой (ADR-012, уточнение для среза 2)
     StockChangedEnvelope:
       allOf:
       - $ref: '#/components/schemas/EventEnvelope'

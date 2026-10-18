@@ -2,7 +2,7 @@
 
 | Поле | Содержание |
 | --- | --- |
-| Состояние | Шаг 11 Ф2. 68 операций в шести сервисах, 946 примеров запросов, ответов и ошибок проверен по схемам |
+| Состояние | Шаг 11 Ф2. 68 операций в шести сервисах, 949 примеров запросов, ответов и ошибок проверен по схемам |
 | Формат | OpenAPI 3.1, YAML, по одному файлу на сервис плюс общий файл компонентов [components.yaml](components.yaml) |
 | Принцип | Contract-first: контракт пишется до кода, сверяется с матрицей прав, историями и доменной моделью, дальше по нему строятся код и контрактные тесты (Ф3) |
 | Правила | [conventions.md](../../05-architecture/conventions.md) (деньги, время, ошибки, страницы, заголовки), [roles-permissions.md](../../05-architecture/roles-permissions.md) (роли, области, условия) |
@@ -107,7 +107,7 @@
 | US-2.4 | OP-13 | Письма «Заявка одобрена», «отклонена» и «возвращена на доработку» отправляет `notification-handler` по событиям `seller.approved`, `seller.rejected`, `seller.returned` из `catalog.events` |
 | US-3.7 | OP-27 | Письма продавцу о решении по товару отправляет `notification-handler` по событиям `product.published`, `product.rejected`, `product.blocked` |
 | US-5.4 | OP-53 | Неоплаченный заказ отменяет оркестратор саги по событию `reservation.expired` из `inventory.events` (переход T6 в SM-01), потерянные события догоняет сторож заказов раз в минуту |
-| US-5.6 | OP-55 | Позднюю оплату разбирает оркестратор по событию `payment.confirmed` и внутренним подтверждением резерва `POST /internal/v1/reservations/{reservationId}/confirm`: переход T7 или возврат при нехватке ключей (ADR-013) |
+| US-5.6 | OP-55 | Позднюю оплату разбирает оркестратор по событию `payment.confirmed` и внутренним подтверждением резерва `POST /internal/v1/reservations/confirm` (по заказу, с повторным резервом внутри одной операции): переход T7 или возврат при нехватке ключей (ADR-013) |
 | US-5.7 | OP-56 | Автовозврат начинает событие-команда `order.refund-requested`, `payment-service` создаёт возврат и повторяет его по расписанию, при исчерпании попыток публикует `payment.refund-escalated`, ручной возврат отмечает OP-57 |
 | US-6.1 | OP-60 | Выдачу запускает событие `order.paid`: `delivery-service` создаёт выдачу, берёт значения ключей внутренним вызовом `GET /internal/v1/keys` и отдаёт письмо провайдеру. Подтверждение принимает вебхук этой же строки (US-6.3) |
 | US-6.2 | OP-60 | Двойная выдача исключена состоянием ключа и привязкой к одному заказу (ADR-007): отдельной операции нет, защита работает внутри резерва, подтверждения и выдачи |
@@ -169,7 +169,7 @@
 | POST | `/api/v1/seller/products/{productId}/key-files` | `uploadKeyFile` | OP-37 | `seller.catalog` | `seller` | U3, U4 | US-4.3 |
 | GET | `/api/v1/seller/products/{productId}/stock` | `getProductStock` | OP-39 | `seller.catalog` | `seller` | U3 | US-4.5 |
 | POST | `/internal/v1/reservations` | `reserveKeys` | OP-51 | mTLS: `order-service` | `system` | - | US-5.2 |
-| POST | `/internal/v1/reservations/{reservationId}/confirm` | `confirmReservation` | OP-54 | mTLS: `order-service` | `system` | - | US-5.5 |
+| POST | `/internal/v1/reservations/confirm` | `confirmReservation` | OP-54 | mTLS: `order-service` | `system` | - | US-5.5 |
 | GET | `/internal/v1/keys` | `getKeyValues` | OP-38 | mTLS: `delivery-service` | `system` | U17 | US-4.4 |
 
 #### `order-service`, операций 5
