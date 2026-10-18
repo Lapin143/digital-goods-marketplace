@@ -69,17 +69,18 @@ class ConfirmationIT extends ReservationStandIT {
         Pool pool = pool(5);
         UUID orderId = UUID.randomUUID();
         assertEquals(201, reserve(orderId, pool.productId(), 2).status());
-        Response first = confirm(orders, orderId, pool.productId(), 2, "confirm-1");
+        String firstKey = key();
+        Response first = confirm(orders, orderId, pool.productId(), 2, firstKey);
         assertEquals(200, first.status(), first.body());
         long version = stockVersion(pool.productId());
         int outbox = stockEvents(pool.productId()).size();
 
-        Response replay = confirm(orders, orderId, pool.productId(), 2, "confirm-1");
+        Response replay = confirm(orders, orderId, pool.productId(), 2, firstKey);
         assertEquals(200, replay.status(), replay.body());
         assertEquals("true", replay.header("Idempotency-Replayed"));
         assertEquals(first.body(), replay.body(), "охранник идемпотентности возвращает прежний ответ");
 
-        Response another = confirm(orders, orderId, pool.productId(), 2, "confirm-2");
+        Response another = confirm(orders, orderId, pool.productId(), 2, key());
         assertEquals(200, another.status(), another.body());
         assertEquals(first.json().get("reservationId"), another.json().get("reservationId"));
         assertEquals("used", another.json().get("status"));
