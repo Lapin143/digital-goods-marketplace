@@ -65,4 +65,16 @@ class CurrentUserTest {
         AuthenticatedUser odd = new AuthenticatedUser("0199e0a0-0000-4000-8000-0000000000a1", Set.of(), Set.of("seller"), List.of("pwd"), true, "not-a-uuid");
         assertEquals(ProblemType.FORBIDDEN, assertThrows(ProblemException.class, () -> CurrentUser.sellerId(odd)).type());
     }
+
+    @Test
+    void emailComesFromTheTokenOrIsAValidationError() {
+        AuthenticatedUser withEmail = new AuthenticatedUser("0199e0a0-0000-4000-8000-0000000000a1", Set.of("orders.write"), Set.of("buyer"),
+                List.of("pwd"), true, null, "buyer@example.org");
+        assertEquals("buyer@example.org", CurrentUser.email(withEmail));
+        ProblemException none = assertThrows(ProblemException.class, () -> CurrentUser.email(user("0199e0a0-0000-4000-8000-0000000000a1")));
+        assertEquals(ProblemType.VALIDATION_FAILED, none.type());
+        AuthenticatedUser blank = new AuthenticatedUser("0199e0a0-0000-4000-8000-0000000000a1", Set.of(), Set.of("buyer"), List.of("pwd"), true,
+                null, "  ");
+        assertEquals(ProblemType.VALIDATION_FAILED, assertThrows(ProblemException.class, () -> CurrentUser.email(blank)).type());
+    }
 }

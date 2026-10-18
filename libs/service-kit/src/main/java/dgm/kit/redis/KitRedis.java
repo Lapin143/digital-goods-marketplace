@@ -3,6 +3,8 @@ package dgm.kit.redis;
 import dgm.kit.problem.ProblemException;
 import dgm.kit.tls.TlsMaterial;
 import io.lettuce.core.ClientOptions;
+import io.lettuce.core.Limit;
+import io.lettuce.core.Range;
 import io.lettuce.core.RedisException;
 import io.lettuce.core.RedisNoScriptException;
 import io.lettuce.core.RedisURI;
@@ -16,6 +18,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,7 +27,8 @@ import org.slf4j.LoggerFactory;
  * Клиент Redis для временного состояния: кэш, одноразовые коды, счётчики, таймеры (ADR-010, ADR-012, ADR-022).
  *
  * <p>Соединение по TLS с проверкой сертификата и имени узла и с клиентским сертификатом сервиса, вход под пользователем ACL, пароль из
- * секрета. Все операции идут скриптами Lua по SHA-1, поэтому ключи видны ACL, а составные действия (счётчик с окном) атомарны. Каждая
+ * секрета. Операции со значениями идут скриптами Lua по SHA-1, поэтому ключи видны ACL, а составные действия (счётчик с окном)
+ * атомарны; операции с отсортированными множествами (таймеры, ADR-012) это прямые команды, каждая атомарна сама по себе. Каждая
  * команда ограничена по времени; отказ, таймаут и недоступность превращаются в 503 {@code dependency-unavailable} с {@code Retry-After}:
  * для операций, которые без Redis небезопасны (отправка SMS без счётчиков), это и есть правило «Redis недоступен, действие запрещено».
  * Сервис, для которого Redis всего лишь кэш, ловит эту ошибку и работает без него.
@@ -106,6 +110,54 @@ public final class KitRedis implements AutoCloseable {
     /** Удаляет ключ. Возвращает {@code true}, если ключ был. */
     public boolean delete(String key) {
         return number(eval(DELETE, List.of(key), List.of())) > 0;
+    }
+
+    // ---- Отсортированные множества (таймеры резервов, ADR-012, Р-141) ----
+    // Прямые команды, а не скрипты: каждая атомарна сама по себе, а ACL проверяет ключ в самой команде. Оценка (score) это момент
+    // срабатывания в миллисекундах от эпохи; целое до 2^53 хранится в Redis без потери точности. У ключа множества срока жизни нет:
+    // его очищает исполнитель, а потерянные участники восстанавливает сверка по PostgreSQL.
+
+    /**
+     * Добавляет участника с оценкой или меняет оценку существующего.
+     *
+     * @return {@code true}, если участник новый
+     */
+    public boolean zadd(String key, long score, String member) {
+        return direct("zadd", c -> c.zadd(key, (double) score, member)) > 0;
+    }
+
+    /**
+     * Участники с оценкой от {@code minScore} до {@code maxScore} включительно, по возрастанию оценки, не больше {@code limit}.
+     * Участников не удаляет: исполнитель удаляет каждого отдельно через {@link #zrem} после того, как «выиграл» его обработку.
+     */
+    public List<String> zrangeByScore(String key, long minScore, long maxScore, int limit) {
+        if (limit < 1) {
+            throw new IllegalArgumentException("Предел выборки должен быть не меньше 1");
+        }
+        List<String> members = direct("zrangebyscore",
+                c -> c.zrangebyscore(key, Range.create(minScore, maxScore), Limit.create(0, limit)));
+        return members == null ? List.of() : List.copyOf(members);
+    }
+
+    /**
+     * Удаляет участника. Возвращает {@code true}, если он был: из нескольких экземпляров, одновременно взявших одного участника,
+     * обработку продолжает тот, кто получил {@code true}.
+     */
+    public boolean zrem(String key, String member) {
+        return direct("zrem", c -> c.zrem(key, member)) > 0;
+    }
+
+    /** Число участников. */
+    public long zcard(String key) {
+        return direct("zcard", c -> c.zcard(key));
+    }
+
+    private <T> T direct(String what, Function<RedisCommands<String, String>, T> operation) {
+        try {
+            return operation.apply(connection().sync());
+        } catch (RedisException e) {
+            throw unavailable("команда " + what, e);
+        }
     }
 
     /**

@@ -11,6 +11,9 @@
   4. Метрики Outbox, названные в ADR-005, есть в коде публикатора.
   5. Идемпотентность (шаг 3 Ф4): типы проблем из ADR-006 есть в реестре, заголовки ключа и подписи вебхука в коде совпадают с
      описанием в components.yaml, срок хранения ключей в коде равен сроку в ADR-006.
+  6. Вызов соседа (шаг 3 среза 2, Р-140): значения клиента по умолчанию (попытка, число попыток, паузы, окно и порог предохранителя)
+     равны таблице ADR-015; повторы идут по тем же кодам ответа, что в ADR-015; исключения и метрики клиента на месте; помощник аренды
+     использует SKIP LOCKED; множества Redis (Р-141) на месте.
 Запуск: python3 tools/docs-checks/check_kit.py
 """
 import glob
@@ -25,6 +28,7 @@ KIT = os.path.join(L.REPO, 'libs', 'service-kit', 'src', 'main', 'java', 'dgm', 
 CONVENTIONS = os.path.join(L.ARCH, 'conventions.md')
 ADR_005 = os.path.join(L.ARCH, 'adr', 'ADR-005-transactional-outbox.md')
 ADR_006 = os.path.join(L.ARCH, 'adr', 'ADR-006-idempotency.md')
+ADR_015 = os.path.join(L.ARCH, 'adr', 'ADR-015-payment-gateway-integration.md')
 COMPONENTS = os.path.join(L.DOCS, '06-api', 'openapi', 'components.yaml')
 DDL_DIR = os.path.join(L.DOCS, '07-data', 'ddl')
 
@@ -200,6 +204,63 @@ def idempotency(rep):
     rep.fact('идемпотентность: типов проблем в ADR-006 %d, заголовки и срок хранения сверены' % len(named))
 
 
+def peers(rep):
+    where = 'ADR-015 и клиент вызова соседа'
+    adr = L.read(ADR_015)
+    client = L.read(os.path.join(KIT, 'client', 'PeerClient.java'))
+    # 1. значения по умолчанию против таблицы ADR-015
+    m_attempt = re.search(r'Тайм-аут одной попытки \| (\d+) секунд', adr)
+    m_tries = re.search(r'Попыток \| До (\d+), паузы (\d+) мс и (\d+) мс', adr)
+    m_breaker = re.search(r'(\d+)% ошибок на последних (\d+) вызовах, пауза (\d+) с', adr)
+    if not (m_attempt and m_tries and m_breaker):
+        rep.err(where, 'в таблице ADR-015 не найдены тайм-аут, число попыток, паузы или предохранитель: сверка устарела')
+        return
+    attempt = int(m_attempt.group(1))
+    tries, p1, p2 = int(m_tries.group(1)), int(m_tries.group(2)), int(m_tries.group(3))
+    ratio, window, pause = int(m_breaker.group(1)), int(m_breaker.group(2)), int(m_breaker.group(3))
+    m = re.search(r'Duration attempt = Duration\.ofSeconds\((\d+)\)', client)
+    if not m or int(m.group(1)) != attempt:
+        rep.err(where, 'тайм-аут попытки по умолчанию в PeerClient.Settings.of (%s) не равен %d с из ADR-015' % (m.group(1) if m else 'не найден', attempt))
+    m = re.search(r'RetryPolicy\.parse\("([^"]+)"', client)
+    expected = '%dms,%dms' % (p1, p2)
+    if not m or m.group(1) != expected:
+        rep.err(where, 'паузы повторов по умолчанию в PeerClient (%s) не равны «%s» из ADR-015' % (m.group(1) if m else 'не найдены', expected))
+    elif len(m.group(1).split(',')) + 1 != tries:
+        rep.err(where, 'число попыток по умолчанию (%d) не равно %d из ADR-015' % (len(m.group(1).split(',')) + 1, tries))
+    m = re.search(r'new Settings\(peer, base, attempt, total, retry, (\d+), ([0-9.]+), Duration\.ofSeconds\((\d+)\)\)', client)
+    if not m:
+        rep.err(where, 'в PeerClient.Settings.of не найдены окно, порог и пауза предохранителя')
+    else:
+        if int(m.group(1)) != window:
+            rep.err(where, 'окно предохранителя по умолчанию (%s) не равно %d вызовам из ADR-015' % (m.group(1), window))
+        if round(float(m.group(2)) * 100) != ratio:
+            rep.err(where, 'порог предохранителя по умолчанию (%s) не равен %d %% из ADR-015' % (m.group(2), ratio))
+        if int(m.group(3)) != pause:
+            rep.err(where, 'пауза предохранителя по умолчанию (%s с) не равна %d с из ADR-015' % (m.group(3), pause))
+    # 2. что повторяется: сеть, 5xx и 429, не 4xx (ADR-015)
+    if 'Повторяются сетевые ошибки, 5xx и 429, не повторяются 4xx' not in adr:
+        rep.err(where, 'в ADR-015 не найдена фраза про то, что повторяется: сверка устарела')
+    if not re.search(r'status == 429 \|\| status >= 500', client):
+        rep.err(where, 'PeerClient повторяет не те ответы, что названы в ADR-015 (ожидается 429 и 5xx)')
+    # 3. типизированные ошибки и метрики из руководства среза 2 (3.1)
+    for name in ('DependencyUnavailableException', 'DependencyRejectedException', 'CircuitBreaker'):
+        if not os.path.exists(os.path.join(KIT, 'client', name + '.java')):
+            rep.err(where, 'в dgm.kit.client нет класса %s' % name)
+    for metric in ('dgm_client_requests_total', 'dgm_client_breaker_state'):
+        if '"%s"' % metric not in client:
+            rep.err(where, 'метрика %s не регистрируется в PeerClient' % metric)
+    # 4. аренда строк берёт работу с пропуском занятых (правило 15), множества Redis по Р-141
+    claim = L.read(os.path.join(KIT, 'jdbc', 'RowClaim.java'))
+    if claim.count('for update skip locked') < 2:
+        rep.err(where, 'RowClaim не использует for update skip locked в обоих запросах (аренда и блокировка): два экземпляра сервиса будут ждать друг друга')
+    redis = L.read(os.path.join(KIT, 'redis', 'KitRedis.java'))
+    for method in ('zadd', 'zrangeByScore', 'zrem', 'zcard'):
+        if not re.search(r'public \w+(?:<[^>]+>)? %s\(' % method, redis):
+            rep.err(where, 'в KitRedis нет метода %s (Р-141)' % method)
+    rep.fact('вызов соседа: попытка %d с, попыток %d, паузы %d и %d мс, предохранитель %d %% на %d вызовах, пауза %d с' %
+             (attempt, tries, p1, p2, ratio, window, pause))
+
+
 def main():
     rep = L.Report('Каркас сервисов против документов')
     problem_types(rep)
@@ -208,6 +269,7 @@ def main():
         sql_columns(rep, cols)
     metrics(rep)
     idempotency(rep)
+    peers(rep)
     return rep.finish()
 
 

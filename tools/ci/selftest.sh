@@ -167,6 +167,12 @@ PY
       "не задаёт обязательный столбец topic" tools/docs-checks/check_kit.py
     mutate_repo "check_kit находит столбец, которого нет в DDL" "$K/outbox/OutboxRelay.java" 'failed_at is null order by id' 'failed_on is null order by id' \
       "нет в DDL outbox: failed_on" tools/docs-checks/check_kit.py
+    mutate_repo "check_kit находит паузы повторов клиента не по ADR-015" "$K/client/PeerClient.java" 'RetryPolicy.parse("300ms,700ms"' 'RetryPolicy.parse("300ms,900ms"' \
+      "не равны «300ms,700ms» из ADR-015" tools/docs-checks/check_kit.py
+    mutate_repo "check_kit находит окно предохранителя не по ADR-015" "$K/client/PeerClient.java" 'retry, 10, 0.5, Duration.ofSeconds(30)' 'retry, 20, 0.5, Duration.ofSeconds(30)' \
+      "окно предохранителя по умолчанию (20)" tools/docs-checks/check_kit.py
+    mutate_repo "check_kit находит аренду строк без пропуска занятых" "$K/jdbc/RowClaim.java" ' limit ? for update skip locked";' ' limit ? for update";' \
+      "RowClaim не использует for update skip locked" tools/docs-checks/check_kit.py
     # 7. Правила маршрутов сервисов создаются из OpenAPI: ручная правка файла и правка прав в контракте без перегенерации ловятся.
     mutate_repo "gen_routes --check находит ручную правку правил маршрутов" "services/order-service/src/main/resources/dgm/routes.json" '"orders.read"' '"orders.write"' \
       "не равен результату gen_routes.py" tools/docs-checks/gen_routes.py --check

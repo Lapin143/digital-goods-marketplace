@@ -2,6 +2,7 @@ package dgm.kit.arch;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.fields;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 import static com.tngtech.archunit.library.GeneralCodingRules.NO_CLASSES_SHOULD_ACCESS_STANDARD_STREAMS;
@@ -10,6 +11,7 @@ import static com.tngtech.archunit.library.GeneralCodingRules.NO_CLASSES_SHOULD_
 import com.tngtech.archunit.core.domain.Dependency;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaConstructorCall;
+import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.junit.ArchTest;
@@ -102,6 +104,17 @@ public final class ServiceArchRules {
             .should().beAnnotatedWith(TRANSACTIONAL)
             .because("транзакция открывается только в доменном и сервисном слое"));
 
+    /**
+     * Вызов соседа или внешней системы не внутри транзакции базы (правило 9 руководства среза 2, правило L2 c4-components): медленный
+     * ответ держал бы соединение с базой. Правило смотрит на аннотацию {@code @Transactional} на методе или на классе; транзакцию
+     * через {@code TransactionOperations.execute(лямбда)} оно не видит, там вызов клиента внутри лямбды ловит ревьюер и тест на порядок
+     * вызовов.
+     */
+    @ArchTest
+    public static final ArchRule transactionalCodeDoesNotCallClients = lenient(methods().that(areTransactional())
+            .should(notCallClients())
+            .because("вызов соседа делается вне транзакции: ответ соседа не должен держать соединение с базой (правило L2)"));
+
     @ArchTest
     public static final ArchRule controllersDoNotUseRepositoriesOrClients = lenient(noClasses().that().haveSimpleNameEndingWith("Controller")
             .should().dependOnClassesThat().haveSimpleNameEndingWith("Repository")
@@ -154,6 +167,29 @@ public final class ServiceArchRules {
                     }
                 }
                 return false;
+            }
+        };
+    }
+
+    private static DescribedPredicate<JavaMethod> areTransactional() {
+        return new DescribedPredicate<>("are transactional (annotated with @Transactional on the method or on the class)") {
+            @Override
+            public boolean test(JavaMethod method) {
+                return method.isAnnotatedWith(TRANSACTIONAL) || method.getOwner().isAnnotatedWith(TRANSACTIONAL);
+            }
+        };
+    }
+
+    private static ArchCondition<JavaMethod> notCallClients() {
+        return new ArchCondition<>("not call methods of classes whose name ends with Client") {
+            @Override
+            public void check(JavaMethod method, ConditionEvents events) {
+                for (JavaMethodCall call : method.getMethodCallsFromSelf()) {
+                    JavaClass target = call.getTargetOwner();
+                    if (target.getSimpleName().endsWith("Client") && !target.equals(method.getOwner())) {
+                        events.add(SimpleConditionEvent.violated(call, call.getDescription()));
+                    }
+                }
             }
         };
     }

@@ -1,6 +1,7 @@
 package dgm.kit.security;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -95,5 +96,28 @@ class AccessRulesTest {
         assertEquals("0199e0a0-0000-7000-8000-000000000101",
                 AuthenticatedUser.from(base.claim("seller_id", "0199e0a0-0000-7000-8000-000000000101").build()).sellerId());
         assertNull(AuthenticatedUser.from(base.claim("seller_id", " ").build()).sellerId());
+    }
+
+    @Test
+    void emailClaimReachesTheUserAndBlankMeansNone() {
+        Jwt.Builder base = Jwt.withTokenValue("t").header("alg", "RS256").subject("u-1").claim("scope", "orders.read")
+                .claim("realm_access", Map.of("roles", List.of("buyer"))).claim("amr", List.of("pwd"))
+                .issuedAt(Instant.parse("2026-10-04T10:00:00Z")).expiresAt(Instant.parse("2026-10-04T10:05:00Z"));
+        assertEquals("buyer@example.org", AuthenticatedUser.from(base.claim("email", "buyer@example.org").build()).email());
+        assertNull(AuthenticatedUser.from(base.claim("email", " ").build()).email());
+    }
+
+    @Test
+    void absentEmailClaimGivesNoEmail() {
+        assertNull(user("buyer", List.of("pwd")).email());
+    }
+
+    @Test
+    void toStringDoesNotRevealTheEmail() {
+        Jwt jwt = Jwt.withTokenValue("t").header("alg", "RS256").subject("u-1").claim("email", "secret.buyer@example.org")
+                .issuedAt(Instant.parse("2026-10-04T10:00:00Z")).expiresAt(Instant.parse("2026-10-04T10:05:00Z")).build();
+        String text = AuthenticatedUser.from(jwt).toString();
+        assertFalse(text.contains("secret.buyer"), text);
+        assertTrue(text.contains("email=скрыт"), text);
     }
 }

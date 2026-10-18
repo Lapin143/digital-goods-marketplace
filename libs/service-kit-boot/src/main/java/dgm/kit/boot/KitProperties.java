@@ -28,7 +28,8 @@ public record KitProperties(
         @DefaultValue Idempotency idempotency,
         @DefaultValue Redis redis,
         @DefaultValue Keycloak keycloak,
-        @DefaultValue Storage storage) {
+        @DefaultValue Storage storage,
+        @DefaultValue Map<String, Peer> peers) {
 
     /** Проверка токена. */
     public record Security(@DefaultValue Jwt jwt) {
@@ -141,5 +142,23 @@ public record KitProperties(
     public record Storage(String endpoint, @DefaultValue("us-east-1") String region, @DefaultValue("seller-documents") String bucket,
                           @DefaultValue("catalog-service") String accessKey, @DefaultValue("storage_catalog") String secret,
                           @DefaultValue("https://localhost:8443/files") String publicBaseUrl, @DefaultValue("10s") Duration timeout) {
+    }
+
+    /**
+     * Сосед или внешняя система, которую сервис вызывает по HTTP (ADR-015, Р-140): {@code dgm.peers.<имя>.*}. Клиента по имени отдаёт
+     * {@code PeerClients}. Для адреса https используется клиентский сертификат сервиса (взаимная проверка), для http (тесты) TLS нет.
+     *
+     * @param baseUrl        базовый адрес без завершающей косой черты
+     * @param attemptTimeout предел одной попытки
+     * @param totalDeadline  предел всего вызова с повторами и паузами; пусто: число попыток × предел попытки + наибольшие паузы
+     * @param retry          паузы перед повторами через запятую (ms, s, m, h); пусто: без повторов
+     * @param jitter         разброс пауз, доля от 0 до 1 (0,2 это ±20 %)
+     * @param breakerWindow  окно предохранителя: число последних вызовов
+     * @param breakerRatio   доля неудач в заполненном окне, при которой предохранитель открывается
+     * @param breakerOpenFor пауза открытого предохранителя до пробной попытки
+     */
+    public record Peer(String baseUrl, @DefaultValue("2s") Duration attemptTimeout, Duration totalDeadline,
+                       @DefaultValue("300ms,700ms") String retry, @DefaultValue("0.2") double jitter, @DefaultValue("10") int breakerWindow,
+                       @DefaultValue("0.5") double breakerRatio, @DefaultValue("30s") Duration breakerOpenFor) {
     }
 }

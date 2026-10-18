@@ -6,3 +6,4 @@ dgm.kit.boot.KitProbeAutoConfiguration
 dgm.kit.boot.KitRedisAutoConfiguration
 dgm.kit.boot.KitKeycloakAutoConfiguration
 dgm.kit.boot.KitStorageAutoConfiguration
+dgm.kit.boot.KitPeerAutoConfiguration

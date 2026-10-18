@@ -15,7 +15,7 @@ runs="${1:-50}"
 shift || true
 tasks=("$@")
 if [ "${#tasks[@]}" -eq 0 ]; then
-  tasks=(:services:inventory-service:concurrencyTest)
+  tasks=(:libs:service-kit:concurrencyTest :services:inventory-service:concurrencyTest)
 fi
 min_tests="${CONCURRENCY_MIN_TESTS:-3}"
 report="${CONCURRENCY_REPORT:-build/concurrency-series.txt}"

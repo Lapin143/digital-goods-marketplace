@@ -106,4 +106,31 @@ class KitPropertiesTest {
         assertTrue(!p.consumer().enabled());
         assertEquals(0, p.probe().port());
     }
+
+    @Test
+    void peersAreEmptyByDefaultAndKeepTheirOwnSettings() {
+        assertTrue(bind(Map.of("dgm.service", "x")).peers().isEmpty());
+        KitProperties p = bind(Map.of(
+                "dgm.service", "order-service",
+                "dgm.peers.inventory-service.base-url", "https://inventory-service:8443",
+                "dgm.peers.payment-service.base-url", "https://payment-service:8443",
+                "dgm.peers.payment-service.attempt-timeout", "3s",
+                "dgm.peers.payment-service.total-deadline", "9s",
+                "dgm.peers.payment-service.retry", "100ms",
+                "dgm.peers.payment-service.breaker-window", "20"));
+        KitProperties.Peer inventory = p.peers().get("inventory-service");
+        assertEquals("https://inventory-service:8443", inventory.baseUrl());
+        assertEquals(Duration.ofSeconds(2), inventory.attemptTimeout());
+        assertNull(inventory.totalDeadline());
+        assertEquals("300ms,700ms", inventory.retry());
+        assertEquals(0.2, inventory.jitter(), 0);
+        assertEquals(10, inventory.breakerWindow());
+        assertEquals(0.5, inventory.breakerRatio(), 0);
+        assertEquals(Duration.ofSeconds(30), inventory.breakerOpenFor());
+        KitProperties.Peer payment = p.peers().get("payment-service");
+        assertEquals(Duration.ofSeconds(3), payment.attemptTimeout());
+        assertEquals(Duration.ofSeconds(9), payment.totalDeadline());
+        assertEquals("100ms", payment.retry());
+        assertEquals(20, payment.breakerWindow());
+    }
 }

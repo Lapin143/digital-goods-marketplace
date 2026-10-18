@@ -29,6 +29,17 @@ public final class CurrentUser {
     }
 
     /**
+     * Адрес электронной почты покупателя из claim {@code email} для снимка заказа и доставки ключей. Нет адреса (токен без области
+     * {@code email} или учётная запись без почты, например вход по SMS): 422, потому что без него заказ некуда доставить (FT-5.1).
+     */
+    public static String email(AuthenticatedUser user) {
+        if (user.email() == null) {
+            throw new ProblemException(ProblemType.VALIDATION_FAILED, "В учётной записи нет адреса электронной почты: добавьте его в профиле.");
+        }
+        return user.email();
+    }
+
+    /**
      * Идентификатор профиля продавца из claim {@code seller_id} (Р-18). Нет claim или он не UUID: 403, потому что роль продавца есть,
      * а профиля в токене нет, например токен выдан до одобрения заявки; продавцу нужно войти заново.
      */

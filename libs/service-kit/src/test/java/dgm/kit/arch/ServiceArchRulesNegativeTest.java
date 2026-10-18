@@ -15,12 +15,16 @@ import dgm.fixtures.JulLogger;
 import dgm.fixtures.MutableState;
 import dgm.fixtures.SecretReader;
 import dgm.fixtures.SessionUser;
+import dgm.fixtures.orders.client.PaymentClient;
 import dgm.fixtures.orders.client.TransactionalClient;
 import dgm.fixtures.orders.controller.OrderController;
 import dgm.fixtures.orders.domain.NetworkDomain;
 import dgm.fixtures.orders.repository.ClientCallingRepository;
+import dgm.fixtures.orders.service.ClassTransactionalCaller;
 import dgm.fixtures.orders.service.GoodService;
 import dgm.fixtures.orders.service.PeekingService;
+import dgm.fixtures.orders.service.PlainCaller;
+import dgm.fixtures.orders.service.TransactionalCaller;
 import dgm.fixtures.payments.api.PaymentApi;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
@@ -49,6 +53,7 @@ class ServiceArchRulesNegativeTest {
             Map.entry("eventHandlersDoNotBypassConsumer", new Object[] {BadHandler.class, "BadHandler"}),
             Map.entry("transactionsNotInControllersClientsOrchestrators", new Object[] {OrderController.class, "OrderController"}),
             Map.entry("transactionalMethodsNotInControllersClientsOrchestrators", new Object[] {TransactionalClient.class, "TransactionalClient"}),
+            Map.entry("transactionalCodeDoesNotCallClients", new Object[] {TransactionalCaller.class, "TransactionalCaller"}),
             Map.entry("controllersDoNotUseRepositoriesOrClients", new Object[] {OrderController.class, "OrderController"}),
             Map.entry("repositoriesDoNotCallClients", new Object[] {ClientCallingRepository.class, "ClientCallingRepository"}),
             Map.entry("domainMakesNoNetworkCalls", new Object[] {NetworkDomain.class, "NetworkDomain"}),
@@ -86,6 +91,18 @@ class ServiceArchRulesNegativeTest {
             }
         }
         assertEquals(declared, new TreeSet<>(CASES.keySet()), "у каждого правила должен быть пример нарушения");
+    }
+
+    @Test
+    void transactionRuleSeesAnnotationOnTheClassToo() throws ReflectiveOperationException {
+        ArchRule rule = rule("transactionalCodeDoesNotCallClients");
+        AssertionError error = assertThrows(AssertionError.class, () -> rule.check(classes(ClassTransactionalCaller.class, PaymentClient.class)));
+        assertTrue(error.getMessage().contains("ClassTransactionalCaller"), error.getMessage());
+    }
+
+    @Test
+    void clientCallOutsideTransactionPassesTheTransactionRule() throws ReflectiveOperationException {
+        rule("transactionalCodeDoesNotCallClients").check(classes(PlainCaller.class, PaymentClient.class));
     }
 
     @Test
