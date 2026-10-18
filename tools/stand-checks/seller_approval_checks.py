@@ -44,6 +44,8 @@ QUEUE = '/api/v1/staff/seller-applications'
 CABINET = '/api/v1/seller/products'
 STAFF_PRODUCTS = '/api/v1/staff/products'
 STOREFRONT = '/api/v1/products'
+# Обращения с таким номером нет: запрос проходит права покупателя и создаёт запись о нём, а лимит кодов с одного адреса (10 в час) не тратит.
+MISSING_TICKET = '/api/v1/support-tickets/0199e0a0-0000-7000-8000-00000000ffff'
 
 
 # --------------------------------------------------------------------------------------------------- вспомогательное
@@ -64,7 +66,7 @@ class Staff:
 
 
 def applicant(kc, admin, stamp, tag, form=None):
-    """Покупатель с поданной заявкой: (покупатель, токен, идентификатор профиля) или None. Первое обращение к платформе создаёт её запись о покупателе
+    """Покупатель с поданной заявкой: (покупатель, токен, идентификатор профиля) или None. Первое обращение к платформе (запрос несуществующего обращения, он не тратит лимит кодов с адреса) создаёт её запись о покупателе
     заранее: иначе событие одобрения пришло бы раньше записи и ждало сверки (платформа повторяет обработку 1, 5 и 25 секунд, потом DLQ).
     form: анкета вместо SC.FORM (дымовой сценарий интерфейса даёт заявке своё название, чтобы найти её в очереди)."""
     buyer = A.new_buyer(kc, admin, stamp, tag)
@@ -74,8 +76,8 @@ def applicant(kc, admin, stamp, tag, form=None):
     if not expect('%s: покупатель входит паролем' % tag, logged.ok, S.describe(logged)):
         return None
     token = logged.tokens['access_token']
-    known = A.post('/api/v1/phone-confirmations', token, {'phone': S.fresh_phone()})
-    expect('%s: первый запрос к платформе создаёт её запись о покупателе: 201' % tag, known.status == 201, '%s %s' % (known.status, known.text[:160]))
+    known = A.get(MISSING_TICKET, token)
+    expect('%s: первый запрос к платформе создаёт её запись о покупателе: 404 (обращения нет)' % tag, known.status == 404, '%s %s' % (known.status, known.text[:160]))
     created = SC.post_json(SC.BASE, token, form or SC.FORM)
     uploaded = SC.upload(token, 'справка.pdf', SC.pdf(4096))
     submitted = SC.post_json(SC.CURRENT + '/submit', token)
