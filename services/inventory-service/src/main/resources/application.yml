@@ -21,7 +21,24 @@ dgm:
         pool-size: 7
   kafka:
     bootstrap: ${DGM_KAFKA_BOOTSTRAP:kafka:9093}
+  # Redis (ADR-012, ADR-022): очередь сроков резервов reservation:expiry. Пользователь ACL inventory видит только ключи reservation:*,
+  # пароль лежит в секрете redis_inventory. Redis не источник истины: недоступный Redis не останавливает сервис и не мешает резервировать,
+  # просроченные резервы тогда снимает сверка по базе
+  redis:
+    host: ${DGM_REDIS_HOST:redis}
+    port: ${DGM_REDIS_PORT:6379}
+    user: inventory
   outbox:
     module: inventory
   consumer:
     module: inventory
+  reservation:
+    # Исполнители резервов (ADR-012): таймер раз в секунду берёт наступившие сроки из Redis, сверка раз в минуту ищет по базе резервы,
+    # просроченные больше чем на 30 секунд (таймер потерян)
+    timer-interval: PT1S
+    reconcile-interval: PT1M
+    reconcile-grace-seconds: 30
+
+# Срок резерва совпадает с параметром платформы reservation.ttl-seconds (Р-10); до слушателя config.changed (срез 3) значение здесь
+reservation:
+  ttl-seconds: 900

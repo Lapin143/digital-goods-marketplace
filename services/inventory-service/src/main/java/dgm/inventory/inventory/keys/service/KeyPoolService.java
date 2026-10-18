@@ -11,6 +11,7 @@ import dgm.inventory.inventory.keys.repository.KeyRepository;
 import dgm.inventory.inventory.registry.ProductCopy;
 import dgm.inventory.inventory.registry.ProductCopyRepository;
 import dgm.inventory.inventory.service.InventoryTransaction;
+import dgm.inventory.inventory.service.StockPublisher;
 import dgm.kit.id.Uuids;
 import dgm.kit.problem.ProblemException;
 import dgm.kit.problem.ProblemType;
@@ -33,7 +34,7 @@ import org.springframework.stereotype.Component;
  *       двумя параллельными запросами, а одно и то же значение принимается ровно один раз;
  *   <li>пул не больше {@value KeyBatch#POOL_LIMIT}: если все годные ключи загрузки не помещаются, загрузка отклоняется целиком (409);
  *   <li>каждое значение шифруется активным ключом данных, дубли находит уникальный индекс {@code (product_id, hmac)};
- *   <li>в той же транзакции пишется {@code stock.changed} с новым остатком.
+ *   <li>в той же транзакции растёт версия остатка и пишется {@code stock.changed} с новым остатком ({@link StockPublisher}).
  * </ul>
  *
  * <p>Значения ключей не попадают ни в журнал, ни в сообщения об ошибках, ни в события.
@@ -41,28 +42,24 @@ import org.springframework.stereotype.Component;
 @Component
 public final class KeyPoolService {
 
-    /** Тема, агрегат и версия схемы события остатка (контракт событий). */
-    static final String TOPIC = "inventory.events";
-    static final String AGGREGATE = "ProductStock";
-    static final String STOCK_CHANGED = "stock.changed";
-    static final int SCHEMA_VERSION = 1;
-
     private final ProductCopyRepository products;
     private final KeyRepository keys;
     private final DataKeys dataKeys;
     private final KeyCipher cipher;
     private final KeyHasher hasher;
     private final InventoryTransaction transaction;
+    private final StockPublisher stockEvents;
     private final Clock clock;
 
     public KeyPoolService(ProductCopyRepository products, KeyRepository keys, DataKeys dataKeys, KeyCipher cipher, KeyHasher hasher,
-                          InventoryTransaction transaction, Clock clock) {
+                          InventoryTransaction transaction, StockPublisher stockEvents, Clock clock) {
         this.products = products;
         this.keys = keys;
         this.dataKeys = dataKeys;
         this.cipher = cipher;
         this.hasher = hasher;
         this.transaction = transaction;
+        this.stockEvents = stockEvents;
         this.clock = clock;
     }
 
@@ -104,7 +101,7 @@ public final class KeyPoolService {
             }
             int available = keys.countByStatus(productId).getOrDefault("free", 0);
             if (accepted > 0) {
-                publishStock(productId, available);
+                stockEvents.publish(productId, available);
             }
             rejected.sort((a, b) -> Integer.compare(a.line(), b.line()));
             List<RejectedLine> shown = rejected.size() > UploadReport.MAX_REJECTED ? List.copyOf(rejected.subList(0, UploadReport.MAX_REJECTED))
@@ -119,19 +116,6 @@ public final class KeyPoolService {
         Map<String, Integer> counts = keys.countByStatus(productId);
         return new StockInfo(productId, counts.getOrDefault("free", 0), counts.getOrDefault("reserved", 0), counts.getOrDefault("issued", 0),
                 KeyBatch.POOL_LIMIT, clock.instant());
-    }
-
-    /**
-     * {@code stock.changed}: схема требует версию остатка, растущую при каждом изменении, а столбца для неё в базе нет. Версией служит
-     * момент изменения в миллисекундах: загрузки одного товара идут по очереди под блокировкой его строки, а потребитель упорядочивает
-     * события по метке времени конверта (Р-84).
-     */
-    private void publishStock(UUID productId, int available) {
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("productId", productId.toString());
-        data.put("available", available);
-        data.put("version", clock.millis());
-        transaction.publish(TOPIC, AGGREGATE, productId.toString(), STOCK_CHANGED, SCHEMA_VERSION, data);
     }
 
     private static int poolSize(Map<String, Integer> counts) {

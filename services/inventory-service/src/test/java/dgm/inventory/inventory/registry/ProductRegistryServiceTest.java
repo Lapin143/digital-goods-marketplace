@@ -47,6 +47,11 @@ class ProductRegistryServiceTest {
         }
 
         @Override
+        public long bumpStockVersion(UUID productId, Instant at) {
+            throw new UnsupportedOperationException("реестр товаров версию остатка не меняет");
+        }
+
+        @Override
         public boolean setStatus(UUID productId, String status, Instant at) {
             ProductCopy old = rows.get(productId);
             if (old == null) {

@@ -22,6 +22,15 @@ public record ProductCopy(UUID productId, UUID sellerId, String issuanceMethod, 
         return sellerId.equals(seller);
     }
 
+    /** Товар можно резервировать под заказ: выдача из пула ключей и статус «опубликован». */
+    public boolean keyPool() {
+        return "key_pool".equals(issuanceMethod);
+    }
+
+    public boolean published() {
+        return "published".equals(status);
+    }
+
     /** Загрузка ключей разрешена: выдача из пула и статус не блокирован и не в архиве. */
     public boolean acceptsKeys() {
         return "key_pool".equals(issuanceMethod) && UPLOAD_STATUSES.contains(status);

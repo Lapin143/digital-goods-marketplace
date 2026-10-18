@@ -4,6 +4,7 @@ import dgm.kit.boot.ModuleDatabases;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -50,6 +51,16 @@ public final class JdbcProductCopyRepository implements ProductCopyRepository {
     @Override
     public boolean setStatus(UUID productId, String status, Instant at) {
         return jdbc.update("update inventory.product_copy set status = ?, updated_at = ? where product_id = ?", status, time(at), productId) == 1;
+    }
+
+    @Override
+    public long bumpStockVersion(UUID productId, Instant at) {
+        List<Long> versions = jdbc.query("update inventory.product_copy set stock_version = stock_version + 1, updated_at = ? "
+                + "where product_id = ? returning stock_version", (rs, row) -> rs.getLong("stock_version"), time(at), productId);
+        if (versions.isEmpty()) {
+            throw new IllegalStateException("Копии товара нет: версию остатка увеличить не удалось");
+        }
+        return versions.get(0);
     }
 
     private static OffsetDateTime time(Instant at) {

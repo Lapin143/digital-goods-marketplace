@@ -49,7 +49,6 @@ SLICE2_EVENTS = (
 # События среза 2, которые код ещё не издаёт: событие -> шаг руководства среза 2, где издание появится. Пока событие здесь, проверка не ищет его строку в
 # коде издателя; издание появилось, запись надо убрать (проверка скажет). К шагу 22 словарь пуст.
 UNPUBLISHED_SLICE2 = {
-    'reservation.expired': 5, 'reservation.released': 5,
     'payment.confirmed': 8, 'payment.rejected': 8,
     'payment.refunded': 9, 'payment.refund-escalated': 9,
     'order.created': 10, 'order.cancelled': 10,
@@ -70,7 +69,6 @@ LATER_CONSUMERS = {
     'user.anonymized': {('order-service', 'order-domain'), ('delivery-service', 'delivery-domain')},  # заказы и выдачи появляются в срезе 2: шаги 11 и 13
     'audit.recorded': {('platform-service', 'audit-consumer')},  # потребитель журнала аудита, срез 3
     # срез 2
-    'order.cancelled': {('inventory-service', 'reservation-service')},  # снятие резерва по отмене, шаг 5
     'order.refund-requested': {('payment-service', 'refund-service')},  # возврат по событию, шаг 9
     'reservation.expired': {('order-service', 'saga-orchestrator')},  # сага заказа, шаг 11
     'payment.confirmed': {('order-service', 'saga-orchestrator')},

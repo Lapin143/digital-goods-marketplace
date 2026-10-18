@@ -12,4 +12,4 @@ uploadKeyFile       done
 
 confirmReservation  slice2
 getKeyValues        slice2
-reserveKeys         slice2
+reserveKeys         done

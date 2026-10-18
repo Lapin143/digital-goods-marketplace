@@ -29,6 +29,8 @@ public final class FakePool {
     static final class Products implements ProductCopyRepository {
         final Map<UUID, ProductCopy> rows = new HashMap<>();
         final List<UUID> locked = new ArrayList<>();
+        /** Версия остатка товара, как столбец {@code stock_version}: растёт на единицу при каждом изменении пула. */
+        final Map<UUID, Long> versions = new HashMap<>();
 
         @Override
         public Optional<ProductCopy> find(UUID productId) {
@@ -49,6 +51,11 @@ public final class FakePool {
             }
             rows.put(copy.productId(), copy);
             return true;
+        }
+
+        @Override
+        public long bumpStockVersion(UUID productId, Instant at) {
+            return versions.merge(productId, 1L, Long::sum);
         }
 
         @Override
@@ -75,6 +82,16 @@ public final class FakePool {
                 counts.merge("free", free, Integer::sum);
             }
             return counts;
+        }
+
+        @Override
+        public List<UUID> reserveFree(UUID productId, int quantity, UUID orderId, UUID reservationId) {
+            throw new UnsupportedOperationException("резерв проверяется в ReservationServiceTest");
+        }
+
+        @Override
+        public int releaseByReservation(UUID reservationId) {
+            throw new UnsupportedOperationException("резерв проверяется в ReservationServiceTest");
         }
 
         @Override
@@ -138,6 +155,11 @@ public final class FakePool {
             } finally {
                 inside = false;
             }
+        }
+
+        @Override
+        public void afterCommit(Runnable action) {
+            action.run();
         }
 
         @Override

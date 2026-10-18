@@ -16,6 +16,7 @@ import dgm.inventory.inventory.keys.repository.KeyRepository;
 import dgm.inventory.inventory.keys.service.DataKeys;
 import dgm.inventory.inventory.keys.service.KeyPoolService;
 import dgm.inventory.inventory.registry.ProductCopy;
+import dgm.inventory.inventory.service.StockPublisher;
 import dgm.kit.problem.ProblemException;
 import dgm.kit.problem.ProblemType;
 import dgm.kit.secret.SecretValue;
@@ -49,7 +50,8 @@ class KeyPoolServiceTest {
     void setUp() {
         pool = new FakePool();
         pool.products.rows.put(PRODUCT, new ProductCopy(PRODUCT, SELLER, "key_pool", "draft", 1));
-        service = new KeyPoolService(pool.products, pool.keys, new DataKeys(pool.dataKeys, cipher), cipher, hasher, pool.transaction, CLOCK);
+        service = new KeyPoolService(pool.products, pool.keys, new DataKeys(pool.dataKeys, cipher), cipher, hasher, pool.transaction,
+                new StockPublisher(pool.products, pool.transaction, CLOCK), CLOCK);
     }
 
     private static ProblemException refused(Runnable call) {
@@ -133,8 +135,8 @@ class KeyPoolServiceTest {
         assertEquals(PRODUCT.toString(), event.aggregateId());
         assertEquals(PRODUCT.toString(), event.data().get("productId"));
         assertEquals(2, event.data().get("available"));
-        assertEquals(CLOCK.millis(), event.data().get("version"));
-        assertEquals(Map.of("productId", PRODUCT.toString(), "available", 2, "version", CLOCK.millis()), event.data());
+        assertEquals(1L, event.data().get("version"), "версия остатка это счётчик, а не метка времени (Р-135)");
+        assertEquals(Map.of("productId", PRODUCT.toString(), "available", 2, "version", 1L), event.data());
     }
 
     @Tag("TC-406")

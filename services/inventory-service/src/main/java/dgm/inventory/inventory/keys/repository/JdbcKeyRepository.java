@@ -37,6 +37,20 @@ public final class JdbcKeyRepository implements KeyRepository {
     }
 
     @Override
+    public List<UUID> reserveFree(UUID productId, int quantity, UUID orderId, UUID reservationId) {
+        return jdbc.query("with picked as materialized (select id from inventory.key where product_id = ? and status = 'free' "
+                + "order by id limit ? for update skip locked) "
+                + "update inventory.key k set status = 'reserved', order_id = ?, reservation_id = ? from picked "
+                + "where k.id = picked.id returning k.id", (rs, row) -> rs.getObject("id", UUID.class), productId, quantity, orderId, reservationId);
+    }
+
+    @Override
+    public int releaseByReservation(UUID reservationId) {
+        return jdbc.update("update inventory.key set status = 'free', order_id = null, reservation_id = null "
+                + "where reservation_id = ? and status = 'reserved'", reservationId);
+    }
+
+    @Override
     public Set<String> insertNew(UUID productId, List<NewKey> keys) {
         Set<String> inserted = new HashSet<>();
         for (int from = 0; from < keys.size(); from += CHUNK) {

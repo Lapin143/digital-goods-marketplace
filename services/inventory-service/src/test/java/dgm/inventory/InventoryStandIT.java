@@ -40,5 +40,20 @@ abstract class InventoryStandIT {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         StandHttp.register(registry, PORT, MANAGEMENT);
+        // Redis набора infra с хоста: отладочный порт, пользователь ACL inventory (очередь сроков резерва)
+        registry.add("dgm.redis.host", () -> env("DGM_REDIS_HOST", "localhost"));
+        registry.add("dgm.redis.port", () -> env("DGM_REDIS_PORT", "16379"));
+        // Короткие сроки только для тестов: резерв живёт 6 секунд, таймер и сверка просыпаются часто. На стенде и сервере действуют значения
+        // из application.yml и параметров платформы (правило 14: сроки это настройки, а не числа в коде)
+        registry.add("reservation.ttl-seconds", () -> "6");
+        registry.add("dgm.reservation.timer-initial-delay", () -> "PT1S");
+        registry.add("dgm.reservation.reconcile-initial-delay", () -> "PT2S");
+        registry.add("dgm.reservation.reconcile-interval", () -> "PT2S");
+        registry.add("dgm.reservation.reconcile-grace-seconds", () -> "2");
+    }
+
+    private static String env(String name, String fallback) {
+        String value = System.getenv(name);
+        return value == null || value.isBlank() ? fallback : value;
     }
 }
