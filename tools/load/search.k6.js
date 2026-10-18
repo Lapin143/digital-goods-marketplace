@@ -5,13 +5,16 @@
 // берётся EXPLAIN ANALYZE запроса к триграммному индексу (docs/07-data/explain-report.md).
 import http from 'k6/http';
 import { check } from 'k6';
-import { Trend } from 'k6/metrics';
+import { Rate, Trend } from 'k6/metrics';
 
 const BASE_URL = __ENV.BASE_URL || 'https://localhost:8443';
 const RATE = Number(__ENV.RATE || 50);
 const STEADY = __ENV.STEADY || '2m';
 const searchDuration = new Trend('search_duration', true);
 const filterDuration = new Trend('filter_duration', true);
+// Доля ответов без единого товара: если засев и слова поиска разошлись, быстрые пустые ответы дали бы ложно хороший результат
+const emptySearch = new Rate('empty_search');
+const emptyFilter = new Rate('empty_filter');
 
 const WORDS = ['рубеж', 'лес', 'город', 'клинок', 'океан', 'архив', 'орден', 'маяк', 'каньон', 'проход',
   'сияющий', 'тёмный', 'забытый', 'северный', 'хрустальный', 'багровый', 'ледяной', 'золотой', 'тихий', 'дикий', 'steam', 'ключ', '0042', '31'];
@@ -64,4 +67,5 @@ export function mix() {
     'страница 200': (r) => r.status === 200,
     'в теле items': (r) => r.status === 200 && Array.isArray(r.json('items')),
   });
+  if (res.status === 200) (isSearch ? emptySearch : emptyFilter).add(res.json('items').length === 0);
 }

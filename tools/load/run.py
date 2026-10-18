@@ -22,8 +22,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
 
 SCENARIOS = (
-    ('storefront.k6.js', 'NFT-1.0 карточка товара', ('card_duration',), 300),
-    ('search.k6.js', 'NFT-1.1 поиск и фильтры', ('search_duration', 'filter_duration'), 500),
+    ('storefront.k6.js', 'NFT-1.0 карточка товара', ('card_duration',), 300, ()),
+    ('search.k6.js', 'NFT-1.1 поиск и фильтры', ('search_duration', 'filter_duration'), 500, (('empty_search', 'поиск'), ('empty_filter', 'фильтры'))),
 )
 
 
@@ -48,7 +48,7 @@ def main():
     env = dict(os.environ)
     env.setdefault('SSL_CERT_FILE', os.path.join(os.environ.get('DGM_SECRETS_DIR', os.path.join(REPO, 'secrets')), 'tls_ca.crt'))
     lines, missed, broken = [], [], []
-    for script, title, trends, limit in SCENARIOS:
+    for script, title, trends, limit, rates in SCENARIOS:
         print('== %s (%s, порог p95 < %d мс)' % (title, script, limit), flush=True)
         rc, summary = run_one(script, k6, env)
         if rc not in (0, 99):
@@ -68,6 +68,15 @@ def main():
             if p95 >= limit:
                 missed.append('%s %s p95 %.1f мс при пороге %d' % (title, trend, p95, limit))
         lines.append('%-26s запросов %d, скорость %.1f в секунду, доля ошибок %.4f' % (title, reqs.get('count', 0), reqs.get('rate', 0), failed.get('value', failed.get('rate', 0))))
+        for metric, label in rates:
+            r = values(summary.get(metric, {}))
+            if not r:
+                broken.append('%s: в отчёте k6 нет метрики %s' % (script, metric))
+                continue
+            share = r.get('value', r.get('rate', 0))
+            lines.append('%-26s доля пустых ответов (%s): %.4f' % (title, label, share))
+            if share > 0.5:
+                broken.append('%s: больше половины ответов (%s) пустые (%.2f), засев и условия запросов разошлись, результат ничего не доказывает' % (script, label, share))
         if rc == 99 and not any(title in m for m in missed):
             missed.append('%s: нарушен порог доли ошибок или проверок' % title)
     print()
