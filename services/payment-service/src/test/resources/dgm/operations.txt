@@ -8,5 +8,5 @@
 
 completeManualRefund               slice2
 listManualRefunds                  slice2
-openPaymentSession                 slice2
+openPaymentSession                 done  
 receivePaymentGatewayNotification  slice2

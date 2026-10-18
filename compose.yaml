@@ -470,6 +470,8 @@ services:
       <<: *service-env
       # Ускоренные сроки (профиль fast-time, time-budgets.md, раздел 5) включает только DGM_FAST_TIME=1: make fast-up и задание e2e, на сервер не попадает (Р-147, check_compose.py)
       SPRING_PROFILES_ACTIVE: ${DGM_FAST_TIME:+fast-time}
+      # Адрес возврата покупателя со страницы шлюза строится от публичного адреса платформы (Р-136)
+      DGM_PUBLIC_ORIGIN: ${DGM_PUBLIC_ORIGIN:-https://localhost:8443}
     tmpfs:
       - /tmp:uid=10001,gid=10001,mode=1777,size=48m
     secrets:

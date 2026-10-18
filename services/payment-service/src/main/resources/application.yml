@@ -25,3 +25,22 @@ dgm:
     module: payments
   consumer:
     module: payments
+  # Платёжный шлюз (ADR-015): в проекте его играет external-stubs. Попытка 2 секунды, до трёх попыток с паузами 300 и 700 мс, общий срок
+  # шага 7 секунд, предохранитель 50 % на 10 вызовах с паузой 30 секунд. Ключ шлюза лежит в секрете payment_gateway_key
+  peers:
+    payment-gateway:
+      base-url: ${DGM_PAYMENT_GATEWAY_URL:https://external-stubs:8443}
+      attempt-timeout: 2s
+      total-deadline: 7s
+      retry: 300ms,700ms
+  payment:
+    # Публичный адрес платформы: основа адреса возврата покупателя со страницы шлюза (Р-136)
+    public-origin: ${DGM_PUBLIC_ORIGIN:https://localhost:8443}
+
+# Сроки совпадают с параметрами платформы (Р-139); до слушателя config.changed (срез 3) значения здесь. Сессия короче резерва не меньше
+# чем на margin-seconds (INV-07), иначе сервис не стартует
+reservation:
+  ttl-seconds: 900
+payment-session:
+  ttl-seconds: 720
+  margin-seconds: 60

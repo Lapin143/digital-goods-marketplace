@@ -46,6 +46,8 @@ REQUIRED = {
                         ('approveProduct', 200), ('approveProduct', 409), ('rejectProduct', 200), ('rejectProduct', 422),
                         ('blockProduct', 200), ('blockProduct', 409)],
     'order-service': [('listOrders', 200), ('listOrders', 422)],
+    'payment-service': [('openPaymentSession', 201), ('openPaymentSession', 409), ('openPaymentSession', 422),
+                        ('openPaymentSession', 503)],
     'inventory-service': [('uploadKeyBatch', 200), ('uploadKeyBatch', 422), ('uploadKeyFile', 200), ('uploadKeyFile', 415),
                           ('getProductStock', 200), ('getProductStock', 404),
                           ('reserveKeys', 201), ('reserveKeys', 409), ('reserveKeys', 422),
