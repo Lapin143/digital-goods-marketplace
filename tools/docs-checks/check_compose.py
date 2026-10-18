@@ -19,7 +19,10 @@ infra/pki/inventory.json, Makefile):
   - защита контейнера: пользователь не root, cap_drop ALL, read_only, no-new-privileges, у контейнера есть проверка готовности
     (кроме разовых заданий), в окружении нет значений секретов;
   - тома: именованные только из c4-deployment.md (2.2) или отложенные с причиной, привязки только на чтение;
-  - зависимости: цель depends_on существует, у service_healthy есть healthcheck.
+  - зависимости: цель depends_on существует, у service_healthy есть healthcheck;
+  - ускоренные сроки (профиль fast-time, Р-147 среза 2): профиль включается только переменной DGM_FAST_TIME и только у сервисов покупки,
+    у которых есть application-fast-time.yml; на сервер он не попадает (набор server с этой переменной не поднимается, образец .env её не задаёт,
+    в CI её ставит одно задание e2e).
 Нужен PyYAML.
 """
 import json
@@ -41,6 +44,8 @@ MB = os.path.join(L.OPS_DIR, 'memory-budget.md')
 VER = os.path.join(L.OPS_DIR, 'versions.md')
 
 R1_PROFILES = ['infra', 'stubs', 'auth', 'gateway', 'purchase', 'sellers', 'platform', 'storage']
+FAST_TIME = r'\$\{DGM_FAST_TIME:\+,?fast-time\}'   # единственная допустимая запись профиля fast-time в окружении сервиса
+FAST_TIME_SERVICES = {'inventory-service', 'order-service', 'payment-service', 'delivery-service'}   # профиль включается ими (Р-147)
 ONE_SHOT = {'kafka-init', 'storage-init'}     # завершаются сами, проверки готовности нет
 # Образы без оболочки и wget (distroless): проверку готовности Docker задать нечем, готовность проверяет make obs-check по /ready
 NO_HEALTHCHECK = {'loki': 'образ distroless', 'tempo': 'образ distroless'}
@@ -313,6 +318,17 @@ def main():
             if SECRETISH.search(k) and not k.endswith('_FILE') and str(v) not in ('', 'false', 'true'):
                 rep.err(w, 'переменная окружения %s похожа на секрет, секреты передаются файлами (NFT-3.2)' % k)
 
+        # ускоренные сроки: профиль fast-time включает только DGM_FAST_TIME, и только сервисы покупки с файлом профиля
+        profiles_env = str(env.get('SPRING_PROFILES_ACTIVE', ''))
+        if 'fast-time' in re.sub(FAST_TIME, '', profiles_env):
+            rep.err(w, 'профиль fast-time записан в SPRING_PROFILES_ACTIVE напрямую («%s»): он включается только через ${DGM_FAST_TIME:+fast-time}, иначе попадёт на сервер' % profiles_env)
+        if alias in FAST_TIME_SERVICES and not re.search(FAST_TIME, profiles_env):
+            rep.err(w, 'нет ${DGM_FAST_TIME:+fast-time} в SPRING_PROFILES_ACTIVE: сервис с application-fast-time.yml обязан включать профиль переменной (Р-147)')
+        if alias in JAVA_SERVICES:
+            fast_file = os.path.join(L.REPO, 'services', alias, 'src', 'main', 'resources', 'application-fast-time.yml')
+            if re.search(FAST_TIME, profiles_env) and not os.path.exists(fast_file):
+                rep.err(w, 'профиль fast-time включается, а файла %s нет' % L.rel(fast_file))
+
         # порты
         for p in s.get('ports') or []:
             if str(p) not in ALLOWED_HOST_PORTS.get(alias, set()):
@@ -439,6 +455,30 @@ def main():
         for n in s.get('networks') or []:
             if n not in (dbg.get('networks') or {}) and n not in nets:
                 rep.err('compose.debug.yaml', '%s: сеть %s не объявлена' % (alias, n))
+
+    # --- ускоренные сроки (fast-time) не попадают на сервер: включает их только цель fast-up и одно задание CI (Р-147)
+    mk_text = L.read(MAKEFILE)
+    if not re.search(r'^fast-up:.*\n\tDGM_FAST_TIME=1 \$\(MAKE\) --no-print-directory up SET=full\s*$', mk_text, re.M):
+        rep.err('Makefile', 'цель fast-up должна поднимать набор full командой «DGM_FAST_TIME=1 $(MAKE) --no-print-directory up SET=full» (Р-147)')
+    if not re.search(r'DGM_FAST_TIME.*SET\)" = "server"', mk_text):
+        rep.err('Makefile', 'цель up должна отказывать, если DGM_FAST_TIME задана вместе с SET=server: на сервере сроки рабочие (Р-147)')
+    for n, line in enumerate(mk_text.split('\n'), 1):
+        if 'DGM_FAST_TIME' in line and not line.startswith(('\tDGM_FAST_TIME=1 $(MAKE)', '\t@if [ -n "$$DGM_FAST_TIME" ]')) and not line.startswith(('#', '\t@#')):
+            rep.err('Makefile', 'строка %d: DGM_FAST_TIME используется вне fast-up и защиты цели up (Р-147): %s' % (n, line.strip()))
+    env_example = os.path.join(L.REPO, '.env.example')
+    if os.path.exists(env_example):
+        for line in L.read(env_example).split('\n'):
+            if 'DGM_FAST_TIME' in line and not line.lstrip().startswith('#'):
+                rep.err('.env.example', 'образец настроек задаёт DGM_FAST_TIME: ускоренные сроки не должны попасть на сервер (Р-147)')
+    wf_dir = os.path.join(L.REPO, '.github', 'workflows')
+    for name in sorted(os.listdir(wf_dir)) if os.path.isdir(wf_dir) else []:
+        if not name.endswith(('.yml', '.yaml')):
+            continue
+        wf = load_yaml(os.path.join(wf_dir, name))
+        for job_name, job in ((wf or {}).get('jobs') or {}).items():
+            scopes = [job.get('env') or {}] + [(st.get('env') or {}) for st in job.get('steps') or []]
+            if any('DGM_FAST_TIME' in sc for sc in scopes) and (name, job_name) != ('ci.yml', 'e2e'):
+                rep.err('.github/workflows/%s' % name, 'задание %s задаёт DGM_FAST_TIME: ускоренные сроки включает только задание e2e в ci.yml (Р-147)' % job_name)
 
     # --- суммы по группам при полном составе
     by_group = {}

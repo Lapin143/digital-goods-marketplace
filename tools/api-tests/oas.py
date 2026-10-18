@@ -35,6 +35,9 @@ class Operation:
         self.public = path.startswith('/api/v1/') and 'guest' in self.roles
         # Вызовы между сервисами и вебхуки с подписью через шлюз без токена пользователя не проверяются
         self.reachable = path.startswith('/api/v1/') and 'x-webhook-secret' not in spec and 'x-internal' not in spec
+        # Вебхук с подписью: секрет источника (имя файла в secrets/). В матрицу прав он не входит (роль «система»), а в сценарии входит с подписью
+        self.webhook_secret = spec.get('x-webhook-secret')
+        self.scenario_reachable = path.startswith('/api/v1/') and 'x-internal' not in spec
 
     @property
     def json_body(self):
@@ -58,7 +61,7 @@ def load():
 
 
 def ledger(service):
-    """Статусы операций сервиса из его реестра: идентификатор -> done, slice1 или later. Пустой словарь, если реестра нет."""
+    """Статусы операций сервиса из его реестра: идентификатор -> done, slice1, slice2 или later. Пустой словарь, если реестра нет."""
     path = os.path.join(REPO, 'services', service, 'src', 'test', 'resources', 'dgm', 'operations.txt')
     result = {}
     if not os.path.exists(path):

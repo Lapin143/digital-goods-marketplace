@@ -15,6 +15,7 @@ Newman ставится отдельно (npm install -g newman@<версия и
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -55,6 +56,32 @@ def tokens_for(roles):
         if not token:
             return None, 'не удалось войти тестовым пользователем %s (роль %s)' % (user, role)
         values['token_' + role] = token
+    return values, None
+
+
+SECRET_VARIABLE = re.compile(r'pm\.environment\.get\("secret_([a-z0-9_]+)"\)')
+
+
+def required_secrets(collection):
+    """Имена секретов подписи вебхуков, которые читают скрипты коллекции (secret_<имя> в окружении Newman)."""
+    names = set()
+    for folder in collection['item']:
+        for entry in folder['item']:
+            for event in entry.get('event', []):
+                names.update(SECRET_VARIABLE.findall('\n'.join(event['script']['exec'])))
+    return sorted(names)
+
+
+def secrets_for(collection, directory=None):
+    """Значения секретов для окружения Newman: ({secret_<имя>: значение}, ошибка). Секрет читается из secrets/<имя>, в коллекцию и в отчёт он не попадает."""
+    directory = directory or os.environ.get('DGM_SECRETS_DIR', 'secrets')
+    values = {}
+    for name in required_secrets(collection):
+        path = os.path.join(directory, name)
+        if not os.path.isfile(path):
+            return None, 'нет секрета %s (%s): make secrets' % (name, path)
+        with open(path, encoding='utf-8') as f:
+            values['secret_' + name] = f.read().strip()
     return values, None
 
 
@@ -122,6 +149,12 @@ def main(argv):
         print(error)
         notice('error', 'API-тесты', error + ' (набор full с DEBUG=1 и make keycloak-users выполнены?)')
         return 1
+    secrets, error = secrets_for(collection)
+    if error:
+        print(error)
+        notice('error', 'API-тесты', error)
+        return 1
+    values.update(secrets)
     values['baseUrl'] = args.base
     env_file = os.path.join(out, 'environment.json')
     report = os.path.join(out, 'report.json')

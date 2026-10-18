@@ -62,6 +62,17 @@ PY
     healthcheck:" "      - redis_gateway
       - db_keycloak
     healthcheck:" "секрет db_keycloak"
+    mutate "профиль fast-time записан в окружение сервиса напрямую" "      SPRING_PROFILES_ACTIVE: \${DGM_SPRING_PROFILES-testdata}\${DGM_FAST_TIME:+,fast-time}" "      SPRING_PROFILES_ACTIVE: \${DGM_SPRING_PROFILES-testdata},fast-time" "записан в SPRING_PROFILES_ACTIVE напрямую"
+    mutate "сервис с файлом fast-time не включает профиль переменной" "      SPRING_PROFILES_ACTIVE: \${DGM_FAST_TIME:+fast-time}
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=1777,size=48m
+    secrets:
+      - tls_ca.crt
+      - tls_delivery-service.key" "    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=1777,size=48m
+    secrets:
+      - tls_ca.crt
+      - tls_delivery-service.key" "нет \${DGM_FAST_TIME:+fast-time}"
     mutate "образ с плавающим тегом" "image: redis:8.10.2-alpine" "image: redis:latest" "без точной версии"
     mutate "порт хранилища объектов опубликован на хост" "    profiles: [storage]
     user: \"10001:10001\"" "    profiles: [storage]
@@ -191,6 +202,13 @@ PY
       "не читает это событие" tools/docs-checks/check_code_docs.py
     mutate_repo "check_code_docs находит сервис без права на тему" "infra/kafka/topics.sh" 'allow catalog-service --operation Read --operation Describe --topic inventory.events --topic platform.config' 'allow catalog-service --operation Read --operation Describe --topic platform.config' \
       "нет права READ на тему inventory.events" tools/docs-checks/check_code_docs.py
+    mutate_repo "check_code_docs находит событие среза 2, которого нет в каталоге" "tools/docs-checks/check_code_docs.py" "'order.created', 'order.paid', 'order.cancelled'" "'order.created', 'order.paidx', 'order.cancelled'" \
+      "событие order.paidx среза 2 не найдено в каталоге" tools/docs-checks/check_code_docs.py
+    # Реестры готовности: статус slice2 допустим, а --strict (закрытие среза) краснеет, пока в реестре есть операция среза 1 или 2.
+    mutate_repo "check_ledger --strict находит незакрытую операцию среза" "services/inventory-service/src/test/resources/dgm/operations.txt" 'getProductStock     done' 'getProductStock     slice2' \
+      "срез не закрыт, не готово" tools/docs-checks/check_ledger.py --strict
+    mutate_repo "check_ledger находит неизвестный статус" "services/inventory-service/src/test/resources/dgm/operations.txt" 'getProductStock     done' 'getProductStock     slice3' \
+      "неизвестный статус «slice3»" tools/docs-checks/check_ledger.py
     mutate_repo "check_testcases находит пропуск в нумерации вне резерва" "docs/08-testing/TC-performance.md" '| TC-064 – TC-069 |' '| TC-064 – TC-066 |' \
       "ожидался TC-067" tools/docs-checks/check_testcases.py
     mutate_repo "check_traceability находит клетку «Тест-кейс», не равную расчёту по тест-кейсам" "docs/08-testing/traceability.md" '| TC-070 | `tools/stand-checks` |' '| TC-071 | `tools/stand-checks` |' \

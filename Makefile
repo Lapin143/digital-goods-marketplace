@@ -85,10 +85,16 @@ WAIT_TIMEOUT     ?= 420
 .PHONY: up
 up: certs secrets ## Поднять набор профилей и дождаться готовности: make up SET=dev-min [DEBUG=1]
 	@test -n "$(PROFILES)" || { echo "Неизвестный набор SET=$(SET). Доступны: $(ALL_SETS)"; exit 2; }
+	@# Ускоренные сроки (fast-time) годятся для проверок, а не для сервера: набор server с DGM_FAST_TIME не поднимается (Р-147)
+	@if [ -n "$$DGM_FAST_TIME" ] && [ "$(SET)" = "server" ]; then echo "DGM_FAST_TIME нельзя сочетать с SET=server: на сервере сроки рабочие"; exit 2; fi
 	@# Образы сервисов Java собираются из jar (ADR-023), поэтому наборы с сервисами сначала собирают jar и образы
 	@case ",$(PROFILES)," in *,purchase,*|*,sellers,*|*,platform,*|*,gateway,*) $(MAKE) --no-print-directory images;; esac
 	COMPOSE_PROFILES=$(PROFILES) $(COMPOSE) up -d --build --remove-orphans
 	python3 tools/stand-checks/wait.py --profiles $(PROFILES) --timeout $(WAIT_TIMEOUT)
+
+.PHONY: fast-up
+fast-up: ## Поднять набор full с ускоренными сроками (профиль fast-time: резерв 30 секунд, сессия 24 секунды, контроль выдачи 3 минуты) для проверок покупки во времени; make fast-up [DEBUG=1]
+	DGM_FAST_TIME=1 $(MAKE) --no-print-directory up SET=full
 
 .PHONY: down
 down: ## Остановить и удалить контейнеры (тома сохраняются)

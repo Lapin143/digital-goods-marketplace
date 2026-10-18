@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Сверка «документы = код» для интерфейсов (шаг 20 Ф4, условие выхода 3 среза 1).
+"""Сверка «документы = код» для интерфейсов (шаг 20 Ф4, условие выхода 3 среза 1; расширена на срез 2 шагом 4 руководства среза 2).
 
 Контракты и каталог событий описывают, что система делает; исходный код сервисов это то, что она делает. Скрипт читает Java-исходники как текст
 (компилятор не нужен, поэтому проверка идёт в задании `docs` на каждый push) и сверяет их с документами:
 
   1. Операции. Для каждой операции из `routes.json` со статусом `done` в реестре `operations.txt` в контроллерах сервиса есть метод с тем же
      HTTP-методом и путём; у контроллера нет метода, которого нет в OpenAPI; у операции со статусом не `done` нет обработчика (иначе реестр устарел).
-  2. События. Каждое событие среза 1 из каталога событий записывается в код сервиса-издателя (строка с типом события есть в исходниках издателя),
+  2. События. Каждое событие срезов 1 и 2 из каталога событий записывается в код сервиса-издателя (строка с типом события есть в исходниках издателя),
      а у каждого его потребителя из каталога есть обработчик `EventHandler` с тем же именем, темой и типом события в `types()`.
   3. Обратная сторона. Каждый обработчик кода описан в каталоге как потребитель, каждое событие каталога, которое код издаёт, записано в каталоге.
   4. Темы Kafka. Тема из кода (издание, обработчик) есть в `infra/kafka/topics.sh`, у сервиса есть право WRITE на тему издания и READ на тему обработчика.
@@ -36,15 +36,56 @@ SLICE1_EVENTS = (
     'audit.recorded',
 )
 
-# Потребители событий среза 1, которых код получит позже: событие -> {(сервис, обработчик)}. Пока обработчика нет, пара стоит здесь; появился обработчик,
+# События среза 2 «Заказ, оплата, выдача» (руководство среза 2, Р-132): 18 событий, их издаёт владелец темы. `stock.changed` относится к срезу 1 и
+# здесь не повторяется. Потребителей этих событий в каталоге ровно 20.
+SLICE2_EVENTS = (
+    'order.created', 'order.paid', 'order.cancelled', 'order.issued', 'order.refunded', 'order.refund-requested',
+    'reservation.expired', 'reservation.released',
+    'payment.confirmed', 'payment.rejected', 'payment.refunded', 'payment.refund-escalated',
+    'delivery.accepted', 'delivery.delivered', 'delivery.failed', 'delivery.overdue',
+    'ticket.created', 'ticket.resolved',
+)
+
+# События среза 2, которые код ещё не издаёт: событие -> шаг руководства среза 2, где издание появится. Пока событие здесь, проверка не ищет его строку в
+# коде издателя; издание появилось, запись надо убрать (проверка скажет). К шагу 22 словарь пуст.
+UNPUBLISHED_SLICE2 = {
+    'reservation.expired': 5, 'reservation.released': 5,
+    'payment.confirmed': 8, 'payment.rejected': 8,
+    'payment.refunded': 9, 'payment.refund-escalated': 9,
+    'order.created': 10, 'order.cancelled': 10,
+    'order.paid': 11, 'order.issued': 11, 'order.refunded': 11, 'order.refund-requested': 11,
+    'delivery.accepted': 13, 'delivery.failed': 13,
+    'delivery.delivered': 14, 'delivery.overdue': 14,
+    'ticket.created': 15, 'ticket.resolved': 15,
+}
+
+# Потребители событий, которых код получит позже: событие -> {(сервис, обработчик)}. Пока обработчика нет, пара стоит здесь; появился обработчик,
 # запись надо убрать (проверка скажет). Так каталог (он описывает R1 целиком) и код среза расходятся только там, где это записано.
+# Пары среза 2 уходят на шагах 5, 9, 11, 13 и 15 руководства среза 2; к шагу 22 остаются только пары среза 3.
 LATER_CONSUMERS = {
     'product.published': {('platform-service', 'notification-handler')},  # письмо продавцу о решении по товару, FT-11.4, срез 3
     'product.rejected': {('platform-service', 'notification-handler')},
     'product.blocked': {('platform-service', 'notification-handler')},
     'user.deactivated': {('platform-service', 'notification-handler')},  # письмо о деактивации, FT-11.0, срез 3
-    'user.anonymized': {('order-service', 'order-domain'), ('delivery-service', 'delivery-domain')},  # заказы и выдачи появляются в срезе 2
+    'user.anonymized': {('order-service', 'order-domain'), ('delivery-service', 'delivery-domain')},  # заказы и выдачи появляются в срезе 2: шаги 11 и 13
     'audit.recorded': {('platform-service', 'audit-consumer')},  # потребитель журнала аудита, срез 3
+    # срез 2
+    'order.cancelled': {('inventory-service', 'reservation-service')},  # снятие резерва по отмене, шаг 5
+    'order.refund-requested': {('payment-service', 'refund-service')},  # возврат по событию, шаг 9
+    'reservation.expired': {('order-service', 'saga-orchestrator')},  # сага заказа, шаг 11
+    'payment.confirmed': {('order-service', 'saga-orchestrator')},
+    'payment.rejected': {('order-service', 'saga-orchestrator')},
+    'payment.refunded': {('order-service', 'saga-orchestrator')},
+    'delivery.accepted': {('order-service', 'saga-orchestrator'), ('platform-service', 'support-event-handler')},  # шаги 11 и 15
+    'order.paid': {('delivery-service', 'delivery-domain'), ('platform-service', 'notification-handler'),
+                   ('platform-service', 'support-event-handler')},  # приём оплаты, шаг 13; письма и обращения, шаг 15
+    'order.created': {('platform-service', 'notification-handler')},  # письма и обращения, шаг 15
+    'order.issued': {('platform-service', 'support-event-handler')},
+    'order.refunded': {('platform-service', 'notification-handler')},
+    'payment.refund-escalated': {('platform-service', 'notification-handler')},
+    'delivery.delivered': {('platform-service', 'support-event-handler')},
+    'delivery.failed': {('platform-service', 'notification-handler'), ('platform-service', 'support-event-handler')},
+    'delivery.overdue': {('platform-service', 'notification-handler'), ('platform-service', 'support-event-handler')},
 }
 
 EVENTS_README = os.path.join(L.DOCS, '06-api', 'events', 'README.md')
@@ -272,17 +313,27 @@ def check_events(rep):
     for e in SLICE1_EVENTS:
         if e not in catalog:
             rep.err(where, 'событие %s среза 1 не найдено в каталоге R1' % e)
+    for e in SLICE2_EVENTS:
+        if e not in catalog:
+            rep.err(where, 'событие %s среза 2 не найдено в каталоге R1' % e)
+    for e in sorted(set(UNPUBLISHED_SLICE2) - set(SLICE2_EVENTS)):
+        rep.err(where, 'событие %s записано в UNPUBLISHED_SLICE2, а в SLICE2_EVENTS его нет' % e)
     topics, rights = acl(rep)
     handlers = {s: event_handlers(s, rep) for s in LG.SERVICES}
     published = {s: published_events(s, set(catalog)) for s in LG.SERVICES}
-    stats = {'events': 0, 'consumers': 0, 'later': 0}
-    for e in SLICE1_EVENTS:
+    stats = {'events': 0, 'consumers': 0, 'later': 0, 'unpublished': 0}
+    for e in SLICE1_EVENTS + SLICE2_EVENTS:
         info = catalog.get(e)
         if not info:
             continue
         stats['events'] += 1
         owners = [info['owner']] if info['owner'] in LG.SERVICES else list(LG.SERVICES)
-        if not any(e in published[s] for s in owners):
+        is_published = any(e in published[s] for s in owners)
+        if e in UNPUBLISHED_SLICE2:
+            stats['unpublished'] += 1
+            if is_published:
+                rep.err(where, 'событие %s уже издаётся в коде: уберите его из UNPUBLISHED_SLICE2' % e)
+        elif not is_published:
             rep.err(where, 'событие %s: в коде издателя (%s) нет строки с типом события, издание не реализовано' % (e, ', '.join(owners)))
         later = LATER_CONSUMERS.get(e, set())
         for pair in sorted(later - set(info['consumers'])):
@@ -334,8 +385,8 @@ def main():
     rep = L.Report('Документы = код')
     ops = check_operations(rep)
     ev = check_events(rep)
-    rep.fact('операций со статусом done: %d, методов контроллеров: %d; событий среза 1: %d, потребителей реализовано: %d, придут позже: %d'
-             % (ops['done'], ops['handlers'], ev['events'], ev['consumers'], ev['later']))
+    rep.fact('операций со статусом done: %d, методов контроллеров: %d; событий среза 1 и 2: %d, из них издаётся в коде: %d; потребителей реализовано: %d, придут позже: %d'
+             % (ops['done'], ops['handlers'], ev['events'], ev['events'] - ev['unpublished'], ev['consumers'], ev['later']))
     return rep.finish()
 
 

@@ -12,6 +12,9 @@ tools/ci/ci_status.py) и в сводку запуска.
 из `services/`. Покрытие строк слоя в каждом сервисе не должно быть ниже LAYER_MIN (80 %): замер шага 20 дал 85 – 100 %, поэтому порог блокирует (ENFORCE).
 Классы, которые нельзя покрыть модульными тестами, можно перечислить в EXCLUDED с причиной, и в счёт слоя они не войдут; классы слоя ниже
 порога печатаются списком для информации (в основном переходники транзакций и адаптеры, которые покрывают интеграционные тесты). Слой ниже порога даёт код выхода 1; если отчётов нет совсем, печатается предупреждение (сборка могла упасть раньше, это видно по другим заданиям).
+
+«Строгие» пакеты (Р-148 среза 2, критерий 5 раздела 14 для денег и ключей): отдельная строка и порог STRICT_MIN (90 %) для пакетов из STRICT_PACKAGES, где живёт логика резерва, заказа, платежа и выдачи. Пока их коды пишутся (шаги 5 – 14 среза 2), порог только предупреждает
+(STRICT_ENFORCE = False, аннотация `warning`); с шага 22 STRICT_ENFORCE равен True, и пакет ниже порога даёт код выхода 1. Общий порог слоя в 80 % остаётся. Пакета ещё нет в отчёте: строка «пакета ещё нет», это не ошибка.
 """
 import glob
 import os
@@ -21,6 +24,15 @@ import xml.etree.ElementTree as ET
 LAYER_MIN = 80.0
 ENFORCE = True
 LAYER_PACKAGES = ('domain', 'service')
+STRICT_MIN = 90.0
+STRICT_ENFORCE = False   # шаг 22 среза 2 переключает на True
+# Модуль -> окончание имени пакета (с косой чертой) «строгого» пакета этого сервиса
+STRICT_PACKAGES = (
+    ('services/inventory-service', 'reservation/service'),
+    ('services/order-service', 'orders/domain'),
+    ('services/payment-service', 'payments/domain'),
+    ('services/delivery-service', 'delivery/domain'),
+)
 # Класс (имя из отчёта JaCoCo, с косой чертой) -> причина, по которой его покрывают интеграционные тесты, а не модульные
 EXCLUDED = {}
 
@@ -60,6 +72,27 @@ def layer_of(report, module):
     return tuple(line), tuple(branch), weak
 
 
+def strict_of(report, module):
+    """Строки «строгих» пакетов сервиса: [(окончание пакета, (пропущено, покрыто) по строкам или None, если пакета в отчёте нет)]."""
+    found = []
+    for mod, suffix in STRICT_PACKAGES:
+        if mod != module.replace(os.sep, '/'):
+            continue
+        line = None
+        for package in report.findall('package'):
+            name = package.get('name', '')
+            if name == suffix or name.endswith('/' + suffix):
+                line = line or [0, 0]
+                for cls in package.findall('class'):
+                    if cls.get('name') in EXCLUDED:
+                        continue
+                    cl = counter(cls, 'LINE')
+                    line[0] += cl[0]
+                    line[1] += cl[1]
+        found.append((suffix, tuple(line) if line is not None else None))
+    return found
+
+
 def main():
     root_dir = sys.argv[1] if len(sys.argv) > 1 else '.'
     title = sys.argv[2] if len(sys.argv) > 2 else 'Покрытие кода (JaCoCo)'
@@ -67,6 +100,7 @@ def main():
     rows = []
     layers = []
     below = []
+    strict_below = []
     sums = {'LINE': [0, 0], 'BRANCH': [0, 0], 'METHOD': [0, 0]}
     for f in sorted(glob.glob(pattern, recursive=True)):
         module = os.path.relpath(f, root_dir).split(os.sep + 'build' + os.sep)[0]
@@ -83,6 +117,15 @@ def main():
             if total and 100.0 * layer[0][1] / total < LAYER_MIN:
                 below.append(module)
             layers += ['    ниже %d %%: %s (%.1f %%, строк %d)' % (LAYER_MIN, n.replace('/', '.'), p, t) for n, p, t in sorted(layer[2], key=lambda x: x[1])]
+        for suffix, counts in strict_of(report, module):
+            if counts is None or counts[0] + counts[1] == 0:
+                layers.append('    строгий пакет …/%s: пакета ещё нет в отчёте' % suffix)
+                continue
+            share = 100.0 * counts[1] / (counts[0] + counts[1])
+            layers.append('    строгий пакет …/%s: строк %s%%  (строк %d из %d, порог %d %%%s)'
+                          % (suffix, percent(*counts), counts[1], counts[0] + counts[1], STRICT_MIN, '' if STRICT_ENFORCE else ', пока предупреждение'))
+            if share < STRICT_MIN:
+                strict_below.append('%s …/%s %.1f %%' % (module, suffix, share))
         rows.append('%-34s строк %s%%  ветвей %s%%  методов %s%%  (строк %d из %d)'
                     % (module, percent(*line), percent(*branch), percent(*method), line[1], line[0] + line[1]))
     if not rows:
@@ -92,7 +135,11 @@ def main():
                 % (percent(*sums['LINE']), percent(*sums['BRANCH']), percent(*sums['METHOD'])))
     if below:
         layers.append('Слой domain+service ниже %d %% строк: %s%s' % (LAYER_MIN, ', '.join(below), '' if ENFORCE else ' (порог пока не блокирует)'))
+    if strict_below:
+        layers.append('Строгие пакеты ниже %d %% строк: %s%s' % (STRICT_MIN, '; '.join(strict_below), '' if STRICT_ENFORCE else ' (порог пока не блокирует)'))
     print('\n'.join(rows + layers))
+    if strict_below and not STRICT_ENFORCE:
+        print('::warning title=%s, строгие пакеты::%s' % (title, '; '.join(strict_below)))
     print('::notice title=%s::%s' % (title, '%0A'.join(rows)))
     if layers:
         print('::notice title=%s, слой domain+service::%s' % (title, '%0A'.join(layers)))
@@ -101,7 +148,7 @@ def main():
     if summary:
         with open(summary, 'a', encoding='utf-8') as fh:
             fh.write('### %s\n\n```\n' % title + '\n'.join(rows) + '\n```\n')
-    return 1 if (ENFORCE and below) else 0
+    return 1 if ((ENFORCE and below) or (STRICT_ENFORCE and strict_below)) else 0
 
 
 if __name__ == '__main__':

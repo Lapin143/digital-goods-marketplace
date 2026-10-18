@@ -29,6 +29,13 @@
           строки нет в теле ответа: {"bodyNotContains": "NEWMAN-CANARY-1"} (значение, которое шаг сам отправил)
   multipart  вместо body: форма с одним файлом, {"field": "file", "filename": "a.pdf", "contentType": "application/pdf", "content": "текст файла"};
           содержимое только текстовое (Newman отправляет строку), двоичные файлы проверяют Java-тесты и стендовые проверки
+  set     переменная -> значение до запроса, например {"orderKey": "{{$guid}}"}: ключ, который шаг и его повтор отправляют одинаковым
+          ("headers": {"Idempotency-Key": "{{orderKey}}"}); переменная доступна этому шагу и следующим
+  sign    подпись вебхука (шаг 4 среза 2, ADR-015): для операций с x-webhook-secret обязательна (или "unsigned": true для проверки отказа без подписи).
+          Перед запросом скрипт ставит заголовки X-Webhook-Timestamp (сейчас, RFC 3339 с миллисекундами) и X-Webhook-Signature (hex HMAC-SHA-256
+          от «метка.тело»). Секрет берётся из переменной окружения Newman secret_<имя секрета> (её заполняет run.py из secrets/<имя>), в коллекцию он
+          не попадает. Необязательно: {"timestampOffsetSeconds": -600} (устаревшее уведомление), {"badSignature": true} (неверная подпись).
+          В подписанном теле нельзя использовать динамические переменные ({{$guid}}), иначе подписанное и отправленное тело разойдутся
 Для операций с ключом идемпотентности заголовок Idempotency-Key добавляется сам (новый UUID на каждый запрос), если шаг не задал его явно.
 """
 import argparse
@@ -88,9 +95,29 @@ def make_request(op, role, path_values, query=None, headers=None, body=None, mul
     return request
 
 
-def item(name, request, script):
-    return {'name': name, 'request': request,
-            'event': [{'listen': 'test', 'script': {'type': 'text/javascript', 'exec': script}}]}
+def item(name, request, script, prerequest=None):
+    events = [{'listen': 'test', 'script': {'type': 'text/javascript', 'exec': script}}]
+    if prerequest:
+        events.insert(0, {'listen': 'prerequest', 'script': {'type': 'text/javascript', 'exec': prerequest}})
+    return {'name': name, 'request': request, 'event': events}
+
+
+SIGN_KEYS = {'timestampOffsetSeconds', 'badSignature'}
+
+
+def sign_script(secret_name, sign):
+    """Скрипт до запроса: заголовки подписи вебхука. Секрет читается из окружения Newman, а не из коллекции."""
+    var = 'secret_' + secret_name
+    script = ['const secret = pm.environment.get(%s);' % js(var),
+              'if (!secret) { throw new Error(%s); }' % js('нет секрета %s в окружении Newman (run.py берёт его из secrets/%s)' % (var, secret_name)),
+              'const stamp = new Date(Date.now() + %d * 1000).toISOString();' % int(sign.get('timestampOffsetSeconds', 0)),
+              'const body = pm.variables.replaceIn((pm.request.body && pm.request.body.raw) || "");',
+              'let signature = CryptoJS.HmacSHA256(stamp + "." + body, secret).toString(CryptoJS.enc.Hex);']
+    if sign.get('badSignature'):
+        script.append('signature = (signature[0] === "0" ? "1" : "0") + signature.slice(1);')
+    script += ['pm.request.headers.upsert({key: "X-Webhook-Timestamp", value: stamp});',
+               'pm.request.headers.upsert({key: "X-Webhook-Signature", value: signature});']
+    return script
 
 
 def matrix_item(case, op):
@@ -120,8 +147,31 @@ def step_item(scenario, index, step, ops, saved, problems, ledgers):
         return None
     if not oas.is_done(ops, op.id, ledgers):
         problems.append('%s: операция %s ещё не готова по реестру %s (статус не done)' % (where, op.id, op.service))
-    if not op.reachable:
-        problems.append('%s: операция %s недоступна через шлюз (внутренний вызов или вебхук с подписью)' % (where, op.id))
+    if not op.scenario_reachable:
+        problems.append('%s: операция %s недоступна через шлюз (внутренний вызов)' % (where, op.id))
+    sign = step.get('sign')
+    if op.webhook_secret:
+        if sign is None and step.get('unsigned') is not True:
+            problems.append('%s: вебхук %s требует подпись: добавьте sign (или unsigned: true для проверки отказа без подписи)' % (where, op.id))
+        if sign is not None and step.get('unsigned'):
+            problems.append('%s: sign и unsigned: true вместе не имеют смысла' % where)
+    elif sign is not None or step.get('unsigned'):
+        problems.append('%s: у операции %s нет подписи вебхука (x-webhook-secret), sign и unsigned здесь не нужны' % (where, op.id))
+    if sign is not None:
+        if not isinstance(sign, dict) or set(sign) - SIGN_KEYS:
+            problems.append('%s: sign это объект с ключами %s' % (where, ', '.join(sorted(SIGN_KEYS))))
+            sign = {}
+        elif 'timestampOffsetSeconds' in sign and not isinstance(sign['timestampOffsetSeconds'], int):
+            problems.append('%s: sign.timestampOffsetSeconds должно быть целым числом секунд' % where)
+            sign = dict(sign, timestampOffsetSeconds=0)
+        if sign.get('badSignature') is not None and not isinstance(sign['badSignature'], bool):
+            problems.append('%s: sign.badSignature должно быть true или false' % where)
+        if re.search(r'\{\{\$', json.dumps(step.get('body'), ensure_ascii=False)):
+            problems.append('%s: в подписанном теле нет места динамическим переменным ({{$guid}}): подписанное и отправленное тело разойдутся' % where)
+    pre_set = step.get('set') or {}
+    if not isinstance(pre_set, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in pre_set.items()):
+        problems.append('%s: set это объект «переменная: строка»' % where)
+        pre_set = {}
     role = step.get('as', 'guest')
     if role not in st02_matrix.ROLES:
         problems.append('%s: неизвестная роль «%s» (есть: %s)' % (where, role, ', '.join(st02_matrix.ROLES)))
@@ -143,6 +193,10 @@ def step_item(scenario, index, step, ops, saved, problems, ledgers):
             problems.append('%s: код %s не описан в OpenAPI операции %s (описаны: %s)' % (where, code, op.id, ', '.join(sorted(op.responses))))
     if step.get('multipart') is not None and (step.get('body') is not None or op.method != 'POST'):
         problems.append('%s: multipart допустим только у POST и вместо body' % where)
+    prerequest = []
+    for var, value in pre_set.items():
+        prerequest.append('pm.collectionVariables.set(%s, pm.variables.replaceIn(%s));' % (js(var), js(value)))
+        saved.add(var)
     text = json.dumps([step.get('path'), step.get('query'), step.get('headers'), step.get('body'), step.get('multipart')], ensure_ascii=False)
     for name in VARIABLE.findall(text):
         if name not in saved and not name.startswith('$') and name != 'baseUrl':
@@ -178,8 +232,10 @@ def step_item(scenario, index, step, ops, saved, problems, ledgers):
             script.append('pm.test(%s, function () { pm.expect(at(%s)).to.exist; });' % (label, path))
         else:
             problems.append('%s: проверка assert без equals, notEmpty или exists' % where)
+    if sign is not None and op.webhook_secret:
+        prerequest += sign_script(op.webhook_secret, sign)
     request = make_request(op, role, path_values, step.get('query'), step.get('headers'), step.get('body'), step.get('multipart'))
-    return item(step.get('name', op.id), request, script)
+    return item(step.get('name', op.id), request, script, prerequest)
 
 
 def load_scenarios(directory):

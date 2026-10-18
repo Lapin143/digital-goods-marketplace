@@ -559,11 +559,14 @@ jobs:
       - name: Замеры памяти, начало
         run: python3 tools/stand-checks/memory.py start "$RUNNER_TEMP/mem.jsonl"
 
+      # Сроки сервисов покупки сокращены профилем fast-time (DGM_FAST_TIME=1, Р-147): резерв 30 секунд, сессия 24, контроль выдачи 3 минуты.
+      # Каталог и платформенный сервис работают с рабочими сроками: проверки среза 1 сверяют их (например, срок рассмотрения 3 суток)
       - name: Набор full одной командой
         env:
           DIAG_FILTER: 'ERROR:|failed to|not found|denied|unhealthy|dependency failed|COPY|не готов|ОШИБКА'
           DIAG_MAX: "14"
           DIAG_TAIL: "40"
+          DGM_FAST_TIME: "1"
         run: tools/ci/diag.sh "make up SET=full" make up SET=full DEBUG=1 WAIT_TIMEOUT=600
 
       - name: Тестовые пользователи Keycloak

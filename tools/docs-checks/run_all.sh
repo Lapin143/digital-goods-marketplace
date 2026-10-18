@@ -53,6 +53,8 @@ run python3 "$HERE/check_code_docs.py"
 run python3 "$HERE/gen_routes.py" --check
 run python3 "$REPO/tools/api-tests/build.py" --check
 run python3 -m unittest discover -s "$REPO/tools/api-tests"
+run python3 -m unittest "$REPO/tools/stand-checks/test_stubs_admin.py"
+run python3 -m unittest "$REPO/tools/ci/test_jacoco_summary.py"
 if [ "$1" = "--db" ]; then
   run bash "$HERE/db/apply.sh"
   run python3 "$HERE/db/test_db.py"

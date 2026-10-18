@@ -1,11 +1,12 @@
 # Реестр операций payment-service: каждая операция из OpenAPI (dgm/routes.json) и её готовность. Находка 5 плана Ф4.
 #   done    обработчик в контроллере есть
 #   slice1  войдёт в срез 1 «Продавцы, товары, ключи» (docs/00-phase4-guide.md), обработчика ещё нет
-#   later   относится к срезам 2 и 3 или к Ф5, обработчика ещё нет
+#   slice2  войдёт в срез 2 «Заказ, оплата, выдача» (docs/00-phase4-slice2-guide.md, Р-132), обработчика ещё нет
+#   later   относится к срезу 3 или к Ф5, обработчика ещё нет
 # Статус меняется в том же commit, где появляется обработчик. Тест RoutesTest сервиса сверяет реестр с OpenAPI и контроллерами,
 # а tools/docs-checks/check_ledger.py показывает, сколько операций среза ещё не готово.
 
-completeManualRefund               later
-listManualRefunds                  later
-openPaymentSession                 later
-receivePaymentGatewayNotification  later
+completeManualRefund               slice2
+listManualRefunds                  slice2
+openPaymentSession                 slice2
+receivePaymentGatewayNotification  slice2
