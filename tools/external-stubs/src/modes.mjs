@@ -35,6 +35,11 @@ export const SCHEMAS = {
       timeoutMs: int(5000, 0, 120_000), // сколько держать соединение открытым при failure=timeout
       loseResponseFirst: int(0, 0, 100_000), // платёж создан, ответ не дошёл (соединение разрывается)
     }),
+    status: obj({
+      failFirst: int(0, -1, 100_000), // первые N запросов статуса платежа (GET) отказывают; -1 все
+      failure: oneOf('http_503', ['http_503', 'http_429', 'timeout']),
+      timeoutMs: int(5000, 0, 120_000), // сколько держать соединение открытым при failure=timeout
+    }),
     webhook: webhook({
       amountDelta: int(0, -1_000_000_000, 1_000_000_000), // расхождение суммы в уведомлении
       unknownPayment: bool(false), // уведомление о платеже, которого платформа не знает

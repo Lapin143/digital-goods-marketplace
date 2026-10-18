@@ -127,6 +127,27 @@ test('«сессия не открывается»: тайм-аут — соед
   assert.equal(h.state.journal.find((e) => e.path === '/payment/v1/payments' && e.status === 0)?.note, 'соединение закрыто без ответа');
 });
 
+test('«статус не отдаётся»: первые N запросов статуса получают отказ, затем статус возвращается, создание не затронуто', async () => {
+  await h.setMode('payment', { scenario: 'hold', status: { failFirst: 2 } });
+  const r = await newPayment(h);
+  assert.equal(r.status, 201, 'создание платежа режим статуса не трогает');
+  assert.equal((await h.gw('GET', `/payment/v1/payments/${r.json.paymentId}`)).status, 503);
+  assert.equal((await h.gw('GET', `/payment/v1/payments/${r.json.paymentId}`)).status, 503);
+  const ok = await h.gw('GET', `/payment/v1/payments/${r.json.paymentId}`);
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.status, 'pending');
+});
+
+test('«статус не отдаётся»: failFirst=-1 отказывает всегда, 429 несёт Retry-After', async () => {
+  await h.setMode('payment', { scenario: 'hold', status: { failFirst: -1, failure: 'http_429' } });
+  const r = await newPayment(h);
+  for (let i = 0; i < 3; i++) {
+    const status = await h.gw('GET', `/payment/v1/payments/${r.json.paymentId}`);
+    assert.equal(status.status, 429);
+    assert.equal(status.headers.get('retry-after'), '1');
+  }
+});
+
 test('«потерянный ответ»: платёж создан, клиент ответа не получил, повтор по ключу находит тот же платёж', async () => {
   await h.setMode('payment', { scenario: 'hold', create: { loseResponseFirst: 1 } });
   await assert.rejects(newPayment(h, { orderId: 'lost' }));

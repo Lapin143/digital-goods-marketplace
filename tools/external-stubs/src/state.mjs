@@ -30,6 +30,7 @@ export function createState({ clock, bootTag, seed = 20261004, journalLimit = 20
     s.counters = {
       createFail: payment.create.failFirst,
       createLose: payment.create.loseResponseFirst,
+      statusFail: payment.status.failFirst,
       refundFail: payment.refund.failFirst,
       emailFail: email.failFirst,
     };

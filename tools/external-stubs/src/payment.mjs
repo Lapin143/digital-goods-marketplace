@@ -100,7 +100,15 @@ export async function completeRefund(app, payment, plan, extra = {}) {
 }
 
 async function failCreate(app, res, mode) {
-  const { failure, timeoutMs } = mode.create;
+  return failWith(res, mode.create);
+}
+
+/** Отказ запроса статуса платежа: тот же набор отказов, что у создания. */
+async function failStatus(app, res, mode) {
+  return failWith(res, mode.status);
+}
+
+async function failWith(res, { failure, timeoutMs }) {
   if (failure === 'timeout') {
     // Соединение держится открытым дольше, чем ждёт клиент, затем закрывается без ответа
     await sleep(timeoutMs);
@@ -165,6 +173,7 @@ export function registerPayment(router, app) {
 
   router.add('GET', '/payment/v1/payments/:id', async ({ req, res, params }) => {
     requirePaymentAuth(app, req);
+    if (state.takeFailure('statusFail')) return failStatus(app, res, state.modes.payment);
     const payment = state.payments.get(params.id);
     if (!payment) throw new HttpError(404, 'payment_not_found', 'Платёж не найден');
     sendJson(res, 200, view(payment));

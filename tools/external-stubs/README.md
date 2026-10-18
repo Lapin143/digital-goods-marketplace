@@ -36,6 +36,8 @@
 | `create.failFirst` | 0 | Первые N вызовов создания отказывают (-1: все) |
 | `create.failure` | `http_503` | Как отказывают: `http_503`, `http_429` (с `Retry-After`), `timeout` (соединение держится `create.timeoutMs`, затем закрывается без ответа) |
 | `create.loseResponseFirst` | 0 | Платёж создан, ответ не дошёл: соединение рвётся. Повтор с тем же `Idempotency-Key` находит тот же платёж |
+| `status.failFirst` | 0 | Первые N запросов статуса платежа (`GET /payment/v1/payments/:id`) отказывают (-1: все); сверка и запрос статуса в вебхуке получают 503, 429 или тайм-аут |
+| `status.failure`, `status.timeoutMs` | `http_503`, 5000 | Как отказывает запрос статуса: так же, как у `create.failure` |
 | `webhook.send` | true | false: статус у шлюза меняется, вебхук теряется (проверка сверки: `GET /payment/v1/payments/:id`) |
 | `webhook.repeat`, `webhook.parallel` | 1, false | Сколько раз прислать одно уведомление, по очереди или одновременно |
 | `webhook.badSignature` | false | Подпись неверна |
