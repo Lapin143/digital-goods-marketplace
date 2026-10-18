@@ -49,6 +49,8 @@ EXEMPT = {
     'pki-test': 'описана в infra/pki/README.md',
     'clean': 'удаление результатов сборки',
     'jars': 'часть make images',
+    'load-seed': 'засев каталога для нагрузочного ориентира, описан в tools/load/README.md',
+    'load-nft': 'ориентир NFT-1.0 и NFT-1.1 на k6, описан в tools/load/README.md',
 }
 # Файлы без пути, которых в репозитории нет по замыслу: создаются на стенде или запланированы разделом README
 MISSING_OK = {'test_users.json': 'создаётся make keycloak-users, в Git не входит',

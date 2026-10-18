@@ -246,6 +246,14 @@ e2e: ## API-тесты Newman: матрица прав ST-02 готовых оп
 e2e-sabotage: ## Проверка проверки API-тестов: ожидание отказа 403 заменено на 200, Newman обязан покраснеть (те же условия, что у make e2e)
 	$(KC_ENV) python3 tools/api-tests/run.py --sabotage
 
+.PHONY: load-seed
+load-seed: ## Засеять каталог опубликованными товарами для нагрузочного ориентира: make load-seed [PRODUCTS=5000 SELLERS=100] (набор dev-sellers, DEBUG=1)
+	$(COMPOSE) exec -T postgres psql -U postgres -d catalog_db -q -v products=$(or $(PRODUCTS),5000) -v sellers=$(or $(SELLERS),100) -f - < tools/load/seed_catalog.sql
+
+.PHONY: load-nft
+load-nft: ## Ориентир NFT-1.0 и NFT-1.1: k6 по карточке и поиску через шлюз (после make load-seed; шлюз поднят с DGM_LOAD_PUBLIC_PER_MINUTE=1000000, k6 в PATH)
+	python3 tools/load/run.py
+
 .PHONY: e2e-check
 e2e-check: ## Собрать коллекцию API-тестов без стенда и проверить сценарии (входит в tools/docs-checks/run_all.sh)
 	python3 tools/api-tests/build.py --check

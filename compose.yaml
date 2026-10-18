@@ -566,6 +566,10 @@ services:
       DGM_JWT_ISSUER: ${DGM_PUBLIC_ORIGIN:-https://localhost:8443}/auth/realms/dgm
       DGM_JWKS_URI: https://keycloak:8443/auth/realms/dgm/protocol/openid-connect/certs
       DGM_REDIS_HOST: redis
+      # Публичная группа лимита (60 в минуту на IP) по умолчанию как в application.yml. Нагрузочный ориентир (make load-nft, tools/load) идёт
+      # с одного IP, поэтому на время замера лимит поднимается: DGM_LOAD_PUBLIC_PER_MINUTE=1000000 DGM_LOAD_PUBLIC_BURST=1000000 make up ...
+      DGM_GATEWAY_LIMITS_PUBLIC_PERMINUTE: ${DGM_LOAD_PUBLIC_PER_MINUTE:-60}
+      DGM_GATEWAY_LIMITS_PUBLIC_BURST: ${DGM_LOAD_PUBLIC_BURST:-120}
       # Куча 192 МБ из лимита 352 МБ: пик 274 МБ при проверках лимитов частоты и отказов занимал 86% прежних 320 МБ (memory-measurements.md)
       JAVA_TOOL_OPTIONS: -Xmx192m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED
     tmpfs:
