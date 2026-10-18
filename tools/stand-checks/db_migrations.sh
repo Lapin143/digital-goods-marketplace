@@ -30,11 +30,15 @@ echo "образы: $PG_IMAGE, $FLYWAY_IMAGE"
 drun() { docker run --rm --network "$NET" -v "$SECRETS:/s:ro" "$@"; }
 secret() { cat "$SECRETS/db_$1"; }          # пароль роли: секрет db_<имя роли>
 
-# psql от имени роли: роль база SQL
+# psql от имени роли: роль база SQL. Рабочие роли входят с клиентским сертификатом платформы (pg_hba.conf: clientcert=verify-ca); сервер
+# проверяет цепочку, а не имя, поэтому подходит сертификат любого сервиса. libpq не читает ключ с широкими правами, и в контейнере
+# ключ копируется с правами 0600.
+MTLS='install -m 0600 /s/tls_catalog-service.key /tmp/client.key && exec psql "$@"'
+PGMTLS="sslmode=verify-full sslrootcert=/s/tls_ca.crt sslcert=/s/tls_catalog-service.crt sslkey=/tmp/client.key"
 pgr() {
   local role=$1 db=$2 sql=$3
-  drun -e PGPASSWORD="$(secret "$role")" "$PG_IMAGE" \
-    psql "host=postgres port=5432 dbname=$db user=$role sslmode=verify-full sslrootcert=/s/tls_ca.crt connect_timeout=10" \
+  drun -e PGPASSWORD="$(secret "$role")" "$PG_IMAGE" bash -c "$MTLS" psql \
+    "host=postgres port=5432 dbname=$db user=$role $PGMTLS connect_timeout=10" \
     -v ON_ERROR_STOP=1 -tAc "$sql"
 }
 # администратор (postgres): пароль db_postgres_admin
@@ -117,7 +121,7 @@ expect_denied "app_catalog не подключается к служебной �
 expect_denied "keycloak не подключается к базе каталога" 'permission denied for database' pgr keycloak catalog_db 'select 1'
 expect_ok     "keycloak создаёт и удаляет таблицу в своей базе keycloak_db" pgr keycloak keycloak_db 'create table kc_probe (i int); drop table kc_probe'
 expect_denied "неверный пароль рабочей роли отвергнут" 'password authentication failed' \
-  drun -e PGPASSWORD=wrong-password "$PG_IMAGE" psql "host=postgres dbname=catalog_db user=app_catalog sslmode=verify-full sslrootcert=/s/tls_ca.crt connect_timeout=10" -c 'select 1'
+  drun -e PGPASSWORD=wrong-password "$PG_IMAGE" bash -c "$MTLS" psql "host=postgres dbname=catalog_db user=app_catalog $PGMTLS connect_timeout=10" -c 'select 1'
 
 echo "== Права: журнал аудита только добавляется (INV-42, ADR-014)"
 expect_ok     "app_audit_writer читает журнал" pgr app_audit_writer platform_db 'select count(*) from audit_admin.audit_log'
@@ -132,7 +136,7 @@ SLEEPER=dgm-dbcheck-sleeper
 limit_test() {
   docker rm -f "$SLEEPER" >/dev/null 2>&1
   drun -d --name "$SLEEPER" -e PGPASSWORD="$(secret app_audit_admin)" "$PG_IMAGE" \
-    psql "host=postgres dbname=platform_db user=app_audit_admin sslmode=verify-full sslrootcert=/s/tls_ca.crt" -c 'select pg_sleep(40)' >/dev/null || return 1
+    bash -c "$MTLS" psql "host=postgres dbname=platform_db user=app_audit_admin $PGMTLS" -c 'select pg_sleep(40)' >/dev/null || return 1
   local i seen=0
   for i in $(seq 1 15); do
     seen=$(pga postgres "select count(*) from pg_stat_activity where usename = 'app_audit_admin'" 2>/dev/null || echo 0)

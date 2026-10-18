@@ -37,9 +37,12 @@ public final class Stand {
         return TlsMaterial.forService(secrets(), service).kafkaProperties();
     }
 
-    /** Подключение к базе под рабочей ролью (пароль из секрета {@code db_<роль>}), TLS с проверкой имени узла. */
+    /**
+     * Подключение к базе под рабочей ролью (пароль из секрета {@code db_<роль>}), TLS с проверкой имени узла. Рабочим ролям нужен
+     * клиентский сертификат платформы; сервер проверяет только цепочку (verify-ca), поэтому подходит сертификат любого сервиса.
+     */
     public static DataSource dataSource(String role, String database) {
-        TlsMaterial tls = TlsMaterial.forService(secrets(), "none");
+        TlsMaterial tls = TlsMaterial.forService(secrets(), "catalog-service");
         String url = tls.jdbcUrl(env("DGM_PG_HOST", "localhost"), Integer.parseInt(env("DGM_PG_PORT", "15432")), database);
         return new DriverManagerDataSource(url, role, SecretFiles.read("db_" + role).reveal());
     }

@@ -113,7 +113,7 @@ services:
       - redis_platform
       - redis_gateway
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$(cat /run/secrets/redis_admin)\" redis-cli --tls --cacert /run/secrets/tls_ca.crt --user admin -h localhost ping | grep -q PONG"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$(cat /run/secrets/redis_admin)\" redis-cli --tls --cacert /run/secrets/tls_ca.crt --cert /run/secrets/tls_redis.crt --key /run/secrets/tls_redis.key --user admin -h localhost ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 20

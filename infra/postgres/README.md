@@ -14,6 +14,7 @@ PostgreSQL 16 (образ `postgres:16.15-trixie`), один экземпляр 
 
 - **Запуск без root.** Контейнер работает под UID 999 с файловой системой только для чтения. Сокет PostgreSQL, каталог ключей и `/tmp` лежат в `tmpfs`, данные в томе `pgdata`.
 - **TLS.** Клиент подключается с `sslmode=verify-full` и корневым сертификатом `tls_ca.crt`. Имя в сертификате сервера `postgres`, также есть `localhost` и `127.0.0.1` (отладка).
+- **Клиентский сертификат.** Рабочие роли `app_*` входят и с паролем, и с сертификатом платформы от нашего центра (`pg_hba.conf`: `clientcert=verify-ca`, роль задана регулярным выражением `/^app_`). Без сертификата или с сертификатом чужого центра соединение отвергается до проверки пароля. Сервисы предъявляют свой сертификат через `PgSslSocketFactory` ([service-kit](../../libs/service-kit)): штатная фабрика драйвера читает ключ только в формате PKCS#8 DER, а ключи платформы лежат в PEM. Администратор `postgres`, роли-миграторы (Flyway) и `keycloak` входят по паролю: Keycloak (Quarkus) не читает PEM-ключ клиента, перенос запланирован на Ф5.
 - **Аутентификация.** Администратор `postgres` (пароль `db_postgres_admin`) нужен только для инициализации. Сервисы ходят под своими ролями, без прав суперпользователя.
 - **Готовность.** `pg_isready` по TCP на `127.0.0.1`. На время инициализации сервер слушает только сокет, поэтому TCP-проверка не даёт ложной готовности.
 - **Архив журнала транзакций** (`archive_mode`, том `pgarchive`) включается в Ф6 вместе с резервным копированием ([c4-deployment.md](../../docs/05-architecture/c4-deployment.md), решение 11).
@@ -38,4 +39,7 @@ PostgreSQL 16 (образ `postgres:16.15-trixie`), один экземпляр 
 ```bash
 make up SET=dev-min DEBUG=1
 PGPASSWORD=$(cat secrets/db_postgres_admin) psql "host=localhost port=15432 user=postgres dbname=postgres sslmode=verify-full sslrootcert=secrets/tls_ca.crt"
+# рабочая роль: ещё и сертификат платформы, ключ с правами 0600 (secrets/ хранит его с 0444)
+install -m 600 secrets/tls_order-service.key ~/order.key
+PGPASSWORD=$(cat secrets/db_app_orders) psql "host=localhost port=15432 user=app_orders dbname=order_db sslmode=verify-full sslrootcert=secrets/tls_ca.crt sslcert=secrets/tls_order-service.crt sslkey=$HOME/order.key"
 ```

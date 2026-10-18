@@ -24,4 +24,4 @@ Redis 8 (образ `redis:8.10.2-alpine`): кэш каталога, счётч�
 ## Замечания
 
 - Предупреждение `Memory overcommit must be enabled` при старте безвредно: сохранение на диск выключено, `fork` не выполняется.
-- Подключение с хоста для отладки: `make up SET=dev-min DEBUG=1`, затем `redis-cli --tls --cacert secrets/tls_ca.crt -p 16379 --user admin` (пароль в `secrets/redis_admin`, передавайте через `REDISCLI_AUTH`).
+- Подключение с хоста для отладки: `make up SET=dev-min DEBUG=1`, затем `redis-cli --tls --cacert secrets/tls_ca.crt --cert secrets/tls_redis.crt --key secrets/tls_redis.key -p 16379 --user admin` (Redis требует клиентский сертификат от нашего центра: `tls-auth-clients yes`; сертификат контейнера `redis` годится и клиенту, у него есть `clientAuth`) (пароль в `secrets/redis_admin`, передавайте через `REDISCLI_AUTH`).

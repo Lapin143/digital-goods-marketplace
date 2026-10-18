@@ -5,7 +5,8 @@
 #
 # Что проверяется, для каждого хранилища и «плохие» и «хорошие» случаи (проверка, которая ни разу не сработала, ничего не гарантирует):
 #   PostgreSQL  без шифрования отвергают, неверный пароль отвергают, сервер с сертификатом чужого центра клиент не принимает,
-#               верный клиент подключается.
+#               верный клиент подключается; рабочая роль входит только с клиентским сертификатом платформы (без него и с
+#               сертификатом чужого центра отвергается), администратор и мигратор входят по паролю.
 #   Redis       обычный порт закрыт, без пароля и с неверным паролем отвергают, чужой центр не принимается, у пользователя сервиса
 #               нет доступа к чужим ключам и опасным командам, у администратора есть.
 #   Kafka       клиент без сертификата и клиент с сертификатом чужого центра отвергаются, клиент с верным сертификатом
@@ -52,22 +53,45 @@ expect_fail "postgres: соединение без шифрования отве
 expect_fail "postgres: неверный пароль отвергнут" 'password authentication failed' pg verify-full /s/tls_ca.crt "wrong-password"
 expect_fail "postgres: сертификат сервера не от нашего центра не принят клиентом" 'certificate verify failed|unable to get local issuer|self.signed' pg verify-full /f/ca.crt "$PGPW"
 
+# Рабочая роль сервиса (app_*) входит с паролем и клиентским сертификатом платформы (pg_hba.conf: clientcert=verify-ca). libpq не читает
+# ключ с широкими правами, поэтому в контейнере ключ копируется с правами 0600. Отказ наступает до проверки пароля.
+APPPW=$(cat "$SECRETS/db_app_catalog")
+pg_app() {  # [файл-ключа файл-сертификата в контейнере]; без аргументов клиентский сертификат не предъявляется
+  local conn="host=postgres port=5432 dbname=catalog_db user=app_catalog sslmode=verify-full sslrootcert=/s/tls_ca.crt connect_timeout=10"
+  if [ $# -eq 0 ]; then
+    drun -e PGPASSWORD="$APPPW" "$PG_IMAGE" psql "$conn" -tAc 'select 1'
+  else
+    drun -e PGPASSWORD="$APPPW" "$PG_IMAGE" bash -c 'install -m 0600 "$1" /tmp/client.key && exec psql "$2 sslcert=$3 sslkey=/tmp/client.key" -tAc "select 1"' x "$1" "$conn" "$2"
+  fi
+}
+pg_app_good() { pg_app /s/tls_catalog-service.key /s/tls_catalog-service.crt | grep -qx 1; }
+expect_ok     "postgres: рабочая роль с клиентским сертификатом платформы и верным паролем входит" pg_app_good
+expect_denied "postgres: рабочая роль без клиентского сертификата не входит (clientcert=verify-ca)" 'requires a valid client certificate' pg_app
+expect_denied "postgres: клиентский сертификат чужого центра не принят" 'unknown ca|certificate|SSL error' pg_app /f/client.key /f/client.crt
+
 echo "== Redis"
-rcli() {  # пользователь пароль [аргументы redis-cli...]  (TLS, наш центр)
+# Клиент Redis предъявляет сертификат платформы (tls-auth-clients yes): здесь это сертификат каталога, как у настоящего клиента
+RCERT="--cert /s/tls_catalog-service.crt --key /s/tls_catalog-service.key"
+rcli() {  # пользователь пароль [аргументы redis-cli...]  (TLS, наш центр, клиентский сертификат платформы)
   local user=$1 pass=$2; shift 2
-  drun -e REDISCLI_AUTH="$pass" "$REDIS_IMAGE" redis-cli --tls --cacert /s/tls_ca.crt -h redis --user "$user" "$@"
+  drun -e REDISCLI_AUTH="$pass" "$REDIS_IMAGE" redis-cli --tls --cacert /s/tls_ca.crt $RCERT -h redis --user "$user" "$@"
 }
 RADMIN=$(cat "$SECRETS/redis_admin"); RCAT=$(cat "$SECRETS/redis_catalog"); RGW=$(cat "$SECRETS/redis_gateway")
 redis_admin_ping() { rcli admin "$RADMIN" ping | grep -qx PONG; }
 redis_catalog_rw() { rcli catalog "$RCAT" set catalog:probe 1 | grep -qx OK && rcli catalog "$RCAT" get catalog:probe | grep -qx 1; }
 redis_plain() { drun "$REDIS_IMAGE" redis-cli -h redis -p 6379 ping; }
 redis_foreign_ca() { drun -e REDISCLI_AUTH="$RADMIN" "$REDIS_IMAGE" redis-cli --tls --cacert /f/ca.crt -h redis --user admin ping; }
-redis_noauth() { drun "$REDIS_IMAGE" redis-cli --tls --cacert /s/tls_ca.crt -h redis ping; }
+redis_noauth() { drun "$REDIS_IMAGE" redis-cli --tls --cacert /s/tls_ca.crt $RCERT -h redis ping; }
+# Верный пароль администратора без клиентского сертификата, и с сертификатом чужого центра (CN как у настоящего сервиса): рукопожатие отвергается
+redis_nocert() { drun -e REDISCLI_AUTH="$RADMIN" "$REDIS_IMAGE" redis-cli --tls --cacert /s/tls_ca.crt -h redis --user admin ping; }
+redis_foreign_cert() { drun -e REDISCLI_AUTH="$RADMIN" "$REDIS_IMAGE" redis-cli --tls --cacert /s/tls_ca.crt --cert /f/client.crt --key /f/client.key -h redis --user admin ping; }
 expect_ok     "redis: TLS и пароль администратора, PING" redis_admin_ping
 expect_denied "redis: без шифрования соединение не устанавливается (порт только TLS)" 'Connection reset|Could not connect|Error|error|Server closed|Broken pipe' redis_plain
 expect_denied "redis: неверный пароль отвергнут" 'WRONGPASS|invalid username-password' rcli catalog wrong-password ping
 expect_denied "redis: сертификат сервера не от нашего центра не принят" 'certificate verify failed|SSL|error|Error' redis_foreign_ca
 expect_denied "redis: без аутентификации команды отвергнуты" 'NOAUTH|Authentication required' redis_noauth
+expect_denied "redis: верный пароль без клиентского сертификата не открывает доступ (tls-auth-clients yes)" 'SSL|certificate|Server closed|Connection reset|Could not connect|Error|error' redis_nocert
+expect_denied "redis: клиентский сертификат чужого центра не принят" 'SSL|certificate|Server closed|Connection reset|Could not connect|Error|error|unknown ca' redis_foreign_cert
 expect_ok     "redis: сервис каталога пишет и читает свои ключи (catalog:*)" redis_catalog_rw
 expect_denied "redis: сервис каталога не читает чужие ключи (platform:*)" 'NOPERM|no permissions' rcli catalog "$RCAT" get platform:probe
 expect_denied "redis: сервис каталога не выполняет FLUSHALL" 'NOPERM|no permissions' rcli catalog "$RCAT" flushall

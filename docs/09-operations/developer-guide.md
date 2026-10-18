@@ -148,7 +148,7 @@ make down                   # остановить, данные сохраня�
 
 | Порт | Контейнер | Что там | Как подключаться |
 | --- | --- | --- | --- |
-| 15432 | `postgres` | PostgreSQL по TLS | `psql "host=localhost port=15432 dbname=order_db user=app_orders sslmode=verify-full sslrootcert=secrets/tls_ca.crt"`, пароль в `secrets/db_app_orders` (`psql` из пакета `postgresql-client`) |
+| 15432 | `postgres` | PostgreSQL по TLS | `psql "host=localhost port=15432 dbname=order_db user=app_orders sslmode=verify-full sslrootcert=secrets/tls_ca.crt sslcert=secrets/tls_order-service.crt sslkey=$HOME/order.key"`, пароль в `secrets/db_app_orders` (`psql` из пакета `postgresql-client`). Рабочие роли `app_*` входят только с клиентским сертификатом платформы, а `psql` принимает ключ лишь с правами 0600: сначала `install -m 600 secrets/tls_order-service.key $HOME/order.key`. Роль `postgres` входит по паролю |
 | 19093 | `kafka` | Kafka по TLS, права по `CN` сертификата | Клиент с сертификатом сервиса: `Stand.kafkaSecurity` в тестах каркаса |
 | 16379 | `redis` | Redis по TLS с пользователями | [infra/redis/README.md](../../infra/redis/README.md) |
 | 19000 | `object-storage` | S3 API по TLS | `make storage-check` |

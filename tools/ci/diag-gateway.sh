@@ -37,10 +37,10 @@ gateway_metrics() {
     https://localhost:18446/actuator/prometheus | grep -E '^dgm_gateway' | head -n 14
 }
 redis_acl_log() {
-  docker compose --profile '*' exec -T redis sh -c 'REDISCLI_AUTH="$(cat /run/secrets/redis_admin)" redis-cli --tls --cacert /run/secrets/tls_ca.crt --user admin -h localhost ACL LOG 4 | paste -sd" "'
+  docker compose --profile '*' exec -T redis sh -c 'REDISCLI_AUTH="$(cat /run/secrets/redis_admin)" redis-cli --tls --cacert /run/secrets/tls_ca.crt --cert /run/secrets/tls_redis.crt --key /run/secrets/tls_redis.key --user admin -h localhost ACL LOG 4 | paste -sd" "'
 }
 redis_clients() {
-  docker compose --profile '*' exec -T redis sh -c 'REDISCLI_AUTH="$(cat /run/secrets/redis_admin)" redis-cli --tls --cacert /run/secrets/tls_ca.crt --user admin -h localhost CLIENT LIST | cut -c1-200'
+  docker compose --profile '*' exec -T redis sh -c 'REDISCLI_AUTH="$(cat /run/secrets/redis_admin)" redis-cli --tls --cacert /run/secrets/tls_ca.crt --cert /run/secrets/tls_redis.crt --key /run/secrets/tls_redis.key --user admin -h localhost CLIENT LIST | cut -c1-200'
 }
 
 note "шлюз: предупреждения и ошибки журнала" log_problems

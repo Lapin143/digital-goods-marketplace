@@ -85,9 +85,17 @@ public final class TlsMaterial {
         return p;
     }
 
-    /** Адрес JDBC с проверкой сертификата и имени узла (sslmode=verify-full), пароль сюда не входит. */
+    /**
+     * Адрес JDBC: проверка имени узла ({@code sslmode=verify-full}), цепочку сертификата сервера и клиентский сертификат сервиса
+     * обеспечивает {@link PgSslSocketFactory} (рабочие роли без клиентского сертификата не входят, {@code pg_hba.conf}). Пути к файлам
+     * передаются параметрами адреса, пароль сюда не входит.
+     */
     public String jdbcUrl(String host, int port, String database) {
-        return "jdbc:postgresql://" + host + ":" + port + "/" + database + "?sslmode=verify-full&sslrootcert=" + caFile.toAbsolutePath();
+        return "jdbc:postgresql://" + host + ":" + port + "/" + database + "?sslmode=verify-full"
+                + "&sslfactory=" + PgSslSocketFactory.class.getName()
+                + "&" + PgSslSocketFactory.CA + "=" + caFile.toAbsolutePath()
+                + "&" + PgSslSocketFactory.CERT + "=" + certFile.toAbsolutePath()
+                + "&" + PgSslSocketFactory.KEY + "=" + keyFile.toAbsolutePath();
     }
 
     /** Доверенные сертификаты: центр сертификации проекта. Для клиентов, которые принимают фабрику, а не готовый контекст (Lettuce). */

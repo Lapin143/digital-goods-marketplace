@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Properties;
 import javax.net.ssl.SSLContext;
 import org.apache.kafka.common.config.types.Password;
 import org.junit.jupiter.api.BeforeAll;
@@ -71,12 +72,36 @@ class TlsTest {
     }
 
     @Test
-    void jdbcUrlVerifiesServerCertificate(@TempDir Path dir) {
+    void jdbcUrlVerifiesServerAndPresentsClientCertificate(@TempDir Path dir) {
         String url = TlsMaterial.forService(dir, "order-service").jdbcUrl("postgres", 5432, "order_db");
         assertTrue(url.startsWith("jdbc:postgresql://postgres:5432/order_db?"));
         assertTrue(url.contains("sslmode=verify-full"));
-        assertTrue(url.contains("sslrootcert=" + dir.toAbsolutePath() + "/tls_ca.crt"));
+        assertTrue(url.contains("sslfactory=dgm.kit.tls.PgSslSocketFactory"));
+        assertTrue(url.contains("dgmTlsCa=" + dir.toAbsolutePath() + "/tls_ca.crt"));
+        assertTrue(url.contains("dgmTlsCert=" + dir.toAbsolutePath() + "/tls_order-service.crt"));
+        assertTrue(url.contains("dgmTlsKey=" + dir.toAbsolutePath() + "/tls_order-service.key"));
         assertFalse(url.contains("password"));
+    }
+
+    @Test
+    void pgSocketFactoryIsBuiltFromUrlParameters(@TempDir Path dir) throws Exception {
+        TestCertificates.writeFiles(dir, "order-service", material);
+        TlsMaterial tls = TlsMaterial.forService(dir, "order-service");
+        Properties info = new Properties();
+        info.setProperty(PgSslSocketFactory.CA, tls.caFile().toString());
+        info.setProperty(PgSslSocketFactory.CERT, tls.certFile().toString());
+        info.setProperty(PgSslSocketFactory.KEY, tls.keyFile().toString());
+        PgSslSocketFactory factory = new PgSslSocketFactory(info);
+        assertTrue(factory.getSupportedCipherSuites().length > 0);
+        assertTrue(factory.getDefaultCipherSuites().length > 0);
+    }
+
+    @Test
+    void pgSocketFactoryRequiresAllPaths() {
+        Properties info = new Properties();
+        info.setProperty(PgSslSocketFactory.CA, "/x/ca.crt");
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> new PgSslSocketFactory(info));
+        assertTrue(e.getMessage().contains(PgSslSocketFactory.CERT));
     }
 
     @Test
