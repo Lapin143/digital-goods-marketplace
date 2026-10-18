@@ -4,7 +4,7 @@ import type { Filters } from './filters';
 
 const full: Filters = { q: ' тропа ', types: ['game_key', 'gift_card'], platform: ' Steam', region: 'ru', priceFrom: '1000', priceTo: '2 000,50' };
 
-describe('запрос к API', () => {
+describe('запрос к API (TC-326)', () => {
   it('собирает параметры: типы через запятую, регион в верхнем регистре, цены в копейках', () => {
     expect(toApiQuery(full)).toEqual({
       q: 'тропа',
@@ -32,7 +32,7 @@ describe('запрос к API', () => {
   });
 });
 
-describe('фильтры в адресе страницы', () => {
+describe('фильтры в адресе страницы (TC-326)', () => {
   it('записываются и читаются без потерь, пустое не пишется', () => {
     const params = filtersToParams(full);
     expect(params.toString()).toBe('q=%D1%82%D1%80%D0%BE%D0%BF%D0%B0&type=game_key%2Cgift_card&platform=Steam&region=RU&priceFrom=1000&priceTo=2+000%2C50');
@@ -55,7 +55,7 @@ describe('фильтры в адресе страницы', () => {
   });
 });
 
-describe('проверка перед отправкой', () => {
+describe('проверка перед отправкой (TC-326)', () => {
   it('верный набор проходит', () => {
     expect(validateFilters(full)).toEqual({});
     expect(validateFilters(EMPTY_FILTERS)).toEqual({});

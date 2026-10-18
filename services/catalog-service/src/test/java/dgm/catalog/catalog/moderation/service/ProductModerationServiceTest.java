@@ -31,12 +31,19 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
  * Решения модератора по товарам: решение, событие и запись аудита одной транзакцией, повтор и второй модератор получают 409, черновик
  * для модератора не существует, кэш витрины сбрасывается после фиксации, очередь идёт от старых товаров к новым.
  */
+@Tag("TC-310")
+@Tag("TC-311")
+@Tag("TC-312")
+@Tag("TC-313")
+@Tag("TC-317")
+@Tag("TC-319")
 class ProductModerationServiceTest {
 
     private static final UUID MODERATOR_ID = UUID.fromString("5d3b1f79-8c2e-4a60-b4d8-6e0a2c4f1b37");

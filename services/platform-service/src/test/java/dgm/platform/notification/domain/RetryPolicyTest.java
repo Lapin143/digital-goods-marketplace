@@ -6,9 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Лестница повторов письма: 1, 5, 25 секунд, затем недоставлено (ADR-011, шаг 8 Ф4). */
+@Tag("TC-220")
 class RetryPolicyTest {
 
     @Test

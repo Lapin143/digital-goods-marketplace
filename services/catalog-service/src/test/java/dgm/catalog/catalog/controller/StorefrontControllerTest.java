@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -32,6 +33,9 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /** {@code listStorefrontProducts}: контракт ответа, кэширование, проверка параметров и постраничный обход. */
+@Tag("TC-322")
+@Tag("TC-323")
+@Tag("TC-324")
 class StorefrontControllerTest {
 
     private static final Instant T0 = Instant.parse("2026-10-01T10:00:00Z");

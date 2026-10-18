@@ -12,11 +12,13 @@ import dgm.catalog.catalog.service.ProductCardService;
 import dgm.kit.problem.ProblemAdvice;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /** {@code getProductCard}: внутренний вызов сервиса заказов. */
+@Tag("TC-325")
 class ProductCardControllerTest {
 
     private static final UUID PRODUCT = UUID.fromString("0199e0a0-0000-4000-8000-000000000201");

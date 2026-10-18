@@ -8,8 +8,10 @@ import dgm.catalog.catalog.domain.ProductCard;
 import dgm.kit.problem.ProblemException;
 import dgm.kit.problem.ProblemType;
 import java.util.UUID;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+@Tag("TC-325")
 class ProductCardServiceTest {
 
     private static final ProductCard BLOCKED = new ProductCard(UUID.fromString("0199e0a0-0000-4000-8000-000000000207"),

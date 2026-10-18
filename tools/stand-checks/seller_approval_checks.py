@@ -122,7 +122,7 @@ def keycloak_is_seller(admin, user_id, seller_id):
 
 # --------------------------------------------------------------------------------------------------- проверки
 def queue_and_card(moderator, buyer):
-    print('== Очередь и карточка заявки (US-2.2)')
+    print('== Очередь и карточка заявки (US-2.2; TC-208, TC-210)')
     item = in_queue(moderator, buyer['sellerId'])
     expect('заявка на проверке есть в очереди модератора с типом, числом документов и сроком', item is not None and item.get('sellerType') == 'self_employed'
            and item.get('documentsCount') == 1 and item.get('overdue') is False and item.get('reviewDeadlineAt'), str(item))
@@ -142,7 +142,7 @@ def queue_and_card(moderator, buyer):
 
 
 def rejection(moderator, buyer):
-    print('== Отказ: причина обязательна, пауза 24 часа, повторное решение невозможно (TC-013)')
+    print('== Отказ: причина обязательна, пауза 24 часа, повторное решение невозможно (TC-013; TC-213, TC-214, TC-216)')
     sid, reason = buyer['sellerId'], 'Скан паспорта не читается, загрузите чёткий снимок'
     blank = decide(moderator, sid, 'reject', {})
     expect('отказ без причины: 422, поле /reason', blank.status == 422 and [e.get('pointer') for e in blank.json().get('errors') or []] == ['/reason'], '%s %s' % (blank.status, blank.text[:200]))
@@ -169,7 +169,7 @@ def rejection(moderator, buyer):
 
 
 def rework_and_approval(moderator, buyer, admin):
-    print('== Доработка и одобрение (TC-013, INV-36)')
+    print('== Доработка и одобрение (TC-013, INV-36; TC-211, TC-212, TC-213, TC-215)')
     sid = buyer['sellerId']
     blank = decide(moderator, sid, 'return', {})
     expect('доработка без комментария: 422, поле /comment', blank.status == 422 and [e.get('pointer') for e in blank.json().get('errors') or []] == ['/comment'],
@@ -202,7 +202,7 @@ def rework_and_approval(moderator, buyer, admin):
 
 def first_login_and_cabinet(kc, buyer):
     """Возвращает токен продавца со вторым фактором (amr = pwd и otp) или None."""
-    print('== Вход нового продавца: настройка TOTP, кабинет только со вторым фактором (ST-13, INV-37)')
+    print('== Вход нового продавца: настройка TOTP, кабинет только со вторым фактором (ST-13, INV-37; TC-218)')
     sid = buyer['sellerId']
     d = kc.start('dgm-staff')
     d.post(username=buyer['email'], password=buyer['password'])
@@ -246,7 +246,7 @@ def storefront(product_id, **headers):
 
 
 def product_to_storefront(moderator, seller_token, stamp):
-    print('== Товар от заявки до витрины: подача, решения модератора, карточка с кэшем (шаг 13, К2, US-3.3 – US-3.5, US-4.5)')
+    print('== Товар от заявки до витрины: подача, решения модератора, карточка с кэшем (шаг 13, К2, US-3.3 – US-3.5, US-4.5; TC-306, TC-310, TC-311, TC-312, TC-313, TC-314, TC-318, TC-319, TC-323, TC-329)')
     title = 'Лунная тропа %d: ключ Steam' % stamp
     created = SC.post_json(CABINET, seller_token, product_form(title))
     if not expect('продавец завёл товар: 201, черновик', created.status == 201 and created.json().get('status') == 'draft', '%s %s' % (created.status, created.text[:200])):

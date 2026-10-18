@@ -36,7 +36,7 @@ function queuedProduct(index: number, overrides: Record<string, unknown> = {}) {
 
 const page = (items: unknown[], nextCursor: string | null = null) => respond(200, { items, page: { limit: 20, nextCursor } });
 
-describe('очередь заявок', () => {
+describe('очередь заявок (TC-222)', () => {
   it('строки со ссылкой на карточку, просроченная помечена', async () => {
     const { calls } = renderScreen(<ApplicationQueuePage />, { handler: () => page([application(1), application(2, { overdue: true })]) });
     const table = await screen.findByRole('table');
@@ -76,7 +76,7 @@ describe('очередь заявок', () => {
   });
 });
 
-describe('очередь товаров', () => {
+describe('очередь товаров (TC-328)', () => {
   it('строки со ссылкой на карточку, типом, ценой и пометкой просрочки', async () => {
     const { calls } = renderScreen(<ProductQueuePage />, { handler: () => page([queuedProduct(1), queuedProduct(2, { overdue: true })]) });
     const table = await screen.findByRole('table');

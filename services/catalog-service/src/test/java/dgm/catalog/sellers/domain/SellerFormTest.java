@@ -5,9 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Анкета: частичная допустима, нарушения формата названы указателем и кодом, полнота проверяется отдельно. */
+@Tag("TC-201")
+@Tag("TC-202")
 class SellerFormTest {
 
     private static final SellerForm FULL = new SellerForm(SellerType.LEGAL_ENTITY, "ООО «Ромашка»", "ООО «Ромашка»", "Банк «Пример»", "044525000",

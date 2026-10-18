@@ -23,7 +23,7 @@ const FULL: ApplicationValues = {
   assortmentDescription: 'Ключи для игр',
 };
 
-describe('анкета продавца: тело запроса', () => {
+describe('анкета продавца: тело запроса (TC-221)', () => {
   it('пустая анкета даёт пустое тело, черновик можно сохранить неполным', () => {
     expect(toForm(EMPTY_APPLICATION)).toEqual({});
   });
@@ -63,7 +63,7 @@ describe('анкета продавца: тело запроса', () => {
   });
 });
 
-describe('анкета продавца: проверки до запроса', () => {
+describe('анкета продавца: проверки до запроса (TC-221)', () => {
   it('черновик: пустое не ошибка, неверный формат БИК и счёта ошибка', () => {
     expect(validateDraft(EMPTY_APPLICATION)).toEqual({});
     expect(validateDraft({ ...EMPTY_APPLICATION, bik: '1234' }).bik).toBe('application.error.bik');
@@ -90,7 +90,7 @@ describe('анкета продавца: проверки до запроса', 
   });
 });
 
-describe('указатель ошибки сервера', () => {
+describe('указатель ошибки сервера (TC-221)', () => {
   it('имя поля берётся по последнему сегменту', () => {
     expect(fieldOfPointer('payoutDetails.bik')).toBe('bik');
     expect(fieldOfPointer('name')).toBe('name');
@@ -103,7 +103,7 @@ describe('указатель ошибки сервера', () => {
   });
 });
 
-describe('проверка документа до загрузки', () => {
+describe('проверка документа до загрузки (TC-221)', () => {
   it('PDF, JPEG и PNG до 2 МБ проходят', () => {
     for (const type of ['application/pdf', 'image/jpeg', 'image/png']) {
       expect(checkDocument({ type, size: DOCUMENT_MAX_BYTES }, 0)).toEqual({ ok: true });

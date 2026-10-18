@@ -17,8 +17,11 @@ import dgm.catalog.catalog.domain.IssuanceMethod;
 import dgm.catalog.catalog.domain.ProductForm;
 import dgm.catalog.catalog.domain.ProductType;
 import java.util.List;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+@Tag("TC-302")
+@Tag("TC-308")
 class ProductFormTest {
 
     private static List<String> pointers(ProductForm form) {

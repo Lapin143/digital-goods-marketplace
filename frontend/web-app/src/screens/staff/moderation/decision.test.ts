@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { REASON_MAX, checkReason, formatCountdown } from './decision';
 
-describe('причина решения', () => {
+describe('причина решения (TC-222, TC-328)', () => {
   it('пустая строка и одни пробелы не подходят', () => {
     expect(checkReason('')).toBe('moderation.error.reasonRequired');
     expect(checkReason('   \n\t ')).toBe('moderation.error.reasonRequired');
@@ -19,7 +19,7 @@ describe('причина решения', () => {
   });
 });
 
-describe('обратный отсчёт срока ссылок', () => {
+describe('обратный отсчёт срока ссылок (TC-222, TC-328)', () => {
   it('минуты и секунды с ведущим нулём', () => {
     expect(formatCountdown(245)).toBe('4:05');
     expect(formatCountdown(300)).toBe('5:00');

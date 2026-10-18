@@ -32,11 +32,22 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 /** Семь операций кабинета по схемам ProductInput, SellerProduct и SellerProductPage: разбор тела, заголовки, ETag, If-Match и ошибки. */
+@Tag("TC-301")
+@Tag("TC-302")
+@Tag("TC-303")
+@Tag("TC-304")
+@Tag("TC-305")
+@Tag("TC-306")
+@Tag("TC-308")
+@Tag("TC-309")
+@Tag("TC-312")
+@Tag("TC-313")
 class SellerProductControllerTest {
 
     private static final String BASE = "/api/v1/seller/products";

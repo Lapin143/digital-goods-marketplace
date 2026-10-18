@@ -49,7 +49,7 @@ function server(state: { product: ReturnType<typeof product> }, overrides: Recor
   };
 }
 
-describe('карточка товара на модерации', () => {
+describe('карточка товара на модерации (TC-328)', () => {
   it('показывает поля товара, на модерации доступны «опубликовать» и «отклонить», блокировки нет', async () => {
     renderScreen(SCREEN, { route: ROUTE, handler: server({ product: product() }) });
     expect(await screen.findByRole('heading', { level: 1, name: 'Игра' })).toBeInTheDocument();

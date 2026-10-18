@@ -23,11 +23,19 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 /** Операции заявки заявителя по схемам SellerApplicationForm и SellerApplication: разбор тела, заголовки, ETag и ошибки. */
+@Tag("TC-201")
+@Tag("TC-202")
+@Tag("TC-203")
+@Tag("TC-204")
+@Tag("TC-205")
+@Tag("TC-215")
+@Tag("TC-216")
 class SellerApplicationControllerTest {
 
     private static final String FORM = "{\"sellerType\":\"self_employed\",\"name\":\"Студия «Лунный свет»\",\"payoutDetails\":{\"recipientName\":"

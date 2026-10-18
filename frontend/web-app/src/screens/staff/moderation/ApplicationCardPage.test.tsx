@@ -58,7 +58,7 @@ async function choose(user: ReturnType<typeof userEvent.setup>, name: string) {
   await user.click(await screen.findByRole('button', { name }));
 }
 
-describe('карточка заявки: анкета и документы', () => {
+describe('карточка заявки: анкета и документы (TC-222)', () => {
   it('показывает анкету, реквизиты и документ со ссылкой в новой вкладке', async () => {
     renderScreen(SCREEN, { route: ROUTE, handler: server({ card: card() }) });
     expect(await screen.findByRole('heading', { level: 1, name: 'ИП Иванов' })).toBeInTheDocument();
@@ -114,7 +114,7 @@ describe('карточка заявки: анкета и документы', ()
   });
 });
 
-describe('карточка заявки: решения', () => {
+describe('карточка заявки: решения (TC-222)', () => {
   it('одобрить: сначала подтверждение (запроса ещё нет), затем POST с Idempotency-Key без тела и обновление карточки', async () => {
     const user = userEvent.setup();
     const state = { card: card() };

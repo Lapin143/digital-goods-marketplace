@@ -31,6 +31,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.function.Function;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -41,6 +42,13 @@ import org.junit.jupiter.params.provider.MethodSource;
  * Переходы SM-04, которые делает продавец: T1 (создание), T2, T5, T11 (отправка из трёх статусов), T6 и T7 (правка опубликованного),
  * T12 (архив), T13 (восстановление), а также все запрещённые сочетания «статус × действие». Решения модератора T3, T4, T8 это шаг 13.
  */
+@Tag("TC-301")
+@Tag("TC-305")
+@Tag("TC-306")
+@Tag("TC-307")
+@Tag("TC-308")
+@Tag("TC-309")
+@Tag("TC-314")
 class ProductTransitionsTest {
 
     private static final Instant LATER = T0.plusSeconds(3600);

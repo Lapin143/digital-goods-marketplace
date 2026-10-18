@@ -35,7 +35,7 @@ function product(overrides: Partial<SellerProduct> = {}): SellerProduct {
   } as SellerProduct;
 }
 
-describe('регионы активации', () => {
+describe('регионы активации (TC-327)', () => {
   it('разделители запятая, точка с запятой и пробел, регистр и повторы нормализуются', () => {
     expect(parseRegions('ru, kz;by  RU')).toEqual(['RU', 'KZ', 'BY']);
   });
@@ -52,7 +52,7 @@ describe('регионы активации', () => {
   });
 });
 
-describe('цена', () => {
+describe('цена (TC-327)', () => {
   it('рубли показываются без копеек, если копеек нет', () => {
     expect(rublesText(149900)).toBe('1499');
     expect(rublesText(149950)).toBe('1499,50');
@@ -67,7 +67,7 @@ describe('цена', () => {
   });
 });
 
-describe('проверка товара до запроса', () => {
+describe('проверка товара до запроса (TC-327)', () => {
   it('полная форма проходит', () => {
     expect(validateProduct(VALUES)).toEqual({});
   });
@@ -90,7 +90,7 @@ describe('проверка товара до запроса', () => {
   });
 });
 
-describe('тело запроса товара', () => {
+describe('тело запроса товара (TC-327)', () => {
   it('поля обрезаются, регионы в верхнем регистре, способ выдачи пул ключей', () => {
     expect(toProductInput(VALUES)).toEqual({
       title: 'Игра',
@@ -110,7 +110,7 @@ describe('тело запроса товара', () => {
   });
 });
 
-describe('повторная модерация и блокировка полей', () => {
+describe('повторная модерация и блокировка полей (TC-327)', () => {
   it('название, описание и тип возвращают опубликованный товар на модерацию, цена и платформа нет', () => {
     const before = product();
     const same = valuesFromProduct(before);

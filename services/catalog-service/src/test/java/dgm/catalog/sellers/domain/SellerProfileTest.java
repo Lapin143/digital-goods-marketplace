@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -25,6 +26,16 @@ import org.junit.jupiter.params.provider.EnumSource;
  * Поведение профиля по SM-05 без базы и без часов системы: время передаётся параметром. Каждый статус проверяется отдельно для правки
  * анкеты и для отправки заявки.
  */
+@Tag("TC-201")
+@Tag("TC-203")
+@Tag("TC-204")
+@Tag("TC-205")
+@Tag("TC-208")
+@Tag("TC-209")
+@Tag("TC-211")
+@Tag("TC-214")
+@Tag("TC-215")
+@Tag("TC-216")
 class SellerProfileTest {
 
     private static final Instant T0 = Instant.parse("2026-10-03T12:00:00Z");

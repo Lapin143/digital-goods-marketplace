@@ -4,9 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.time.Duration;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Параметры сроков: значения по умолчанию из требований и границы параметров платформы. */
+@Tag("TC-203")
+@Tag("TC-207")
+@Tag("TC-216")
 class SellerSettingsTest {
 
     private static SellerSettings of(long pause, long review, long ttl) {

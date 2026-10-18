@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -71,6 +72,7 @@ class CatalogServiceIT extends CatalogStandIT {
     // ---------------------------------------------------------------- listStorefrontProducts
 
     @Test
+    @Tag("TC-322")
     void storefrontListsPublishedProductsNewestFirstWithoutToken() throws IOException {
         Response response = gateway.get("/api/v1/products");
         assertEquals(200, response.status());
@@ -81,6 +83,8 @@ class CatalogServiceIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-322")
+    @Tag("TC-323")
     void draftAndBlockedProductsAreNotShown() throws IOException {
         List<String> shown = ids(gateway.get("/api/v1/products?limit=100"));
         assertFalse(shown.contains(P206_DRAFT));
@@ -88,6 +92,7 @@ class CatalogServiceIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-320")
     void stockFlagComesFromTheStockCopy() throws IOException {
         List<?> items = (List<?>) gateway.get("/api/v1/products").json().get("items");
         Map<String, Boolean> inStock = new java.util.LinkedHashMap<>();
@@ -102,6 +107,7 @@ class CatalogServiceIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-322")
     void sameDataGivesNotModifiedForConditionalRequest() throws IOException {
         Response first = gateway.get("/api/v1/products");
         Response second = gateway.get("/api/v1/products", "If-None-Match", first.header("ETag"));
@@ -111,16 +117,19 @@ class CatalogServiceIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-323")
     void searchByTitleIsCaseInsensitive() throws IOException {
         assertEquals(List.of(P201, P202), ids(gateway.get("/api/v1/products?q=" + encode("STEAM"))));
     }
 
     @Test
+    @Tag("TC-324")
     void filterByProductType() throws IOException {
         assertEquals(List.of(P204), ids(gateway.get("/api/v1/products?productType=gift_card")));
     }
 
     @Test
+    @Tag("TC-322")
     void keysetPagingWalksTheWholeShowcaseOnce() throws IOException {
         List<String> seen = new ArrayList<>();
         String cursor = null;
@@ -137,6 +146,7 @@ class CatalogServiceIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-324")
     void invalidParametersAreRejectedWith422() throws IOException {
         Response reversed = gateway.get("/api/v1/products?priceFrom=500000&priceTo=100");
         assertEquals(422, reversed.status());
@@ -150,6 +160,7 @@ class CatalogServiceIT extends CatalogStandIT {
     // ---------------------------------------------------------------- getProductCard
 
     @Test
+    @Tag("TC-325")
     void orderServiceGetsProductCardInAnyStatus() throws IOException {
         Response published = orderService.get("/internal/v1/products/" + P201);
         assertEquals(200, published.status());
@@ -165,6 +176,7 @@ class CatalogServiceIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-325")
     void otherServicesAreNotAllowedToCallInternalRoute() throws IOException {
         Response response = gateway.get("/internal/v1/products/" + P201);
         assertEquals(403, response.status());
@@ -172,6 +184,7 @@ class CatalogServiceIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-318")
     void unknownAndMalformedProductIds() throws IOException {
         assertEquals(404, orderService.get("/internal/v1/products/0199e0a0-0000-7000-8000-000000000999").status());
         assertEquals(400, orderService.get("/internal/v1/products/not-a-uuid").status());

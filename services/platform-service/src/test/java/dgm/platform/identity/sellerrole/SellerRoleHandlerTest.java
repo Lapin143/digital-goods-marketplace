@@ -14,9 +14,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Контракт обработчика {@code seller-role-handler} (AsyncAPI, x-consumer) и разбор данных события {@code seller.approved}. */
+@Tag("TC-212")
 class SellerRoleHandlerTest {
 
     private SellerRoleTestKit kit;

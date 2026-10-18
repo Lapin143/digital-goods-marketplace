@@ -11,9 +11,11 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Шаблоны писем среза 1: поля подставляются, лишнего нет (шаг 8 Ф4, решения Р-3, Р-46, INV-44). */
+@Tag("TC-219")
 class LettersTest {
 
     private static final Pattern LEFTOVER = Pattern.compile("\\{[A-Za-z]+}");

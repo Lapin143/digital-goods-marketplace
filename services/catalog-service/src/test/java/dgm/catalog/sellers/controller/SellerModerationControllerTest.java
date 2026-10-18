@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.springframework.http.ResponseEntity;
@@ -38,6 +39,12 @@ import org.springframework.mock.web.MockHttpServletRequest;
 /**
  * Операции модератора по схемам SellerApplicationQueuePage, SellerApplicationCard и SellerApplication: разбор запроса, заголовки и ошибки.
  */
+@Tag("TC-208")
+@Tag("TC-210")
+@Tag("TC-211")
+@Tag("TC-213")
+@Tag("TC-214")
+@Tag("TC-215")
 class SellerModerationControllerTest {
 
     private static final String BASE = "/api/v1/staff/seller-applications";

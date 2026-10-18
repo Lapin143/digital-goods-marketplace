@@ -29,7 +29,7 @@ function screenFor(handler: Handler, id = 'p-1') {
   );
 }
 
-describe('карточка товара', () => {
+describe('карточка товара (TC-326)', () => {
   it('показывает название, цену, платформу, регионы и сколько можно заказать', async () => {
     const { calls } = screenFor(() => respond(200, product));
     expect(await screen.findByRole('heading', { level: 1, name: product.title })).toBeInTheDocument();

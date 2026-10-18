@@ -18,11 +18,16 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.EnumSet;
 import java.util.Set;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 /** SM-04: решения модератора T3, T4, T8 и допустимые пары статусов. */
+@Tag("TC-311")
+@Tag("TC-312")
+@Tag("TC-313")
+@Tag("TC-314")
 class ProductDecisionsTest {
 
     private static final Instant NOW = T0.plus(Duration.ofHours(5));

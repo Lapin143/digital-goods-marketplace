@@ -1,0 +1,212 @@
+{
+ "id": "CAT-01",
+ "title": "Витрина: список, поиск, фильтры и карточка по контракту, ошибки параметров (TC-318, TC-322, TC-323, TC-324)",
+ "steps": [
+  {
+   "name": "TC-322. Список витрины без токена: 200, публичный кэш на 30 секунд, лимит страницы в ответе",
+   "op": "listStorefrontProducts",
+   "as": "guest",
+   "query": {
+    "limit": "2"
+   },
+   "expect": 200,
+   "assert": [
+    {
+     "header": "Cache-Control",
+     "contains": "max-age=30"
+    },
+    {
+     "header": "Cache-Control",
+     "contains": "public"
+    },
+    {
+     "path": "page.limit",
+     "equals": 2
+    },
+    {
+     "path": "items",
+     "exists": true
+    }
+   ]
+  },
+  {
+   "name": "TC-322. Страница по умолчанию: лимит 20",
+   "op": "listStorefrontProducts",
+   "as": "buyer",
+   "expect": 200,
+   "assert": [
+    {
+     "path": "page.limit",
+     "equals": 20
+    }
+   ]
+  },
+  {
+   "name": "TC-322. Лимит 0: 422 validation-failed, ответ problem+json",
+   "op": "listStorefrontProducts",
+   "as": "guest",
+   "query": {
+    "limit": "0"
+   },
+   "expect": 422,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "validation-failed"
+    },
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-322. Лимит 101: 422 validation-failed",
+   "op": "listStorefrontProducts",
+   "as": "guest",
+   "query": {
+    "limit": "101"
+   },
+   "expect": 422,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "validation-failed"
+    }
+   ]
+  },
+  {
+   "name": "TC-324. Нижняя граница цены больше верхней: 422 validation-failed",
+   "op": "listStorefrontProducts",
+   "as": "guest",
+   "query": {
+    "priceFrom": "500000",
+    "priceTo": "100"
+   },
+   "expect": 422,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "validation-failed"
+    },
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-324. Неизвестный параметр: 422",
+   "op": "listStorefrontProducts",
+   "as": "guest",
+   "query": {
+    "color": "red"
+   },
+   "expect": 422,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "validation-failed"
+    }
+   ]
+  },
+  {
+   "name": "TC-324. Регион строчными буквами: 422",
+   "op": "listStorefrontProducts",
+   "as": "guest",
+   "query": {
+    "region": "ru"
+   },
+   "expect": 422,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "validation-failed"
+    }
+   ]
+  },
+  {
+   "name": "TC-324. Неизвестный тип товара: 422",
+   "op": "listStorefrontProducts",
+   "as": "guest",
+   "query": {
+    "productType": "toaster"
+   },
+   "expect": 422,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "validation-failed"
+    }
+   ]
+  },
+  {
+   "name": "TC-324. Тип, платформа, регион и цена вместе: 200",
+   "op": "listStorefrontProducts",
+   "as": "guest",
+   "query": {
+    "productType": "game_key,gift_card",
+    "platform": "Steam",
+    "region": "RU",
+    "priceFrom": "100",
+    "priceTo": "500000"
+   },
+   "expect": 200,
+   "assert": [
+    {
+     "path": "items",
+     "exists": true
+    }
+   ]
+  },
+  {
+   "name": "TC-323. Поиск по части названия, под которую ничего не подходит: 200 и пустой список",
+   "op": "listStorefrontProducts",
+   "as": "guest",
+   "query": {
+    "q": "такого-товара-нет-ни-у-кого-0123456789"
+   },
+   "expect": 200,
+   "assert": [
+    {
+     "path": "page.limit",
+     "equals": 20
+    }
+   ]
+  },
+  {
+   "name": "TC-318. Неизвестный товар: 404 not-found, ответ problem+json",
+   "op": "getStorefrontProduct",
+   "as": "guest",
+   "path": {
+    "productId": "00000000-0000-4000-8000-000000000000"
+   },
+   "expect": 404,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "not-found"
+    },
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-318. Идентификатор не UUID: 400",
+   "op": "getStorefrontProduct",
+   "as": "guest",
+   "path": {
+    "productId": "not-a-uuid"
+   },
+   "expect": 400,
+   "assert": [
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  }
+ ]
+}

@@ -8,11 +8,13 @@ import dgm.catalog.sellers.domain.SellerProfile;
 import dgm.catalog.sellers.domain.SellerStatus;
 import java.time.Instant;
 import java.util.UUID;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 /** Интерфейс {@code ApprovedSellers} модуля sellers для условия U3: «одобрен» значит только статус approved. */
+@Tag("TC-303")
 class ApprovedSellerDirectoryTest {
 
     private static final Instant NOW = Instant.parse("2026-10-03T12:00:00Z");

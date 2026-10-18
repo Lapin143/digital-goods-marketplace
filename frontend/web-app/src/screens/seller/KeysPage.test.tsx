@@ -42,7 +42,7 @@ function value(label: string): string | null | undefined {
   return screen.getByText(label).nextElementSibling?.textContent;
 }
 
-describe('остаток', () => {
+describe('остаток (TC-413)', () => {
   it('показывает свободные, резерв, выданные и размер пула', async () => {
     renderScreen(SCREEN, { route: ROUTE, handler: server() });
     expect(await screen.findByText(t('keys.stock.available'))).toBeInTheDocument();
@@ -66,7 +66,7 @@ describe('остаток', () => {
   });
 });
 
-describe('загрузка ключей списком', () => {
+describe('загрузка ключей списком (TC-413)', () => {
   it('ключи уходят одним запросом с Idempotency-Key, поле очищается, в отчёте только номера строк и причины', async () => {
     const user = userEvent.setup();
     const { calls } = renderScreen(SCREEN, { route: ROUTE, handler: server({ [BATCH]: () => respond(200, REPORT) }) });
@@ -203,7 +203,7 @@ describe('загрузка ключей списком', () => {
   });
 });
 
-describe('загрузка ключей файлом CSV', () => {
+describe('загрузка ключей файлом CSV (TC-413)', () => {
   function csv(name = 'keys.csv', size = 64): File {
     const file = new File(['KEY-1\nKEY-2\n'], name, { type: 'text/csv' });
     Object.defineProperty(file, 'size', { value: size });

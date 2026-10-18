@@ -47,7 +47,7 @@ function server(state: { current: ReturnType<typeof application> | undefined; et
   };
 }
 
-describe('заявка продавца: анкета', () => {
+describe('заявка продавца: анкета (TC-221)', () => {
   it('пустая анкета на проверку не уходит: ошибки у полей, запросов кроме загрузки заявки нет', async () => {
     const user = userEvent.setup();
     const { calls } = renderScreen(<ApplicationPage />, { handler: server({ current: undefined }) });
@@ -124,7 +124,7 @@ describe('заявка продавца: анкета', () => {
   });
 });
 
-describe('заявка продавца: отправка на проверку', () => {
+describe('заявка продавца: отправка на проверку (TC-221)', () => {
   const READY = application({ ...FULL_FORM, documents: [DOCUMENT] });
 
   it('полная заявка уходит на проверку без лишнего сохранения, затем показывается срок', async () => {
@@ -225,7 +225,7 @@ describe('заявка продавца: отправка на проверку'
   });
 });
 
-describe('заявка продавца: статусы', () => {
+describe('заявка продавца: статусы (TC-221)', () => {
   it('возвращена на доработку: комментарий модератора, поля открыты', async () => {
     renderScreen(<ApplicationPage />, {
       handler: server({ current: application({ ...FULL_FORM, status: 'returned', decisionReason: 'Нужен скан паспорта' }) }),
@@ -266,7 +266,7 @@ describe('заявка продавца: статусы', () => {
   });
 });
 
-describe('заявка продавца: документы', () => {
+describe('заявка продавца: документы (TC-221)', () => {
   function pdf(name = 'passport.pdf', size = 1024): File {
     const file = new File(['x'], name, { type: 'application/pdf' });
     Object.defineProperty(file, 'size', { value: size });

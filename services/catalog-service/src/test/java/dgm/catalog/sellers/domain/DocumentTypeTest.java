@@ -5,9 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Тип документа определяется по первым байтам файла, а не по имени и не по заявленному типу. */
+@Tag("TC-206")
 class DocumentTypeTest {
 
     private static byte[] withTail(byte[] head) {

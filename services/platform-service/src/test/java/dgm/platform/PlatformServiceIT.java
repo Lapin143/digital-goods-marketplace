@@ -1071,6 +1071,7 @@ class PlatformServiceIT {
 
     @Test
     @Order(23)
+    @Tag("TC-219")
     void decisionsOnTheSellerApplicationGiveTheApplicantThreeLettersWithTheModeratorText() throws Exception {
         KeycloakStub.User applicant = provisioned("buyer");
         UUID user = UUID.fromString(applicant.id);
@@ -1178,6 +1179,7 @@ class PlatformServiceIT {
 
     @Test
     @Order(27)
+    @Tag("TC-220")
     void letterForARecipientWhoIsGoneIsDroppedWithoutAnEvent() throws Exception {
         UUID nobody = UUID.randomUUID();
 
@@ -1197,6 +1199,7 @@ class PlatformServiceIT {
     @Tag("ST-13")
     @Test
     @Order(28)
+    @Tag("TC-212")
     void approvedBuyerBecomesSellerWithTheProfileOneRoleEventOneAuditAndTotpInKeycloak() throws Exception {
         KeycloakStub.User applicant = provisioned("buyer");
         UUID user = UUID.fromString(applicant.id);

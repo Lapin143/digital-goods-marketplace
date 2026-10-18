@@ -101,7 +101,7 @@ def storage_path(url):
 
 # --------------------------------------------------------------------------------------------------- проверки
 def application_checks(token):
-    print('== Заявка: черновик, ETag, подача (US-2.1; SM-05, T1 и T2)')
+    print('== Заявка: черновик, ETag, подача (US-2.1; SM-05, T1 и T2; TC-201, TC-202, TC-203, TC-204, TC-205)')
     none = G.call('GET', CURRENT, headers=auth(token))
     expect('до создания заявки профиля нет: 404', none.status == 404, none.text[:200])
 
@@ -126,7 +126,7 @@ def application_checks(token):
 
 
 def document_checks(token):
-    print('== Документы: загрузка через шлюз, отказы по типу и размеру')
+    print('== Документы: загрузка через шлюз, отказы по типу и размеру (TC-206)')
     content = pdf(4096)
     uploaded = upload(token, 'справка.pdf', content)
     ok = uploaded.status == 201 and uploaded.json().get('contentType') == 'application/pdf' and uploaded.json().get('sizeBytes') == len(content)
@@ -152,7 +152,7 @@ def document_checks(token):
 
 
 def link_checks(token, document_id, content):
-    print('== Ссылка на документ: открывается через /files шлюза, только скачать (Р-23, T-36)')
+    print('== Ссылка на документ: открывается через /files шлюза, только скачать (Р-23, T-36; TC-207)')
     issued = G.call('GET', '%s/documents/%s/link' % (CURRENT, document_id), headers=auth(token))
     body = issued.json() if issued.status == 200 else {}
     url = body.get('url', '')
@@ -181,7 +181,7 @@ def link_checks(token, document_id, content):
 
 
 def removal_checks(token, document_id, path):
-    print('== Удаление документа и подача заявки')
+    print('== Удаление документа и подача заявки (TC-207)')
     removed = G.call('DELETE', '%s/documents/%s' % (CURRENT, document_id), headers=auth(token))
     expect('документ удалён: 204', removed.status == 204, '%s %s' % (removed.status, removed.text[:200]))
     again = G.call('DELETE', '%s/documents/%s' % (CURRENT, document_id), headers=auth(token))

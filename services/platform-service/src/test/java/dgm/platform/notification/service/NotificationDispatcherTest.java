@@ -21,12 +21,14 @@ import java.time.ZoneId;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
  * Отправитель уведомлений: адрес берётся у identity в момент отправки, повторы 1, 5, 25 секунд, {@code notification.failed} после
  * исчерпания попыток и при отказе провайдера, аренда письма на время отправки (шаг 8 Ф4, решения Р-46 – Р-49).
  */
+@Tag("TC-220")
 class NotificationDispatcherTest {
 
     private static final UUID USER = UUID.fromString("0199e0a0-0000-4000-8000-0000000000b1");

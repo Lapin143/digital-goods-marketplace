@@ -20,9 +20,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Обработчик решений по заявке продавца: событие catalog-service превращается в письмо заявителю (FT-2.2, шаг 8 Ф4). */
+@Tag("TC-219")
 class SellerDecisionHandlerTest {
 
     private static final UUID USER = UUID.fromString("0199e0a0-0000-4000-8000-0000000000b1");

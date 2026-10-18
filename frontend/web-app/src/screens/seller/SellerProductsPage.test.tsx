@@ -31,7 +31,7 @@ function item(index: number, overrides: Record<string, unknown> = {}) {
 
 const page = (items: unknown[], nextCursor: string | null = null) => respond(200, { items, page: { limit: 20, nextCursor } });
 
-describe('товары продавца: список', () => {
+describe('товары продавца: список (TC-327)', () => {
   it('строки таблицы со ссылкой на правку, типом, ценой и статусом', async () => {
     const { calls } = renderScreen(<SellerProductsPage />, { handler: () => page([item(1), item(2, { status: 'on_moderation' })]) });
     const table = await screen.findByRole('table');

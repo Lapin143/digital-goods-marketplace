@@ -185,6 +185,7 @@ class SellerModerationIT extends CatalogStandIT {
     // ---------------------------------------------------------------- очередь и карточка
 
     @Test
+    @Tag("TC-208")
     void queueListsOnlySubmittedApplicationsOldestFirstWithTheirDeadlines() throws IOException {
         Applicant older = onReview();
         Applicant newer = onReview();
@@ -215,6 +216,7 @@ class SellerModerationIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-210")
     void cardShowsTheFormAndDocumentLinksThatOpenTheStoredFileAndNothingChanges() throws Exception {
         Applicant a = onReview();
         long outboxBefore = db.queryForObject("select count(*) from public.outbox where aggregate_id = ?", Long.class, a.sellerId);
@@ -244,6 +246,8 @@ class SellerModerationIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-208")
+    @Tag("TC-210")
     void draftAndUnknownApplicationsAreNotFoundForTheModerator() throws IOException {
         Applicant notSubmitted = draft();
 
@@ -261,6 +265,8 @@ class SellerModerationIT extends CatalogStandIT {
 
     @Tag("TC-013")
     @Test
+    @Tag("TC-211")
+    @Tag("TC-213")
     void approvalWritesExactlyOneEventAndOneAuditRecordAndRepeatingItChangesNothing() throws IOException {
         Applicant a = onReview();
         String idempotencyKey = key();
@@ -302,6 +308,7 @@ class SellerModerationIT extends CatalogStandIT {
 
     @Tag("TC-013")
     @Test
+    @Tag("TC-214")
     void rejectionNeedsAReasonStartsThePauseAndWritesTheReasonIntoEventAndAudit() throws IOException {
         Applicant a = onReview();
         String reason = "Документы не читаются " + UUID.randomUUID();
@@ -335,6 +342,7 @@ class SellerModerationIT extends CatalogStandIT {
 
     @Tag("TC-013")
     @Test
+    @Tag("TC-215")
     void returnNeedsACommentLeavesNoPauseAndTheApplicantResubmits() throws IOException {
         Applicant a = onReview();
         String comment = "Уточните реквизиты " + UUID.randomUUID();
@@ -362,6 +370,8 @@ class SellerModerationIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-209")
+    @Tag("TC-213")
     void overdueApplicationCanStillBeDecidedAndNobodyDecidesItTwice() throws IOException {
         Applicant a = onReview();
         Instant submittedAt = Instant.now().minus(Duration.ofDays(4));
@@ -378,6 +388,7 @@ class SellerModerationIT extends CatalogStandIT {
     // ---------------------------------------------------------------- откат решения
 
     @Test
+    @Tag("TC-211")
     void failureWhileWritingTheAuditRecordRollsBackTheDecisionAndTheEvent() throws IOException {
         Applicant a = onReview();
         Integer versionBefore = db.queryForObject("select version from seller_onboarding.seller_profile where id = ?::uuid", Integer.class, a.sellerId);
@@ -428,6 +439,7 @@ class SellerModerationIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-217")
     void everyModerationOperationRefusesCallersWithoutTheRight() throws IOException {
         String noScope = TOKENS.token().subject(MODERATOR.toString()).scopes("seller.apply").roles("moderator").amr("pwd", "otp").build();
         String buyer = TOKENS.token().scopes("staff.moderation").roles("buyer").amr("pwd").build();

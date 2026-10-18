@@ -18,9 +18,11 @@ import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Кэш карточки витрины: порядок «кэш, база», срок жизни, сброс и работа без Redis (NFT-1.0). */
+@Tag("TC-319")
 class StorefrontProductServiceTest {
 
     private static final UUID SELLER = UUID.fromString("00000000-0000-4000-8000-0000000000aa");

@@ -32,8 +32,18 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+@Tag("TC-301")
+@Tag("TC-303")
+@Tag("TC-304")
+@Tag("TC-305")
+@Tag("TC-306")
+@Tag("TC-308")
+@Tag("TC-309")
+@Tag("TC-317")
+@Tag("TC-319")
 class SellerProductServiceTest {
 
     private ManualClock clock;

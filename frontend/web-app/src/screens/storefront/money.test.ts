@@ -6,7 +6,7 @@ function plain(text: string): string {
   return text.replace(/[\s\u00a0\u202f]/g, ' ');
 }
 
-describe('формат суммы', () => {
+describe('формат суммы (TC-326)', () => {
   it('целые рубли без копеек, с разделителем тысяч', () => {
     expect(plain(formatMoney({ amount: 149900, currency: 'RUB' }))).toBe('1 499 ₽');
   });
@@ -21,7 +21,7 @@ describe('формат суммы', () => {
   });
 });
 
-describe('рубли из поля ввода', () => {
+describe('рубли из поля ввода (TC-326)', () => {
   it('целое, запятая и точка, пробелы внутри числа', () => {
     expect(parseRubles('1499')).toEqual({ kind: 'value', kopecks: 149900 });
     expect(parseRubles('1 499,5')).toEqual({ kind: 'value', kopecks: 149950 });

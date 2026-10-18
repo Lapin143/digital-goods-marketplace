@@ -34,11 +34,16 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 /** Пять операций модератора по схемам SellerProduct и ModerationQueuePage: заголовки, тело решения, параметры очереди и ошибки. */
+@Tag("TC-310")
+@Tag("TC-311")
+@Tag("TC-312")
+@Tag("TC-313")
 class ProductModerationControllerTest {
 
     private static final String BASE = "/api/v1/staff/products";

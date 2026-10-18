@@ -15,9 +15,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Контроль срока рассмотрения: пометка просрочки один раз, статус не меняется, решения по таймеру нет (BG-05). */
+@Tag("TC-209")
 class ModerationDeadlineJobTest {
 
     private static final Instant T0 = Instant.parse("2026-10-03T12:00:00Z");

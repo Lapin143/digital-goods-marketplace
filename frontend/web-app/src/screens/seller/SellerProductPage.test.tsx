@@ -61,7 +61,7 @@ async function fillNew(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText(t('seller.product.price')), '1499,50');
 }
 
-describe('товар продавца: создание', () => {
+describe('товар продавца: создание (TC-327)', () => {
   it('пустая форма не уходит: ошибки у обязательных полей, запросов нет', async () => {
     const user = userEvent.setup();
     const { calls } = renderScreen(SCREEN, { route: '/seller/products/new' });
@@ -146,7 +146,7 @@ describe('товар продавца: создание', () => {
   });
 });
 
-describe('товар продавца: правка', () => {
+describe('товар продавца: правка (TC-327)', () => {
   it('правка уходит с If-Match из ETag', async () => {
     const user = userEvent.setup();
     const handler = server(
@@ -233,7 +233,7 @@ describe('товар продавца: правка', () => {
   });
 });
 
-describe('товар продавца: переходы статуса', () => {
+describe('товар продавца: переходы статуса (TC-327)', () => {
   it('«Отправить на модерацию»: POST с Idempotency-Key, статус обновляется', async () => {
     const user = userEvent.setup();
     const state = { current: product() };

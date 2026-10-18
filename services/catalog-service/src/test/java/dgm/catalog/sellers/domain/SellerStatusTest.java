@@ -12,6 +12,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -20,6 +21,8 @@ import org.junit.jupiter.params.provider.EnumSource;
  * Модель SM-05 (docs/03-processes/SM-05-seller-profile.md): каждая пара статусов проверяется отдельно, разрешённые переходы это
  * ровно T2 … T7, и список совпадает с триггером в миграции базы.
  */
+@Tag("TC-205")
+@Tag("TC-211")
 class SellerStatusTest {
 
     private static final Set<String> ALLOWED = Set.of("draft>on_review", "on_review>approved", "on_review>rejected", "on_review>returned",

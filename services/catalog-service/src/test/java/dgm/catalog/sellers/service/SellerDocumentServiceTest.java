@@ -27,11 +27,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 /** Документы заявки: тип по содержимому, размер, предел количества, порядок записи в базу и хранилище, ссылка на 5 минут. */
+@Tag("TC-205")
+@Tag("TC-206")
+@Tag("TC-207")
 class SellerDocumentServiceTest {
 
     private static final Instant T0 = Instant.parse("2026-10-03T12:00:00Z");

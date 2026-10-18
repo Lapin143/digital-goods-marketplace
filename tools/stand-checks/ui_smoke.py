@@ -180,7 +180,7 @@ def prepare(kc, admin, moderator, stamp):
 
 # --------------------------------------------------------------------------------------------------- сценарии
 def moderator_scenario(browser, kc, admin, user, moderator, data):
-    print('== Модератор в браузере: вход с TOTP, решения по заявке и товарам (К4, US-2.2, US-3.3, ST-13)')
+    print('== Модератор в браузере: вход с TOTP, решения по заявке и товарам (К4, US-2.2, US-3.3, ST-13; TC-222, TC-328)')
     context = browser.new_context(ignore_https_errors=True, locale='ru-RU', timezone_id='Europe/Moscow')
     context.set_default_timeout(TIMEOUT)
     page = context.new_page()
@@ -231,7 +231,7 @@ def moderator_scenario(browser, kc, admin, user, moderator, data):
 
 
 def guest_scenario(browser, data):
-    print('== Гость без входа: витрина находит опубликованный товар (К4, US-3.3 – US-3.5)')
+    print('== Гость без входа: витрина находит опубликованный товар (К4, US-3.3 – US-3.5; TC-326)')
     context = browser.new_context(ignore_https_errors=True, locale='ru-RU', timezone_id='Europe/Moscow')
     context.set_default_timeout(TIMEOUT)
     page = context.new_page()

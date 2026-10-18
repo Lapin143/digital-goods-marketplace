@@ -1,0 +1,579 @@
+{
+ "id": "MOD-01",
+ "title": "Заявки и товары: решения только у модератора, кабинет товаров только у одобренного продавца, ответ об отказе устроен по контракту (TC-217, TC-303, TC-315; ST-02, ST-13)",
+ "steps": [
+  {
+   "name": "TC-217. Очередь заявок без токена: 401 unauthenticated",
+   "op": "listSellerApplicationQueue",
+   "as": "guest",
+   "expect": 401,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "unauthenticated"
+    },
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-217. Очередь заявок покупателю: 403 forbidden",
+   "op": "listSellerApplicationQueue",
+   "as": "buyer",
+   "expect": 403,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "forbidden"
+    },
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-217. Очередь заявок продавцу: 403 forbidden",
+   "op": "listSellerApplicationQueue",
+   "as": "seller",
+   "expect": 403,
+   "assert": [
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-217. Очередь заявок оператору поддержки: 403 forbidden",
+   "op": "listSellerApplicationQueue",
+   "as": "support-operator",
+   "expect": 403,
+   "assert": [
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-217. Очередь заявок администратору: 403 forbidden",
+   "op": "listSellerApplicationQueue",
+   "as": "admin",
+   "expect": 403,
+   "assert": [
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-217. Карточка заявки покупателю: 403 forbidden",
+   "op": "getSellerApplicationCard",
+   "as": "buyer",
+   "path": {
+    "sellerId": "00000000-0000-4000-8000-000000000000"
+   },
+   "expect": 403,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "forbidden"
+    },
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-217. Одобрение заявки продавцом: 403 forbidden",
+   "op": "approveSellerApplication",
+   "as": "seller",
+   "path": {
+    "sellerId": "00000000-0000-4000-8000-000000000000"
+   },
+   "expect": 403,
+   "assert": [
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-217. Отказ по заявке покупателем: 403 forbidden",
+   "op": "rejectSellerApplication",
+   "as": "buyer",
+   "path": {
+    "sellerId": "00000000-0000-4000-8000-000000000000"
+   },
+   "body": {
+    "reason": "Newman"
+   },
+   "expect": 403,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "forbidden"
+    },
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-217. Возврат заявки оператором поддержки: 403 forbidden",
+   "op": "returnSellerApplication",
+   "as": "support-operator",
+   "path": {
+    "sellerId": "00000000-0000-4000-8000-000000000000"
+   },
+   "body": {
+    "comment": "Newman"
+   },
+   "expect": 403,
+   "assert": [
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-217. Модератор открывает очередь заявок: 200",
+   "op": "listSellerApplicationQueue",
+   "as": "moderator",
+   "expect": 200,
+   "assert": [
+    {
+     "path": "items",
+     "exists": true
+    },
+    {
+     "header": "Cache-Control",
+     "contains": "no-store"
+    }
+   ]
+  },
+  {
+   "name": "TC-217. Карточка несуществующей заявки у модератора: 404 not-found",
+   "op": "getSellerApplicationCard",
+   "as": "moderator",
+   "path": {
+    "sellerId": "00000000-0000-4000-8000-000000000000"
+   },
+   "expect": 404,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "not-found"
+    },
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-303. Создание товара без токена: 401 unauthenticated",
+   "op": "createSellerProduct",
+   "as": "guest",
+   "body": {
+    "title": "Newman: товар",
+    "description": "Проверка прав",
+    "productType": "game_key",
+    "platform": "Steam",
+    "activationRegions": [
+     "RU"
+    ],
+    "price": {
+     "amount": 149900,
+     "currency": "RUB"
+    },
+    "issuanceMethod": "key_pool"
+   },
+   "expect": 401,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "unauthenticated"
+    },
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-303. Создание товара продавцом без профиля (в токене нет seller_id): 403 forbidden",
+   "op": "createSellerProduct",
+   "as": "seller",
+   "body": {
+    "title": "Newman: товар",
+    "description": "Проверка прав",
+    "productType": "game_key",
+    "platform": "Steam",
+    "activationRegions": [
+     "RU"
+    ],
+    "price": {
+     "amount": 149900,
+     "currency": "RUB"
+    },
+    "issuanceMethod": "key_pool"
+   },
+   "expect": 403,
+   "assert": [
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-303. Создание товара покупателем: 403 forbidden",
+   "op": "createSellerProduct",
+   "as": "buyer",
+   "body": {
+    "title": "Newman: товар",
+    "description": "Проверка прав",
+    "productType": "game_key",
+    "platform": "Steam",
+    "activationRegions": [
+     "RU"
+    ],
+    "price": {
+     "amount": 149900,
+     "currency": "RUB"
+    },
+    "issuanceMethod": "key_pool"
+   },
+   "expect": 403,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "forbidden"
+    },
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-303. Создание товара модератором: 403 forbidden",
+   "op": "createSellerProduct",
+   "as": "moderator",
+   "body": {
+    "title": "Newman: товар",
+    "description": "Проверка прав",
+    "productType": "game_key",
+    "platform": "Steam",
+    "activationRegions": [
+     "RU"
+    ],
+    "price": {
+     "amount": 149900,
+     "currency": "RUB"
+    },
+    "issuanceMethod": "key_pool"
+   },
+   "expect": 403,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "forbidden"
+    },
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-303. Создание товара администратором: 403 forbidden",
+   "op": "createSellerProduct",
+   "as": "admin",
+   "body": {
+    "title": "Newman: товар",
+    "description": "Проверка прав",
+    "productType": "game_key",
+    "platform": "Steam",
+    "activationRegions": [
+     "RU"
+    ],
+    "price": {
+     "amount": 149900,
+     "currency": "RUB"
+    },
+    "issuanceMethod": "key_pool"
+   },
+   "expect": 403,
+   "assert": [
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-303. Список товаров продавцом без профиля: 403 forbidden",
+   "op": "listSellerProducts",
+   "as": "seller",
+   "expect": 403,
+   "assert": [
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-303. Список товаров оператором поддержки: 403 forbidden",
+   "op": "listSellerProducts",
+   "as": "support-operator",
+   "expect": 403,
+   "assert": [
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-303. Товар продавца читает покупатель: 403 forbidden",
+   "op": "getSellerProduct",
+   "as": "buyer",
+   "path": {
+    "productId": "00000000-0000-4000-8000-000000000000"
+   },
+   "expect": 403,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "forbidden"
+    },
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-303. Подача чужого товара на модерацию администратором: 403 forbidden",
+   "op": "submitSellerProduct",
+   "as": "admin",
+   "path": {
+    "productId": "00000000-0000-4000-8000-000000000000"
+   },
+   "expect": 403,
+   "assert": [
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-315. Очередь товаров без токена: 401 unauthenticated",
+   "op": "listProductModerationQueue",
+   "as": "guest",
+   "expect": 401,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "unauthenticated"
+    },
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-315. Очередь товаров покупателю: 403 forbidden",
+   "op": "listProductModerationQueue",
+   "as": "buyer",
+   "expect": 403,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "forbidden"
+    },
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-315. Очередь товаров продавцу: 403 forbidden",
+   "op": "listProductModerationQueue",
+   "as": "seller",
+   "expect": 403,
+   "assert": [
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-315. Очередь товаров оператору поддержки: 403 forbidden",
+   "op": "listProductModerationQueue",
+   "as": "support-operator",
+   "expect": 403,
+   "assert": [
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-315. Очередь товаров администратору: 403 forbidden",
+   "op": "listProductModerationQueue",
+   "as": "admin",
+   "expect": 403,
+   "assert": [
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-315. Карточка товара на модерации покупателю: 403 forbidden",
+   "op": "getProductForModeration",
+   "as": "buyer",
+   "path": {
+    "productId": "00000000-0000-4000-8000-000000000000"
+   },
+   "expect": 403,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "forbidden"
+    },
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-315. Одобрение товара без токена: 401 unauthenticated",
+   "op": "approveProduct",
+   "as": "guest",
+   "path": {
+    "productId": "00000000-0000-4000-8000-000000000000"
+   },
+   "expect": 401,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "unauthenticated"
+    },
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-315. Одобрение товара продавцом: 403 forbidden",
+   "op": "approveProduct",
+   "as": "seller",
+   "path": {
+    "productId": "00000000-0000-4000-8000-000000000000"
+   },
+   "expect": 403,
+   "assert": [
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-315. Отклонение товара покупателем: 403 forbidden",
+   "op": "rejectProduct",
+   "as": "buyer",
+   "path": {
+    "productId": "00000000-0000-4000-8000-000000000000"
+   },
+   "body": {
+    "reason": "Newman"
+   },
+   "expect": 403,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "forbidden"
+    },
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-315. Блокировка товара оператором поддержки: 403 forbidden",
+   "op": "blockProduct",
+   "as": "support-operator",
+   "path": {
+    "productId": "00000000-0000-4000-8000-000000000000"
+   },
+   "body": {
+    "reason": "Newman"
+   },
+   "expect": 403,
+   "assert": [
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "TC-315. Модератор открывает очередь товаров: 200, ответ не кэшируется",
+   "op": "listProductModerationQueue",
+   "as": "moderator",
+   "expect": 200,
+   "assert": [
+    {
+     "path": "items",
+     "exists": true
+    },
+    {
+     "header": "Cache-Control",
+     "contains": "no-store"
+    }
+   ]
+  },
+  {
+   "name": "TC-315. Карточка несуществующего товара у модератора: 404 not-found",
+   "op": "getProductForModeration",
+   "as": "moderator",
+   "path": {
+    "productId": "00000000-0000-4000-8000-000000000000"
+   },
+   "expect": 404,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "not-found"
+    },
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  }
+ ]
+}

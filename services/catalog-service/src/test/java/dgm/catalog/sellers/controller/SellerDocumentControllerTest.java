@@ -20,12 +20,16 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 /** Операции с документами заявки по схемам SellerDocument и DocumentLink: форма multipart, ответы и ошибки. */
+@Tag("TC-205")
+@Tag("TC-206")
+@Tag("TC-207")
 class SellerDocumentControllerTest {
 
     private static final String BOUNDARY = "----dgmBoundary7MA4YWxk";

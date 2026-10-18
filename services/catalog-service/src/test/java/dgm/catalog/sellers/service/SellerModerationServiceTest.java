@@ -33,12 +33,19 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
  * Решения модератора и очередь без базы и с управляемыми часами: каждое решение пишет изменение профиля, событие и запись аудита вместе,
  * повторное решение отклоняется 409, черновик для модератора не существует, очередь идёт от старых заявок к новым.
  */
+@Tag("TC-208")
+@Tag("TC-210")
+@Tag("TC-211")
+@Tag("TC-213")
+@Tag("TC-214")
+@Tag("TC-215")
 class SellerModerationServiceTest {
 
     private static final Instant T0 = Instant.parse("2026-10-03T12:00:00Z");

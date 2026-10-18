@@ -18,6 +18,7 @@ import dgm.kit.problem.ProblemAdvice;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -25,6 +26,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /** {@code getStorefrontProduct}: контракт карточки, ETag и 304, 404 для не опубликованного, предел количества в заказе. */
+@Tag("TC-318")
+@Tag("TC-319")
+@Tag("TC-320")
 class StorefrontProductControllerTest {
 
     private static final UUID SELLER = UUID.fromString("00000000-0000-4000-8000-0000000000aa");

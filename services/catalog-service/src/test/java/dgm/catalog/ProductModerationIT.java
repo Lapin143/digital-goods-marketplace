@@ -32,6 +32,7 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -235,6 +236,7 @@ class ProductModerationIT extends CatalogStandIT {
     // ---------------------------------------------------------------- очередь и карточка
 
     @Test
+    @Tag("TC-310")
     void theQueueAndTheCardShowOnlyProductsTheSellerSubmitted() throws IOException {
         Seller seller = new Seller();
         String title = uniqueTitle();
@@ -267,6 +269,7 @@ class ProductModerationIT extends CatalogStandIT {
     // ---------------------------------------------------------------- одобрить и витрина
 
     @Test
+    @Tag("TC-311")
     void approvePublishesTheProductWithOneEventOneAuditRecordAndTheStorefrontShowsIt() throws IOException {
         Seller seller = new Seller();
         String title = uniqueTitle();
@@ -309,6 +312,8 @@ class ProductModerationIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-318")
+    @Tag("TC-319")
     void theStorefrontCardSupportsConditionalRequestsAndLivesInRedis() throws Exception {
         Seller seller = new Seller();
         String productId = queued(seller, uniqueTitle());
@@ -326,6 +331,7 @@ class ProductModerationIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-319")
     void aSellersPriceChangeDropsTheCachedCardSoTheStorefrontShowsTheNewPrice() throws Exception {
         Seller seller = new Seller();
         String title = uniqueTitle();
@@ -346,6 +352,7 @@ class ProductModerationIT extends CatalogStandIT {
     // ---------------------------------------------------------------- отклонить
 
     @Test
+    @Tag("TC-312")
     void rejectNeedsAReasonAndTheSellerSeesIt() throws IOException {
         Seller seller = new Seller();
         String productId = queued(seller, uniqueTitle());
@@ -378,6 +385,8 @@ class ProductModerationIT extends CatalogStandIT {
     // ---------------------------------------------------------------- заблокировать
 
     @Test
+    @Tag("TC-313")
+    @Tag("TC-314")
     void blockTakesThePublishedProductOffTheStorefrontAndTheSellerCanFixAndResubmit() throws Exception {
         Seller seller = new Seller();
         String title = uniqueTitle();
@@ -425,6 +434,7 @@ class ProductModerationIT extends CatalogStandIT {
     // ---------------------------------------------------------------- повтор и откат
 
     @Test
+    @Tag("TC-316")
     void theSameIdempotencyKeyGivesTheSameAnswerAndOneEvent() throws IOException {
         Seller seller = new Seller();
         String productId = queued(seller, uniqueTitle());
@@ -439,6 +449,7 @@ class ProductModerationIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-317")
     void aFailureWhileWritingTheAuditRecordRollsBackTheDecisionAndTheEvent() throws IOException {
         Seller seller = new Seller();
         String productId = queued(seller, uniqueTitle());
@@ -468,6 +479,7 @@ class ProductModerationIT extends CatalogStandIT {
     // ---------------------------------------------------------------- остаток из stock.changed
 
     @Test
+    @Tag("TC-321")
     void stockChangedUpdatesTheStorefrontAndAnOlderEventDoesNotRollItBack() throws Exception {
         Seller seller = new Seller();
         String productId = queued(seller, uniqueTitle());
@@ -496,6 +508,7 @@ class ProductModerationIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-321")
     void stockForAnUnknownProductIsIgnoredWithoutRetries() throws Exception {
         UUID event = publishStock(UUID.randomUUID().toString(), 5, Instant.now());
         assertTrue(await(Duration.ofSeconds(30), () -> handled(event)), "событие отмечено обработанным, в недоставленные оно не уходит");
@@ -522,6 +535,7 @@ class ProductModerationIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-315")
     void everyModerationOperationRefusesCallersWithoutTheRight() throws IOException {
         String noScope = TOKENS.token().subject(MODERATOR.toString()).scopes("seller.catalog").roles("moderator").amr("pwd", "otp").build();
         String buyer = TOKENS.token().scopes("staff.moderation").roles("buyer").amr("pwd").build();
@@ -550,6 +564,7 @@ class ProductModerationIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-318")
     void theStorefrontCardIsOpenToEveryone() throws IOException {
         String some = UUID.randomUUID().toString();
         String buyer = TOKENS.token().scopes("orders.read").roles("buyer").amr("pwd").build();

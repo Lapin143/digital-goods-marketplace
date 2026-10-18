@@ -21,6 +21,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -143,6 +144,7 @@ class SellerProductIT extends CatalogStandIT {
     // ---------------------------------------------------------------- создание и чтение
 
     @Test
+    @Tag("TC-301")
     void createStoresADraftAndWritesProductCreatedOnce() throws IOException {
         Seller seller = new Seller(true);
         Response created = create(seller, INPUT);
@@ -169,6 +171,7 @@ class SellerProductIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-316")
     void theSameIdempotencyKeyRepeatsTheAnswerAndCreatesNoSecondProduct() throws IOException {
         Seller seller = new Seller(true);
         String[] headers = with(seller.auth, "Idempotency-Key", key());
@@ -184,6 +187,7 @@ class SellerProductIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-304")
     void getReturnsTheCardWithEtagAndListShowsTheProductFirst() throws IOException {
         Seller seller = new Seller(true);
         String older = createdId(seller);
@@ -203,6 +207,7 @@ class SellerProductIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-304")
     void listPagesAndFiltersByStatusAndShowsOnlyOwnProducts() throws IOException {
         Seller seller = new Seller(true);
         Seller other = new Seller(true);
@@ -236,6 +241,7 @@ class SellerProductIT extends CatalogStandIT {
     // ---------------------------------------------------------------- проверки входа
 
     @Test
+    @Tag("TC-302")
     void invalidInputIs422WithEveryFieldNamedAndNothingIsWritten() throws IOException {
         Seller seller = new Seller(true);
         long before = outboxCount(seller.sellerId.toString());
@@ -255,6 +261,7 @@ class SellerProductIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-303")
     void aSellerWhoIsNotApprovedOrHasNoProfileInTheTokenGets403() throws IOException {
         Seller notApproved = new Seller(false);
         Response refused = create(notApproved, INPUT);
@@ -273,6 +280,7 @@ class SellerProductIT extends CatalogStandIT {
     // ---------------------------------------------------------------- правка и If-Match
 
     @Test
+    @Tag("TC-305")
     void editSavesInDraftAndNeedsIfMatch() throws IOException {
         Seller seller = new Seller(true);
         String productId = createdId(seller);
@@ -300,6 +308,7 @@ class SellerProductIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-305")
     void ofTwoParallelEditsWithTheSameVersionOneWinsAndTheOtherGets412() throws Exception {
         Seller seller = new Seller(true);
         String productId = createdId(seller);
@@ -331,6 +340,7 @@ class SellerProductIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-308")
     void editingThePublishedTitleReturnsTheProductToModerationButThePriceDoesNot() throws IOException {
         Seller seller = new Seller(true);
         String productId = createdId(seller);
@@ -361,6 +371,7 @@ class SellerProductIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-314")
     void aRejectedProductIsEditedAndResubmittedAndABlockedOneToo() throws IOException {
         Seller seller = new Seller(true);
         String rejected = createdId(seller);
@@ -396,6 +407,8 @@ class SellerProductIT extends CatalogStandIT {
     // ---------------------------------------------------------------- отправка, архив, восстановление
 
     @Test
+    @Tag("TC-306")
+    @Tag("TC-309")
     void submitArchiveAndRestoreFollowTheStatusMachineAndWriteOneEventEach() throws IOException {
         Seller seller = new Seller(true);
         String productId = createdId(seller);
@@ -431,6 +444,7 @@ class SellerProductIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-316")
     void theSameIdempotencyKeyOnSubmitRepeatsTheAnswerWithoutASecondEvent() throws IOException {
         Seller seller = new Seller(true);
         String productId = createdId(seller);
@@ -448,6 +462,7 @@ class SellerProductIT extends CatalogStandIT {
     // ---------------------------------------------------------------- откат и чужой товар
 
     @Test
+    @Tag("TC-317")
     void failureWhileWritingTheEventRollsBackTheEditAndTheStatusChange() throws IOException {
         Seller seller = new Seller(true);
         String productId = createdId(seller);
@@ -478,6 +493,7 @@ class SellerProductIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-304")
     void aForeignProductIsIndistinguishableFromAMissingOne() throws IOException {
         Seller owner = new Seller(true);
         Seller stranger = new Seller(true);
@@ -525,6 +541,7 @@ class SellerProductIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-303")
     void everySellerOperationRefusesCallersWithoutTheRight() throws IOException {
         String sellerId = UUID.randomUUID().toString();
         String noScope = TOKENS.token().scopes("seller.apply").roles("seller").amr("pwd", "otp").sellerId(sellerId).build();

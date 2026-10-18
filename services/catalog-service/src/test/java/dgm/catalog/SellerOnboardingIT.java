@@ -37,6 +37,7 @@ import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocket;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -192,6 +193,8 @@ class SellerOnboardingIT extends CatalogStandIT {
     // ---------------------------------------------------------------- жизненный цикл анкеты
 
     @Test
+    @Tag("TC-201")
+    @Tag("TC-203")
     void applicationGoesFromDraftToReviewWithEtagAndDeadline() throws IOException {
         Applicant a = new Applicant();
         assertEquals(404, current(a).status(), "профиля ещё нет");
@@ -248,6 +251,7 @@ class SellerOnboardingIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-204")
     void submitListsEveryMissingField() throws IOException {
         Applicant a = new Applicant();
         assertEquals(201, create(a, "{\"name\":\"Студия\"}").status());
@@ -263,6 +267,7 @@ class SellerOnboardingIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-202")
     void invalidFormIsRefusedWithPointers() throws IOException {
         Applicant a = new Applicant();
         Response wrongFormat = create(a, """
@@ -284,6 +289,7 @@ class SellerOnboardingIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-201")
     void sameIdempotencyKeyRepeatsTheFirstAnswer() throws IOException {
         Applicant a = new Applicant();
         String same = key();
@@ -304,6 +310,7 @@ class SellerOnboardingIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-201")
     void nobodyElseSeesOrChangesMyApplication() throws IOException {
         Applicant owner = new Applicant();
         Applicant stranger = new Applicant();
@@ -318,6 +325,7 @@ class SellerOnboardingIT extends CatalogStandIT {
     // ---------------------------------------------------------------- документы
 
     @Test
+    @Tag("TC-206")
     void typeIsTakenFromContentNotFromDeclaredHeaderOrName() throws IOException {
         Applicant a = new Applicant();
         assertEquals(201, create(a, "{}").status());
@@ -354,6 +362,7 @@ class SellerOnboardingIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-206")
     void sizeLimitIsTwoMegabytesExactly() throws IOException {
         Applicant a = new Applicant();
         assertEquals(201, create(a, "{}").status());
@@ -369,6 +378,7 @@ class SellerOnboardingIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-206")
     void eleventhDocumentIsRefusedAndDeletingFreesASlot() throws IOException {
         Applicant a = new Applicant();
         assertEquals(201, create(a, "{}").status());
@@ -394,6 +404,7 @@ class SellerOnboardingIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-207")
     void repeatedUploadWithTheSameKeyAddsOneDocument() throws IOException {
         Applicant a = new Applicant();
         assertEquals(201, create(a, "{}").status());
@@ -408,6 +419,7 @@ class SellerOnboardingIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-206")
     void uploadNeedsAMultipartFormWithOneFilePart() throws IOException {
         Applicant a = new Applicant();
         assertEquals(201, create(a, "{}").status());
@@ -430,6 +442,7 @@ class SellerOnboardingIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-205")
     void documentsAreOnlyAddedWhileTheApplicationIsEditable() throws IOException {
         Applicant a = new Applicant();
         String documentId = draftWithDocument(a);
@@ -446,6 +459,7 @@ class SellerOnboardingIT extends CatalogStandIT {
     // ---------------------------------------------------------------- ссылка на документ
 
     @Test
+    @Tag("TC-207")
     void documentLinkOpensTheStoredFileAndOnlyInTheFiveMinuteWindow() throws Exception {
         Applicant a = new Applicant();
         assertEquals(201, create(a, FORM).status());
@@ -483,6 +497,7 @@ class SellerOnboardingIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-207")
     void deletingADocumentRemovesTheFileFromStorage() throws Exception {
         Applicant a = new Applicant();
         String documentId = draftWithDocument(a);
@@ -499,6 +514,8 @@ class SellerOnboardingIT extends CatalogStandIT {
     // ---------------------------------------------------------------- отказ, пауза, доработка
 
     @Test
+    @Tag("TC-214")
+    @Tag("TC-216")
     void afterRejectionNewApplicationWaitsOutThePause() throws IOException {
         Applicant a = new Applicant();
         draftWithDocument(a);
@@ -546,6 +563,7 @@ class SellerOnboardingIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-216")
     void rejectedApplicationCanNotBeSubmittedWithoutEditing() throws IOException {
         Applicant a = new Applicant();
         draftWithDocument(a);
@@ -559,6 +577,7 @@ class SellerOnboardingIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-215")
     void returnedApplicationIsResubmittedWithoutPause() throws IOException {
         Applicant a = new Applicant();
         draftWithDocument(a);
@@ -585,6 +604,7 @@ class SellerOnboardingIT extends CatalogStandIT {
     // ---------------------------------------------------------------- срок рассмотрения
 
     @Test
+    @Tag("TC-209")
     void overdueApplicationIsMarkedOnceByTheJob() throws IOException {
         Applicant a = new Applicant();
         draftWithDocument(a);
@@ -606,6 +626,7 @@ class SellerOnboardingIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-209")
     void applicationInsideItsDeadlineIsNotMarked() throws IOException {
         Applicant a = new Applicant();
         draftWithDocument(a);
@@ -648,6 +669,7 @@ class SellerOnboardingIT extends CatalogStandIT {
     }
 
     @Test
+    @Tag("TC-217")
     void everyOperationRefusesCallersWithoutTheRight() throws IOException {
         String noScope = TOKENS.token().scopes("orders.read").roles("buyer").amr("pwd").build();
         String staff = TOKENS.token().scopes("seller.apply").roles("moderator").amr("pwd", "otp").build();

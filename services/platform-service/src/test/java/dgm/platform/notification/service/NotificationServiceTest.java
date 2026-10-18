@@ -15,9 +15,11 @@ import java.time.ZoneId;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Постановка уведомлений в очередь: проверка по шаблону, дедупликация по событию, адреса в очереди нет (INV-44, ADR-006). */
+@Tag("TC-220")
 class NotificationServiceTest {
 
     private static final UUID USER = UUID.fromString("0199e0a0-0000-4000-8000-0000000000b1");

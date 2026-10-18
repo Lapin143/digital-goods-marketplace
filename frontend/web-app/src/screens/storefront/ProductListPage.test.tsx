@@ -19,7 +19,7 @@ function params(call: { url: URL }): Record<string, string> {
   return Object.fromEntries(call.url.searchParams);
 }
 
-describe('каталог', () => {
+describe('каталог (TC-326)', () => {
   it('показывает товары с ценой и наличием, первый запрос идёт без фильтров и без токена', async () => {
     const { calls } = renderScreen(<ProductListPage />, { route: '/products', handler: catalog });
     expect(await screen.findByRole('link', { name: 'Лунная тропа: ключ Steam' })).toHaveAttribute('href', '/products/p-1');
@@ -109,7 +109,7 @@ describe('каталог', () => {
   });
 });
 
-describe('состояния списка', () => {
+describe('состояния списка (TC-326)', () => {
   const empty = respond(200, { items: [], page: { limit: 20, nextCursor: null } });
 
   it('пусто без фильтров', async () => {

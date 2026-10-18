@@ -15,9 +15,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Страницы витрины: лишняя строка показывает следующую страницу, курсор указывает на последний показанный товар. */
+@Tag("TC-322")
 class StorefrontServiceTest {
 
     private static final Instant T0 = Instant.parse("2026-10-01T10:00:00Z");

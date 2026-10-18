@@ -20,9 +20,12 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Обработчик {@code stock.changed}: разбор события, порядок по метке времени (Р-15), неизвестный товар, сброс кэша после фиксации. */
+@Tag("TC-319")
+@Tag("TC-321")
 class StockViewTest {
 
     private static final Instant T0 = Instant.parse("2026-10-17T10:00:00Z");

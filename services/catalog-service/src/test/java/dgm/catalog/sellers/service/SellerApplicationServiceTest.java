@@ -22,12 +22,19 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
  * Заявка заявителя целиком, без базы и с управляемыми часами: создание, правка по версии, отправка, срок рассмотрения и пауза после
  * отказа. Паузу минимум в час не сократить параметром, поэтому «через 24 часа» проверяется подменой часов.
  */
+@Tag("TC-201")
+@Tag("TC-203")
+@Tag("TC-204")
+@Tag("TC-205")
+@Tag("TC-215")
+@Tag("TC-216")
 class SellerApplicationServiceTest {
 
     private static final Instant T0 = Instant.parse("2026-10-03T12:00:00Z");

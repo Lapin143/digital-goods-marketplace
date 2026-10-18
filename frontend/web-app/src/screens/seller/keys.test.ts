@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CSV_MAX_BYTES, checkCsv, splitKeys } from './keys';
 
-describe('строки ключей из поля ввода', () => {
+describe('строки ключей из поля ввода (TC-413)', () => {
   it('пусто даёт пустой список', () => {
     expect(splitKeys('')).toEqual([]);
   });
@@ -24,7 +24,7 @@ describe('строки ключей из поля ввода', () => {
   });
 });
 
-describe('файл CSV до отправки', () => {
+describe('файл CSV до отправки (TC-413)', () => {
   it('csv и txt проходят', () => {
     expect(checkCsv({ name: 'keys.csv', type: 'text/csv', size: 100 })).toEqual({ ok: true });
     expect(checkCsv({ name: 'keys.txt', type: 'text/plain', size: 100 })).toEqual({ ok: true });

@@ -328,7 +328,7 @@ def totp_cycle_checks(kc, admin, users):
 
 
 def seller_id_checks(kc, admin, users):
-    print('== Утверждение seller_id в токене (ADR-010, п. 5)')
+    print('== Утверждение seller_id в токене (ADR-010, п. 5; TC-218)')
     seller, buyer = users['seller-1'], users['buyer-1']
     sid = '0199e0a0-5e11-7c00-8a00-000000000042'
     rep = admin.realm('/users/%s' % seller['id']).json()
