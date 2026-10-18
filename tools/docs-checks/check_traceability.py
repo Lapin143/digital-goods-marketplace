@@ -3,7 +3,8 @@
 
   1. Состав: 92 строки, по одной на каждое FT и NFT, разделы по релизам равны релизам требований.
   2. Заполнение: у R1 в первых пяти колонках нет пустых клеток (прочерк допустим только с причиной в скобках),
-     колонки «Тест-кейс» и «Код» соответствуют версии матрицы (v2: пусты, v3: у R1 заполнен тест-кейс).
+     колонки «Тест-кейс» и «Код» соответствуют версии матрицы (v2: пусты; v3: клетки равны расчёту `tcindex.py` по тест-кейсам и
+     их тегам в коде, у каждого FT среза 1 есть тест-кейс, модули из «Кода» существуют, у строк R2 и R3 нет тест-кейсов без клетки).
   3. Колонка «API / событие»: каждая операция есть в OpenAPI и связана со строкой через `x-stories` и колонку историй,
      каждое событие есть в каталоге событий, формат клетки, повторов в клетке нет.
   4. Полнота: каждая операция OpenAPI и каждое событие AsyncAPI встречаются в матрице хотя бы один раз.
@@ -17,6 +18,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import docslib as L
+import tcindex as TI
 
 PATH = os.path.join(L.DOCS, '08-testing', 'traceability.md')
 OPS_RX = re.compile(r'Операции: (`[^`]+`(?:, `[^`]+`)*)\.')
@@ -67,6 +69,14 @@ def main():
     r1 = {k for k, v in rel.items() if 'R1' in v}
     r3 = {k for k, v in rel.items() if v.strip().startswith('R3')}
     r2 = set(rel) - r1 - r3
+
+    # тест-кейсы, срезы и резерв номеров для версии 3 (читаются один раз)
+    by_req = TI.by_requirement()
+    slice_table = TI.slices()
+    tests = TI.strategy_tests()
+    reserve = TI.reserved_numbers()
+    tc_fields = TI.test_cases()
+    first_slice = slice_table.get('Ф4, срез 1', set())
 
     # ------------------------------------------------ разбор матрицы по разделам
     ver = re.search(r'версия (\d)', T)
@@ -159,12 +169,26 @@ def main():
             no_ops.add(rid)
             if not re.search(r'Операций нет: [^.]+\.', api):
                 rep.err(where, '%s: нет операций, а причины «Операций нет: …» нет' % rid)
-        # колонки следующих фаз
+    # ------------------------------------------------ колонки «Тест-кейс» и «Код» (у строк без операций тоже)
+    for rid, r in rows.items():
+        tc, code = r[5], r[6]
+        sec = where_row.get(rid)
         if version == 2:
             if tc or code:
                 rep.err(where, '%s: в версии 2 колонки «Тест-кейс» и «Код» должны быть пусты' % rid)
-        elif version >= 3 and sec in ('2.1', '2.2') and not tc:
-            rep.err(where, '%s: в версии %d у R1 должен быть тест-кейс' % (rid, version))
+        elif version >= 3:
+            tcs = by_req.get(rid, [])
+            want_tc = TI.expected_cell(rid, tcs, slice_table, sec in ('2.1', '2.2'), tests, reserve)
+            want_code = TI.expected_code(tcs, tc_fields)
+            if tc != want_tc:
+                rep.err(where, '%s: клетка «Тест-кейс» «%s», по тест-кейсам и срезам должна быть «%s» (запустите gen_traceability_tc.py)' % (rid, tc, want_tc))
+            if code != want_code:
+                rep.err(where, '%s: клетка «Код» «%s», по полю «Где в коде» тест-кейсов должна быть «%s» (запустите gen_traceability_tc.py)' % (rid, code, want_code))
+            if rid.startswith('FT-') and rid in first_slice and not tcs:
+                rep.err(where, '%s: требование среза 1, а тест-кейса нет' % rid)
+            for module in re.findall(r'`([^`]+)`', code):
+                if not os.path.exists(os.path.join(L.REPO, module)):
+                    rep.err(where, '%s: модуля %s нет в репозитории' % (rid, module))
     if version < 2:
         rep.err(where, 'версия матрицы %d, ожидается не ниже 2' % version)
 

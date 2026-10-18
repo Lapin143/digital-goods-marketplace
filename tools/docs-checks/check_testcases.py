@@ -3,13 +3,15 @@
 """Тест-кейсы TC-*.md: оформление, связь с историями и требованиями, связь с кодом (шаг 9 Ф4, решения Р-52 и Р-53).
 
 Для каждого файла docs/08-testing/TC-*.md (кроме шаблона) проверяется:
-  1. файл назван в таблице нумерации стратегии (раздел 13), номера тест-кейсов лежат в его диапазоне, идут подряд без пропусков и повторов;
+  1. файл назван в таблице нумерации стратегии (раздел 13), номера тест-кейсов лежат в его диапазоне, идут по возрастанию без повторов; пропуск
+     допустим только для номера из таблицы «Резерв номеров» (столбцы «Номера», «Сценарии», «Срез») этого же файла, и такой номер не описан;
   2. у каждого `### TC-NNN. Название` есть таблица полей (ID, User story, Требования, Уровень, Тип, Приоритет, Автоматизация, Тег в коде, Где в коде)
      и абзацы «Предусловия», «Шаги», «Ожидаемый результат»; ID и тег равны номеру в заголовке;
   3. истории US-N.M существуют в US-*.md, требования FT и NFT существуют в требованиях v1.6;
   4. уровень L1 – L8, тип, приоритет и способы автоматизации из допустимых наборов;
   5. «Где в коде»: каждый файл существует и содержит номер `TC-NNN` (@Tag у JUnit, имя проверки в скрипте стенда, заголовок шага сценария);
-     вид файла совпадает с заявленным способом (`*Test.java` JUnit, `*IT.java` JUnit на стенде, `.py` Python на стенде, `.json` Newman), лишних
+     вид файла совпадает с заявленным способом (`*Test.java` JUnit, `*IT.java` JUnit на стенде, `.py` Python на стенде, `.json` Newman,
+     `*.test.ts` и `*.test.tsx` Vitest), лишних
      и недостающих видов нет; у «Ручной» кода нет;
   6. сводная таблица раздела 2 содержит те же номера, истории и уровни;
   7. обратная сверка: номер из области файла, найденный в коде (тесты сервисов и библиотек, скрипты стенда, сценарии Newman), описан в документе, и
@@ -29,13 +31,14 @@ STRATEGY = os.path.join(TESTING, 'test-strategy.md')
 FIELDS = ['ID', 'User story', 'Требования', 'Уровень', 'Тип', 'Приоритет', 'Автоматизация', 'Тег в коде', 'Где в коде']
 TYPES = {'UI', 'API', 'интеграционный', 'конкуренция', 'нагрузочный', 'безопасность', 'эксплуатационный'}
 PRIORITIES = {'Высокий', 'Средний', 'Низкий'}
-KINDS = {'JUnit', 'JUnit на стенде', 'Newman', 'Python на стенде', 'k6', 'Ручной'}
+KINDS = {'JUnit', 'JUnit на стенде', 'Vitest', 'Newman', 'Python на стенде', 'k6', 'Ручной'}
 BLOCKS = ('**Предусловия.**', '**Шаги.**', '**Ожидаемый результат.**')
 HEADING = re.compile(r'^### (TC-(\d{3}))\. (.+)$', re.M)
 CODE_GLOBS = [
     'services/*/src/test/**/*.java', 'libs/*/src/test/**/*.java', 'tools/stand-checks/*.py', 'tools/stand-checks/*.sh',
-    'tools/api-tests/*.py', 'tools/api-tests/scenarios/*.json',
+    'tools/api-tests/*.py', 'tools/api-tests/scenarios/*.json', 'frontend/web-app/src/**/*.test.ts', 'frontend/web-app/src/**/*.test.tsx',
 ]
+RESERVE = re.compile(r'TC-(\d{3})(?:\s*[–-]\s*TC-(\d{3}))?')
 
 
 def kind_of(path):
@@ -43,6 +46,8 @@ def kind_of(path):
         return 'JUnit на стенде'
     if path.endswith('.java'):
         return 'JUnit'
+    if re.search(r'\.test\.tsx?$', path):
+        return 'Vitest'
     return {'.py': 'Python на стенде', '.json': 'Newman', '.js': 'k6'}.get(os.path.splitext(path)[1])
 
 
@@ -96,6 +101,22 @@ def parse_cases(text, rep, where):
             rep.err(where, '%s: нет таблицы полей' % m.group(1))
         cases.append(dict(id=m.group(1), number=int(m.group(2)), title=m.group(3), body=body, fields=fields))
     return cases
+
+
+def reserved(text, rep, where):
+    """Номера из таблицы «Резерв номеров» файла: за ними закреплён сценарий, который появится в указанном срезе."""
+    t = L.find_table(text, 'Номера', 'Сценарии')
+    numbers = set()
+    for row in (t['rows'] if t else []):
+        found = RESERVE.findall(row[0])
+        if not found:
+            rep.err(where, 'резерв: в строке «%s» нет номера TC-NNN' % row[0])
+        for first, last in found:
+            lo, hi = int(first), int(last or first)
+            if hi < lo:
+                rep.err(where, 'резерв: диапазон %s задан наоборот' % row[0])
+            numbers |= set(range(lo, hi + 1))
+    return numbers
 
 
 def check_case(c, stories, ft, nft, rep, where, code_cache):
@@ -202,13 +223,17 @@ def main():
         areas.append((lo, hi))
         text = L.read(path)
         cases = parse_cases(text, rep, where)
+        held = reserved(text, rep, where)
         previous = None
         for c in cases:
             if not lo <= c['number'] <= hi:
                 rep.err(where, '%s вне диапазона %d – %d' % (c['id'], lo, hi))
-            expected = lo if previous is None else previous + 1
-            if c['number'] != expected:
-                rep.err(where, '%s: ожидался TC-%03d (номера идут подряд, свободный номер не пропускается)' % (c['id'], expected))
+            if c['number'] in held:
+                rep.err(where, '%s описан, но стоит в таблице «Резерв номеров»' % c['id'])
+            first = lo if previous is None else previous + 1
+            missing = [n for n in range(first, c['number']) if n not in held]
+            if missing or (previous is not None and c['number'] <= previous):
+                rep.err(where, '%s: ожидался TC-%03d (номера идут подряд, пропуск допустим только для резерва)' % (c['id'], missing[0] if missing else first))
             previous = c['number']
             if c['id'] in documented:
                 rep.err(where, '%s описан дважды' % c['id'])

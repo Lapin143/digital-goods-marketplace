@@ -175,6 +175,20 @@ PY
     # Таблица шлюза (группа лимита и сервис каждого маршрута) создаётся из тех же файлов: правка группы вручную ловится
     mutate_repo "gen_routes --check находит ручную правку таблицы маршрутов шлюза" "services/api-gateway/src/main/resources/dgm/gateway-routes.json" '"limit": "order-create"' '"limit": "buyer"' \
       "не равен результату gen_routes.py" tools/docs-checks/gen_routes.py --check
+    # 7б. «Документы = код» (шаг 20 Ф4): операция без обработчика, событие без издания, обработчик не того события и тема без права ловятся check_code_docs.py.
+    C=services/catalog-service/src/main/java/dgm/catalog
+    mutate_repo "check_code_docs находит операцию без обработчика" "$C/catalog/moderation/controller/ProductModerationController.java" '@PostMapping(BASE + "/{productId}/approve")' '@PostMapping(BASE + "/{productId}/approved")' \
+      "обработчика в контроллерах нет" tools/docs-checks/check_code_docs.py
+    mutate_repo "check_code_docs находит событие, которое код не издаёт" "$C/sellers/service/SellerEvents.java" '"seller.returned"' '"seller.sent-back"' \
+      "издание не реализовано" tools/docs-checks/check_code_docs.py
+    mutate_repo "check_code_docs находит обработчик, не читающий событие из каталога" "services/platform-service/src/main/java/dgm/platform/identity/sellerrole/SellerRoleHandler.java" 'return Set.of("seller.approved");' 'return Set.of("seller.returned");' \
+      "не читает это событие" tools/docs-checks/check_code_docs.py
+    mutate_repo "check_code_docs находит сервис без права на тему" "infra/kafka/topics.sh" 'allow catalog-service --operation Read --operation Describe --topic inventory.events --topic platform.config' 'allow catalog-service --operation Read --operation Describe --topic platform.config' \
+      "нет права READ на тему inventory.events" tools/docs-checks/check_code_docs.py
+    mutate_repo "check_testcases находит пропуск в нумерации вне резерва" "docs/08-testing/TC-performance.md" '| TC-064 – TC-069 |' '| TC-064 – TC-066 |' \
+      "ожидался TC-067" tools/docs-checks/check_testcases.py
+    mutate_repo "check_traceability находит клетку «Тест-кейс», не равную расчёту по тест-кейсам" "docs/08-testing/traceability.md" '| TC-070 | `tools/stand-checks` |' '| TC-071 | `tools/stand-checks` |' \
+      "должна быть" tools/docs-checks/check_traceability.py
     # 7а. Стек наблюдения: цель сбора, срок хранения, источник панели, оповещение без теста и сокет Docker с записью ловятся check_obs.py и check_compose.py.
     mutate_repo "check_obs находит сервис, которого нет среди целей Prometheus" "infra/obs/prometheus/prometheus.yml" '          - order-service:8444' '          - order-service-x:8444' \
       "цели .*, а сервисы Java в сети obs дают" tools/docs-checks/check_obs.py
