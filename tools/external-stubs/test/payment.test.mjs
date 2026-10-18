@@ -42,7 +42,7 @@ test('режим «успех»: платёж создан, затем прих�
   const r = await newPayment(h, { orderId: 'order-42', amount: 299800 });
   assert.equal(r.status, 201);
   assert.equal(r.json.status, 'pending');
-  assert.match(r.json.payUrl, /^http:\/\/stubs\.test\/payment\/pay\/pay_t_\d{6}$/);
+  assert.match(r.json.payUrl, /^http:\/\/pay\.stubs\.test\/payment\/pay\/pay_t_\d{6}$/);
   assert.ok(Date.parse(r.json.expiresAt) - Date.parse(r.json.createdAt) === 720_000, 'срок сессии 12 минут по ADR-015');
   await h.idle();
   const hooks = h.hooksOf(HOOK);

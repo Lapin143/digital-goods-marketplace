@@ -144,7 +144,7 @@ export function registerPayment(router, app) {
       createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + mode.sessionTtlSeconds * 1000).toISOString(),
       returnUrl: body.returnUrl,
-      payUrl: `${app.config.publicUrl}/payment/pay/${paymentId}`,
+      payUrl: `${app.config.paymentPublicUrl || app.config.publicUrl}/payment/pay/${paymentId}`,
       idempotencyKey: key,
       history: [{ at: now.toISOString(), status: 'pending' }],
       plan: structuredClone(mode), // режим на момент создания: сценарий этого платежа не меняется, если режим переключат позже

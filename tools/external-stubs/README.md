@@ -94,7 +94,7 @@ curl --cacert secrets/tls_ca.crt -X POST https://localhost:18444/admin/payments/
 
 ## Настройка (переменные окружения)
 
-`STUBS_API_PORT` (8443), `STUBS_ADMIN_PORT` (8444), `STUBS_SMTP_PORT` (1025), `STUBS_PUBLIC_URL` (адрес страницы оплаты и издатель VK ID), `STUBS_TLS_CERT_FILE` / `STUBS_TLS_KEY_FILE` / `STUBS_TLS_CA_FILE` (без них процесс слушает обычный HTTP, так работают модульные тесты), пути к секретам `PAYMENT_GATEWAY_KEY_FILE`, `PAYMENT_WEBHOOK_SECRET_FILE`, `DELIVERY_EMAIL_KEY_FILE`, `DELIVERY_WEBHOOK_SECRET_FILE`, `PLATFORM_EMAIL_KEY_FILE`, `PLATFORM_SMS_KEY_FILE`, `PLATFORM_WEBHOOK_SECRET_FILE`, адреса вебхуков `STUBS_PAYMENT_WEBHOOK_URL`, `STUBS_DELIVERY_EMAIL_WEBHOOK_URL`, `STUBS_PLATFORM_EMAIL_WEBHOOK_URL`, `STUBS_PLATFORM_SMS_WEBHOOK_URL`. Секреты читаются из файлов, значений в окружении нет.
+`STUBS_API_PORT` (8443), `STUBS_ADMIN_PORT` (8444), `STUBS_SMTP_PORT` (1025), `STUBS_PUBLIC_URL` (издатель VK ID и основа адресов по умолчанию), `STUBS_PAYMENT_PUBLIC_URL` (основа адреса страницы оплаты `payUrl`, которую открывает браузер покупателя: в Compose это `DGM_PUBLIC_ORIGIN`, то есть шлюз платформы, маршрут `/payment/pay`; по умолчанию равна `STUBS_PUBLIC_URL`), `STUBS_TLS_CERT_FILE` / `STUBS_TLS_KEY_FILE` / `STUBS_TLS_CA_FILE` (без них процесс слушает обычный HTTP, так работают модульные тесты), пути к секретам `PAYMENT_GATEWAY_KEY_FILE`, `PAYMENT_WEBHOOK_SECRET_FILE`, `DELIVERY_EMAIL_KEY_FILE`, `DELIVERY_WEBHOOK_SECRET_FILE`, `PLATFORM_EMAIL_KEY_FILE`, `PLATFORM_SMS_KEY_FILE`, `PLATFORM_WEBHOOK_SECRET_FILE`, адреса вебхуков `STUBS_PAYMENT_WEBHOOK_URL`, `STUBS_DELIVERY_EMAIL_WEBHOOK_URL`, `STUBS_PLATFORM_EMAIL_WEBHOOK_URL`, `STUBS_PLATFORM_SMS_WEBHOOK_URL`. Секреты читаются из файлов, значений в окружении нет.
 
 ## Тесты
 

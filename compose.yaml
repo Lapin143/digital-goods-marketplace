@@ -185,6 +185,7 @@ services:
     networks: [app]
     environment:
       STUBS_PUBLIC_URL: https://external-stubs:8443
+      STUBS_PAYMENT_PUBLIC_URL: ${DGM_PUBLIC_ORIGIN:-https://localhost:8443}
       STUBS_TLS_CERT_FILE: /run/secrets/tls_external-stubs.crt
       STUBS_TLS_KEY_FILE: /run/secrets/tls_external-stubs.key
       STUBS_TLS_CA_FILE: /run/secrets/tls_ca.crt

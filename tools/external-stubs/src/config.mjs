@@ -45,6 +45,8 @@ export function loadConfig(env = process.env, read = (path) => readFileSync(path
     adminPort: port('STUBS_ADMIN_PORT', 8444),
     smtpPort: port('STUBS_SMTP_PORT', 1025),
     publicUrl: (env.STUBS_PUBLIC_URL || 'https://external-stubs:8443').replace(/\/+$/, ''),
+    // основа адреса страницы оплаты для браузера покупателя; по умолчанию равна publicUrl (Р-136)
+    paymentPublicUrl: (env.STUBS_PAYMENT_PUBLIC_URL || env.STUBS_PUBLIC_URL || 'https://external-stubs:8443').replace(/\/+$/, ''),
     tls: cert ? { cert, key, ca } : null,
     secrets,
     webhookUrls: {

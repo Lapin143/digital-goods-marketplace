@@ -35,6 +35,7 @@ export async function startHarness({ webhookStatuses = [] } = {}) {
     adminPort: 0,
     smtpPort: 0,
     publicUrl: 'http://stubs.test',
+    paymentPublicUrl: 'http://pay.stubs.test',
     tls: null,
     secrets: SECRETS,
     webhookUrls: {

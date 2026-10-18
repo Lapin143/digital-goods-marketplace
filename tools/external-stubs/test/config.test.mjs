@@ -41,6 +41,13 @@ test('порты и адреса вебхуков берутся из окруж
   assert.equal(c.webhookUrls.payment, 'https://api-gateway:8443/api/v1/webhooks/payment-gateway');
   assert.equal(c.webhookUrls.platformSms, '');
   assert.equal(c.publicUrl, 'https://h:1');
+  assert.equal(c.paymentPublicUrl, 'https://h:1', 'без STUBS_PAYMENT_PUBLIC_URL страница оплаты строится от STUBS_PUBLIC_URL');
+});
+
+test('адрес страницы оплаты для браузера задаётся отдельно от издателя VK ID (Р-136)', () => {
+  const c = loadConfig({ ...secretVars, STUBS_PUBLIC_URL: 'https://external-stubs:8443', STUBS_PAYMENT_PUBLIC_URL: 'https://localhost:8443/' }, read);
+  assert.equal(c.publicUrl, 'https://external-stubs:8443');
+  assert.equal(c.paymentPublicUrl, 'https://localhost:8443');
 });
 
 test('неверный порт отвергается', () => {
