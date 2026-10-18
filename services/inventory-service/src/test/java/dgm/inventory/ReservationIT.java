@@ -8,29 +8,13 @@ import dgm.inventory.inventory.reservation.timer.RedisExpiryQueue;
 import dgm.kit.boot.testing.StandHttp;
 import dgm.kit.boot.testing.StandHttp.Response;
 import dgm.kit.json.Json;
-import dgm.kit.kafka.KafkaClients;
-import dgm.kit.outbox.EnvelopeBuilder;
-import dgm.kit.outbox.OutboxRow;
-import dgm.kit.outbox.OutgoingEvent;
-import dgm.kit.redis.KitRedis;
-import dgm.kit.testing.Stand;
-import dgm.kit.trace.TraceContext;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
-import org.apache.kafka.clients.producer.KafkaProducer;
-import org.apache.kafka.clients.producer.ProducerRecord;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * Резерв ключей на стенде (шаг 5 среза 2; SM-08, SM-03, INV-01, INV-05, INV-06, ADR-007, ADR-012, US-5.2): резерв 3 из 5, отказ при
@@ -38,114 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
  * {@code stock.changed} без пропусков, права вызывающих (ST-02). Сервис работает в процессе теста; срок резерва 6 секунд задан
  * свойствами {@link InventoryStandIT}, на стенде и сервере он берётся из параметра платформы {@code reservation.ttl-seconds}.
  */
-class ReservationIT extends KeyStandIT {
-
-    private static final String RESERVATIONS = "/internal/v1/reservations";
-    private static final Duration LIMIT = Duration.ofSeconds(60);
-
-    private static StandHttp orders;
-    private static KafkaProducer<String, String> orderEvents;
-
-    @Autowired
-    private KitRedis redis;
-
-    @BeforeAll
-    static void clients() {
-        orders = StandHttp.asService("order-service", PORT);
-        orderEvents = KafkaClients.producer(Stand.kafkaBootstrap(), Stand.kafkaSecurity("order-service"), "order-service-it");
-    }
-
-    @AfterAll
-    static void close() {
-        orderEvents.close(Duration.ofSeconds(5));
-    }
-
-    /** Товар продавца с пулом из {@code count} ключей, загруженных через шлюз. */
-    private record Pool(Seller seller, UUID productId) {
-    }
-
-    private static Pool pool(int count) throws IOException {
-        Seller seller = new Seller();
-        UUID productId = seller.product("published", "key_pool");
-        String[] keys = new String[count];
-        for (int i = 0; i < count; i++) {
-            keys[i] = key();
-        }
-        Response loaded = batch(seller, productId, keys);
-        assertEquals(200, loaded.status(), loaded.body());
-        return new Pool(seller, productId);
-    }
-
-    private static Response reserve(StandHttp caller, UUID orderId, UUID productId, int quantity, String idempotencyKey) throws IOException {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("orderId", orderId.toString());
-        body.put("productId", productId.toString());
-        body.put("quantity", quantity);
-        return caller.post(RESERVATIONS, Json.write(body), "Idempotency-Key", idempotencyKey);
-    }
-
-    /** Вызов саги: ключ идемпотентности равен идентификатору заказа. */
-    private static Response reserve(UUID orderId, UUID productId, int quantity) throws IOException {
-        return reserve(orders, orderId, productId, quantity, orderId.toString());
-    }
-
-    private static Map<String, Object> reservation(UUID orderId) {
-        List<Map<String, Object>> rows = db.queryForList("select id, status, quantity, release_reason, expires_at, created_at from inventory.reservation "
-                + "where order_id = ? order by created_at desc, id desc", orderId);
-        return rows.isEmpty() ? null : rows.get(0);
-    }
-
-    private static String status(UUID orderId) {
-        Map<String, Object> row = reservation(orderId);
-        return row == null ? null : (String) row.get("status");
-    }
-
-    private static int keys(UUID productId, String status) {
-        Integer n = db.queryForObject("select count(*) from inventory.key where product_id = ? and status = ?", Integer.class, productId, status);
-        return n == null ? 0 : n;
-    }
-
-    private static List<Map<String, Object>> events(UUID aggregateId, String type) {
-        List<Map<String, Object>> events = new ArrayList<>();
-        for (String payload : db.queryForList("select payload::text from public.outbox where aggregate_id = ? and event_type = ? order by id", String.class,
-                aggregateId.toString(), type)) {
-            events.add(Json.parseObject(payload));
-        }
-        return events;
-    }
-
-    private static long stockVersion(UUID productId) {
-        Long version = db.queryForObject("select stock_version from inventory.product_copy where product_id = ?", Long.class, productId);
-        return version == null ? 0 : version;
-    }
-
-    /** Публикует {@code order.cancelled} от имени order-service (права Kafka выданы по CN сертификата). Ключ записи равен идентификатору заказа. */
-    private static UUID publishCancelled(UUID orderId, String cancelReason) throws Exception {
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("orderId", orderId.toString());
-        data.put("buyerId", UUID.randomUUID().toString());
-        data.put("cancelReason", cancelReason);
-        UUID eventId = UUID.randomUUID();
-        send(eventId, orderId, data);
-        return eventId;
-    }
-
-    private static void send(UUID eventId, UUID orderId, Map<String, Object> data) throws Exception {
-        String headers = "{\"schemaversion\": 1, \"traceparent\": \"" + TraceContext.fresh().traceparent() + "\", \"correlationid\": \"" + UUID.randomUUID()
-                + "\"}";
-        OutgoingEvent event = new EnvelopeBuilder("order-service").build(new OutboxRow(1, eventId, "Order", orderId.toString(), "order.cancelled",
-                "order.events", Json.write(data), headers, Instant.now(), 0));
-        ProducerRecord<String, String> record = new ProducerRecord<>(event.topic(), event.key(), event.value());
-        record.headers().add("ce_type", event.type().getBytes(StandardCharsets.UTF_8));
-        record.headers().add("traceparent", event.traceparent().getBytes(StandardCharsets.UTF_8));
-        orderEvents.send(record).get(20, TimeUnit.SECONDS);
-    }
-
-    private static boolean processed(UUID eventId) {
-        Integer n = db.queryForObject("select count(*) from public.processed_event where consumer = 'reservation-service' and event_id = ?", Integer.class,
-                eventId);
-        return n != null && n > 0;
-    }
+class ReservationIT extends ReservationStandIT {
 
     // ---------------------------------------------------------------- резерв
 

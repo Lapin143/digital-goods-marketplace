@@ -39,6 +39,14 @@ public interface ReservationRepository {
      */
     Optional<Reservation> release(UUID id, String reason, Instant at);
 
+    /**
+     * Использует активный резерв после подтверждённой оплаты (SM-08/T2): {@code UPDATE … SET status = 'used', used_at = ? WHERE id = ? AND
+     * status = 'active' RETURNING …}. Срок для подтверждения не проверяется: оплата, пришедшая раньше снятия, закрепляет резерв.
+     *
+     * @return использованный резерв; пусто, если он уже не активный
+     */
+    Optional<Reservation> markUsed(UUID id, Instant at);
+
     /** Идентификаторы активных резервов, срок которых вышел не позже {@code dueBefore}, по возрастанию срока (сверка). */
     List<UUID> overdue(Instant dueBefore, int limit);
 

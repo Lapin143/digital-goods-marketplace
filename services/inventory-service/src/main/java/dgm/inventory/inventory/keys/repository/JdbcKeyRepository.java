@@ -3,6 +3,9 @@ package dgm.inventory.inventory.keys.repository;
 import dgm.inventory.inventory.crypto.KeyHasher;
 import dgm.inventory.inventory.registry.JdbcProductCopyRepository;
 import dgm.kit.boot.ModuleDatabases;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -48,6 +51,19 @@ public final class JdbcKeyRepository implements KeyRepository {
     public int releaseByReservation(UUID reservationId) {
         return jdbc.update("update inventory.key set status = 'free', order_id = null, reservation_id = null "
                 + "where reservation_id = ? and status = 'reserved'", reservationId);
+    }
+
+    @Override
+    public int issueByReservation(UUID reservationId, Instant at) {
+        return jdbc.update("update inventory.key set status = 'issued', issued_at = ? where reservation_id = ? and status = 'reserved'",
+                OffsetDateTime.ofInstant(at, ZoneOffset.UTC), reservationId);
+    }
+
+    @Override
+    public List<StoredKey> byOrder(UUID orderId) {
+        return jdbc.query("select id, product_id, status, dek_id, nonce, ciphertext from inventory.key where order_id = ? "
+                + "order by issued_at nulls last, id", (rs, row) -> new StoredKey(rs.getObject("id", UUID.class), rs.getObject("product_id", UUID.class),
+                        rs.getString("status"), rs.getInt("dek_id"), rs.getBytes("nonce"), rs.getBytes("ciphertext")), orderId);
     }
 
     @Override

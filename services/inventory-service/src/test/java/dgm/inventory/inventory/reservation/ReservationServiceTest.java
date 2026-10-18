@@ -100,7 +100,7 @@ class ReservationServiceTest {
     @Test
     void aUsedReservationBlocksANewOneForTheSameOrder() {
         Reservation reservation = service.reserve(ORDER, PRODUCT, 1);
-        stock.reservations.markUsed(reservation.id());
+        stock.reservations.forceUsed(reservation.id());
         ProblemException e = refused(() -> service.reserve(ORDER, PRODUCT, 1));
         assertEquals(ProblemType.STATE_CONFLICT, e.type());
         assertEquals(Reservation.USED, e.extensions().get("currentStatus"));
@@ -188,7 +188,7 @@ class ReservationServiceTest {
     @Test
     void anUsedReservationIsNeverExpiredOrReleased() {
         Reservation reservation = service.reserve(ORDER, PRODUCT, 2);
-        stock.reservations.markUsed(reservation.id());
+        stock.reservations.forceUsed(reservation.id());
         stock.clock.advance(TTL.plusHours(1));
         assertEquals(Expiry.GONE, service.expire(reservation.id(), Detected.TIMER));
         assertEquals(Optional.empty(), service.release(ORDER, Reservation.ORDER_CANCELLED));

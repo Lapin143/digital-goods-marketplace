@@ -10,6 +10,6 @@ getProductStock     done
 uploadKeyBatch      done
 uploadKeyFile       done
 
-confirmReservation  slice2
-getKeyValues        slice2
+confirmReservation  done
+getKeyValues        done
 reserveKeys         done

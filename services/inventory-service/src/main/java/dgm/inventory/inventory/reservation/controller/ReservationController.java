@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Внутренние операции резерва: {@code reserveKeys} (OP-51). Вызывает только {@code order-service}: список вызывающих проверяет
+ * Внутренние операции резерва: {@code reserveKeys} (OP-51) и {@code confirmReservation} (OP-54). Вызывает только {@code order-service}: список вызывающих проверяет
  * фильтр каркаса по сертификату клиента (mTLS) и правилам маршрутов, ключ идемпотентности ведёт охранник каркаса (в запросе
  * саги он равен идентификатору заказа). Ответы с {@code Cache-Control: no-store}, значений ключей в них нет.
  */
@@ -38,6 +38,16 @@ public class ReservationController {
         Reservation reservation = service.reserve(body.orderId(), body.productId(), body.quantity());
         return ResponseEntity.status(HttpStatus.CREATED).contentType(JSON).header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .header(HttpHeaders.LOCATION, BASE + "/" + reservation.id()).body(Json.write(view(reservation)));
+    }
+
+    /** {@code confirmReservation} (OP-54): подтверждение резерва после оплаты, при поздней оплате резерв создаётся заново. */
+    @PostMapping(BASE + "/confirm")
+    public ResponseEntity<String> confirm(HttpServletRequest request) throws IOException {
+        ReservationBodies.ReserveRequest body = ReservationBodies.read(request);
+        ReservationService.Confirmation confirmation = service.confirm(body.orderId(), body.productId(), body.quantity());
+        Map<String, Object> view = view(confirmation.reservation());
+        view.put("reReserved", confirmation.reReserved());
+        return ResponseEntity.ok().contentType(JSON).header(HttpHeaders.CACHE_CONTROL, "no-store").body(Json.write(view));
     }
 
     /** Резерв для ответа (схема {@code Reservation}). */

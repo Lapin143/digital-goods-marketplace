@@ -1,5 +1,6 @@
 package dgm.inventory.inventory.keys.repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -18,6 +19,19 @@ public interface KeyRepository {
      * @param hmac       HMAC значения для товара
      */
     record NewKey(UUID id, int dekId, byte[] nonce, byte[] ciphertext, byte[] hmac) {
+    }
+
+    /**
+     * Ключ заказа вместе с шифртекстом: для выдачи значений. Открытого значения здесь нет.
+     *
+     * @param id         идентификатор ключа (входит в AAD шифрования)
+     * @param productId  товар (входит в AAD шифрования)
+     * @param status     статус ключа
+     * @param dekId      версия ключа данных
+     * @param nonce      96 бит
+     * @param ciphertext шифртекст с тегом
+     */
+    record StoredKey(UUID id, UUID productId, String status, int dekId, byte[] nonce, byte[] ciphertext) {
     }
 
     /** Число ключей по статусам: {@code free}, {@code reserved}, {@code issued}, {@code voided}; статусов без ключей в ответе нет. */
@@ -40,6 +54,17 @@ public interface KeyRepository {
      * @return сколько ключей возвращено
      */
     int releaseByReservation(UUID reservationId);
+
+    /**
+     * Выдаёт ключи резерва после подтверждённой оплаты (SM-03/T4): {@code reserved → issued}, ключи остаются за заказом и резервом.
+     * Выданный ключ в свободные не возвращается (INV-04).
+     *
+     * @return сколько ключей выдано
+     */
+    int issueByReservation(UUID reservationId, Instant at);
+
+    /** Все ключи заказа в порядке выдачи (по времени выдачи, затем по идентификатору), в любом статусе. Пусто, если у заказа ключей нет. */
+    List<StoredKey> byOrder(UUID orderId);
 
     /**
      * Вставляет ключи, не трогая уже имеющиеся значения: {@code INSERT ... ON CONFLICT (product_id, hmac) DO NOTHING RETURNING hmac}.

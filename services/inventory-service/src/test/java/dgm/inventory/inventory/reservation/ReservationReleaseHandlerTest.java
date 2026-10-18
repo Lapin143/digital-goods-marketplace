@@ -118,7 +118,7 @@ class ReservationReleaseHandlerTest {
     @Test
     void anUsedReservationKeepsItsKeys() {
         Reservation reservation = stock.service.reserve(ORDER, PRODUCT, 3);
-        stock.reservations.markUsed(reservation.id());
+        stock.reservations.forceUsed(reservation.id());
         assertFalse(handler.handle(cancelled(ORDER, "order_cancelled")).applied());
         assertEquals(Reservation.USED, stock.reservations.rows.get(reservation.id()).status());
         assertEquals(3, stock.keys.held(reservation.id()));

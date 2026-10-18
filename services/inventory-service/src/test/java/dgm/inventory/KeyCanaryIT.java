@@ -10,6 +10,7 @@ import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.IThrowableProxy;
 import ch.qos.logback.core.read.ListAppender;
+import dgm.kit.boot.testing.StandHttp;
 import dgm.kit.boot.testing.StandHttp.Response;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -209,5 +210,121 @@ class KeyCanaryIT extends KeyStandIT {
         assertEquals(6, count(productId));
         Integer encrypted = db.queryForObject("select count(*) from inventory.key where product_id = ? and octet_length(ciphertext) > 16", Integer.class, productId);
         assertEquals(6, encrypted);
+    }
+
+    /**
+     * Канарейка среза 2: после резерва, подтверждения и выдачи значение лежит только там, где ему положено: в ответе {@code getKeyValues}
+     * для {@code delivery-service} (и в зашифрованной колонке). Ответы {@code reserveKeys} и {@code confirmReservation}, ошибочные ответы,
+     * журнал сервиса на уровне TRACE, события Outbox и каждая текстовая колонка базы значений не содержат.
+     */
+    @Tag("TC-412")
+    @Test
+    void valuesAreNotInReservationConfirmationAndErrorTrafficOnlyInTheKeyValuesAnswer() throws Exception {
+        List<String> values = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            values.add(canary());
+        }
+        List<String> needles = needles(values);
+
+        LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
+        Map<String, Level> loud = new LinkedHashMap<>();
+        loud.put("dgm", Level.TRACE);
+        loud.put("org.springframework.jdbc", Level.TRACE);
+        loud.put("org.springframework.web", Level.TRACE);
+        loud.put("org.springframework.security", Level.DEBUG);
+        loud.put("org.springframework.transaction", Level.DEBUG);
+        Map<String, Level> before = new LinkedHashMap<>();
+        for (Map.Entry<String, Level> entry : loud.entrySet()) {
+            Logger logger = context.getLogger(entry.getKey());
+            before.put(entry.getKey(), logger.getLevel());
+            logger.setLevel(entry.getValue());
+        }
+        ListAppender<ILoggingEvent> journal = new ListAppender<>();
+        journal.setContext(context);
+        journal.start();
+        Logger root = context.getLogger(Logger.ROOT_LOGGER_NAME);
+        root.addAppender(journal);
+
+        Seller seller = new Seller();
+        UUID productId = seller.product("published", "key_pool");
+        UUID orderId = UUID.randomUUID();
+        UUID unpaid = UUID.randomUUID();
+        StandHttp orders = StandHttp.asService("order-service", PORT);
+        StandHttp delivery = StandHttp.asService("delivery-service", PORT);
+        List<Response> forbidden = new ArrayList<>();
+        Response values200;
+        try {
+            Response uploaded = batch(seller, productId, values.get(0), values.get(1), values.get(2), values.get(3));
+            assertEquals(200, uploaded.status(), uploaded.body());
+            forbidden.add(uploaded);
+
+            Response reserved = orders.post("/internal/v1/reservations", reservationBody(orderId, productId, 3), "Idempotency-Key", orderId.toString());
+            assertEquals(201, reserved.status(), reserved.body());
+            forbidden.add(reserved);
+            // Ошибки: нехватка ключей, повтор резерва под новым ключом, значения до оплаты, подтверждение чужого заказа
+            forbidden.add(orders.post("/internal/v1/reservations", reservationBody(UUID.randomUUID(), productId, 3), "Idempotency-Key", key()));
+            forbidden.add(orders.post("/internal/v1/reservations", reservationBody(orderId, productId, 3), "Idempotency-Key", key()));
+            Response early = delivery.get("/internal/v1/keys?orderId=" + orderId);
+            assertEquals(409, early.status(), early.body());
+            forbidden.add(early);
+            forbidden.add(orders.post("/internal/v1/reservations/confirm", reservationBody(UUID.randomUUID(), productId, 3), "Idempotency-Key", key()));
+
+            Response confirmed = orders.post("/internal/v1/reservations/confirm", reservationBody(orderId, productId, 3), "Idempotency-Key", key());
+            assertEquals(200, confirmed.status(), confirmed.body());
+            forbidden.add(confirmed);
+            forbidden.add(orders.post("/internal/v1/reservations/confirm", reservationBody(orderId, productId, 3), "Idempotency-Key", key()));
+            forbidden.add(gateway.get(PRODUCTS + "/" + productId + "/stock", seller.auth));
+            forbidden.add(StandHttp.asService("order-service", PORT).get("/internal/v1/keys?orderId=" + orderId));
+            forbidden.add(delivery.get("/internal/v1/keys?orderId=" + unpaid));
+
+            values200 = delivery.get("/internal/v1/keys?orderId=" + orderId);
+            assertEquals(200, values200.status(), values200.body());
+
+            assertTrue(await(Duration.ofSeconds(20), () -> stockEvents(productId).size() >= 3), "события остатка записаны в Outbox");
+        } finally {
+            root.detachAppender(journal);
+            journal.stop();
+            for (Map.Entry<String, Level> entry : before.entrySet()) {
+                context.getLogger(entry.getKey()).setLevel(entry.getValue());
+            }
+        }
+
+        // 0. Разрешённое место: ответ getKeyValues несёт ровно три из четырёх загруженных значений, без кэша
+        assertEquals("no-store", values200.header("Cache-Control"));
+        List<?> issued = (List<?>) values200.json().get("keys");
+        assertEquals(3, issued.size());
+        for (Object item : issued) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> key = (Map<String, Object>) item;
+            assertTrue(values.contains(key.get("value")), "значение выданного ключа это одно из загруженных");
+        }
+
+        // 1. Ответы резерва, подтверждения и ошибок значений не содержат
+        assertTrue(forbidden.get(1).body().contains("reservationId"), "контроль: читаем настоящий ответ");
+        for (Response response : forbidden) {
+            assertEquals(List.of(), found(render(response), needles), "в ответе нашлось значение ключа: " + response.status() + " " + response.body());
+        }
+
+        // 2. Журнал сервиса, в том числе за время вызова getKeyValues
+        List<ILoggingEvent> events = new ArrayList<>(journal.list);
+        assertFalse(events.isEmpty(), "контроль: перехват журнала работает");
+        for (ILoggingEvent event : events) {
+            String text = render(event);
+            assertEquals(List.of(), found(text, needles), "в журнале нашлось значение ключа: " + text);
+        }
+
+        // 3. База: события Outbox и все текстовые колонки, кроме зашифрованной, значений не содержат
+        assertTrue(columnsWith(List.of(productId.toString())).contains("public.outbox.aggregate_id"), "контроль: поиск находит идентификатор товара в Outbox");
+        assertEquals(List.of(), columnsWith(needles), "значения ключей в открытом виде лежат в колонках базы");
+        assertEquals(3, keysOfOrderCount(orderId));
+    }
+
+    private static String reservationBody(UUID orderId, UUID productId, int quantity) {
+        return "{\"orderId\":\"" + orderId + "\",\"productId\":\"" + productId + "\",\"quantity\":" + quantity + "}";
+    }
+
+    private static int keysOfOrderCount(UUID orderId) {
+        Integer n = db.queryForObject("select count(*) from inventory.key where order_id = ? and status = 'issued'", Integer.class, orderId);
+        return n == null ? 0 : n;
     }
 }

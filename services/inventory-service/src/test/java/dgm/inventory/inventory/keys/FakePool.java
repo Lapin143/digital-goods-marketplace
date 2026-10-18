@@ -95,6 +95,16 @@ public final class FakePool {
         }
 
         @Override
+        public int issueByReservation(UUID reservationId, Instant at) {
+            throw new UnsupportedOperationException("выдача проверяется в ReservationServiceTest");
+        }
+
+        @Override
+        public List<StoredKey> byOrder(UUID orderId) {
+            throw new UnsupportedOperationException("значения ключей проверяются в KeyValuesServiceTest");
+        }
+
+        @Override
         public Set<String> insertNew(UUID productId, List<NewKey> rows) {
             Map<String, NewKey> pool = byProduct.computeIfAbsent(productId, id -> new LinkedHashMap<>());
             Set<String> inserted = new HashSet<>();

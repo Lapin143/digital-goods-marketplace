@@ -35,7 +35,10 @@ import org.springframework.stereotype.Component;
  *   <li>{@link #expire}: резерв активен и срок наступил, иначе ничего не меняется: условный {@code UPDATE} заменяет распределённую
  *       блокировку, из двух исполнителей (таймер и сверка, два экземпляра) резерв снимает один;
  *   <li>{@link #release}: снятие по отмене заказа или отказу в оплате, уже снятый и использованный резерв не трогается, поэтому
- *       повтор события и порядок событий безопасны.
+ *       повтор события и порядок событий безопасны;
+ *   <li>{@link #confirm}: подтверждение после оплаты (ADR-013). Активный резерв становится использованным, ключи выданными; если
+ *       резерв уже снят (поздняя оплата), в той же транзакции берутся свободные ключи и создаётся новый резерв сразу использованным;
+ *       ключей не хватило: 409 {@code insufficient-stock}, ничего не создаётся и не меняется.
  * </ul>
  *
  * <p>Таймер в Redis ставится после фиксации и убирается после фиксации; ошибка Redis бизнес-действие не ломает (источник истины база),
@@ -77,6 +80,15 @@ public final class ReservationService {
         public String code() {
             return code;
         }
+    }
+
+    /**
+     * Итог подтверждения.
+     *
+     * @param reservation использованный резерв заказа
+     * @param reReserved  {@code true}, если резерв был снят и при поздней оплате создан заново (SEQ-02)
+     */
+    public record Confirmation(Reservation reservation, boolean reReserved) {
     }
 
     private final ProductCopyRepository products;
@@ -209,6 +221,68 @@ public final class ReservationService {
         });
         result.ifPresent(r -> meters.counter("reservations_released_total", "reason", reason).increment());
         return result;
+    }
+
+    /**
+     * Подтверждает резерв заказа после оплаты (SM-08/T2, SM-03/T4, ADR-013): одна атомарная операция. Строка товара блокируется
+     * первой, как и в других путях, поэтому подтверждение и истечение одного резерва выстраиваются в очередь и дают ровно один исход:
+     * подтверждение успело (резерв использован, истечение ничего не меняет) или истечение успело (подтверждение берёт свободные ключи и
+     * создаёт новый резерв). Повтор после успеха возвращает тот же резерв без изменений.
+     *
+     * @throws ProblemException 404 нет товара или у заказа никогда не было резерва; 409 {@code state-conflict} товар или количество не
+     *                          совпадают с резервом заказа, {@code insufficient-stock} при поздней оплате свободных ключей меньше
+     *                          заказанного (с полем {@code available})
+     */
+    public Confirmation confirm(UUID orderId, UUID productId, int quantity) {
+        return transaction.execute(() -> {
+            products.lock(productId).orElseThrow(() -> new ProblemException(ProblemType.NOT_FOUND, "Товар не найден."));
+            Reservation latest = reservations.latestByOrder(orderId)
+                    .orElseThrow(() -> new ProblemException(ProblemType.NOT_FOUND, "Резерв этого заказа не найден."));
+            if (!latest.productId().equals(productId) || latest.quantity() != quantity) {
+                throw new ProblemException(ProblemType.STATE_CONFLICT, "Товар и количество не совпадают с резервом заказа.");
+            }
+            if (latest.isUsed()) {
+                return new Confirmation(latest, false);
+            }
+            Instant now = clock.instant();
+            if (latest.isActive()) {
+                Reservation used = reservations.markUsed(latest.id(), now)
+                        .orElseThrow(() -> new IllegalStateException("Активный резерв " + latest.id() + " не удалось использовать под блокировкой товара"));
+                issue(used, now);
+                stockEvents.publish(productId, freeKeys(productId));
+                transaction.afterCommit(() -> {
+                    unschedule(used.id());
+                    meters.counter("reservations_confirmed_total", "reReserved", "false").increment();
+                });
+                return new Confirmation(used, false);
+            }
+            // Резерв снят (срок истёк или заказ отменён), а оплата пришла: оплаченный заказ получает ключи, если они ещё свободны
+            int available = freeKeys(productId);
+            if (available < quantity) {
+                throw new ProblemException(ProblemType.INSUFFICIENT_STOCK, "Свободных ключей меньше заказанного количества.",
+                        Map.of("available", available), Map.of());
+            }
+            Reservation fresh = new Reservation(Uuids.v7(clock), orderId, productId, quantity, Reservation.ACTIVE, now.plus(settings.ttl()), null);
+            reservations.insert(fresh, now);
+            List<UUID> picked = keys.reserveFree(productId, quantity, orderId, fresh.id());
+            if (picked.size() != quantity) {
+                throw new IllegalStateException("Закреплено ключей " + picked.size() + " вместо " + quantity + ", поздняя оплата откатывается");
+            }
+            Reservation used = reservations.markUsed(fresh.id(), now)
+                    .orElseThrow(() -> new IllegalStateException("Новый резерв " + fresh.id() + " не удалось использовать"));
+            issue(used, now);
+            stockEvents.publish(productId, available - quantity);
+            transaction.afterCommit(() -> meters.counter("reservations_confirmed_total", "reReserved", "true").increment());
+            return new Confirmation(used, true);
+        });
+    }
+
+    /** Ключи резерва становятся выданными; их ровно столько, сколько в резерве, иначе транзакция откатывается (INV-05). */
+    private void issue(Reservation used, Instant at) {
+        int issued = keys.issueByReservation(used.id(), at);
+        if (issued != used.quantity()) {
+            throw new IllegalStateException("Выдано ключей " + issued + " вместо " + used.quantity() + ", подтверждение откатывается");
+        }
     }
 
     private int freeKeys(UUID productId) {

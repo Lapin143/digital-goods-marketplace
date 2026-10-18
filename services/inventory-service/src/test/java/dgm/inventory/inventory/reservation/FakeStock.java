@@ -141,6 +141,15 @@ final class FakeStock {
         }
 
         @Override
+        public Optional<Reservation> markUsed(UUID id, Instant at) {
+            Reservation r = rows.get(id);
+            if (r == null || !r.isActive()) {
+                return Optional.empty();
+            }
+            return Optional.of(replace(r, Reservation.USED, null));
+        }
+
+        @Override
         public List<UUID> overdue(Instant dueBefore, int limit) {
             return rows.values().stream().filter(r -> r.isActive() && !r.expiresAt().isAfter(dueBefore)).map(Reservation::id).limit(limit).toList();
         }
@@ -152,7 +161,7 @@ final class FakeStock {
         }
 
         /** Использованный резерв (оплата подтверждена): для проверки, что снятие его не трогает. */
-        void markUsed(UUID id) {
+        void forceUsed(UUID id) {
             Reservation r = rows.get(id);
             rows.put(id, new Reservation(r.id(), r.orderId(), r.productId(), r.quantity(), Reservation.USED, r.expiresAt(), null));
         }
@@ -168,6 +177,8 @@ final class FakeStock {
         private final Map<UUID, List<UUID>> free = new HashMap<>();
         private final Map<UUID, List<UUID>> heldByReservation = new HashMap<>();
         private final Map<UUID, UUID> productOfReservation = new HashMap<>();
+        private final Map<UUID, UUID> orderOfReservation = new LinkedHashMap<>();
+        private final Set<UUID> issued = new java.util.HashSet<>();
 
         /** Добавляет в пул товара {@code count} свободных ключей. */
         void load(UUID productId, int count) {
@@ -185,6 +196,11 @@ final class FakeStock {
             return heldByReservation.getOrDefault(reservationId, List.of()).size();
         }
 
+        /** Ключи резерва выданы (статус issued), а не только зарезервированы. */
+        boolean isIssued(UUID reservationId) {
+            return issued.contains(reservationId);
+        }
+
         @Override
         public Map<String, Integer> countByStatus(UUID productId) {
             Map<String, Integer> counts = new HashMap<>();
@@ -193,13 +209,21 @@ final class FakeStock {
                 counts.put("free", freeCount);
             }
             int reserved = 0;
+            int issuedCount = 0;
             for (Map.Entry<UUID, List<UUID>> held : heldByReservation.entrySet()) {
                 if (productOfReservation.get(held.getKey()).equals(productId)) {
-                    reserved += held.getValue().size();
+                    if (issued.contains(held.getKey())) {
+                        issuedCount += held.getValue().size();
+                    } else {
+                        reserved += held.getValue().size();
+                    }
                 }
             }
             if (reserved > 0) {
                 counts.put("reserved", reserved);
+            }
+            if (issuedCount > 0) {
+                counts.put("issued", issuedCount);
             }
             return counts;
         }
@@ -211,11 +235,39 @@ final class FakeStock {
             pool.removeAll(picked);
             heldByReservation.put(reservationId, picked);
             productOfReservation.put(reservationId, productId);
+            orderOfReservation.put(reservationId, orderId);
             return picked;
         }
 
         @Override
+        public int issueByReservation(UUID reservationId, Instant at) {
+            List<UUID> held = heldByReservation.get(reservationId);
+            if (held == null || issued.contains(reservationId)) {
+                return 0;
+            }
+            issued.add(reservationId);
+            return held.size();
+        }
+
+        @Override
+        public List<StoredKey> byOrder(UUID orderId) {
+            List<StoredKey> result = new ArrayList<>();
+            for (Map.Entry<UUID, UUID> reservation : orderOfReservation.entrySet()) {
+                if (reservation.getValue().equals(orderId) && heldByReservation.containsKey(reservation.getKey())) {
+                    String status = issued.contains(reservation.getKey()) ? "issued" : "reserved";
+                    for (UUID key : heldByReservation.get(reservation.getKey())) {
+                        result.add(new StoredKey(key, productOfReservation.get(reservation.getKey()), status, 1, new byte[12], new byte[17]));
+                    }
+                }
+            }
+            return result;
+        }
+
+        @Override
         public int releaseByReservation(UUID reservationId) {
+            if (issued.contains(reservationId)) {
+                return 0;
+            }
             List<UUID> held = heldByReservation.remove(reservationId);
             if (held == null) {
                 return 0;
