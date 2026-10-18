@@ -13,6 +13,7 @@ import dgm.inventory.inventory.keys.controller.KeyPoolController;
 import dgm.inventory.inventory.keys.service.DataKeys;
 import dgm.inventory.inventory.keys.service.KeyPoolService;
 import dgm.inventory.inventory.registry.ProductCopy;
+import dgm.inventory.inventory.service.StockPublisher;
 import dgm.kit.json.Json;
 import dgm.kit.problem.ProblemException;
 import dgm.kit.problem.ProblemType;
@@ -54,7 +55,7 @@ class KeyPoolControllerTest {
         pool.products.rows.put(PRODUCT, new ProductCopy(PRODUCT, SELLER, "key_pool", "draft", 1));
         KeyHasher hasher = new KeyHasher("0123456789abcdef0123456789abcdef".getBytes(StandardCharsets.US_ASCII));
         controller = new KeyPoolController(new KeyPoolService(pool.products, pool.keys, new DataKeys(pool.dataKeys, cipher), cipher, hasher,
-                pool.transaction, CLOCK));
+                pool.transaction, new StockPublisher(pool.products, pool.transaction, CLOCK), CLOCK));
     }
 
     private static MockHttpServletRequest request(String method, String uri, UUID seller, String contentType, byte[] body) {
