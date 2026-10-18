@@ -247,7 +247,7 @@ sequenceDiagram
     alt Платёж подтверждён
         buyer ->> payment-gateway: 1. Вводит данные карты на странице шлюза (на платформу карта не попадает)
         payment-gateway --) payment-service: 2. Webhook «платёж успешен» (подпись HMAC-SHA-256 по timestamp.body, допуск 5 минут)
-        Note over payment-service: 3. signature-verifier проверяет подпись, сумму и валюту. TX: платёж «подтверждён» (SM-02/T2), запись payment.confirmed в Outbox. Шлюзу HTTP 200
+        Note over payment-service: 3. signature-verifier проверяет подпись, сумму и валюту. gateway-client запрашивает у шлюза статус платежа (GET, 2 с, без повтора внутри вебхука): статус, сумма и валюта должны совпасть, иначе статус не меняется, исход anomaly в payment_event. Шлюз не ответил: HTTP 503, шлюз повторит вебхук, а reconciler подберёт платёж сам. TX: платёж «подтверждён» (SM-02/T2), запись payment.confirmed в Outbox. Шлюзу HTTP 200
         payment-service --) kafka: 4. payment.confirmed (ключ партиции orderId)
         kafka --) order-service: 5. payment.confirmed
         Note over order-service: 6. event-consumer: нет ли event_id в processed_event. Чтение статуса заказа: «ожидает оплаты»
@@ -293,7 +293,7 @@ sequenceDiagram
 | № | Что происходит | Компонент | Статусы после шага | Переход SM |
 | --- | --- | --- | --- | --- |
 | 1 | Оплата на странице шлюза | Внешняя система | Без изменений | нет |
-| 2 – 3 | Вебхук принят, подпись проверена, платёж подтверждён | `webhook-controller`, `signature-verifier`, `payment-domain` | Платёж: «подтверждён». Заказ: «ожидает оплаты» | SM-02/T2 |
+| 2 – 3 | Вебхук принят, подпись проверена, статус у шлюза запрошен и сверен (F3-18, FT-6.2), платёж подтверждён | `webhook-controller`, `signature-verifier`, `gateway-client`, `payment-domain` | Платёж: «подтверждён». Заказ: «ожидает оплаты» | SM-02/T2 |
 | 4 – 5 | Событие доставлено сервису заказов | `outbox-relay` → `kafka` → `event-consumer` | Без изменений | нет |
 | 6 | Проверка повтора и статуса | `event-consumer`, `saga-orchestrator`, `order-domain` | Без изменений | нет |
 | 7 – 9 | Подтверждение резерва | `inventory-client` → `inventory-controller`, `reservation-service` | Резерв: «использован». Ключи: «выданы». Заказ: «ожидает оплаты» | SM-08/T2, SM-03/T4 |

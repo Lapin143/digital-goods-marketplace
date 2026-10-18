@@ -44,7 +44,7 @@ def num(s):
 
 
 def fmt(x):
-    """7,5 / 13,5 / 34,0 как в документе."""
+    """7,8 / 15,5 / 36,0 как в документе."""
     return ('%.1f' % x).replace('.', ',')
 
 
@@ -66,8 +66,8 @@ def check_time(rep):
     rows = [r for r in t['rows'] if clean(r[0]) != '']
     body = [r for r in t['rows'] if clean(r[0]).isdigit()]
     total = [r for r in t['rows'] if 'Итого' in ''.join(r)]
-    if len(body) != 9 or len(total) != 1:
-        rep.err('time-budgets 3.1', 'ожидалось 9 звеньев и строка «Итого», найдено %d и %d' % (len(body), len(total)))
+    if len(body) != 10 or len(total) != 1:
+        rep.err('time-budgets 3.1', 'ожидалось 10 звеньев и строка «Итого», найдено %d и %d' % (len(body), len(total)))
         return
     p95 = [num(r[3]) for r in body]
     lim = [num(r[4]) for r in body]
@@ -96,7 +96,7 @@ def check_time(rep):
     secs = [num(r[2]) for r in body]
     if abs(sum(secs) - num(total[2])) > 1e-9:
         rep.err('time-budgets 3.2', 'сумма %s, в таблице %s' % (fmt(sum(secs)), clean(total[2])))
-    exp_rows = [LIM, 10 * 1.2, lim[6], lim[7], lim[8]]
+    exp_rows = [LIM, 10 * 1.2, lim[7], lim[8], lim[9]]
     for i, (g, e) in enumerate(zip(secs, exp_rows), 1):
         if abs(g - e) > 1e-9:
             rep.err('time-budgets 3.2', 'строка %d: %s, ожидалось %s (из таблицы 3.1 и паузы 10 с плюс 20%%)' % (i, fmt(g), fmt(e)))
