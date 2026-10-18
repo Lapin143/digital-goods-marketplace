@@ -175,8 +175,13 @@ def run(seller_token, moderator, product_id):
     def caught_up():
         state['catalog'] = catalog_version(seller_token, product_id)
         state['copy'] = copy_state(product_id)
-        return state['catalog'] is not None and state['copy'] == ('published', state['catalog'])
-    expect('TC-407. Версия и статус копии в inventory_db совпали с карточкой продавца (последнее событие каталога применено)',
+        if state['catalog'] is None or state['copy'] is None:
+            return False
+        status, version = state['copy']
+        # Решение модератора поднимает версию карточки, но событие решения версии не несёт (Р-135): после последнего одобрения версия копии
+        # равна версии карточки или меньше на единицу. Копия на более ранней версии или не в статусе «опубликован» ещё не догнала каталог
+        return status == 'published' and state['catalog'] - 1 <= version <= state['catalog']
+    expect('TC-407. Копия в inventory_db опубликована и на версии карточки продавца (последнее событие каталога применено)',
            A.eventually(caught_up, wait=90), 'карточка: версия %s, копия: %s' % (state.get('catalog'), state.get('copy')))
 
     def attempt():
