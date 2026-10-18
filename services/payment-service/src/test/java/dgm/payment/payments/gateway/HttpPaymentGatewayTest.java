@@ -31,12 +31,15 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
  * Клиент шлюза на локальном HTTP-сервере JDK (ADR-015): формат запроса, ключ шлюза и ключ идемпотентности, повтор после 503 с тем же
  * ключом, повтор после тайм-аута, отказ 4xx без повтора, предохранитель, ответы не по формату. Секрет не попадает в тексты ошибок.
  */
+@Tag("TC-501")
+@Tag("TC-508")
 class HttpPaymentGatewayTest {
 
     private static final String SECRET = "gateway-secret-key-0001";
@@ -113,6 +116,19 @@ class HttpPaymentGatewayTest {
 
     private GatewayPayment create(HttpPaymentGateway gateway) {
         return gateway.create(PAYMENT, ORDER, 299800, "RUB", "https://localhost:8443/orders/" + ORDER, END);
+    }
+
+    private static String view(String status, long amount, String currency) {
+        return "{\"paymentId\":\"pay_1\",\"orderId\":\"" + ORDER + "\",\"amount\":{\"amount\":" + amount + ",\"currency\":\"" + currency + "\"},"
+                + "\"status\":\"" + status + "\",\"payUrl\":\"https://localhost:8443/payment/pay/pay_1\",\"createdAt\":\"2026-10-18T10:00:00Z\"}";
+    }
+
+    /** Клиент без повторов, как в цепочке вебхука (ключ {@code retry: ""} в настройках узла). */
+    private HttpPaymentGateway twoClients(PeerClient.Settings retrying) {
+        PeerClient withRetries = new PeerClient(retrying, null, clock, sleeper, new SimpleMeterRegistry());
+        PeerClient single = new PeerClient(retrying.withRetry(dgm.kit.retry.RetryPolicy.none()).withTimeouts(Duration.ofSeconds(2), Duration.ofSeconds(2)), null,
+                clock, sleeper, new SimpleMeterRegistry());
+        return new HttpPaymentGateway(() -> withRetries, () -> single, () -> SecretValue.of(SECRET));
     }
 
     @Test
@@ -214,5 +230,87 @@ class HttpPaymentGatewayTest {
         GatewayPayment payment = create(gateway(settings()));
         assertEquals("pay_2", payment.id());
         assertNull(payment.expiresAt());
+    }
+
+    @Test
+    void theStatusIsReadWithAGetRequestAndTheKeyOfTheGateway() {
+        script.add(new Reply(200, view("paid", 299800, "RUB"), 0));
+
+        GatewayPaymentState state = gateway(settings()).checkStatus("pay_1");
+
+        assertEquals(new GatewayPaymentState("pay_1", GatewayStatus.PAID, 299800, "RUB"), state);
+        assertTrue(state.sameMoney(299800, "RUB"));
+        assertFalse(state.sameMoney(299801, "RUB"));
+        assertFalse(state.sameMoney(299800, "USD"));
+        Seen call = seen.get(0);
+        assertEquals("GET /payment/v1/payments/pay_1", call.method() + " " + call.path());
+        assertEquals("Bearer " + SECRET, call.headers().get("authorization"));
+        assertNull(call.headers().get("idempotency-key"), "у чтения нет ключа идемпотентности");
+    }
+
+    @Test
+    void everyGatewayStatusMapsToThePlatformModelAndAStrangeOneIsUnknown() {
+        String[][] pairs = {{"pending", "PENDING"}, {"paid", "PAID"}, {"declined", "DECLINED"}, {"expired", "EXPIRED"},
+                {"refund_pending", "REFUNDING"}, {"refunded", "REFUNDED"}, {"chargeback", "UNKNOWN"}};
+        for (String[] pair : pairs) {
+            script.add(new Reply(200, view(pair[0], 100, "RUB"), 0));
+            assertEquals(GatewayStatus.valueOf(pair[1]), gateway(settings()).lookupStatus("pay_1").status(), pair[0]);
+        }
+    }
+
+    @Test
+    void anIdentifierWithSpecialCharactersIsEncodedInThePath() {
+        script.add(new Reply(200, view("pending", 100, "RUB"), 0));
+        gateway(settings()).lookupStatus("pay/1 x");
+        assertEquals("/payment/v1/payments/pay%2F1+x", seen.get(0).path());
+    }
+
+    @Test
+    void anUnknownPaymentIsARefusalWithoutRepeats() {
+        script.add(new Reply(404, "{\"error\":{\"code\":\"not_found\"}}", 0));
+        GatewayRejectedException e = assertThrows(GatewayRejectedException.class, () -> gateway(settings()).lookupStatus("pay_9"));
+        assertEquals(404, e.status());
+        assertEquals(1, seen.size());
+    }
+
+    @Test
+    void theLookupRepeatsAfterAFailureButTheSingleAttemptDoesNot() {
+        script.add(new Reply(503, "{}", 0));
+        script.add(new Reply(200, view("paid", 100, "RUB"), 0));
+        HttpPaymentGateway gateway = twoClients(settings());
+
+        assertEquals(GatewayStatus.PAID, gateway.lookupStatus("pay_1").status());
+        assertEquals(2, seen.size(), "сверка повторяет запрос");
+
+        seen.clear();
+        script.add(new Reply(503, "{}", 0));
+        script.add(new Reply(200, view("paid", 100, "RUB"), 0));
+        assertThrows(GatewayUnavailableException.class, () -> gateway.checkStatus("pay_1"));
+        assertEquals(1, seen.size(), "в цепочке вебхука одна попытка: повтор сделает шлюз, повторив уведомление");
+    }
+
+    @Test
+    void aSlowStatusAnswerIsAbandonedByTheSingleAttemptAfterTheAttemptTimeout() {
+        script.add(new Reply(200, view("paid", 100, "RUB"), 900));
+        PeerClient single = new PeerClient(settings().withRetry(dgm.kit.retry.RetryPolicy.none()).withTimeouts(Duration.ofMillis(300), Duration.ofMillis(300)),
+                null, clock, sleeper, new SimpleMeterRegistry());
+        HttpPaymentGateway gateway = new HttpPaymentGateway(() -> single, () -> single, () -> SecretValue.of(SECRET));
+
+        assertThrows(GatewayUnavailableException.class, () -> gateway.checkStatus("pay_1"));
+        assertEquals(1, seen.size());
+    }
+
+    @Test
+    void aStatusAnswerWithoutTheAmountOrTheStatusIsATemporaryFailure() {
+        script.add(new Reply(200, "{\"paymentId\":\"pay_1\",\"status\":\"paid\"}", 0));
+        GatewayUnavailableException noAmount = assertThrows(GatewayUnavailableException.class, () -> gateway(settings()).lookupStatus("pay_1"));
+        assertTrue(noAmount.getMessage().contains("суммы"), noAmount.getMessage());
+
+        script.add(new Reply(200, "{\"paymentId\":\"pay_1\",\"amount\":{\"amount\":100,\"currency\":\"RUB\"}}", 0));
+        GatewayUnavailableException noStatus = assertThrows(GatewayUnavailableException.class, () -> gateway(settings()).lookupStatus("pay_1"));
+        assertTrue(noStatus.getMessage().contains("status"), noStatus.getMessage());
+
+        script.add(new Reply(200, "не JSON", 0));
+        assertThrows(GatewayUnavailableException.class, () -> gateway(settings()).lookupStatus("pay_1"));
     }
 }

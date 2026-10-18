@@ -34,7 +34,12 @@ STRICT_PACKAGES = (
     ('services/delivery-service', 'delivery/domain'),
 )
 # Класс (имя из отчёта JaCoCo, с косой чертой) -> причина, по которой его покрывают интеграционные тесты, а не модульные
-EXCLUDED = {}
+EXCLUDED = {
+    # Тонкая обёртка над транзакцией и Outbox модуля: ни ветвления, ни правил. Её проходят все интеграционные тесты сервиса (PaymentSessionIT,
+    # PaymentWebhookIT), а модульные тесты работают с подменой PaymentTransaction в FakePayments, поэтому в отчёте модульных тестов она на нуле
+    'dgm/payment/payments/service/ModulePaymentTransaction': 'покрыта интеграционными тестами payment-service',
+    'dgm/payment/payments/service/ModulePaymentTransaction$1': 'покрыта интеграционными тестами payment-service',
+}
 
 
 def counter(root, kind):

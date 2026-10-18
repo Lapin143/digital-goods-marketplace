@@ -10,12 +10,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import dgm.kit.problem.ProblemException;
 import dgm.kit.problem.ProblemType;
 import dgm.kit.time.ManualClock;
+import dgm.payment.payments.FakePayments;
 import dgm.payment.payments.domain.Payment;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -23,6 +25,7 @@ import org.junit.jupiter.api.Test;
  * транзакции, повтор по тому же заказу, отказ шлюза и продолжение после него, платёж в другом статусе. Настоящие SQL и гонки проверяют
  * интеграционные тесты.
  */
+@Tag("TC-501")
 class PaymentSessionServiceTest {
 
     private static final UUID ORDER = UUID.fromString("0199e0a0-0000-7000-8000-000000000301");
@@ -174,18 +177,30 @@ class PaymentSessionServiceTest {
     }
 
     @Test
-    void thePaymentWasConfirmedWhileTheSessionWasBeingWrittenTheStatusStaysAndTheAddressComesFromTheGateway() {
-        // Вебхук подтвердил платёж между вызовом шлюза и записью сессии: запись сессии (статус «создан») ничего не меняет
-        PaymentSessionService racing = new PaymentSessionService(fake.payments, fake.transaction, (paymentId, orderId, amount, currency, returnUrl, expiresAt) -> {
-            Payment row = fake.payments.byOrder.get(orderId);
-            fake.payments.put(new Payment(row.id(), orderId, "pay_77", amount, currency, null, null, Payment.CONFIRMED));
-            return new dgm.payment.payments.gateway.GatewayPayment("pay_77", "https://localhost:8443/payment/pay/pay_77", expiresAt);
-        }, SETTINGS, clock, meters);
+    void thePaymentWasConfirmedWhileTheSessionWasBeingWrittenTheStatusStaysAndTheAddressIsStoredForTheSameGatewayPayment() {
+        // Вебхук обогнал вторую транзакцию: платёж уже подтверждён и знает внешний идентификатор, адрес сессии ещё не записан
+        fake.gateway.duringCreate = () -> {
+            Payment row = fake.payments.byOrder.get(ORDER);
+            fake.payments.put(new Payment(row.id(), ORDER, "pay_1", row.amount(), row.currency(), null, null, Payment.CONFIRMED));
+        };
 
-        Payment result = racing.open(ORDER, 299800, "RUB", sessionEnd);
+        Payment result = service.open(ORDER, 299800, "RUB", sessionEnd);
         assertEquals(Payment.CONFIRMED, result.status(), "статус платежа сессия не меняет");
-        assertEquals("pay_77", result.gatewayPaymentId());
-        assertEquals("https://localhost:8443/payment/pay/pay_77", result.sessionUrl());
-        assertFalse(fake.payments.byOrder.get(ORDER).hasSession(), "в базе сессия не записана: платёж уже не «создан»");
+        assertEquals("pay_1", result.gatewayPaymentId());
+        assertEquals("https://localhost:8443/payment/pay/pay_1", result.sessionUrl());
+        assertTrue(fake.payments.byOrder.get(ORDER).hasSession(), "адрес сессии записан к тому же платежу шлюза, статус «подтверждён» остался");
+        assertEquals(Payment.CONFIRMED, fake.payments.byOrder.get(ORDER).status());
+    }
+
+    @Test
+    void aGatewayPaymentThatDiffersFromTheOneAlreadyKnownIsNotOverwritten() {
+        fake.gateway.duringCreate = () -> {
+            Payment row = fake.payments.byOrder.get(ORDER);
+            fake.payments.put(new Payment(row.id(), ORDER, "pay_other", row.amount(), row.currency(), null, null, Payment.CREATED));
+        };
+
+        Payment result = service.open(ORDER, 299800, "RUB", sessionEnd);
+        assertEquals("pay_other", result.gatewayPaymentId(), "внешний идентификатор записывается один раз и не перезаписывается");
+        assertFalse(fake.payments.byOrder.get(ORDER).hasSession(), "чужой платёж шлюза: адрес сессии в базу не попал");
     }
 }

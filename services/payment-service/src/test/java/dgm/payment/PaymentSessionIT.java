@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.Test;
  * настоящие сертификаты вызывающих. Сессия открывается, повтор отдаёт ту же, отказ шлюза даёт 503 и оставляет строку без внешнего
  * идентификатора, платёж в другом статусе даёт 409, чужой вызывающий получает 403.
  */
+@Tag("TC-501")
 class PaymentSessionIT extends PaymentStandIT {
 
     private static final long AMOUNT = 299800;

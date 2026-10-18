@@ -33,9 +33,23 @@ dgm:
       attempt-timeout: 2s
       total-deadline: 7s
       retry: 300ms,700ms
+    # Запрос статуса платежа внутри вебхука (ADR-015, шаг 4а): один вызов, 2 секунды, без повторов. Шлюз повторит вебхук, а сверка подберёт платёж сама
+    payment-gateway-status:
+      base-url: ${DGM_PAYMENT_GATEWAY_URL:https://external-stubs:8443}
+      attempt-timeout: 2s
+      total-deadline: 2s
+      retry: ""
   payment:
     # Публичный адрес платформы: основа адреса возврата покупателя со страницы шлюза (Р-136)
     public-origin: ${DGM_PUBLIC_ORIGIN:https://localhost:8443}
+    # Сверка со шлюзом (ADR-015): молодые платежи раз в 5 минут, от 2 до 24 часов раз в час, несопоставленные уведомления раз в 10 секунд
+    reconcile:
+      young-interval: PT5M
+      old-interval: PT1H
+      unmatched-interval: PT10S
+      young-age: PT2H
+      max-age: PT24H
+      unmatched-alert-after: PT1H
 
 # Сроки совпадают с параметрами платформы (Р-139); до слушателя config.changed (срез 3) значения здесь. Сессия короче резерва не меньше
 # чем на margin-seconds (INV-07), иначе сервис не стартует

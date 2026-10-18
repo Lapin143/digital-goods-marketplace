@@ -13,10 +13,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 /** Тело {@code OpenPaymentSessionRequest}: допустимое, лишние и пропущенные поля, сумма, валюта, срок, тип содержимого. */
+@Tag("TC-501")
 class PaymentSessionBodiesTest {
 
     private static final String ORDER = "0199e0a0-0000-7000-8000-000000000301";

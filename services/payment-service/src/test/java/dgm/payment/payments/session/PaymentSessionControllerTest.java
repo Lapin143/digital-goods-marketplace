@@ -10,6 +10,7 @@ import dgm.kit.json.Json;
 import dgm.kit.problem.ProblemException;
 import dgm.kit.problem.ProblemType;
 import dgm.kit.time.ManualClock;
+import dgm.payment.payments.FakePayments;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -17,11 +18,13 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 /** Ответ {@code openPaymentSession}: код 201, схема {@code PaymentSessionOpened}, без внешнего идентификатора платежа и без кэша. */
+@Tag("TC-501")
 class PaymentSessionControllerTest {
 
     private static final Instant START = Instant.parse("2026-10-18T12:00:00Z");

@@ -34,7 +34,7 @@ import check_stub_contract as S  # noqa: E402  (load/resolve по файлам O
 
 # Операции и коды, образцы которых обязательны: ходячий скелет (шаг 12 Ф3), товары продавца (шаг 12 Ф4, SellerProductIT), модерация товаров и карточка витрины (шаг 13 Ф4, ProductModerationIT), пул ключей (шаг 4 Ф4, образцы появятся в шаге 14), учётные записи
 # сотрудников (шаг 5 Ф4) и подтверждение телефона с внутренними операциями входа по SMS (шаг 6 Ф4). Ответ 200 вебхука статуса SMS тела не имеет,
-# поэтому у receiveSmsStatus обязательны только отказы
+# поэтому у receiveSmsStatus и receivePaymentGatewayNotification обязательны только отказы
 REQUIRED = {
     'catalog-service': [('listStorefrontProducts', 200), ('listStorefrontProducts', 422), ('getProductCard', 200), ('getProductCard', 404),
                         ('createSellerProduct', 201), ('createSellerProduct', 422), ('listSellerProducts', 200), ('listSellerProducts', 422),
@@ -47,7 +47,9 @@ REQUIRED = {
                         ('blockProduct', 200), ('blockProduct', 409)],
     'order-service': [('listOrders', 200), ('listOrders', 422)],
     'payment-service': [('openPaymentSession', 201), ('openPaymentSession', 409), ('openPaymentSession', 422),
-                        ('openPaymentSession', 503)],
+                        ('openPaymentSession', 503),
+                        ('receivePaymentGatewayNotification', 400), ('receivePaymentGatewayNotification', 401),
+                        ('receivePaymentGatewayNotification', 415), ('receivePaymentGatewayNotification', 503)],
     'inventory-service': [('uploadKeyBatch', 200), ('uploadKeyBatch', 422), ('uploadKeyFile', 200), ('uploadKeyFile', 415),
                           ('getProductStock', 200), ('getProductStock', 404),
                           ('reserveKeys', 201), ('reserveKeys', 409), ('reserveKeys', 422),

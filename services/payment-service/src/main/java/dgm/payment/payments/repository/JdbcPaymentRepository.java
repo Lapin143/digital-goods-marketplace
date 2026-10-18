@@ -5,6 +5,7 @@ import dgm.payment.payments.domain.Payment;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -45,9 +46,44 @@ public final class JdbcPaymentRepository implements PaymentRepository {
 
     @Override
     public Optional<Payment> attachSession(UUID id, String gatewayPaymentId, String sessionUrl, Instant sessionExpiresAt) {
+        // Внешний идентификатор мог прийти раньше из уведомления (ADR-015, шаг 3): тот же идентификатор не мешает записать адрес сессии
         return jdbc.query("update payments.payment set gateway_payment_id = ?, session_url = ?, session_expires_at = ? "
-                + "where id = ? and status = 'created' and gateway_payment_id is null returning " + COLUMNS, MAPPER,
-                gatewayPaymentId, sessionUrl, time(sessionExpiresAt), id).stream().findFirst();
+                + "where id = ? and session_url is null and (gateway_payment_id is null or gateway_payment_id = ?) returning " + COLUMNS, MAPPER,
+                gatewayPaymentId, sessionUrl, time(sessionExpiresAt), id, gatewayPaymentId).stream().findFirst();
+    }
+
+    @Override
+    public Optional<Payment> findByGatewayPaymentId(String gatewayPaymentId) {
+        return jdbc.query("select " + COLUMNS + " from payments.payment where gateway_payment_id = ?", MAPPER, gatewayPaymentId).stream().findFirst();
+    }
+
+    @Override
+    public Optional<Payment> lockByOrder(UUID orderId) {
+        return jdbc.query("select " + COLUMNS + " from payments.payment where order_id = ? for update", MAPPER, orderId).stream().findFirst();
+    }
+
+    @Override
+    public Optional<Payment> adoptGatewayPaymentId(UUID id, String gatewayPaymentId) {
+        return jdbc.query("update payments.payment set gateway_payment_id = ? where id = ? and gateway_payment_id is null returning " + COLUMNS,
+                MAPPER, gatewayPaymentId, id).stream().findFirst();
+    }
+
+    @Override
+    public Optional<Payment> confirm(UUID id, Instant at) {
+        return jdbc.query("update payments.payment set status = 'confirmed', confirmed_at = ? where id = ? and status = 'created' returning " + COLUMNS,
+                MAPPER, time(at), id).stream().findFirst();
+    }
+
+    @Override
+    public Optional<Payment> reject(UUID id, Instant at) {
+        return jdbc.query("update payments.payment set status = 'rejected', rejected_at = ? where id = ? and status = 'created' returning " + COLUMNS,
+                MAPPER, time(at), id).stream().findFirst();
+    }
+
+    @Override
+    public List<Payment> openBetween(Instant createdAfter, Instant createdBefore, int limit) {
+        return jdbc.query("select " + COLUMNS + " from payments.payment where status = 'created' and gateway_payment_id is not null "
+                + "and created_at >= ? and created_at < ? order by created_at, id limit ?", MAPPER, time(createdAfter), time(createdBefore), limit);
     }
 
     private static OffsetDateTime time(Instant at) {

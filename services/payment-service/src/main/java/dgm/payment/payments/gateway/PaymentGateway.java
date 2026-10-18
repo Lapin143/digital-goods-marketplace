@@ -24,4 +24,21 @@ public interface PaymentGateway {
      * @param expiresAt  срок платёжной сессии
      */
     GatewayPayment create(UUID paymentId, UUID orderId, long amount, String currency, String returnUrl, Instant expiresAt);
+
+    /**
+     * Запрашивает статус платежа одной попыткой (шаг 4а вебхука, Р-134): вебхук отвечает шлюзу в пределах его тайм-аута, повтор
+     * внутри вебхука не нужен, потому что шлюз повторит вебхук, а сверка подберёт платёж сама.
+     *
+     * @throws GatewayUnavailableException шлюз не ответил за время попытки
+     * @throws GatewayRejectedException    шлюз не знает такого платежа или отклонил запрос
+     */
+    GatewayPaymentState checkStatus(String gatewayPaymentId);
+
+    /**
+     * Запрашивает статус платежа с повторами по расписанию клиента шлюза: для сверки, где времени больше, чем у вебхука.
+     *
+     * @throws GatewayUnavailableException шлюз не ответил за общий срок
+     * @throws GatewayRejectedException    шлюз не знает такого платежа или отклонил запрос
+     */
+    GatewayPaymentState lookupStatus(String gatewayPaymentId);
 }

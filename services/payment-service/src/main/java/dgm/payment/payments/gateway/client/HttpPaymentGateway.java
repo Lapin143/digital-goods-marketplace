@@ -10,9 +10,13 @@ import dgm.kit.json.JsonException;
 import dgm.kit.secret.SecretValue;
 import dgm.kit.time.Timestamps;
 import dgm.payment.payments.gateway.GatewayPayment;
+import dgm.payment.payments.gateway.GatewayPaymentState;
 import dgm.payment.payments.gateway.GatewayRejectedException;
+import dgm.payment.payments.gateway.GatewayStatus;
 import dgm.payment.payments.gateway.GatewayUnavailableException;
 import dgm.payment.payments.gateway.PaymentGateway;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -31,6 +35,7 @@ public final class HttpPaymentGateway implements PaymentGateway {
     private static final String PAYMENTS = "/payment/v1/payments";
 
     private final Supplier<PeerClient> peer;
+    private final Supplier<PeerClient> singleAttempt;
     private final Supplier<SecretValue> key;
 
     /**
@@ -38,7 +43,17 @@ public final class HttpPaymentGateway implements PaymentGateway {
      * @param key  ключ шлюза {@code payment_gateway_key}
      */
     public HttpPaymentGateway(Supplier<PeerClient> peer, Supplier<SecretValue> key) {
+        this(peer, peer, key);
+    }
+
+    /**
+     * @param peer          клиент шлюза с повторами: создание платежа и сверка
+     * @param singleAttempt клиент шлюза без повторов и с коротким сроком: запрос статуса внутри вебхука (ADR-015, шаг 4а)
+     * @param key           ключ шлюза {@code payment_gateway_key}
+     */
+    public HttpPaymentGateway(Supplier<PeerClient> peer, Supplier<PeerClient> singleAttempt, Supplier<SecretValue> key) {
         this.peer = peer;
+        this.singleAttempt = singleAttempt;
         this.key = key;
     }
 
@@ -61,13 +76,53 @@ public final class HttpPaymentGateway implements PaymentGateway {
         return new GatewayPayment(id, payUrl, sessionEnd);
     }
 
+    @Override
+    public GatewayPaymentState checkStatus(String gatewayPaymentId) {
+        return state(send(singleAttempt, statusRequest(gatewayPaymentId)), gatewayPaymentId);
+    }
+
+    @Override
+    public GatewayPaymentState lookupStatus(String gatewayPaymentId) {
+        return state(send(peer, statusRequest(gatewayPaymentId)), gatewayPaymentId);
+    }
+
+    private PeerRequest statusRequest(String gatewayPaymentId) {
+        return new PeerRequest("GET", PAYMENTS + "/" + URLEncoder.encode(gatewayPaymentId, StandardCharsets.UTF_8), null, null, headers());
+    }
+
+    private static GatewayPaymentState state(PeerResponse response, String gatewayPaymentId) {
+        Map<String, Object> view = parse(response);
+        Object money = view.get("amount");
+        if (!(money instanceof Map<?, ?> fields) || !(fields.get("amount") instanceof Number amount) || !(fields.get("currency") instanceof String currency)) {
+            throw new GatewayUnavailableException("В ответе платёжного шлюза нет суммы платежа", null);
+        }
+        return new GatewayPaymentState(gatewayPaymentId, status(text(view, "status")), amount.longValue(), currency);
+    }
+
+    /** Статусы шлюза сводятся к модели платформы; незнакомый статус не ошибка, а {@link GatewayStatus#UNKNOWN}. */
+    static GatewayStatus status(String gatewayStatus) {
+        return switch (gatewayStatus) {
+            case "pending" -> GatewayStatus.PENDING;
+            case "paid" -> GatewayStatus.PAID;
+            case "declined" -> GatewayStatus.DECLINED;
+            case "expired" -> GatewayStatus.EXPIRED;
+            case "refund_pending" -> GatewayStatus.REFUNDING;
+            case "refunded" -> GatewayStatus.REFUNDED;
+            default -> GatewayStatus.UNKNOWN;
+        };
+    }
+
     private Map<String, String> headers() {
         return Map.of("Authorization", "Bearer " + key.get().reveal());
     }
 
     private PeerResponse send(PeerRequest request) {
+        return send(peer, request);
+    }
+
+    private static PeerResponse send(Supplier<PeerClient> client, PeerRequest request) {
         try {
-            return peer.get().call(request);
+            return client.get().call(request);
         } catch (DependencyUnavailableException e) {
             throw new GatewayUnavailableException("Платёжный шлюз не ответил: " + e.reason(), e);
         } catch (DependencyRejectedException e) {

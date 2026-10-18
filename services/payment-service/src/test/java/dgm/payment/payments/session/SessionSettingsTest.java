@@ -6,9 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.util.UUID;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** INV-07 при старте сервиса: платёжная сессия короче резерва с запасом; адрес возврата строится от публичного адреса. */
+@Tag("TC-501")
 class SessionSettingsTest {
 
     private static final String ORIGIN = "https://localhost:8443";

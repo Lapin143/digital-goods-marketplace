@@ -67,6 +67,14 @@ abstract class PaymentStandIT {
         registry.add("dgm.peers.payment-gateway.base-url", () -> env("DGM_STUBS_API", "https://localhost:18443"));
         // Предохранитель клиента шлюза проверяют модульные тесты и сквозные проверки К7; здесь окно такое, что отказы разных тестов его не откроют
         registry.add("dgm.peers.payment-gateway.breaker-window", () -> "1000");
+        // Запрос статуса внутри вебхука идёт по отдельному узлу (одна попытка, без повторов): тот же шлюз и то же окно предохранителя
+        registry.add("dgm.peers.payment-gateway-status.base-url", () -> env("DGM_STUBS_API", "https://localhost:18443"));
+        registry.add("dgm.peers.payment-gateway-status.breaker-window", () -> "1000");
+        // Сверка и сопоставление уведомлений сами в тестах не запускаются: проходы вызываются явно, иначе фоновый проход подтвердил бы платёж,
+        // который тест держит в статусе «создан»
+        registry.add("dgm.payment.reconcile.initial-delay", () -> "PT1H");
+        registry.add("dgm.payment.reconcile.old-initial-delay", () -> "PT1H");
+        registry.add("dgm.payment.reconcile.unmatched-initial-delay", () -> "PT1H");
     }
 
     @BeforeAll
@@ -109,11 +117,16 @@ abstract class PaymentStandIT {
         return Instant.now().plus(Duration.ofMinutes(12));
     }
 
-    /** Срок сессии по ключу идемпотентности: повтор с тем же ключом шлёт то же тело, иначе охранник ответит 422 {@code idempotency-key-reuse}. */
-    private static final Map<String, Instant> SESSION_ENDS = new java.util.concurrent.ConcurrentHashMap<>();
+    /**
+     * Срок сессии по заказу: {@code order-service} присылает для заказа один и тот же срок при каждом вызове, и шлюз отвергает повтор создания
+     * платежа с тем же ключом и другим телом (409 {@code idempotency_conflict}). Поэтому срок запоминается по заказу, а не по вызову: двадцать
+     * вызовов гонки с разными ключами идемпотентности несут одно и то же тело. Тот же срок держит повтор с одним ключом, иначе охранник ответил бы
+     * 422 {@code idempotency-key-reuse}.
+     */
+    private static final Map<UUID, Instant> SESSION_ENDS = new java.util.concurrent.ConcurrentHashMap<>();
 
     static Response open(StandHttp caller, UUID orderId, long amount, String idempotencyKey) throws IOException {
-        Instant end = SESSION_ENDS.computeIfAbsent(idempotencyKey, k -> sessionEnd());
+        Instant end = SESSION_ENDS.computeIfAbsent(orderId, k -> sessionEnd());
         return caller.post(SESSIONS, openBody(orderId, amount, end), "Idempotency-Key", idempotencyKey);
     }
 
