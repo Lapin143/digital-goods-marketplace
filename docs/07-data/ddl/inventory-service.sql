@@ -140,11 +140,13 @@ create table inventory.product_copy (
     issuance_method text        not null,
     status          text        not null,
     source_version  integer     not null,
+    stock_version   bigint      not null default 0,
     updated_at      timestamptz not null default now(),
     constraint pk_product_copy primary key (product_id),
     constraint ck_product_copy_issuance_method check (issuance_method in ('key_pool', 'seller_api')),
     constraint ck_product_copy_status check (status in ('draft', 'on_moderation', 'published', 'rejected', 'blocked', 'archived')),
-    constraint ck_product_copy_source_version check (source_version >= 1)
+    constraint ck_product_copy_source_version check (source_version >= 1),
+    constraint ck_product_copy_stock_version check (stock_version >= 0)
 );
 comment on table inventory.product_copy is 'Копия товара из событий каталога: владелец и способ выдачи. Источник истины: catalog-service';
 comment on column inventory.product_copy.product_id is 'ProductID (чужая база, внешнего ключа нет)';
@@ -152,6 +154,7 @@ comment on column inventory.product_copy.seller_id is 'SellerID владельц
 comment on column inventory.product_copy.issuance_method is 'key_pool или seller_api. Загрузка пула разрешена только для key_pool';
 comment on column inventory.product_copy.status is 'Статус товара по SM-04 из последнего применённого события';
 comment on column inventory.product_copy.source_version is 'Версия товара из события: более старое событие после сбоя порядка игнорируется';
+comment on column inventory.product_copy.stock_version is 'Версия остатка товара: растёт на единицу в последнем операторе каждой транзакции, меняющей пул (загрузка, резерв, подтверждение, снятие). Её несёт событие stock.changed, по ней витрина отбрасывает событие, пришедшее в обратном порядке (ADR-012, уточнение для среза 2)';
 comment on column inventory.product_copy.updated_at is 'Когда копия обновлена';
 
 -- Версии ключа данных (DEK), зашифрованы мастер-ключом (KEK) вне базы (ADR-009)

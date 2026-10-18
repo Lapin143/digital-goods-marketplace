@@ -45,6 +45,7 @@ erDiagram
         text issuance_method
         text status
         int source_version
+        bigint stock_version
         timestamptz updated_at
     }
     RESERVATION {
@@ -184,6 +185,7 @@ erDiagram
 | `issuance_method` | `text` | да |  | key_pool или seller_api. Загрузка пула разрешена только для key_pool |
 | `status` | `text` | да |  | Статус товара по SM-04 из последнего применённого события |
 | `source_version` | `integer` | да |  | Версия товара из события: более старое событие после сбоя порядка игнорируется |
+| `stock_version` | `bigint` | да | `0` | Версия остатка товара: растёт на единицу в последнем операторе каждой транзакции, меняющей пул (загрузка, резерв, подтверждение, снятие). Её несёт событие stock.changed, по ней витрина отбрасывает событие, пришедшее в обратном порядке (ADR-012, уточнение для среза 2) |
 | `updated_at` | `timestamp with time zone` | да | `now()` | Когда копия обновлена |
 
 **Ограничения**
@@ -194,6 +196,7 @@ erDiagram
 | `ck_product_copy_issuance_method` | проверка | `CHECK ((issuance_method = ANY (ARRAY['key_pool'::text, 'seller_api'::text])))` |
 | `ck_product_copy_source_version` | проверка | `CHECK ((source_version >= 1))` |
 | `ck_product_copy_status` | проверка | `CHECK ((status = ANY (ARRAY['draft'::text, 'on_moderation'::text, 'published'::text, 'rejected'::text, 'blocked'::text, 'archived'::text])))` |
+| `ck_product_copy_stock_version` | проверка | `CHECK ((stock_version >= 0))` |
 
 ### inventory.reservation
 

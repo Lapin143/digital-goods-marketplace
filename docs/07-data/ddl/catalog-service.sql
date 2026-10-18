@@ -370,17 +370,20 @@ create table catalog.stock_view (
     available     integer     not null,
     in_stock      boolean     generated always as (available > 0) stored,
     last_event_at timestamptz not null,
+    version       bigint      not null default 0,
     updated_at    timestamptz not null default now(),
     constraint pk_stock_view primary key (product_id),
     constraint fk_stock_view_product_id foreign key (product_id) references catalog.product (id),
-    constraint ck_stock_view_available check (available >= 0)
+    constraint ck_stock_view_available check (available >= 0),
+    constraint ck_stock_view_version check (version >= 0)
 );
 comment on table catalog.stock_view is 'Копия остатка для витрины и карточки товара. Источник истины: inventory-service (INV-09)';
 comment on column catalog.stock_view.product_id is 'Товар, к которому относится остаток. Связь внутри модуля, одна строка на товар';
 comment on column catalog.stock_view.updated_at is 'Время последнего изменения строки';
 comment on column catalog.stock_view.available is 'Число свободных ключей из последнего применённого события stock.changed';
 comment on column catalog.stock_view.in_stock is 'Признак наличия: available больше нуля';
-comment on column catalog.stock_view.last_event_at is 'Время последнего применённого события: более раннее событие после сбоя порядка игнорируется';
+comment on column catalog.stock_view.last_event_at is 'Время последнего применённого события, для диагностики. Порядок событий определяет version';
+comment on column catalog.stock_view.version is 'Версия остатка из последнего применённого события stock.changed (inventory.product_copy.stock_version): событие применяется, только если его версия больше сохранённой, равная это повтор, меньшая это устаревшее событие';
 
 -- ============================================================================
 -- Роли и права (Flyway выдаёт их в миграциях, правило модульности 2)

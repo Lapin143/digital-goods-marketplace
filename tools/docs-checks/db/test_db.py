@@ -149,6 +149,19 @@ def t_stock_view():
     ok(c, "update catalog.stock_view set available = 3 where product_id = %s" % q(pid))
     assert c.scalar("select in_stock from catalog.stock_view where product_id = %s" % q(pid)) == 't'
     raises(c, "update catalog.stock_view set available = -1 where product_id = %s" % q(pid), '23514', 'ck_stock_view_available')
+    assert c.scalar("select version from catalog.stock_view where product_id = %s" % q(pid)) == '0'
+    ok(c, "update catalog.stock_view set version = 5 where product_id = %s" % q(pid))
+    raises(c, "update catalog.stock_view set version = -1 where product_id = %s" % q(pid), '23514', 'ck_stock_view_version')
+
+
+@test('product_copy: версия остатка начинается с нуля и не бывает отрицательной', 'INV-09')
+def t_stock_version():
+    c = conn('inventory_db')
+    pid = inv_setup(c)
+    assert c.scalar("select stock_version from inventory.product_copy where product_id = %s" % q(pid)) == '0'
+    ok(c, "update inventory.product_copy set stock_version = stock_version + 1 where product_id = %s" % q(pid))
+    assert c.scalar("select stock_version from inventory.product_copy where product_id = %s" % q(pid)) == '1'
+    raises(c, "update inventory.product_copy set stock_version = -1 where product_id = %s" % q(pid), '23514', 'ck_product_copy_stock_version')
 
 
 # --------------------------------------------------------------------------------------------- остатки

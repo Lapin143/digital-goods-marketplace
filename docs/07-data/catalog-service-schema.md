@@ -45,6 +45,7 @@ erDiagram
         int available
         bool in_stock
         timestamptz last_event_at
+        bigint version
         timestamptz updated_at
     }
     SELLER_DOCUMENT {
@@ -179,7 +180,8 @@ erDiagram
 | `product_id` | `uuid` | да |  | Товар, к которому относится остаток. Связь внутри модуля, одна строка на товар |
 | `available` | `integer` | да |  | Число свободных ключей из последнего применённого события stock.changed |
 | `in_stock` | `boolean` | нет | `вычисляется: (available > 0)` | Признак наличия: available больше нуля |
-| `last_event_at` | `timestamp with time zone` | да |  | Время последнего применённого события: более раннее событие после сбоя порядка игнорируется |
+| `last_event_at` | `timestamp with time zone` | да |  | Время последнего применённого события, для диагностики. Порядок событий определяет version |
+| `version` | `bigint` | да | `0` | Версия остатка из последнего применённого события stock.changed (inventory.product_copy.stock_version): событие применяется, только если его версия больше сохранённой, равная это повтор, меньшая это устаревшее событие |
 | `updated_at` | `timestamp with time zone` | да | `now()` | Время последнего изменения строки |
 
 **Ограничения**
@@ -189,6 +191,7 @@ erDiagram
 | `pk_stock_view` | первичный ключ | `PRIMARY KEY (product_id)` |
 | `fk_stock_view_product_id` | внешний ключ | `FOREIGN KEY (product_id) REFERENCES catalog.product(id)` |
 | `ck_stock_view_available` | проверка | `CHECK ((available >= 0))` |
+| `ck_stock_view_version` | проверка | `CHECK ((version >= 0))` |
 
 ### seller_onboarding.seller_document
 
