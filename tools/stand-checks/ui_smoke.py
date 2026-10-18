@@ -17,7 +17,7 @@
 её продавец заводит два товара). Тексты кнопок и сообщений берутся из словаря интерфейса (ru.json), поэтому правка словаря не ломает сценарий. Если шаг упал, в журнал
 попадают адрес страницы, её текст, сообщения консоли браузера и ответы с кодом 400 и выше, а снимок экрана ложится в каталог UI_REPORT_DIR (по умолчанию build/ui-smoke).
 
-Переменные: UI_BASE (адрес шлюза, по умолчанию https://localhost:8443), UI_REPORT_DIR, UI_TIMEOUT_MS (ожидание элемента, по умолчанию 20000), UI_NO_SANDBOX=1
+Переменные: UI_VIDEO=1 (запись экрана каждого сценария в UI_REPORT_DIR/video/moderator.webm и guest.webm; запись не должна ронять проверку, при сбое печатается замечание; в CI включена, видео лежит в артефакте запуска), UI_BASE (адрес шлюза, по умолчанию https://localhost:8443), UI_REPORT_DIR, UI_TIMEOUT_MS (ожидание элемента, по умолчанию 20000), UI_NO_SANDBOX=1
 (запуск Chromium без песочницы, если среда её не разрешает), остальные те же, что у make seller-approval-check. Пакет playwright ставится из tools/stand-checks/requirements-ui.txt,
 браузер командой python3 -m playwright install --with-deps chromium. Остальные проверки стенда обходятся стандартной библиотекой Python, этой нужен Playwright.
 """
@@ -43,6 +43,7 @@ except ImportError:  # пакет не установлен: main() скажет
 BASE = os.environ.get('UI_BASE', 'https://localhost:8443').rstrip('/')
 REPORT = os.environ.get('UI_REPORT_DIR', os.path.join('build', 'ui-smoke'))
 TIMEOUT = int(os.environ.get('UI_TIMEOUT_MS', '20000'))
+VIDEO = os.environ.get('UI_VIDEO') == '1'
 DICTIONARY = os.path.join(HERE, '..', '..', 'frontend', 'web-app', 'src', 'i18n', 'ru.json')
 with open(DICTIONARY, encoding='utf-8') as _file:
     RU = json.load(_file)
@@ -178,10 +179,32 @@ def prepare(kc, admin, moderator, stamp):
     return {'application': pending, 'form': form, 'seller_token': seller_token, 'publish': products[0], 'reject': products[1]}
 
 
+def new_context(browser):
+    """Контекст браузера для одного сценария; при UI_VIDEO=1 экран записывается (1280 на 720). Если запись не стартует, сценарий идёт без неё."""
+    options = dict(ignore_https_errors=True, locale='ru-RU', timezone_id='Europe/Moscow', viewport={'width': 1280, 'height': 720})
+    if VIDEO:
+        try:
+            return browser.new_context(record_video_dir=os.path.join(REPORT, 'video'), record_video_size={'width': 1280, 'height': 720}, **options)
+        except Exception as e:  # noqa: BLE001 запись экрана вспомогательная, проверку она ронять не должна
+            print('замечание: запись экрана не включена (%s)' % str(e).splitlines()[0][:160])
+    return browser.new_context(**options)
+
+
+def close_context(context, page, name):
+    """Закрывает контекст; видео сценария сохраняется как REPORT/video/<name>.webm."""
+    video = page.video if VIDEO else None
+    context.close()
+    if video:
+        try:
+            os.replace(video.path(), os.path.join(REPORT, 'video', name + '.webm'))
+        except Exception as e:  # noqa: BLE001
+            print('замечание: видео сценария %s не сохранено (%s)' % (name, str(e).splitlines()[0][:160]))
+
+
 # --------------------------------------------------------------------------------------------------- сценарии
 def moderator_scenario(browser, kc, admin, user, moderator, data):
     print('== Модератор в браузере: вход с TOTP, решения по заявке и товарам (К4, US-2.2, US-3.3, ST-13; TC-222, TC-328)')
-    context = browser.new_context(ignore_https_errors=True, locale='ru-RU', timezone_id='Europe/Moscow')
+    context = new_context(browser)
     context.set_default_timeout(TIMEOUT)
     page = context.new_page()
     watch = Watch(page)
@@ -227,12 +250,12 @@ def moderator_scenario(browser, kc, admin, user, moderator, data):
         G.expect('по API товар отклонён, причина из браузера видна продавцу', own.status == 200 and own.json().get('status') == 'rejected' and own.json().get('rejectionReason') == reason,
                  '%s %s' % (own.status, own.text[:200]))
     finally:
-        context.close()
+        close_context(context, page, 'moderator')
 
 
 def guest_scenario(browser, data):
     print('== Гость без входа: витрина находит опубликованный товар (К4, US-3.3 – US-3.5; TC-326)')
-    context = browser.new_context(ignore_https_errors=True, locale='ru-RU', timezone_id='Europe/Moscow')
+    context = new_context(browser)
     context.set_default_timeout(TIMEOUT)
     page = context.new_page()
     watch = Watch(page)
@@ -268,7 +291,7 @@ def guest_scenario(browser, data):
             visible(page.get_by_role('heading', name=T('product.notFound.title'), level=1, exact=True))
         step(page, watch, 'страница отклонённого товара говорит «%s»' % T('product.notFound.title'), gone)
     finally:
-        context.close()
+        close_context(context, page, 'guest')
 
 
 # --------------------------------------------------------------------------------------------------- запуск
