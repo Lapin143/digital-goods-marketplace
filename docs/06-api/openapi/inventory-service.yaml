@@ -257,7 +257,7 @@ paths:
       operationId: reserveKeys
       summary: Зарезервировать ключи (внутренний)
       description: |-
-        Закрепляет за заказом нужное число свободных ключей одной транзакцией: выбор строк `FOR UPDATE SKIP LOCKED`, привязка к заказу, создание резерва, перевод ключей в `reserved` (INV-01, INV-05). Если свободных ключей меньше, ответ 409 `insufficient-stock` с `available`, ничего не резервируется. У заказа не больше одного активного резерва (INV-06): повторный вызов с тем же `Idempotency-Key` возвращает тот же резерв, вызов с новым ключом при активном резерве даёт 409 `state-conflict`. Срок резерва задаёт параметр платформы. Тайм-аут вызывающего 2 секунды.
+        Закрепляет за заказом нужное число свободных ключей одной транзакцией: выбор строк `FOR UPDATE SKIP LOCKED`, привязка к заказу, создание резерва, перевод ключей в `reserved` (INV-01, INV-05). Если свободных ключей меньше, ответ 409 `insufficient-stock` с `available`, ничего не резервируется. У заказа не больше одного активного резерва (INV-06): повторный вызов с тем же `Idempotency-Key` возвращает тот же резерв, вызов с новым ключом при активном резерве даёт 409 `state-conflict`. Товара с таким идентификатором в реестре нет: 404, ничего не создаётся. Срок резерва задаёт параметр платформы. Тайм-аут вызывающего 2 секунды.
 
         Матрица прав: OP-51. Истории: US-5.2.
       tags:
@@ -315,6 +315,8 @@ paths:
           $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
         '403':
           $ref: components.yaml#/components/responses/E403Forbidden
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
         '409':
           $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressInsufficientStock
         '415':
