@@ -212,6 +212,14 @@ sellers-check: ## Проверить заявку продавца сквозь 
 seller-approval-check: ## Проверить решения модератора и роль продавца сквозь стенд: отказ и пауза, доработка, одобрение, роль и TOTP в Keycloak, токен с seller_id, запрет кабинета без второго фактора, роль вручную не назначается, товар от заявки до витрины (К2: модерация, кэш, поиск), загрузка ключей и канарейка ST-01 (журналы, тема inventory.events, дамп базы) (набор full, DEBUG=1, make keycloak-users)
 	$(KC_ENV) python3 tools/stand-checks/seller_approval_checks.py
 
+.PHONY: orders-check
+orders-check: ## Проверить заказ и оплату сквозь стенд (К5): оформление через шлюз, платёжная сессия, повтор с тем же ключом, оплата на странице заглушки, нехватка ключей, телефон не подтверждён, шлюз не открыл сессию, отказ и истечение сессии (набор full с ускоренными сроками: make fast-up DEBUG=1, make keycloak-users)
+	$(KC_ENV) python3 tools/stand-checks/orders_checks.py
+
+.PHONY: payments-check
+payments-check: ## Проверить платежи сквозь стенд (К5): повторное и потерянное уведомление шлюза, поздняя оплата с повторным резервом, автовозврат, очередь ручных возвратов и отметка администратора (набор full с ускоренными сроками: make fast-up DEBUG=1, make keycloak-users; ключи и продавца берёт у orders-check)
+	$(KC_ENV) python3 tools/stand-checks/payments_checks.py
+
 .PHONY: ui-smoke
 ui-smoke: ## Дымовой сценарий интерфейса в браузере (К4): модератор входит с TOTP и решает заявку и товары щелчками, гость находит опубликованный товар (набор full, DEBUG=1, make keycloak-users, пакет playwright из tools/stand-checks/requirements-ui.txt и Chromium)
 	$(KC_ENV) python3 tools/stand-checks/ui_smoke.py

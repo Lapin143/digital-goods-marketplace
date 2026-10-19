@@ -1,0 +1,86 @@
+{
+  "id": "ORD-01",
+  "title": "Заказы: границы оформления без товара, чужие и несуществующие заказы, история (US-5.1, US-5.9, ST-02)",
+  "steps": [
+    {
+      "name": "Заказ на товар, которого нет: 409 product-unavailable, заказ не создаётся",
+      "op": "createOrder",
+      "as": "buyer",
+      "body": {"productId": "0199e0a0-0000-7000-8000-0000000000c1", "quantity": 1},
+      "expect": 409,
+      "assert": [
+        {"header": "Content-Type", "contains": "application/problem+json"},
+        {"path": "code", "equals": "product-unavailable"}
+      ]
+    },
+    {
+      "name": "Количество 0 отвергается на входе: 422",
+      "op": "createOrder",
+      "as": "buyer",
+      "body": {"productId": "0199e0a0-0000-7000-8000-0000000000c1", "quantity": 0},
+      "expect": 422,
+      "assert": [
+        {"path": "errors", "notEmpty": true}
+      ]
+    },
+    {
+      "name": "Количество 11 отвергается на входе (INV-10): 422",
+      "op": "createOrder",
+      "as": "buyer",
+      "body": {"productId": "0199e0a0-0000-7000-8000-0000000000c1", "quantity": 11},
+      "expect": 422
+    },
+    {
+      "name": "Заказ без товара в теле: 422",
+      "op": "createOrder",
+      "as": "buyer",
+      "body": {"quantity": 1},
+      "expect": 422,
+      "assert": [
+        {"path": "errors", "notEmpty": true}
+      ]
+    },
+    {
+      "name": "Заказ без токена: 401",
+      "op": "createOrder",
+      "as": "guest",
+      "body": {"productId": "0199e0a0-0000-7000-8000-0000000000c1", "quantity": 1},
+      "expect": 401
+    },
+    {
+      "name": "Несуществующий заказ: 404 (чужой выглядит так же, U1)",
+      "op": "getOrder",
+      "as": "buyer",
+      "path": {"orderId": "0199e0a0-0000-7000-8000-0000000000c2"},
+      "expect": 404,
+      "assert": [
+        {"header": "Content-Type", "contains": "application/problem+json"}
+      ]
+    },
+    {
+      "name": "Платёжная сессия несуществующего заказа: 404",
+      "op": "getOrderPaymentSession",
+      "as": "buyer",
+      "path": {"orderId": "0199e0a0-0000-7000-8000-0000000000c2"},
+      "expect": 404
+    },
+    {
+      "name": "История заказов покупателя: 200, страница и заголовок no-store",
+      "op": "listOrders",
+      "as": "buyer",
+      "query": {"limit": "5"},
+      "expect": 200,
+      "assert": [
+        {"path": "items", "exists": true},
+        {"path": "page", "exists": true},
+        {"header": "Cache-Control", "contains": "no-store"}
+      ]
+    },
+    {
+      "name": "История заказов без токена: 401",
+      "op": "listOrders",
+      "as": "guest",
+      "expect": 401
+    }
+  ]
+}

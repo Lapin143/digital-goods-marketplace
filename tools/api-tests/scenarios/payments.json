@@ -1,0 +1,76 @@
+{
+  "id": "PAY-01",
+  "title": "Платежи: вход вебхука шлюза закрыт подписью, очередь ручных возвратов закрыта ролью (US-5.5, US-5.8, ST-02, ST-04)",
+  "steps": [
+    {
+      "name": "Уведомление без подписи: 401",
+      "op": "receivePaymentGatewayNotification",
+      "as": "guest",
+      "body": {"eventId": "evt_newman_1", "type": "payment.paid", "occurredAt": "2026-10-03T12:00:00.123Z",
+               "data": {"paymentId": "pay_newman_1", "orderId": "0199e0a0-0000-7000-8000-0000000000d1", "amount": {"amount": 100, "currency": "RUB"}}},
+      "unsigned": true,
+      "expect": 401,
+      "assert": [
+        {"header": "Content-Type", "contains": "application/problem+json"}
+      ]
+    },
+    {
+      "name": "Уведомление с неверной подписью: 401",
+      "op": "receivePaymentGatewayNotification",
+      "as": "guest",
+      "body": {"eventId": "evt_newman_2", "type": "payment.paid", "occurredAt": "2026-10-03T12:00:00.123Z",
+               "data": {"paymentId": "pay_newman_1", "orderId": "0199e0a0-0000-7000-8000-0000000000d1", "amount": {"amount": 100, "currency": "RUB"}}},
+      "sign": {"badSignature": true},
+      "expect": 401
+    },
+    {
+      "name": "Уведомление с верной подписью и устаревшей меткой времени (10 минут): 401",
+      "op": "receivePaymentGatewayNotification",
+      "as": "guest",
+      "body": {"eventId": "evt_newman_3", "type": "payment.paid", "occurredAt": "2026-10-03T12:00:00.123Z",
+               "data": {"paymentId": "pay_newman_1", "orderId": "0199e0a0-0000-7000-8000-0000000000d1", "amount": {"amount": 100, "currency": "RUB"}}},
+      "sign": {"timestampOffsetSeconds": -600},
+      "expect": 401
+    },
+    {
+      "name": "Верно подписанное уведомление о неизвестном платеже принято без изменений: 200, шлюз не повторяет его бесконечно",
+      "op": "receivePaymentGatewayNotification",
+      "as": "guest",
+      "body": {"eventId": "evt_newman_4", "type": "payment.paid", "occurredAt": "2026-10-03T12:00:00.123Z",
+               "data": {"paymentId": "pay_newman_unknown", "orderId": "0199e0a0-0000-7000-8000-0000000000d1", "amount": {"amount": 100, "currency": "RUB"}}},
+      "sign": {},
+      "expect": 200
+    },
+    {
+      "name": "Очередь ручных возвратов администратору: 200 со страницей",
+      "op": "listManualRefunds",
+      "as": "admin",
+      "expect": 200,
+      "assert": [
+        {"path": "items", "exists": true},
+        {"path": "page", "exists": true},
+        {"header": "Cache-Control", "contains": "no-store"}
+      ]
+    },
+    {
+      "name": "Отметка возврата по несуществующему платежу: 404",
+      "op": "completeManualRefund",
+      "as": "admin",
+      "path": {"paymentId": "0199e0a0-0000-7000-8000-0000000000d2"},
+      "expect": 404
+    },
+    {
+      "name": "Очередь возвратов покупателю: 403",
+      "op": "listManualRefunds",
+      "as": "buyer",
+      "expect": 403
+    },
+    {
+      "name": "Отметка возврата без токена: 401",
+      "op": "completeManualRefund",
+      "as": "guest",
+      "path": {"paymentId": "0199e0a0-0000-7000-8000-0000000000d2"},
+      "expect": 401
+    }
+  ]
+}
