@@ -173,8 +173,8 @@ jobs:
           DIAG_TAIL: "70"
         run: tools/ci/diag.sh "make up SET=dev-kit DEBUG=1" make up SET=dev-kit DEBUG=1
 
-      - name: Миграции order-service, inventory-service и payment-service
-        run: tools/ci/diag.sh "Миграции для тестов каркаса" make db-migrate S="order-service inventory-service payment-service"
+      - name: Миграции order-service, inventory-service, payment-service и delivery-service
+        run: tools/ci/diag.sh "Миграции для тестов каркаса" make db-migrate S="order-service inventory-service payment-service delivery-service"
 
       - name: Интеграционные тесты каркаса и сервисов
         env:
@@ -184,7 +184,8 @@ jobs:
         run: |
           tools/ci/diag.sh "Интеграционные тесты каркаса и сервисов" ./gradlew --console=plain --continue \
             :libs:service-kit:integrationTest :services:catalog-service:integrationTest :services:order-service:integrationTest \
-            :services:inventory-service:integrationTest :services:payment-service:integrationTest :services:platform-service:integrationTest
+            :services:inventory-service:integrationTest :services:payment-service:integrationTest :services:delivery-service:integrationTest \
+            :services:platform-service:integrationTest
 
       # Рецепт руководства разработчика (раздел 10): order-service запускается из Gradle на стороне хоста, инфраструктура в Compose (dev-min, отладочные порты)
       - name: Сервис из Gradle при инфраструктуре в Compose
@@ -243,8 +244,8 @@ jobs:
           DIAG_TAIL: "70"
         run: tools/ci/diag.sh "make up SET=dev-kit DEBUG=1" make up SET=dev-kit DEBUG=1
 
-      - name: Миграции order-service, inventory-service и payment-service
-        run: tools/ci/diag.sh "Миграции для тестов гонок" make db-migrate S="order-service inventory-service payment-service"
+      - name: Миграции order-service, inventory-service, payment-service и delivery-service
+        run: tools/ci/diag.sh "Миграции для тестов гонок" make db-migrate S="order-service inventory-service payment-service delivery-service"
 
       - name: Серия тестов гонок
         env:

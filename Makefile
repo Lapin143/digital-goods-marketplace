@@ -138,10 +138,10 @@ db-migrate: ## Применить миграции Flyway сервисов к с
 	tools/stand-checks/migrate_stand.sh $(S)
 
 .PHONY: kit-test
-kit-test: ## Интеграционные тесты каркаса, каталога, заказов, инвентаря, платежей и платформенного сервиса на стенде (make up SET=dev-kit DEBUG=1 и make db-migrate S="order-service inventory-service payment-service")
+kit-test: ## Интеграционные тесты каркаса, каталога, заказов, инвентаря, платежей, выдачи и платформенного сервиса на стенде (make up SET=dev-kit DEBUG=1 и make db-migrate S="order-service inventory-service payment-service delivery-service")
 	DGM_SECRETS_DIR=$(CURDIR)/secrets ./gradlew --console=plain --continue :libs:service-kit:integrationTest \
 	  :services:catalog-service:integrationTest :services:order-service:integrationTest :services:inventory-service:integrationTest \
-	  :services:payment-service:integrationTest :services:platform-service:integrationTest
+	  :services:payment-service:integrationTest :services:delivery-service:integrationTest :services:platform-service:integrationTest
 
 .PHONY: contract-check
 contract-check: ## Сверить ответы сервисов, записанные интеграционными тестами (make kit-test), со схемами OpenAPI

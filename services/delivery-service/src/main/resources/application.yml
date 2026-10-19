@@ -21,7 +21,29 @@ dgm:
         pool-size: 7
   kafka:
     bootstrap: ${DGM_KAFKA_BOOTSTRAP:kafka:9093}
+  # Диспетчер выдачи (ADR-011, c4-components-delivery-service.md): проход раз в секунду, пачка 20 выдач, аренда 2 минуты (упавший процесс не теряет выдачу).
+  delivery:
+    dispatcher:
+      interval: PT1S
+      initial-delay: PT5S
+      lease: PT2M
+      batch: 20
+  # Ключи для письма берутся у inventory-service в момент отправки по mTLS (OP-38, ADR-009): ответ за 2 секунды, один повтор запроса на чтение.
+  # Предохранитель по умолчанию каркаса.
+  peers:
+    inventory-service:
+      base-url: ${DGM_INVENTORY_URL:https://inventory-service:8443}
+      attempt-timeout: 2s
+      retry: 300ms
+  # E-mail-провайдер: на стенде заглушка external-stubs (ключ API в секрете delivery_email_key), в проде адрес настоящего провайдера
+  email:
+    base-url: ${DGM_EMAIL_BASE_URL:https://external-stubs:8443}
   outbox:
     module: delivery
   consumer:
     module: delivery
+
+# Параметры платформы (Р-139): ключи совпадают с platform_parameter, до слушателя config.changed (срез 3) значения читаются отсюда.
+delivery:
+  retry-schedule: 10s,30s,2m,5m,10m    # паузы после неудачных попыток: шесть попыток за 17 минут 40 секунд без разброса (ADR-011)
+  control-minutes: 30                  # контроль доставки от оплаты (E11, NFT-2.4)
