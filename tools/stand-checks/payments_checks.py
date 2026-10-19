@@ -151,7 +151,7 @@ def late_payments(fx):
         return
     ok, paid = O.wait_order(buyers['pb'], body['orderId'], 'paid', wait=40)
     taken = O.keys_of(scarce) or {}
-    expect('Другой покупатель оплатил три ключа: свободен один, меньше заказанных двух', ok and taken.get('free') == 1 and taken.get('reserved') == 3, '%s %s' % (paid.get('status'), taken))
+    expect('Другой покупатель оплатил три ключа: три выданы, свободен один, меньше заказанных двух', ok and taken.get('free') == 1 and taken.get('issued') == 3 and not taken.get('reserved'), '%s %s' % (paid.get('status'), taken))
 
     # TC-007: ключей хватает
     oid, spid, reserve_until = orders['p7']
