@@ -64,8 +64,14 @@ class OrderPurchaseControllerTest {
     private static final String BODY = "{\"productId\":\"" + PRODUCT + "\",\"quantity\":2}";
 
     private final AtomicInteger catalogCalls = new AtomicInteger();
-    private InventoryClient inventory;
+    private ReserveStep inventory;
     private MockMvc mvc;
+
+    /** Шаг резерва, который тест подменяет по ходу: подтверждение резерва в этих сценариях не вызывается. */
+    @FunctionalInterface
+    private interface ReserveStep {
+        InventoryClient.ReserveResult reserve(UUID orderId, UUID productId, int quantity);
+    }
 
     private static AuthenticatedUser buyer(UUID id, boolean phone, String email, String... amr) {
         return new AuthenticatedUser(id.toString(), Set.of("orders.create", "orders.read"), Set.of("buyer"), List.of(amr), phone, null, email);
@@ -85,8 +91,17 @@ class OrderPurchaseControllerTest {
         SagaOrchestrator saga = new SagaOrchestrator(productId -> {
             catalogCalls.incrementAndGet();
             return Optional.of(new ProductCard(PRODUCT, SELLER, "Лунная тропа: ключ Steam", "published", 149_900, "RUB", "key_pool"));
-        }, (orderId, productId, quantity) -> inventory.reserve(orderId, productId, quantity),
-                (orderId, amount, currency, end) -> new Opened(URL, end),
+        }, new InventoryClient() {
+            @Override
+            public ReserveResult reserve(UUID orderId, UUID productId, int quantity) {
+                return inventory.reserve(orderId, productId, quantity);
+            }
+
+            @Override
+            public ConfirmResult confirm(UUID orderId, UUID productId, int quantity) {
+                throw new UnsupportedOperationException("подтверждение резерва в этих сценариях не вызывается");
+            }
+        }, (orderId, amount, currency, end) -> new Opened(URL, end),
                 new OrderTransitions(store, store, settings, meters), settings, clock, meters);
 
         Order awaiting = new Order(id(1), 1001L, PRODUCT, "Лунная тропа: ключ Steam", 2, 149_900, 299_800, "RUB", "awaiting_payment", Optional.empty(), "email",
