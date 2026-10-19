@@ -353,7 +353,15 @@ def main():
             rep.err(w, 'клиент %s без области dgm-api: токен без audience и amr' % c['clientId'])
     em = cscopes.get('email', {}).get('protocolMappers', [])
     if any(m['config'].get('access.token.claim') == 'true' for m in em):
-        rep.err(w, 'e-mail попадает в access-токен: персональные данные нужны только интерфейсу (id-токен)')
+        rep.err(w, 'область email кладёт e-mail в access-токен: так он попал бы и в токены сотрудников и входа по SMS (адрес покупателя добавляет клиент dgm-web, Р-151)')
+    # Р-151: адрес для заказа и выдачи ключей берётся из токена покупателя; больше ни у одного клиента e-mail в access-токене быть не должно
+    for c in realm['clients']:
+        carriers = [m for m in c.get('protocolMappers', []) if m['config'].get('claim.name') == 'email' and m['config'].get('access.token.claim') == 'true']
+        if c['clientId'] == 'dgm-web':
+            if len(carriers) != 1 or carriers[0]['config'].get('user.attribute') != 'email':
+                rep.err(w, 'клиент dgm-web: нужен ровно один маппер утверждения email (атрибут email) в access-токене: адрес для заказа и выдачи ключей (Р-151)')
+        elif carriers:
+            rep.err(w, 'клиент %s кладёт e-mail в access-токен: так делает только dgm-web (Р-151)' % c['clientId'])
     up = json.loads(realm['components']['org.keycloak.userprofile.UserProfileProvider'][0]['config']['kc.user.profile.config'][0])
     pvattr = next((a for a in up['attributes'] if a['name'] == 'phone_verified'), None)
     if not pvattr or pvattr['permissions'] != {'view': ['admin'], 'edit': ['admin']}:

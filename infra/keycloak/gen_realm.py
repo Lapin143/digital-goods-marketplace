@@ -225,7 +225,7 @@ def build_scopes():
             mapper('realm roles', 'oidc-usermodel-realm-role-mapper', dict(access, **{
                 'claim.name': 'realm_access.roles', 'jsonType.label': 'String', 'multivalued': 'true'})),
         ]),
-        scope('email', 'E-mail для интерфейса. В access-токен не попадает: персональные данные не нужны шлюзу и сервисам', [
+        scope('email', 'E-mail для интерфейса (id-токен и userinfo). В access-токен область его не кладёт; адрес покупателя для заказа добавляет только клиент dgm-web (Р-151)', [
             mapper('email', 'oidc-usermodel-attribute-mapper', {
                 'user.attribute': 'email', 'claim.name': 'email', 'jsonType.label': 'String',
                 'id.token.claim': 'true', 'access.token.claim': 'false', 'userinfo.token.claim': 'true'}),
@@ -248,7 +248,7 @@ def build_scopes():
 
 
 # --------------------------------------------------------------------------------------------------- клиенты
-def client(client_id, name, description, scopes, attrs, flow_overrides=None):
+def client(client_id, name, description, scopes, attrs, flow_overrides=None, mappers=None):
     redirect = [PUBLIC + '/*']
     c = {
         'clientId': client_id, 'name': name, 'description': description, 'enabled': True, 'protocol': 'openid-connect',
@@ -261,6 +261,8 @@ def client(client_id, name, description, scopes, attrs, flow_overrides=None):
         'defaultClientScopes': ['basic', 'roles'] + scopes,
         'optionalClientScopes': [],
     }
+    if mappers:
+        c['protocolMappers'] = mappers
     if flow_overrides:
         c['authenticationFlowBindingOverrides'] = flow_overrides
     return c
@@ -274,7 +276,10 @@ def build_clients():
         client('dgm-web', 'Веб-интерфейс: покупатель', 'Одностраничное приложение, кабинет покупателя (код авторизации с PKCE)',
                ['email', AUDIENCE] + BUYER_SCOPES,
                {'access.token.lifespan': str(ACCESS_TTL), 'client.session.idle.timeout': str(buyer['idle']),
-                'client.session.max.lifespan': str(buyer['max']), 'use.refresh.tokens': 'true'}),
+                'client.session.max.lifespan': str(buyer['max']), 'use.refresh.tokens': 'true'},
+               mappers=[mapper('buyer email', 'oidc-usermodel-attribute-mapper', {
+                   'user.attribute': 'email', 'claim.name': 'email', 'jsonType.label': 'String',
+                   'id.token.claim': 'false', 'access.token.claim': 'true', 'userinfo.token.claim': 'false'})]),
         client('dgm-staff', 'Веб-интерфейс: продавец и сотрудники', 'Кабинеты продавца, модератора, поддержки и администратора (код с PKCE, второй фактор по роли)',
                ['email', AUDIENCE] + STAFF_SCOPES,
                {'access.token.lifespan': str(ACCESS_TTL), 'client.session.idle.timeout': str(staff['idle']),

@@ -981,7 +981,7 @@
     },
     {
       "name": "email",
-      "description": "E-mail для интерфейса. В access-токен не попадает: персональные данные не нужны шлюзу и сервисам",
+      "description": "E-mail для интерфейса (id-токен и userinfo). В access-токен область его не кладёт; адрес покупателя для заказа добавляет только клиент dgm-web (Р-151)",
       "protocol": "openid-connect",
       "attributes": {
         "include.in.token.scope": "false",
@@ -1235,7 +1235,23 @@
         "account.manage",
         "seller.apply"
       ],
-      "optionalClientScopes": []
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "buyer email",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "email",
+            "claim.name": "email",
+            "jsonType.label": "String",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
     },
     {
       "clientId": "dgm-staff",

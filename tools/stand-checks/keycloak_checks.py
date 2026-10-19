@@ -386,7 +386,12 @@ def main():
         expect('%s: срок access-токена 5 минут' % name, a['exp'] - a['iat'] == 300, str(a['exp'] - a['iat']))
         expect('%s: области равны %s' % (name, sorted(want_scopes)), scopes_of(a) == want_scopes, a.get('scope'))
         expect('%s: одна роль %s' % (name, u['role']), (a.get('realm_access') or {}).get('roles') == [u['role']], str(a.get('realm_access')))
-        expect('%s: в access-токене нет e-mail и имени' % name, not ({'email', 'name', 'preferred_username', 'given_name'} & set(a)), str(sorted(a)))
+        # Р-151: e-mail в access-токене только у покупателя из dgm-web (адрес для заказа и выдачи ключей), имени нет ни у кого
+        expect('%s: в access-токене нет имени и логина' % name, not ({'name', 'preferred_username', 'given_name'} & set(a)), str(sorted(a)))
+        if client == 'dgm-web':
+            expect('%s: в access-токене покупателя есть e-mail, равный адресу записи' % name, a.get('email') == u['email'], str(a.get('email')))
+        else:
+            expect('%s: в access-токене клиента %s e-mail нет' % (name, client), 'email' not in a, str(sorted(a)))
         expect('%s: refresh-токен есть, простой %d минут' % (name, idle // 60), idle - 3 <= (r.tokens.get('refresh_expires_in') or 0) <= idle, str(r.tokens.get('refresh_expires_in')))   # Keycloak считает остаток срока на момент ответа, на границе секунды он на единицу меньше
         amr = a.get('amr')
         if u['otp_secret']:
