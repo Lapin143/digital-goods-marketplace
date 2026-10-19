@@ -31,4 +31,19 @@ public interface OrderStore {
 
     /** Отмена с причиной из статуса {@code from}. {@code false}, если статус заказа уже другой. */
     boolean cancel(UUID orderId, String from, String reason);
+
+    /**
+     * Оплата из статуса {@code from}: «ожидает оплаты» (T4) или «отменён» (T7, поздняя оплата). Причина отмены очищается: заказ больше не
+     * отменён. {@code false}, если статус заказа уже другой.
+     */
+    boolean pay(UUID orderId, String from, Instant paidAt);
+
+    /** «Отменён» в «возвращён» (T8). {@code false}, если статус заказа уже другой. */
+    boolean refund(UUID orderId);
+
+    /** «Оплачен» в «выдан» (T9), момент первой выдачи фиксируется один раз (INV-17). {@code false}, если статус заказа уже другой. */
+    boolean issue(UUID orderId, Instant issuedAt);
+
+    /** Заменяет снимок адреса доставки во всех заказах покупателя (INV-44); возвращает число изменённых заказов. */
+    int anonymizeAddress(UUID buyerId, String replacement);
 }

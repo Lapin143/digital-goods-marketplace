@@ -15,6 +15,7 @@ import dgm.order.orders.domain.StoredOrder;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -25,7 +26,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Переходы заказа в одной короткой транзакции: T1 под блокировкой покупателя с лимитом неоплаченных (Р-142), T2 с событием
- * {@code order.created}, отмены T3, T5, T6, T12 с событием {@code order.cancelled}. Повтор и запоздавший вызов ничего не меняют.
+ * {@code order.created}, отмены T3, T5, T6, T12 с событием {@code order.cancelled}, оплата T4 и T7 с {@code order.paid}, команда возврата
+ * {@code order.refund-requested}, возврат T8, выдача T9, обезличивание адреса. Повтор и запоздавший вызов ничего не меняют.
  */
 class OrderTransitionsTest {
 
@@ -313,6 +315,305 @@ class OrderTransitionsTest {
 
         assertEquals(OrderStatus.CREATED, store.get(id(1)).status(), "статус и событие меняются вместе (ADR-005)");
         assertNull(store.get(id(1)).cancelReason());
+        assertEquals(0, store.events().size());
+    }
+
+    // ------------------------------------------------------------------------------------------------ TC-516: оплата, T4 и T7
+
+    private static final Instant PAID_AT = T0.plus(Duration.ofMinutes(5));
+
+    /** Заказ, отменённый по причине, которую задал тест. */
+    private StoredOrder cancelled(int n, String reason) {
+        StoredOrder base = existing(n, BUYER, OrderStatus.CANCELLED);
+        StoredOrder order = new StoredOrder(base.id(), base.number(), base.buyerId(), base.sellerId(), base.productId(), base.productTitle(), base.quantity(),
+                base.unitPrice(), base.amount(), base.commission(), base.currency(), OrderStatus.CANCELLED, reason, base.deliveryAddress(),
+                RESERVE_UNTIL, SESSION_UNTIL, URL, base.createdAt(), null, null);
+        store.seed(order);
+        return order;
+    }
+
+    private double ignored(String transition, String status) {
+        var counter = meters.find("orders_transitions_ignored_total").tag("transition", transition).tag("status", status).counter();
+        return counter == null ? 0 : counter.count();
+    }
+
+    @Tag("TC-516")
+    @Test
+    void payFromAwaitingPaymentIsT4AndPublishesOrderPaidWithTheAddressInTheSameTransaction() {
+        transitions.place(draft(1, BUYER));
+        transitions.awaitPayment(id(1), RESERVE_UNTIL, SESSION_UNTIL, URL);
+        int before = store.transactions();
+
+        Optional<StoredOrder> paid = transitions.pay(id(1), PAID_AT);
+
+        assertTrue(paid.isPresent());
+        assertEquals(1, store.transactions() - before, "переход и событие в одной транзакции");
+        assertEquals(OrderStatus.PAID, paid.get().status());
+        assertEquals(PAID_AT, paid.get().paidAt());
+        assertNull(paid.get().cancelReason());
+        FakeOrderStore.Published event = store.events("order.paid").get(0);
+        assertEquals("order.events", event.topic());
+        assertEquals(id(1).toString(), event.aggregateId());
+        assertEquals(1, event.schemaVersion());
+        Map<String, Object> data = event.data();
+        assertEquals(Set.of("orderId", "orderNumber", "buyerId", "sellerId", "productId", "productTitle", "quantity", "total", "commission", "paidAt",
+                "latePayment", "delivery"), data.keySet());
+        assertEquals("2026-10-18T12:05:00.123Z", data.get("paidAt"));
+        assertEquals(false, data.get("latePayment"));
+        assertEquals("Лунная тропа: ключ Steam", data.get("productTitle"));
+        assertEquals(Map.of("amount", 299_800L, "currency", "RUB"), data.get("total"));
+        assertEquals(Map.of("amount", 5_996L, "currency", "RUB"), data.get("commission"));
+        assertEquals(Map.of("channel", "email", "address", "buyer@mail.example"), data.get("delivery"));
+        assertEquals(1.0, counter("orders_paid_total", "transition", "T4"));
+        assertEquals(0.0, counter("late_payments_total", "result", "delivered"));
+    }
+
+    @Tag("TC-516")
+    @Test
+    void payFromCancelledIsT7LatePaymentAndStartsTheClockAgain() {
+        cancelled(1, CancelReason.RESERVATION_EXPIRED);
+
+        Optional<StoredOrder> paid = transitions.pay(id(1), PAID_AT);
+
+        assertTrue(paid.isPresent());
+        assertEquals(OrderStatus.PAID, paid.get().status());
+        assertNull(paid.get().cancelReason(), "причина отмены не нужна оплаченному заказу");
+        assertEquals(PAID_AT, paid.get().paidAt());
+        assertEquals(true, store.events("order.paid").get(0).data().get("latePayment"));
+        assertEquals(1.0, counter("orders_paid_total", "transition", "T7"));
+        assertEquals(1.0, counter("late_payments_total", "result", "delivered"));
+    }
+
+    @Tag("TC-516")
+    @Test
+    void payOfAnyOtherStatusAndOfAnUnknownOrderChangesNothingAndPublishesNothing() {
+        transitions.place(draft(1, BUYER));
+        store.seed(existing(2, BUYER, OrderStatus.PAID)).seed(existing(3, BUYER, OrderStatus.ISSUED)).seed(existing(4, BUYER, OrderStatus.REFUNDED));
+
+        for (int n = 1; n <= 4; n++) {
+            assertTrue(transitions.pay(id(n), PAID_AT).isEmpty(), "заказ " + n);
+        }
+        assertTrue(transitions.pay(id(9), PAID_AT).isEmpty());
+
+        assertEquals(OrderStatus.CREATED, store.get(id(1)).status(), "из «создан» сразу в «оплачен» нельзя");
+        assertEquals(OrderStatus.PAID, store.get(id(2)).status());
+        assertEquals(T0, store.get(id(2)).paidAt(), "повтор не двигает момент оплаты");
+        assertEquals(OrderStatus.ISSUED, store.get(id(3)).status());
+        assertEquals(OrderStatus.REFUNDED, store.get(id(4)).status());
+        assertEquals(0, store.events().size());
+        assertEquals(1.0, ignored("T4", OrderStatus.CREATED));
+        assertEquals(1.0, ignored("T4", OrderStatus.PAID));
+        assertEquals(1.0, ignored("T4", OrderStatus.REFUNDED));
+    }
+
+    @Tag("TC-516")
+    @Test
+    void ifTheOutboxIsDownThePaymentIsRolledBackAsAWhole() {
+        transitions.place(draft(1, BUYER));
+        transitions.awaitPayment(id(1), RESERVE_UNTIL, SESSION_UNTIL, URL);
+        store.failOnPublish();
+
+        assertThrows(IllegalStateException.class, () -> transitions.pay(id(1), PAID_AT));
+
+        assertEquals(OrderStatus.AWAITING_PAYMENT, store.get(id(1)).status());
+        assertNull(store.get(id(1)).paidAt());
+        assertEquals(1, store.events().size(), "остаётся только order.created");
+    }
+
+    // ------------------------------------------------------------------------------------------------ TC-517: автовозврат поздней оплаты
+
+    @Tag("TC-517")
+    @Test
+    void requestRefundOfACancelledOrderPublishesOnlyTheCommandForTheWholeAmount() {
+        cancelled(1, CancelReason.RESERVATION_EXPIRED);
+
+        Optional<StoredOrder> order = transitions.requestRefund(id(1), "late_payment");
+
+        assertTrue(order.isPresent());
+        assertEquals(OrderStatus.CANCELLED, order.get().status());
+        assertEquals(List.of("order.refund-requested"), store.events().stream().map(FakeOrderStore.Published::eventType).toList());
+        FakeOrderStore.Published event = store.events().get(0);
+        assertEquals(Set.of("orderId", "amount", "refundReason"), event.data().keySet());
+        assertEquals(id(1).toString(), event.data().get("orderId"));
+        assertEquals(Map.of("amount", 100_00L, "currency", "RUB"), event.data().get("amount"));
+        assertEquals("late_payment", event.data().get("refundReason"));
+        assertEquals(1.0, counter("late_payments_total", "result", "refunded"));
+    }
+
+    @Tag("TC-517")
+    @Test
+    void requestRefundOfAnAwaitingOrderCancelsItFirstByT6AndThenAsksForTheRefundInOneTransaction() {
+        transitions.place(draft(1, BUYER));
+        transitions.awaitPayment(id(1), RESERVE_UNTIL, SESSION_UNTIL, URL);
+        int events = store.events().size();
+        int before = store.transactions();
+
+        Optional<StoredOrder> order = transitions.requestRefund(id(1), "late_payment");
+
+        assertTrue(order.isPresent());
+        assertEquals(1, store.transactions() - before);
+        assertEquals(OrderStatus.CANCELLED, order.get().status());
+        assertEquals(CancelReason.RESERVATION_EXPIRED, order.get().cancelReason());
+        assertEquals(List.of("order.cancelled", "order.refund-requested"),
+                store.events().subList(events, store.events().size()).stream().map(FakeOrderStore.Published::eventType).toList());
+        assertEquals(1.0, meters.find("orders_cancelled_total").tag("transition", "T6").counter().count());
+    }
+
+    @Tag("TC-517")
+    @Test
+    void requestRefundForPaidIssuedRefundedCreatedAndUnknownOrdersPublishesNothing() {
+        transitions.place(draft(1, BUYER));
+        store.seed(existing(2, BUYER, OrderStatus.PAID)).seed(existing(3, BUYER, OrderStatus.ISSUED)).seed(existing(4, BUYER, OrderStatus.REFUNDED));
+
+        for (int n = 1; n <= 4; n++) {
+            assertTrue(transitions.requestRefund(id(n), "late_payment").isEmpty(), "заказ " + n);
+        }
+        assertTrue(transitions.requestRefund(id(9), "late_payment").isEmpty());
+
+        assertEquals(0, store.events().size());
+        assertEquals(0.0, counter("late_payments_total", "result", "refunded"));
+        assertEquals(1.0, ignored("refund", OrderStatus.PAID));
+        assertEquals(1.0, ignored("refund", OrderStatus.CREATED));
+    }
+
+    @Tag("TC-517")
+    @Test
+    void ifTheOutboxIsDownTheCancelAndTheRefundCommandAreRolledBackTogether() {
+        transitions.place(draft(1, BUYER));
+        transitions.awaitPayment(id(1), RESERVE_UNTIL, SESSION_UNTIL, URL);
+        store.failOnPublish();
+
+        assertThrows(IllegalStateException.class, () -> transitions.requestRefund(id(1), "late_payment"));
+
+        assertEquals(OrderStatus.AWAITING_PAYMENT, store.get(id(1)).status());
+        assertEquals(1, store.events().size());
+    }
+
+    // ------------------------------------------------------------------------------------------------ TC-518: T8, T9, обезличивание
+
+    @Tag("TC-518")
+    @Test
+    void refundOfACancelledOrderIsT8AndPublishesOrderRefunded() {
+        cancelled(1, CancelReason.RESERVATION_EXPIRED);
+
+        Optional<StoredOrder> refunded = transitions.refund(id(1), "late_payment");
+
+        assertTrue(refunded.isPresent());
+        assertEquals(OrderStatus.REFUNDED, refunded.get().status());
+        FakeOrderStore.Published event = store.events("order.refunded").get(0);
+        assertEquals(Set.of("orderId", "buyerId", "sellerId", "total", "refundReason"), event.data().keySet());
+        assertEquals(Map.of("amount", 100_00L, "currency", "RUB"), event.data().get("total"));
+        assertEquals("late_payment", event.data().get("refundReason"));
+        assertFalse(event.data().toString().contains("buyer@mail.example"));
+        assertEquals(1.0, counter("orders_refunded_total", "reason", "late_payment"));
+    }
+
+    @Tag("TC-518")
+    @Test
+    void refundOfAnyOtherStatusAndOfAnUnknownOrderChangesNothing() {
+        transitions.place(draft(1, BUYER));
+        store.seed(existing(2, BUYER, OrderStatus.PAID)).seed(existing(3, BUYER, OrderStatus.ISSUED)).seed(existing(4, BUYER, OrderStatus.REFUNDED));
+
+        for (int n = 1; n <= 4; n++) {
+            assertTrue(transitions.refund(id(n), "late_payment").isEmpty(), "заказ " + n);
+        }
+        assertTrue(transitions.refund(id(9), "late_payment").isEmpty());
+
+        assertEquals(0, store.events().size());
+        assertEquals(OrderStatus.ISSUED, store.get(id(3)).status(), "T11 (выдан в возвращён) относится к R2 и не выполняется");
+        assertEquals(1.0, ignored("T8", OrderStatus.ISSUED));
+    }
+
+    @Tag("TC-518")
+    @Test
+    void issueOfAPaidOrderIsT9FixesTheMomentOnceAndPublishesOrderIssued() {
+        store.seed(existing(1, BUYER, OrderStatus.PAID));
+        UUID delivery = UUID.fromString("0199e0a0-0000-7000-8000-000000000501");
+        Instant issuedAt = T0.plus(Duration.ofMinutes(7));
+
+        Optional<StoredOrder> issued = transitions.issue(id(1), delivery, issuedAt);
+
+        assertTrue(issued.isPresent());
+        assertEquals(OrderStatus.ISSUED, issued.get().status());
+        assertEquals(issuedAt, issued.get().issuedAt());
+        FakeOrderStore.Published event = store.events("order.issued").get(0);
+        assertEquals(Set.of("orderId", "orderNumber", "buyerId", "sellerId", "productId", "total", "commission", "deliveryId", "issuedAt"),
+                event.data().keySet());
+        assertEquals(delivery.toString(), event.data().get("deliveryId"));
+        assertEquals("2026-10-18T12:07:00.123Z", event.data().get("issuedAt"));
+        assertEquals(1.0, meters.counter("orders_issued_total").count());
+
+        assertTrue(transitions.issue(id(1), delivery, issuedAt.plusSeconds(60)).isEmpty(), "повторная выдача ничего не меняет (INV-17)");
+        assertEquals(issuedAt, store.get(id(1)).issuedAt());
+        assertEquals(1, store.events("order.issued").size());
+    }
+
+    @Tag("TC-518")
+    @Test
+    void issueOfAnyOtherStatusAndOfAnUnknownOrderChangesNothing() {
+        transitions.place(draft(1, BUYER));
+        store.seed(existing(2, BUYER, OrderStatus.REFUNDED));
+        cancelled(3, CancelReason.PAYMENT_DECLINED);
+        UUID delivery = UUID.fromString("0199e0a0-0000-7000-8000-000000000501");
+
+        for (int n = 1; n <= 3; n++) {
+            assertTrue(transitions.issue(id(n), delivery, PAID_AT).isEmpty(), "заказ " + n);
+        }
+        assertTrue(transitions.issue(id(9), delivery, PAID_AT).isEmpty());
+
+        assertEquals(0, store.events().size());
+        assertEquals(OrderStatus.CANCELLED, store.get(id(3)).status());
+    }
+
+    @Tag("TC-518")
+    @Test
+    void anonymizeReplacesTheAddressInAllOrdersOfTheBuyerOnlyAndKeepsTheStatuses() {
+        transitions.place(draft(1, BUYER));
+        store.seed(existing(2, BUYER, OrderStatus.ISSUED));
+        transitions.place(draft(3, OTHER));
+
+        int changed = transitions.anonymize(BUYER);
+
+        assertEquals(2, changed);
+        assertEquals(OrderTransitions.ANONYMIZED_ADDRESS, store.get(id(1)).deliveryAddress());
+        assertEquals(OrderTransitions.ANONYMIZED_ADDRESS, store.get(id(2)).deliveryAddress());
+        assertEquals("buyer@mail.example", store.get(id(3)).deliveryAddress());
+        assertEquals(OrderStatus.CREATED, store.get(id(1)).status());
+        assertEquals(OrderStatus.ISSUED, store.get(id(2)).status());
+        assertEquals(0, store.events().size(), "события об обезличивании нет: аудит ведёт «Платформа»");
+        assertEquals(2.0, meters.counter("orders_anonymized_total").count());
+    }
+
+    @Tag("TC-518")
+    @Test
+    void anonymizeTwiceAndForABuyerWithoutOrdersChangesNothing() {
+        transitions.place(draft(1, BUYER));
+
+        assertEquals(1, transitions.anonymize(BUYER));
+        assertEquals(0, transitions.anonymize(BUYER));
+        assertEquals(0, transitions.anonymize(UUID.fromString("0199e0a0-0000-4000-8000-0000000000ff")));
+        assertEquals(1.0, meters.counter("orders_anonymized_total").count());
+    }
+
+    @Tag("TC-518")
+    @Test
+    void theAnonymizedAddressFitsTheLimitsOfTheDatabaseAndIsNotMailable() {
+        String address = OrderTransitions.ANONYMIZED_ADDRESS;
+
+        assertTrue(address.length() >= 3 && address.length() <= 254, "ограничение длины delivery_address в базе");
+        assertTrue(address.endsWith(".invalid"), "зона .invalid зарезервирована: письмо туда не уйдёт");
+    }
+
+    @Tag("TC-518")
+    @Test
+    void findReturnsTheOrderWithoutChangingItAndEmptyForAnUnknownId() {
+        transitions.place(draft(1, BUYER));
+        int before = store.transactions();
+
+        assertEquals(OrderStatus.CREATED, transitions.find(id(1)).orElseThrow().status());
+        assertTrue(transitions.find(id(9)).isEmpty());
+
+        assertEquals(2, store.transactions() - before);
         assertEquals(0, store.events().size());
     }
 }

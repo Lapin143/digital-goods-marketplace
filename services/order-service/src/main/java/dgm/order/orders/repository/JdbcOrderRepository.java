@@ -71,6 +71,18 @@ public final class JdbcOrderRepository implements OrderRepository {
                         instant(rs, "session_until")), orderId, buyerId).stream().findFirst();
     }
 
+    @Override
+    public List<UUID> findCreatedBefore(Instant border, int limit) {
+        return jdbc.queryForList("select id from orders.orders where status = 'created' and created_at < ? order by created_at, id limit ?", UUID.class,
+                utc(border), limit);
+    }
+
+    @Override
+    public List<UUID> findAwaitingReserveEndedBefore(Instant border, int limit) {
+        return jdbc.queryForList("select id from orders.orders where status = 'awaiting_payment' and reserve_until < ? order by reserve_until, id limit ?",
+                UUID.class, utc(border), limit);
+    }
+
     private static Order map(ResultSet rs) throws SQLException {
         return new Order(
                 rs.getObject("id", UUID.class),

@@ -21,6 +21,12 @@ public final class JdbcProcessedEvents implements ProcessedEvents {
         return jdbc.update("insert into processed_event (consumer, event_id) values (?, ?) on conflict do nothing", consumer, eventId) == 1;
     }
 
+    @Override
+    public boolean isProcessed(String consumer, UUID eventId) {
+        Integer found = jdbc.queryForObject("select count(*) from processed_event where consumer = ? and event_id = ?", Integer.class, consumer, eventId);
+        return found != null && found > 0;
+    }
+
     /** Удаляет записи старше срока хранения, возвращает число удалённых. Вызывается раз в сутки. */
     public int clean(Duration retention) {
         return jdbc.update("delete from processed_event where processed_at < now() - make_interval(secs => ?)", (double) retention.toSeconds());

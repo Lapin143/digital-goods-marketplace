@@ -1,5 +1,6 @@
 package dgm.order.orders.service;
 
+import dgm.kit.events.ProcessedEvents;
 import dgm.order.orders.domain.NewOrder;
 import dgm.order.orders.domain.OrderStatus;
 import dgm.order.orders.domain.StoredOrder;
@@ -10,13 +11,19 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.function.Supplier;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionOperations;
 
 /**
  * Заказы и Outbox в памяти для модульных тестов домена и саги. Хранилище и транзакция в одном классе: вызов хранилища вне транзакции это
  * ошибка (как в базе, где консультативная блокировка и блокировка строки живут до конца транзакции), исключение в транзакции откатывает и
- * заказы, и события.
+ * заказы, и события. Вложенная транзакция присоединяется к внешней, как {@code TransactionTemplate} в боевом коде: так обработчик события,
+ * которого каркас обернул в свою транзакцию с отметкой {@code processed_event}, вызывает переходы домена, и всё откатывается вместе.
  */
 public final class FakeOrderStore implements OrderStore, OrderTransaction {
 
@@ -25,11 +32,13 @@ public final class FakeOrderStore implements OrderStore, OrderTransaction {
     }
 
     private Map<UUID, StoredOrder> orders = new LinkedHashMap<>();
+    private Set<String> processed = new TreeSet<>();
     private final List<Published> events = new ArrayList<>();
     private final List<UUID> lockedBuyers = new ArrayList<>();
     private long nextNumber = 1001;
     private boolean inTransaction;
     private boolean failOnPublish;
+    private final Set<String> failingAggregates = new TreeSet<>();
     private int transactions;
 
     /** Заказ, которого сага не создавала (например, оплаченный или отменённый заказ покупателя). */
@@ -41,6 +50,19 @@ public final class FakeOrderStore implements OrderStore, OrderTransaction {
     /** Следующая запись в Outbox падает: проверка атомарности перехода и события. */
     public FakeOrderStore failOnPublish() {
         failOnPublish = true;
+        return this;
+    }
+
+    /** Запись в Outbox падает только для событий этого заказа: сбой на одном заказе при исправных остальных (сторож). */
+    public FakeOrderStore failOnPublishOf(UUID orderId) {
+        failingAggregates.add(orderId.toString());
+        return this;
+    }
+
+    /** Outbox снова исправен: прежние сбои сняты. */
+    public FakeOrderStore publishWorks() {
+        failOnPublish = false;
+        failingAggregates.clear();
         return this;
     }
 
@@ -78,9 +100,10 @@ public final class FakeOrderStore implements OrderStore, OrderTransaction {
     @Override
     public <T> T execute(Supplier<T> action) {
         if (inTransaction) {
-            throw new IllegalStateException("Вложенная транзакция: переход выполняется в одной короткой транзакции");
+            return action.get();
         }
         Map<UUID, StoredOrder> ordersBefore = new LinkedHashMap<>(orders);
+        Set<String> processedBefore = new TreeSet<>(processed);
         int eventsBefore = events.size();
         int locksBefore = lockedBuyers.size();
         inTransaction = true;
@@ -89,6 +112,7 @@ public final class FakeOrderStore implements OrderStore, OrderTransaction {
             return action.get();
         } catch (RuntimeException e) {
             orders = ordersBefore;
+            processed = processedBefore;
             while (events.size() > eventsBefore) {
                 events.remove(events.size() - 1);
             }
@@ -101,10 +125,41 @@ public final class FakeOrderStore implements OrderStore, OrderTransaction {
         }
     }
 
+    /** Транзакции каркаса событий на этом же хранилище: обработчик, отметка обработанного и переходы домена откатываются вместе. */
+    public TransactionOperations operations() {
+        return new TransactionOperations() {
+            @Override
+            public <T> T execute(TransactionCallback<T> callback) {
+                return FakeOrderStore.this.execute(() -> callback.doInTransaction(new SimpleTransactionStatus()));
+            }
+        };
+    }
+
+    /** Таблица {@code processed_event} этого хранилища: отметка пишется внутри транзакции и откатывается вместе с заказами. */
+    public ProcessedEvents processedEvents() {
+        return new ProcessedEvents() {
+            @Override
+            public boolean markProcessed(String consumer, UUID eventId) {
+                requireTransaction();
+                return processed.add(consumer + "/" + eventId);
+            }
+
+            @Override
+            public boolean isProcessed(String consumer, UUID eventId) {
+                return processed.contains(consumer + "/" + eventId);
+            }
+        };
+    }
+
+    /** Сколько событий обработано (строк {@code processed_event}). */
+    public int processedCount() {
+        return processed.size();
+    }
+
     @Override
     public void publish(String topic, String aggregateType, String aggregateId, String eventType, int schemaVersion, Map<String, Object> data) {
         requireTransaction();
-        if (failOnPublish) {
+        if (failOnPublish || failingAggregates.contains(aggregateId)) {
             throw new IllegalStateException("Outbox недоступен");
         }
         events.add(new Published(topic, aggregateType, aggregateId, eventType, schemaVersion, Map.copyOf(data)));
@@ -170,6 +225,58 @@ public final class FakeOrderStore implements OrderStore, OrderTransaction {
                 o.amount(), o.commission(), o.currency(), OrderStatus.CANCELLED, reason, o.deliveryAddress(), o.reserveUntil(), o.sessionUntil(),
                 o.paymentSessionUrl(), o.createdAt(), o.paidAt(), o.issuedAt()));
         return true;
+    }
+
+    @Override
+    public boolean pay(UUID orderId, String from, Instant paidAt) {
+        requireTransaction();
+        StoredOrder o = orders.get(orderId);
+        if (o == null || !from.equals(o.status())) {
+            return false;
+        }
+        orders.put(orderId, changed(o, OrderStatus.PAID, null, o.deliveryAddress(), paidAt, o.issuedAt()));
+        return true;
+    }
+
+    @Override
+    public boolean refund(UUID orderId) {
+        requireTransaction();
+        StoredOrder o = orders.get(orderId);
+        if (o == null || !OrderStatus.CANCELLED.equals(o.status())) {
+            return false;
+        }
+        orders.put(orderId, changed(o, OrderStatus.REFUNDED, o.cancelReason(), o.deliveryAddress(), o.paidAt(), o.issuedAt()));
+        return true;
+    }
+
+    @Override
+    public boolean issue(UUID orderId, Instant issuedAt) {
+        requireTransaction();
+        StoredOrder o = orders.get(orderId);
+        if (o == null || !OrderStatus.PAID.equals(o.status())) {
+            return false;
+        }
+        orders.put(orderId, changed(o, OrderStatus.ISSUED, o.cancelReason(), o.deliveryAddress(), o.paidAt(), issuedAt));
+        return true;
+    }
+
+    @Override
+    public int anonymizeAddress(UUID buyerId, String replacement) {
+        requireTransaction();
+        int changed = 0;
+        for (StoredOrder o : List.copyOf(orders.values())) {
+            if (o.buyerId().equals(buyerId) && !replacement.equals(o.deliveryAddress())) {
+                orders.put(o.id(), changed(o, o.status(), o.cancelReason(), replacement, o.paidAt(), o.issuedAt()));
+                changed++;
+            }
+        }
+        return changed;
+    }
+
+    private static StoredOrder changed(StoredOrder o, String status, String cancelReason, String address, Instant paidAt, Instant issuedAt) {
+        return new StoredOrder(o.id(), o.number(), o.buyerId(), o.sellerId(), o.productId(), o.productTitle(), o.quantity(), o.unitPrice(), o.amount(),
+                o.commission(), o.currency(), status, cancelReason, address, o.reserveUntil(), o.sessionUntil(), o.paymentSessionUrl(), o.createdAt(), paidAt,
+                issuedAt);
     }
 
     private void requireTransaction() {

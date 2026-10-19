@@ -22,7 +22,8 @@ import java.util.concurrent.Executors;
 /**
  * Три соседа саги в одном процессе теста: каталог, сервис остатков и сервис платежей на одном локальном HTTP-сервере JDK (по путям внутренних
  * операций). Ведут себя так, как описано в OpenAPI: остатки идемпотентны по ключу и не уходят в минус, платёжная сессия одна на заказ, каталог
- * отвечает 404 о неизвестном товаре. Любого соседа можно «уронить» (ответ 503). Все вызовы записываются.
+ * отвечает 404 о неизвестном товаре. Любого соседа можно «уронить» (ответ 503). Подтверждение резерва после оплаты отвечает по режиму
+ * {@link ConfirmMode}. Все вызовы записываются.
  *
  * <p>Порядок вызовов и их число проверяет тест, поэтому запись не очищается между вызовами, только явным {@link #reset()}.
  */
@@ -31,6 +32,20 @@ final class Neighbours {
     /** Режим соседа. */
     enum Mode {
         OK, DOWN
+    }
+
+    /** Ответ сервиса остатков на подтверждение резерва после оплаты (ADR-013). */
+    enum ConfirmMode {
+        /** Активный резерв подтверждён. */
+        OK,
+        /** Резерв был снят, ключи взяты заново ({@code reReserved = true}). */
+        RE_RESERVED,
+        /** Свободных ключей меньше заказанного: 409 {@code insufficient-stock}. */
+        NO_KEYS,
+        /** Резерва этого заказа нет совсем: 404. */
+        NOT_FOUND,
+        /** Сервис остатков не отвечает: 503. */
+        DOWN
     }
 
     /** Принятый вызов. */
@@ -45,9 +60,12 @@ final class Neighbours {
     private final Map<UUID, Integer> stock = new ConcurrentHashMap<>();
     private final Map<String, String> reservations = new ConcurrentHashMap<>();
     private final Map<String, String> sessions = new ConcurrentHashMap<>();
+    private final Map<String, String> confirmations = new ConcurrentHashMap<>();
     private volatile Mode catalog = Mode.OK;
     private volatile Mode inventory = Mode.OK;
     private volatile Mode payment = Mode.OK;
+    private volatile ConfirmMode confirm = ConfirmMode.OK;
+    private volatile int confirmAvailable;
 
     private Neighbours(HttpServer server) {
         this.server = server;
@@ -80,6 +98,8 @@ final class Neighbours {
         catalog = Mode.OK;
         inventory = Mode.OK;
         payment = Mode.OK;
+        confirm = ConfirmMode.OK;
+        confirmAvailable = 0;
     }
 
     void catalogIs(Mode mode) {
@@ -92,6 +112,16 @@ final class Neighbours {
 
     void paymentIs(Mode mode) {
         payment = mode;
+    }
+
+    /** Как сервис остатков ответит на подтверждение резерва; {@code available} это число свободных ключей в ответе {@link ConfirmMode#NO_KEYS}. */
+    void confirmIs(ConfirmMode mode, int available) {
+        confirm = mode;
+        confirmAvailable = available;
+    }
+
+    void confirmIs(ConfirmMode mode) {
+        confirmIs(mode, 0);
     }
 
     /** Новый опубликованный товар с остатком ключей. */
@@ -160,6 +190,10 @@ final class Neighbours {
             reply(exchange, 503, "");
             return;
         }
+        if (call.path().endsWith("/reservations/confirm")) {
+            onConfirm(exchange, call);
+            return;
+        }
         Map<String, Object> body = Json.parseObject(call.body());
         String key = call.headers().get("idempotency-key");
         UUID product = UUID.fromString((String) body.get("productId"));
@@ -193,6 +227,43 @@ final class Neighbours {
             }
             reply(exchange, 201, json);
         }
+    }
+
+    /** {@code POST /internal/v1/reservations/confirm}: идемпотентно по ключу, повтор после успеха отдаёт тот же резерв. */
+    private void onConfirm(HttpExchange exchange, Call call) throws IOException {
+        Map<String, Object> body = Json.parseObject(call.body());
+        String key = call.headers().get("idempotency-key");
+        ConfirmMode mode = confirm;
+        if (mode == ConfirmMode.DOWN) {
+            reply(exchange, 503, "");
+            return;
+        }
+        String saved = key == null ? null : confirmations.get(key);
+        if (saved != null) {
+            reply(exchange, 200, saved);
+            return;
+        }
+        if (mode == ConfirmMode.NOT_FOUND) {
+            reply(exchange, 404, problem("not-found", "Не найдено", 404, ""));
+            return;
+        }
+        if (mode == ConfirmMode.NO_KEYS) {
+            reply(exchange, 409, problem("insufficient-stock", "Недостаточно ключей", 409, ",\"available\":" + confirmAvailable));
+            return;
+        }
+        Map<String, Object> reservation = new LinkedHashMap<>();
+        reservation.put("reservationId", UUID.randomUUID().toString());
+        reservation.put("orderId", body.get("orderId"));
+        reservation.put("productId", body.get("productId"));
+        reservation.put("quantity", body.get("quantity"));
+        reservation.put("status", "used");
+        reservation.put("expiresAt", Timestamps.format(Instant.now().plus(Duration.ofMinutes(15))));
+        reservation.put("reReserved", mode == ConfirmMode.RE_RESERVED);
+        String json = Json.write(reservation);
+        if (key != null) {
+            confirmations.put(key, json);
+        }
+        reply(exchange, 200, json);
     }
 
     private void onPayment(HttpExchange exchange) throws IOException {

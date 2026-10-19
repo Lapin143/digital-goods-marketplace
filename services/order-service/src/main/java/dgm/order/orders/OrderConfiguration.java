@@ -14,19 +14,23 @@ import dgm.order.orders.service.OrderTransaction;
 import dgm.order.orders.service.OrderTransitions;
 import dgm.order.orders.service.OrderViewService;
 import dgm.order.orders.service.SagaOrchestrator;
+import dgm.order.orders.watchdog.OrderWatchdog;
+import dgm.order.orders.watchdog.WatchdogSettings;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.time.Duration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Подключение модуля заказов: настройки с проверкой INV-07 (неверные значения останавливают запуск), клиенты соседей и сага покупки. Соседи описаны в
  * {@code dgm.peers.*} (каталог, остатки, платежи), клиенты берутся у каркаса по имени и переиспользуются, поэтому предохранитель у каждого соседа один
- * на весь сервис.
+ * на весь сервис. Сторож заказов работает по расписанию ({@code dgm.order.watchdog.*}).
  */
 @Configuration(proxyBeanMethods = false)
+@EnableScheduling
 public class OrderConfiguration {
 
     @Bean
@@ -62,6 +66,20 @@ public class OrderConfiguration {
     SagaOrchestrator sagaOrchestrator(CatalogClient catalog, InventoryClient inventory, PaymentClient payments, OrderTransitions transitions,
                                       OrderSettings settings, Clock clock, MeterRegistry meters) {
         return new SagaOrchestrator(catalog, inventory, payments, transitions, settings, clock, meters);
+    }
+
+    @Bean
+    WatchdogSettings watchdogSettings(Environment environment) {
+        WatchdogSettings defaults = WatchdogSettings.defaults();
+        return new WatchdogSettings(
+                environment.getProperty("dgm.order.watchdog.created-timeout", Duration.class, defaults.createdTimeout()),
+                environment.getProperty("dgm.order.watchdog.reserve-grace", Duration.class, defaults.reserveGrace()),
+                environment.getProperty("dgm.order.watchdog.batch", Integer.class, defaults.batch()));
+    }
+
+    @Bean
+    OrderWatchdog orderWatchdog(OrderRepository orders, SagaOrchestrator saga, WatchdogSettings settings, Clock clock, MeterRegistry meters) {
+        return new OrderWatchdog(orders, saga, settings, clock, meters);
     }
 
     @Bean

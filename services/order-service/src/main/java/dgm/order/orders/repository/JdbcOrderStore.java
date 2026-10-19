@@ -81,6 +81,27 @@ public final class JdbcOrderStore implements OrderStore {
         return jdbc.update("update orders.orders set status = 'cancelled', cancel_reason = ? where id = ? and status = ?", reason, orderId, from) == 1;
     }
 
+    @Override
+    public boolean pay(UUID orderId, String from, Instant paidAt) {
+        return jdbc.update("update orders.orders set status = 'paid', cancel_reason = null, paid_at = ? where id = ? and status = ?",
+                time(paidAt), orderId, from) == 1;
+    }
+
+    @Override
+    public boolean refund(UUID orderId) {
+        return jdbc.update("update orders.orders set status = 'refunded' where id = ? and status = 'cancelled'", orderId) == 1;
+    }
+
+    @Override
+    public boolean issue(UUID orderId, Instant issuedAt) {
+        return jdbc.update("update orders.orders set status = 'issued', issued_at = ? where id = ? and status = 'paid'", time(issuedAt), orderId) == 1;
+    }
+
+    @Override
+    public int anonymizeAddress(UUID buyerId, String replacement) {
+        return jdbc.update("update orders.orders set delivery_address = ? where buyer_id = ? and delivery_address <> ?", replacement, buyerId, replacement);
+    }
+
     private static Instant instant(OffsetDateTime value) {
         return value == null ? null : value.toInstant();
     }

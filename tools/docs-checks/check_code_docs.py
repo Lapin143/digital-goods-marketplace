@@ -49,7 +49,6 @@ SLICE2_EVENTS = (
 # События среза 2, которые код ещё не издаёт: событие -> шаг руководства среза 2, где издание появится. Пока событие здесь, проверка не ищет его строку в
 # коде издателя; издание появилось, запись надо убрать (проверка скажет). К шагу 22 словарь пуст.
 UNPUBLISHED_SLICE2 = {
-    'order.paid': 11, 'order.issued': 11, 'order.refunded': 11, 'order.refund-requested': 11,
     'delivery.accepted': 13, 'delivery.failed': 13,
     'delivery.delivered': 14, 'delivery.overdue': 14,
     'ticket.created': 15, 'ticket.resolved': 15,
@@ -57,20 +56,16 @@ UNPUBLISHED_SLICE2 = {
 
 # Потребители событий, которых код получит позже: событие -> {(сервис, обработчик)}. Пока обработчика нет, пара стоит здесь; появился обработчик,
 # запись надо убрать (проверка скажет). Так каталог (он описывает R1 целиком) и код среза расходятся только там, где это записано.
-# Пары среза 2 уходят на шагах 5, 9, 11, 13 и 15 руководства среза 2; к шагу 22 остаются только пары среза 3.
+# Пары среза 2 уходят на шагах 5, 9, 11, 13 и 15 руководства среза 2 (пары order-service ушли на шаге 11); к шагу 22 остаются только пары среза 3.
 LATER_CONSUMERS = {
     'product.published': {('platform-service', 'notification-handler')},  # письмо продавцу о решении по товару, FT-11.4, срез 3
     'product.rejected': {('platform-service', 'notification-handler')},
     'product.blocked': {('platform-service', 'notification-handler')},
     'user.deactivated': {('platform-service', 'notification-handler')},  # письмо о деактивации, FT-11.0, срез 3
-    'user.anonymized': {('order-service', 'order-domain'), ('delivery-service', 'delivery-domain')},  # заказы и выдачи появляются в срезе 2: шаги 11 и 13
+    'user.anonymized': {('delivery-service', 'delivery-domain')},  # выдачи появляются в срезе 2: шаг 13
     'audit.recorded': {('platform-service', 'audit-consumer')},  # потребитель журнала аудита, срез 3
-    # срез 2
-    'reservation.expired': {('order-service', 'saga-orchestrator')},  # сага заказа, шаг 11
-    'payment.confirmed': {('order-service', 'saga-orchestrator')},
-    'payment.rejected': {('order-service', 'saga-orchestrator')},
-    'payment.refunded': {('order-service', 'saga-orchestrator')},
-    'delivery.accepted': {('order-service', 'saga-orchestrator'), ('platform-service', 'support-event-handler')},  # шаги 11 и 15
+    # срез 2 (сага заказа получила своих потребителей на шаге 11)
+    'delivery.accepted': {('platform-service', 'support-event-handler')},  # шаг 15
     'order.paid': {('delivery-service', 'delivery-domain'), ('platform-service', 'notification-handler'),
                    ('platform-service', 'support-event-handler')},  # приём оплаты, шаг 13; письма и обращения, шаг 15
     'order.created': {('platform-service', 'notification-handler')},  # письма и обращения, шаг 15
@@ -238,7 +233,7 @@ def event_handlers(service, rep):
     found = {}
     for f in service_files(service):
         text = L.read(f)
-        if not re.search(r'\bimplements\b[^{]*\bEventHandler\b', text):
+        if not re.search(r'\bimplements\b[^{]*\b(?:EventHandler|ExternalStepsHandler)\b', text):
             continue
         where = L.rel(f)
         consts = constants(text)
@@ -275,7 +270,7 @@ def published_events(service, known):
     found = {}
     for f in service_files(service):
         text = L.read(f)
-        if re.search(r'\bimplements\b[^{]*\bEventHandler\b', text):
+        if re.search(r'\bimplements\b[^{]*\b(?:EventHandler|ExternalStepsHandler)\b', text):
             continue
         for name in EVENT_NAME.findall(text):
             if name in known:

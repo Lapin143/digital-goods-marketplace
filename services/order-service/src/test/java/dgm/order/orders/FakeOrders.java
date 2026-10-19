@@ -63,6 +63,16 @@ public final class FakeOrders implements OrderRepository {
     }
 
     @Override
+    public List<UUID> findCreatedBefore(Instant border, int limit) {
+        throw new UnsupportedOperationException("Выборки сторожа проверяет OrderWatchdogTest на своей подмене");
+    }
+
+    @Override
+    public List<UUID> findAwaitingReserveEndedBefore(Instant border, int limit) {
+        throw new UnsupportedOperationException("Выборки сторожа проверяет OrderWatchdogTest на своей подмене");
+    }
+
+    @Override
     public Optional<Order> findOwned(UUID orderId, UUID buyerId) {
         return byBuyer.getOrDefault(buyerId, List.of()).stream().filter(o -> o.id().equals(orderId)).findFirst();
     }

@@ -27,6 +27,9 @@ public final class PeerInventoryClient implements InventoryClient {
     /** Имя шага для ключа идемпотентности (Р-149). */
     public static final String STEP = "reserve";
 
+    /** Имя шага «подтвердить резерв»: ключ отличается от ключа резерва того же заказа (Р-149). */
+    public static final String CONFIRM_STEP = "confirm";
+
     private static final Logger LOG = LoggerFactory.getLogger(PeerInventoryClient.class);
 
     private final Supplier<PeerClient> peer;
@@ -57,6 +60,32 @@ public final class PeerInventoryClient implements InventoryClient {
         } catch (JsonException | ClassCastException | NullPointerException | IllegalArgumentException | java.util.NoSuchElementException e) {
             LOG.error("Ответ сервиса остатков о резерве заказа {} не разобран", orderId);
             throw new DependencyUnavailableException(PEER, DependencyUnavailableException.SERVER_ERROR, 201, e);
+        }
+    }
+
+    @Override
+    public ConfirmResult confirm(UUID orderId, UUID productId, int quantity) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("orderId", orderId.toString());
+        body.put("productId", productId.toString());
+        body.put("quantity", quantity);
+        try {
+            Map<String, Object> json = peer.get().call(PeerRequest.post("/internal/v1/reservations/confirm", Json.write(body),
+                    IdempotencyKeys.derived(CONFIRM_STEP, orderId).toString())).json();
+            return new Confirmed(UUID.fromString((String) json.get("reservationId")), Boolean.TRUE.equals(json.get("reReserved")));
+        } catch (DependencyRejectedException e) {
+            if (e.status() == 409 && "insufficient-stock".equals(e.problemCode())) {
+                return new NoKeys(available(e));
+            }
+            if (e.status() == 404) {
+                LOG.warn("Сервис остатков не нашёл резерва заказа {} при подтверждении", orderId);
+                return new NoKeys(0);
+            }
+            LOG.error("Сервис остатков отклонил подтверждение резерва заказа {}: код {} {}", orderId, e.status(), e.problemCode());
+            throw new DependencyUnavailableException(PEER, DependencyUnavailableException.SERVER_ERROR, e.status(), e);
+        } catch (JsonException | ClassCastException | NullPointerException | IllegalArgumentException e) {
+            LOG.error("Ответ сервиса остатков о подтверждении резерва заказа {} не разобран", orderId);
+            throw new DependencyUnavailableException(PEER, DependencyUnavailableException.SERVER_ERROR, 200, e);
         }
     }
 

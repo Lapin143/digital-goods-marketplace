@@ -7,6 +7,8 @@ import dgm.kit.problem.ProblemType;
 import dgm.order.orders.client.CatalogClient;
 import dgm.order.orders.client.CatalogClient.ProductCard;
 import dgm.order.orders.client.InventoryClient;
+import dgm.order.orders.client.InventoryClient.ConfirmResult;
+import dgm.order.orders.client.InventoryClient.Confirmed;
 import dgm.order.orders.client.InventoryClient.OutOfStock;
 import dgm.order.orders.client.InventoryClient.ReserveResult;
 import dgm.order.orders.client.InventoryClient.Reserved;
@@ -17,6 +19,8 @@ import dgm.order.orders.client.PaymentClient.SessionResult;
 import dgm.order.orders.domain.CancelReason;
 import dgm.order.orders.domain.NewOrder;
 import dgm.order.orders.domain.OrderPricing;
+import dgm.order.orders.domain.OrderStatus;
+import dgm.order.orders.domain.RefundReason;
 import dgm.order.orders.domain.StoredOrder;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
@@ -29,7 +33,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Оркестратор саги покупки, шаги 1 – 3 ({@code createOrder}, SEQ-01, ADR-004): знает порядок шагов и вызывает соседей, а статус заказа сам не
+ * Оркестратор саги покупки: шаги 1 – 3 ({@code createOrder}, SEQ-01, ADR-004) и разбор событий после них (оплата, отказ, истечение резерва,
+ * возврат, выдача, сторож). Шаги 1 – 3: знает порядок шагов и вызывает соседей, а статус заказа сам не
  * меняет, каждый переход просит у {@link OrderTransitions}. Соседи вызываются вне транзакций (правило 9), каждая фиксация короткая:
  * <ol>
  *   <li>карточка товара в каталоге: товар опубликован, цена из каталога, а не из запроса;</li>
@@ -42,6 +47,10 @@ import org.slf4j.LoggerFactory;
  * Если сосед не ответил на резерв, заказ отменяется с причиной «системная ошибка»: резерв мог быть создан, и событие отмены его снимет. Сбой между
  * шагами, после которого отмена не прошла (падение процесса), доберёт сторож заказов (шаг 11). Шаги идемпотентны: ключи соседям выводятся из имени
  * шага и заказа, повтор вернёт прежний результат.
+ *
+ * <p>События разбираются по таблице «Обработка событий оркестратором» ADR-004: оркестратор смотрит на статус заказа и выбирает ветку, а
+ * допустимость перехода и перепроверку статуса под блокировкой делает {@link OrderTransitions}. Повтор и перестановка событий безвредны: в
+ * неподходящем статусе событие игнорируется с причиной, в метрике {@code events_ignored_total}.
  */
 public final class SagaOrchestrator {
 
@@ -167,6 +176,101 @@ public final class SagaOrchestrator {
         }
         cancel(order, CancelReason.PAYMENT_SESSION_FAILED);
         throw reject("payment-session-refused", paymentSessionUnavailable());
+    }
+
+    // ------------------------------------------------------------------------------------------------ события и сторож (шаг 11)
+
+    /**
+     * Шаг 5, часть 1 (вне транзакции): что делать с подтверждённым платежом. Статус читается короткой транзакцией, затем для заказа
+     * «ожидает оплаты» или «отменён» вызывается подтверждение резерва (ADR-013). Вызов идемпотентен, поэтому повтор события после сбоя безвреден.
+     */
+    public PaymentDecision decidePayment(UUID orderId) {
+        Optional<StoredOrder> found = transitions.find(orderId);
+        if (found.isEmpty()) {
+            return anomaly("unknown-order", orderId);
+        }
+        StoredOrder order = found.get();
+        String status = order.status();
+        if (OrderStatus.CREATED.equals(status)) {
+            return new PaymentDecision.Wait("order-not-awaiting-payment-yet");
+        }
+        if (OrderStatus.PAID.equals(status) || OrderStatus.ISSUED.equals(status)) {
+            meters.counter("payment_duplicates_total").increment();
+            return new PaymentDecision.Ignore("payment-already-applied");
+        }
+        if (OrderStatus.REFUNDED.equals(status)) {
+            return anomaly("order-refunded", orderId);
+        }
+        if (OrderStatus.CANCELLED.equals(status) && CancelReason.PAYMENT_DECLINED.equals(order.cancelReason())) {
+            return anomaly("payment-declined-order", orderId);
+        }
+        ConfirmResult confirm;
+        try {
+            confirm = inventory.confirm(order.id(), order.productId(), order.quantity());
+        } catch (DependencyUnavailableException e) {
+            return new PaymentDecision.Wait("inventory-unavailable");
+        }
+        return confirm instanceof Confirmed ? new PaymentDecision.Pay() : new PaymentDecision.Refund();
+    }
+
+    /** Шаг 5, часть 2 (внутри транзакции потребителя): T4, T7 или отмена с возвратом. Статус перепроверяется под блокировкой. */
+    public SagaOutcome applyPayment(UUID orderId, PaymentDecision decision, Instant paidAt) {
+        if (decision instanceof PaymentDecision.Ignore ignore) {
+            return SagaOutcome.ignored(ignore.reason());
+        }
+        if (decision instanceof PaymentDecision.Pay) {
+            return transitions.pay(orderId, paidAt).isPresent() ? SagaOutcome.applied() : SagaOutcome.ignored("order-changed");
+        }
+        if (decision instanceof PaymentDecision.Refund) {
+            return transitions.requestRefund(orderId, RefundReason.LATE_PAYMENT).isPresent() ? SagaOutcome.applied() : SagaOutcome.ignored("order-changed");
+        }
+        throw new IllegalStateException("Решение " + decision + " не применяется: событие обрабатывается позже");
+    }
+
+    /** {@code payment.rejected}: шлюз отклонил платёж. «Ожидает оплаты» в «отменён» (T5); подтверждение продавцом не нужно. */
+    public SagaOutcome paymentRejected(UUID orderId) {
+        Optional<StoredOrder> order = transitions.find(orderId);
+        if (order.isEmpty()) {
+            meters.counter("payment_anomalies_total", "kind", "unknown-order").increment();
+            return SagaOutcome.ignored("unknown-order");
+        }
+        if (OrderStatus.CREATED.equals(order.get().status())) {
+            return SagaOutcome.retry("order-not-awaiting-payment-yet");
+        }
+        return transitions.cancel(orderId, CancelReason.PAYMENT_DECLINED).isPresent() ? SagaOutcome.applied() : SagaOutcome.ignored("order-not-awaiting-payment");
+    }
+
+    /**
+     * {@code reservation.expired} и сторож: резерв кончился, а оплаты нет. «Ожидает оплаты» в «отменён» (T6). Для других статусов событие
+     * относится к уже завершённой попытке и игнорируется.
+     */
+    public SagaOutcome reservationExpired(UUID orderId) {
+        return transitions.cancel(orderId, CancelReason.RESERVATION_EXPIRED).isPresent() ? SagaOutcome.applied() : SagaOutcome.ignored("order-not-awaiting-payment");
+    }
+
+    /**
+     * Сторож: заказ «создан» остался без продолжения (потерян ответ резерва или платёжной сессии, процесс упал между шагами). Отмена с причиной
+     * «системная ошибка» (T12) и событие {@code order.cancelled}, по которому остатки снимут резерв, если он успел появиться.
+     */
+    public SagaOutcome abandonedCreated(UUID orderId) {
+        return transitions.cancel(orderId, CancelReason.SYSTEM_ERROR).isPresent() ? SagaOutcome.applied() : SagaOutcome.ignored("order-not-created");
+    }
+
+    /** {@code payment.refunded}: деньги вернулись. «Отменён» в «возвращён» (T8), событие {@code order.refunded}. */
+    public SagaOutcome refundConfirmed(UUID orderId, String refundReason) {
+        return transitions.refund(orderId, refundReason).isPresent() ? SagaOutcome.applied() : SagaOutcome.ignored("order-not-cancelled");
+    }
+
+    /** {@code delivery.accepted}: провайдер принял письмо. «Оплачен» в «выдан» (T9), один раз за жизнь заказа; повтор для «выдан» игнорируется. */
+    public SagaOutcome deliveryAccepted(UUID orderId, UUID deliveryId, Instant acceptedAt) {
+        return transitions.issue(orderId, deliveryId, acceptedAt).isPresent() ? SagaOutcome.applied() : SagaOutcome.ignored("order-not-paid");
+    }
+
+    /** Подтверждение платежа, которое не должно было прийти для заказа в таком статусе: заказ не меняется, метрика и ошибка в журнале. */
+    private PaymentDecision anomaly(String kind, UUID orderId) {
+        meters.counter("payment_anomalies_total", "kind", kind).increment();
+        LOG.error("Подтверждение платежа по заказу {} не применено: {}", orderId, kind);
+        return new PaymentDecision.Ignore(kind);
     }
 
     private Instant sessionLimit(Reserved reserved) {

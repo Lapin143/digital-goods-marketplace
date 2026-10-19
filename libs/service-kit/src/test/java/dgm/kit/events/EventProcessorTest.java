@@ -41,11 +41,18 @@ class EventProcessorTest {
         public boolean markProcessed(String consumer, UUID eventId) {
             return keys.add(consumer + "/" + eventId);
         }
+
+        @Override
+        public boolean isProcessed(String consumer, UUID eventId) {
+            return keys.contains(consumer + "/" + eventId);
+        }
     }
 
     /** Транзакция, которая при исключении возвращает таблицу обработанных в прежнее состояние, как откат в базе. */
     private static final class RollingBack implements TransactionOperations {
         private final FakeProcessed processed;
+        /** Идёт ли сейчас транзакция: внешние шаги обязаны выполняться вне её. */
+        boolean active;
 
         RollingBack(FakeProcessed processed) {
             this.processed = processed;
@@ -54,12 +61,15 @@ class EventProcessorTest {
         @Override
         public <T> T execute(TransactionCallback<T> action) throws TransactionException {
             Set<String> snapshot = new HashSet<>(processed.keys);
+            active = true;
             try {
                 return action.doInTransaction(new SimpleTransactionStatus());
             } catch (RuntimeException e) {
                 processed.keys.clear();
                 processed.keys.addAll(snapshot);
                 throw e;
+            } finally {
+                active = false;
             }
         }
     }
@@ -125,7 +135,45 @@ class EventProcessorTest {
         }
     }
 
+    /** Обработчик с внешними шагами: что и где выполнялось, видно по журналу вызовов. */
+    private static final class ExternalHandler implements ExternalStepsHandler {
+        final RollingBack transactions;
+        final List<String> log = new ArrayList<>();
+        Function<EventEnvelope, TransactionalStep> prepare = e -> () -> HandleResult.done();
+
+        ExternalHandler(RollingBack transactions) {
+            this.transactions = transactions;
+        }
+
+        @Override
+        public String name() {
+            return "saga-orchestrator";
+        }
+
+        @Override
+        public String topic() {
+            return "order.events";
+        }
+
+        @Override
+        public Set<String> types() {
+            return Set.of("order.paid");
+        }
+
+        @Override
+        public int maxSchemaVersion() {
+            return 1;
+        }
+
+        @Override
+        public TransactionalStep prepare(EventEnvelope event) {
+            log.add(transactions.active ? "prepare-in-transaction" : "prepare");
+            return prepare.apply(event);
+        }
+    }
+
     private final FakeProcessed processed = new FakeProcessed();
+    private final RollingBack transactions = new RollingBack(processed);
     private final RecordingDlq dlq = new RecordingDlq();
     private final List<Duration> sleeps = new ArrayList<>();
     private final SimpleMeterRegistry metrics = new SimpleMeterRegistry();
@@ -133,7 +181,7 @@ class EventProcessorTest {
     private final TestHandler handler = new TestHandler("reservation-handler", "order.events", Set.of("order.paid"), 2);
 
     private EventProcessor processor(EventHandler... handlers) {
-        return new EventProcessor(SERVICE, List.of(handlers), processed, new RollingBack(processed), dlq,
+        return new EventProcessor(SERVICE, List.of(handlers), processed, transactions, dlq,
                 EventProcessor.DEFAULT_RETRY_DELAYS, clock, sleeps::add, metrics);
     }
 
@@ -467,5 +515,128 @@ class EventProcessorTest {
         assertEquals("unspecified", EventProcessor.label(" "));
         assertEquals("a_b-c_1", EventProcessor.label("A b-c_1"));
         assertEquals(40, EventProcessor.label("x".repeat(100)).length());
+    }
+
+    // --- обработчики с внешними шагами ------------------------------------------------------------------------------------------
+
+    @Test
+    void externalStepsPrepareOutsideTransactionAndCommitInsideWithMark() throws Exception {
+        ExternalHandler external = new ExternalHandler(transactions);
+        external.prepare = e -> () -> {
+            external.log.add(transactions.active ? "commit-in-transaction" : "commit");
+            assertTrue(processed.keys.contains("saga-orchestrator/" + EventEnvelopeTest.ID), "отметка записана до действия, в той же транзакции");
+            return HandleResult.done();
+        };
+        processor(external).process(record(EventEnvelopeTest.valid(), "order.paid"));
+        assertEquals(List.of("prepare", "commit-in-transaction"), external.log);
+        assertEquals(1, count("events_processed_total", "result", "applied", "consumer", "saga-orchestrator"));
+        assertTrue(dlq.sent.isEmpty());
+    }
+
+    @Test
+    void externalStepsDuplicateIsSkippedBeforeNeighboursAreCalled() throws Exception {
+        ExternalHandler external = new ExternalHandler(transactions);
+        EventProcessor p = processor(external);
+        p.process(record(EventEnvelopeTest.valid()));
+        p.process(record(EventEnvelopeTest.valid()));
+        assertEquals(List.of("prepare"), external.log, "второй раз соседей не вызывали");
+        assertEquals(1, count("events_processed_total", "result", "duplicate"));
+    }
+
+    @Test
+    void externalStepsRaceLostInsideTransactionDoesNotRunTheAction() throws Exception {
+        ExternalHandler external = new ExternalHandler(transactions);
+        external.prepare = e -> {
+            processed.keys.add("saga-orchestrator/" + EventEnvelopeTest.ID);   // параллельный поток успел раньше, чем началась транзакция
+            return () -> {
+                external.log.add("commit");
+                return HandleResult.done();
+            };
+        };
+        processor(external).process(record(EventEnvelopeTest.valid()));
+        assertEquals(List.of("prepare"), external.log);
+        assertEquals(1, count("events_processed_total", "result", "duplicate"));
+    }
+
+    @Test
+    void externalStepsTemporaryFailureInPrepareRepeatsTheWholeStep() throws Exception {
+        ExternalHandler external = new ExternalHandler(transactions);
+        int[] calls = {0};
+        external.prepare = e -> {
+            if (++calls[0] == 1) {
+                throw new RetryableEventException("остатки не ответили");
+            }
+            return () -> HandleResult.done();
+        };
+        processor(external).process(record(EventEnvelopeTest.valid()));
+        assertEquals(List.of("prepare", "prepare"), external.log);
+        assertEquals(List.of(Duration.ofSeconds(1)), sleeps);
+        assertEquals(1, processed.keys.size());
+        assertTrue(dlq.sent.isEmpty());
+    }
+
+    @Test
+    void externalStepsFailureOfTheActionRollsBackTheMarkAndRepeatsTheWholeStep() throws Exception {
+        ExternalHandler external = new ExternalHandler(transactions);
+        int[] calls = {0};
+        external.prepare = e -> () -> {
+            if (++calls[0] == 1) {
+                assertTrue(processed.keys.contains("saga-orchestrator/" + EventEnvelopeTest.ID));
+                throw new IllegalStateException("база недоступна");
+            }
+            return HandleResult.done();
+        };
+        processor(external).process(record(EventEnvelopeTest.valid()));
+        assertEquals(List.of("prepare", "prepare"), external.log, "после отката соседи вызываются снова: их вызов идемпотентен");
+        assertEquals(1, processed.keys.size(), "после отката и успешного повтора строка одна");
+        assertTrue(dlq.sent.isEmpty());
+    }
+
+    @Test
+    void externalStepsFatalErrorInPrepareGoesToDlqWithoutMark() throws Exception {
+        ExternalHandler external = new ExternalHandler(transactions);
+        external.prepare = e -> {
+            throw new FatalEventException("в событии нет orderId");
+        };
+        processor(external).process(record(EventEnvelopeTest.valid()));
+        assertEquals(1, dlq.sent.size());
+        assertEquals("saga-orchestrator", header(dlq.sent.get(0), "dlq-consumer"));
+        assertTrue(processed.keys.isEmpty());
+        assertTrue(sleeps.isEmpty());
+    }
+
+    @Test
+    void externalStepsCheckedExceptionInPrepareIsTemporary() throws Exception {
+        ExternalHandler external = new ExternalHandler(transactions);
+        int[] calls = {0};
+        external.prepare = e -> {
+            if (++calls[0] == 1) {
+                sneaky(new java.io.IOException("обрыв"));
+            }
+            return null;
+        };
+        processor(external).process(record(EventEnvelopeTest.valid()));
+        assertEquals(2, calls[0]);
+        assertEquals(1, processed.keys.size(), "пустое действие тоже отмечает событие обработанным");
+    }
+
+    @Test
+    void externalStepsIgnoredResultIsCountedByReason() throws Exception {
+        ExternalHandler external = new ExternalHandler(transactions);
+        external.prepare = e -> () -> HandleResult.ignored("order-already-paid");
+        processor(external).process(record(EventEnvelopeTest.valid()));
+        assertEquals(1, count("events_ignored_total", "reason", "order-already-paid"));
+        assertEquals(1, processed.keys.size());
+    }
+
+    @Test
+    void externalStepsHandlerRefusesTheOrdinaryPath() {
+        ExternalHandler external = new ExternalHandler(transactions);
+        assertThrows(IllegalStateException.class, () -> external.handle(null));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <E extends Throwable> void sneaky(Throwable error) throws E {
+        throw (E) error;
     }
 }

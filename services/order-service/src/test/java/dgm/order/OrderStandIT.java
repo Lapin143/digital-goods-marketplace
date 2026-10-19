@@ -7,10 +7,12 @@ import dgm.kit.testing.Stand;
 import dgm.kit.testing.TestTokens;
 import java.io.IOException;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -71,6 +73,10 @@ abstract class OrderStandIT {
         registry.add("dgm.peers.catalog-service.breaker-window", () -> "1000");
         registry.add("dgm.peers.inventory-service.breaker-window", () -> "1000");
         registry.add("dgm.peers.payment-service.breaker-window", () -> "1000");
+        // Сторож заказов в тестах не запускается сам: он отменил бы старые заказы тестовых данных и чужие заказы параллельных тестов.
+        // Проход сторожа проверяют тесты явно, на выборке только своих заказов (OrderWatchdogIT)
+        registry.add("dgm.order.watchdog.interval", () -> "PT1H");
+        registry.add("dgm.order.watchdog.initial-delay", () -> "PT1H");
     }
 
     @BeforeAll
@@ -119,14 +125,37 @@ abstract class OrderStandIT {
         return (String) response.json().get("code");
     }
 
+    /** Ждёт, пока условие выполнится: обработка событий идёт фоновым потребителем, итог видно только опросом базы. */
+    static boolean await(Duration limit, BooleanSupplier condition) {
+        long end = System.nanoTime() + limit.toNanos();
+        while (System.nanoTime() < end) {
+            if (condition.getAsBoolean()) {
+                return true;
+            }
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return condition.getAsBoolean();
+    }
+
     // ------------------------------------------------------------------------------------------------ база
 
     /** Строка заказа или {@code null}. */
     static Map<String, Object> order(String orderId) {
         List<Map<String, Object>> rows = db.queryForList("select id, number, buyer_id, seller_id, product_id, product_title, quantity, unit_price, amount, "
                 + "commission_rate_bp, commission, currency, delivery_address, status, cancel_reason, reserve_until, session_until, payment_session_url, "
-                + "created_at, version from orders.orders where id = ?", UUID.fromString(orderId));
+                + "created_at, paid_at, issued_at, version from orders.orders where id = ?", UUID.fromString(orderId));
         return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    /** Статус заказа или {@code null}, если заказа нет. */
+    static String status(String orderId) {
+        Map<String, Object> row = order(orderId);
+        return row == null ? null : (String) row.get("status");
     }
 
     static List<Map<String, Object>> ordersOf(UUID buyer) {

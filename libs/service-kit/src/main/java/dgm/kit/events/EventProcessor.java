@@ -139,7 +139,9 @@ public final class EventProcessor {
         while (true) {
             attempt++;
             try {
-                HandleResult result = transactions.execute(status -> apply(handler, envelope, processed));
+                HandleResult result = handler instanceof ExternalStepsHandler external
+                        ? applyWithExternalSteps(external, envelope, processed, transactions)
+                        : transactions.execute(status -> apply(handler, envelope, processed));
                 recordResult(handler, envelope, result);
                 return;
             } catch (FatalEventException e) {
@@ -177,6 +179,38 @@ public final class EventProcessor {
         } catch (Exception e) {
             throw new RetryableEventException("Обработчик завершился ошибкой " + e.getClass().getSimpleName(), e);
         }
+    }
+
+    /**
+     * Обработчик с внешними шагами: отсев дубля и {@code prepare} идут без транзакции, отметка и действие в одной короткой транзакции после них.
+     * Если между отсевом и транзакцией событие успел обработать другой поток, {@code markProcessed} вернёт {@code false} и действие не выполнится.
+     */
+    private HandleResult applyWithExternalSteps(ExternalStepsHandler handler, EventEnvelope envelope, ProcessedEvents processed,
+                                                TransactionOperations transactions) {
+        if (processed.isProcessed(handler.name(), envelope.id())) {
+            return DUPLICATE;
+        }
+        ExternalStepsHandler.TransactionalStep step;
+        try {
+            step = handler.prepare(envelope);
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RetryableEventException("Обработчик завершился ошибкой " + e.getClass().getSimpleName(), e);
+        }
+        return transactions.execute(status -> {
+            if (!processed.markProcessed(handler.name(), envelope.id())) {
+                return DUPLICATE;
+            }
+            try {
+                HandleResult result = step == null ? HandleResult.done() : step.apply();
+                return result == null ? HandleResult.done() : result;
+            } catch (RuntimeException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new RetryableEventException("Обработчик завершился ошибкой " + e.getClass().getSimpleName(), e);
+            }
+        });
     }
 
     private void recordResult(EventHandler handler, EventEnvelope envelope, HandleResult result) {

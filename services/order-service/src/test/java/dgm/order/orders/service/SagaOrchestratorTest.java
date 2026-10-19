@@ -98,6 +98,11 @@ class SagaOrchestratorTest {
             }
             return result != null ? result : new Reserved(UUID.randomUUID(), clock.instant().plus(Duration.ofMinutes(15)));
         }
+
+        @Override
+        public ConfirmResult confirm(UUID orderId, UUID productId, int quantity) {
+            throw new UnsupportedOperationException("Подтверждение резерва (шаг 5) проверяет SagaEventsTest");
+        }
     }
 
     /** Заглушка сервиса платежей. */
