@@ -49,7 +49,6 @@ SLICE2_EVENTS = (
 # События среза 2, которые код ещё не издаёт: событие -> шаг руководства среза 2, где издание появится. Пока событие здесь, проверка не ищет его строку в
 # коде издателя; издание появилось, запись надо убрать (проверка скажет). К шагу 22 словарь пуст.
 UNPUBLISHED_SLICE2 = {
-    'order.created': 10, 'order.cancelled': 10,
     'order.paid': 11, 'order.issued': 11, 'order.refunded': 11, 'order.refund-requested': 11,
     'delivery.accepted': 13, 'delivery.failed': 13,
     'delivery.delivered': 14, 'delivery.overdue': 14,

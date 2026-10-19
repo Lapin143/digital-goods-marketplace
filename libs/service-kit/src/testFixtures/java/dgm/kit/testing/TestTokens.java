@@ -73,6 +73,7 @@ public final class TestTokens {
         private List<String> amr = List.of("pwd");
         private boolean phoneVerified = true;
         private String sellerId;
+        private String email;
         private Duration expiresIn = Duration.ofMinutes(5);
         private RSAPrivateKey signWith;
 
@@ -122,6 +123,12 @@ public final class TestTokens {
             return this;
         }
 
+        /** Адрес почты в токене (claim {@code email}, область {@code email}): попадает в снимок заказа; без вызова claim в токене нет. */
+        public Spec email(String value) {
+            this.email = value;
+            return this;
+        }
+
         /** Срок действия от текущего момента часов; отрицательный даёт уже просроченный токен. */
         public Spec expiresIn(Duration value) {
             this.expiresIn = value;
@@ -165,6 +172,9 @@ public final class TestTokens {
                     .claim("phone_verified", phoneVerified);
             if (sellerId != null) {
                 builder.claim("seller_id", sellerId);
+            }
+            if (email != null) {
+                builder.claim("email", email);
             }
             return builder.build();
         }

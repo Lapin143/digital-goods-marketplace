@@ -297,14 +297,14 @@ def put(service, name, path, status, body, method='GET'):
     os.makedirs(d, exist_ok=True)
     json.dump({'method': method, 'path': path, 'status': status, 'body': body}, open(os.path.join(d, name + '.json'), 'w', encoding='utf-8'), ensure_ascii=False)
 CODES = {400: 'bad-request', 403: 'forbidden', 404: 'not-found', 409: 'state-conflict', 412: 'version-conflict', 415: 'unsupported-media-type',
-         422: 'validation-failed', 428: 'precondition-required'}
+         422: 'validation-failed', 428: 'precondition-required', 503: 'dependency-unavailable'}
 def by_operation(service, op_id, statuses):
     """Образцы для операции по operationId: успешный ответ из примера OpenAPI, отказы как Problem с кодом из справочника CODES."""
     doc = yaml.safe_load(open(os.path.join(repo, 'docs', '06-api', 'openapi', service + '.yaml'), encoding='utf-8'))
     for template, item in doc['paths'].items():
         for method, op in item.items():
             if isinstance(op, dict) and op.get('operationId') == op_id:
-                path = template.replace('{productId}', '0199e0a0-0000-7000-8000-000000000201')
+                path = template.replace('{productId}', '0199e0a0-0000-7000-8000-000000000201').replace('{orderId}', '0199e0a0-0000-7000-8000-000000000301')
                 for status in statuses:
                     body = op['responses'][str(status)]['content']['application/json']['example'] if status < 400 else problem(status, CODES[status])
                     put(service, op_id + str(status), path, status, body, method.upper())
@@ -328,6 +328,14 @@ for op_id, statuses in wanted.items():
     by_operation('catalog-service', op_id, statuses)
 put('order-service', 'orders', '/api/v1/orders', 200, example('order-service', '/api/v1/orders'))
 put('order-service', 'orders422', '/api/v1/orders', 422, problem(422, 'validation-failed'))
+# Остальные обязательные образцы заказов строятся так же, по реестру операций order-service со статусом done
+ready_orders = CC.ready_operations('order-service') or set()
+wanted = {}
+for op_id, status in CC.REQUIRED['order-service']:
+    if op_id in ready_orders and op_id != 'listOrders':
+        wanted.setdefault(op_id, []).append(status)
+for op_id, statuses in wanted.items():
+    by_operation('order-service', op_id, statuses)
 PY
     C="$REPO/tools/stand-checks/check_contract.py"
     if (cd "$tmp/contract" && python3 "$C" "$tmp/contract/services/catalog-service/build/contract-samples" "$tmp/contract/services/order-service/build/contract-samples") >"$tmp/out.txt" 2>&1; then

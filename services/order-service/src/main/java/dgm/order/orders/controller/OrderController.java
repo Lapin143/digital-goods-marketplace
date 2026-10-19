@@ -89,7 +89,8 @@ public class OrderController {
         return body;
     }
 
-    private static Map<String, Object> toJson(Order o, boolean maskAddress) {
+    /** Заказ по схеме Order; в сессии по SMS адрес доставки маскируется. */
+    static Map<String, Object> toJson(Order o, boolean maskAddress) {
         Map<String, Object> delivery = new LinkedHashMap<>();
         delivery.put("channel", o.deliveryChannel());
         delivery.put("address", maskAddress ? DeliveryAddress.mask(o.deliveryAddress()) : o.deliveryAddress());

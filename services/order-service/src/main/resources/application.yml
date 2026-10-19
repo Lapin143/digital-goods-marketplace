@@ -25,3 +25,31 @@ dgm:
     module: orders
   consumer:
     module: orders
+  # Соседи саги покупки (SEQ-01, ADR-004), вызовы по mTLS. Сроки по бюджету запроса createOrder (цель 1 с при 95-м перцентиле, US-5.1):
+  # каталог 0,5 с и один повтор, остатки 1 с и один повтор (ключ идемпотентности выведен из шага и заказа), платежи 8 секунд без повторов
+  # (шлюз за ними отвечает до 7 секунд, повторы делает сам сервис платежей). Предохранитель по умолчанию каркаса.
+  peers:
+    catalog-service:
+      base-url: ${DGM_CATALOG_URL:https://catalog-service:8443}
+      attempt-timeout: 500ms
+      retry: 200ms
+    inventory-service:
+      base-url: ${DGM_INVENTORY_URL:https://inventory-service:8443}
+      attempt-timeout: 1s
+      retry: 300ms
+    payment-service:
+      base-url: ${DGM_PAYMENT_URL:https://payment-service:8443}
+      attempt-timeout: 8s
+      total-deadline: 8s
+      retry: ""
+
+# Параметры платформы (Р-139): ключи совпадают с platform_parameter, до слушателя config.changed (срез 3) значения читаются отсюда.
+# INV-07: платёжная сессия короче резерва, это проверяется при старте.
+orders:
+  max-unpaid: 3              # неоплаченных заказов («создан» и «ожидает оплаты») у одного покупателя, FT-5.1
+reservation:
+  ttl-seconds: 900           # резерв ключей 15 минут
+payment-session:
+  ttl-seconds: 720           # платёжная сессия 12 минут
+commission:
+  default-rate-bp: 200       # комиссия платформы 2 %

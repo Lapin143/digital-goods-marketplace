@@ -3,6 +3,7 @@ package dgm.order.orders.repository;
 import dgm.kit.boot.ModuleDatabases;
 import dgm.order.orders.domain.Order;
 import dgm.order.orders.domain.OrderFilter;
+import dgm.order.orders.domain.OrderSession;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -20,6 +21,9 @@ import org.springframework.stereotype.Component;
 @Component
 public final class JdbcOrderRepository implements OrderRepository {
 
+    private static final String COLUMNS = "id, number, product_id, product_title, quantity, unit_price, amount, currency, status, "
+            + "cancel_reason, delivery_channel, delivery_address, reserve_until, session_until, created_at, paid_at, issued_at";
+
     private final JdbcTemplate jdbc;
 
     public JdbcOrderRepository(ModuleDatabases databases) {
@@ -28,9 +32,7 @@ public final class JdbcOrderRepository implements OrderRepository {
 
     @Override
     public List<Order> findByBuyer(OrderFilter f) {
-        StringBuilder sql = new StringBuilder("select id, number, product_id, product_title, quantity, unit_price, amount, currency, status, "
-                + "cancel_reason, delivery_channel, delivery_address, reserve_until, session_until, created_at, paid_at, issued_at "
-                + "from orders.orders where buyer_id = ?");
+        StringBuilder sql = new StringBuilder("select " + COLUMNS + " from orders.orders where buyer_id = ?");
         List<Object> args = new ArrayList<>();
         args.add(f.buyerId());
         f.statuses().ifPresent(statuses -> {
@@ -53,6 +55,20 @@ public final class JdbcOrderRepository implements OrderRepository {
         sql.append(" order by created_at desc, id desc limit ?");
         args.add(f.limit() + 1);
         return jdbc.query(sql.toString(), (rs, row) -> map(rs), args.toArray());
+    }
+
+    @Override
+    public Optional<Order> findOwned(UUID orderId, UUID buyerId) {
+        return jdbc.query("select " + COLUMNS + " from orders.orders where id = ? and buyer_id = ?", (rs, row) -> map(rs), orderId, buyerId).stream()
+                .findFirst();
+    }
+
+    @Override
+    public Optional<OrderSession> findSession(UUID orderId, UUID buyerId) {
+        return jdbc.query("select id, status, cancel_reason, payment_session_url, session_until from orders.orders where id = ? and buyer_id = ?",
+                (rs, row) -> new OrderSession(rs.getObject("id", UUID.class), rs.getString("status"),
+                        Optional.ofNullable(rs.getString("cancel_reason")), Optional.ofNullable(rs.getString("payment_session_url")),
+                        instant(rs, "session_until")), orderId, buyerId).stream().findFirst();
     }
 
     private static Order map(ResultSet rs) throws SQLException {

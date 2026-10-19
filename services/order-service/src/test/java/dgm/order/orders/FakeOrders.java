@@ -2,6 +2,7 @@ package dgm.order.orders;
 
 import dgm.order.orders.domain.Order;
 import dgm.order.orders.domain.OrderFilter;
+import dgm.order.orders.domain.OrderSession;
 import dgm.order.orders.repository.OrderRepository;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -21,6 +22,7 @@ public final class FakeOrders implements OrderRepository {
     private static final Comparator<Order> NEWEST_FIRST = Comparator.comparing(Order::createdAt).thenComparing(Order::id).reversed();
 
     private final Map<UUID, List<Order>> byBuyer = new HashMap<>();
+    private final Map<UUID, Map<UUID, OrderSession>> sessions = new HashMap<>();
     private OrderFilter lastFilter;
 
     public static UUID id(int n) {
@@ -34,6 +36,12 @@ public final class FakeOrders implements OrderRepository {
 
     public FakeOrders with(UUID buyer, Order... orders) {
         byBuyer.computeIfAbsent(buyer, b -> new ArrayList<>()).addAll(List.of(orders));
+        return this;
+    }
+
+    /** Платёжная сессия заказа покупателя для {@code findSession}. */
+    public FakeOrders withSession(UUID buyer, OrderSession session) {
+        sessions.computeIfAbsent(buyer, b -> new HashMap<>()).put(session.orderId(), session);
         return this;
     }
 
@@ -52,6 +60,16 @@ public final class FakeOrders implements OrderRepository {
                 .filter(o -> filter.after().map(a -> before(o, a)).orElse(true))
                 .limit(filter.limit() + 1L)
                 .toList();
+    }
+
+    @Override
+    public Optional<Order> findOwned(UUID orderId, UUID buyerId) {
+        return byBuyer.getOrDefault(buyerId, List.of()).stream().filter(o -> o.id().equals(orderId)).findFirst();
+    }
+
+    @Override
+    public Optional<OrderSession> findSession(UUID orderId, UUID buyerId) {
+        return Optional.ofNullable(sessions.getOrDefault(buyerId, Map.of()).get(orderId));
     }
 
     private static boolean before(Order order, OrderFilter.After after) {

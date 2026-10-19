@@ -13,37 +13,18 @@ import dgm.kit.boot.testing.StandHttp.Response;
 import dgm.kit.testing.TestTokens;
 import dgm.kit.tls.TlsMaterial;
 import java.io.IOException;
-import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
-import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 /**
  * Сервис заказов целиком на стенде (make up SET=dev-min DEBUG=1): миграции с тестовыми данными, чтение базы под ролью
  * {@code app_orders}, токен с областью и ролью, ограничение по владельцу (U1), маскирование адреса в сессии по SMS.
  */
-@Tag("integration")
-@SpringBootTest(classes = OrderServiceApplication.class, webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT)
-@ActiveProfiles("testdata")
-@Import(OrderServiceIT.TestBeans.class)
-class OrderServiceIT {
-
-    private static final int PORT = StandHttp.freePort();
-    private static final int MANAGEMENT = StandHttp.freePort();
-    private static final TestTokens TOKENS = TestTokens.create(Clock.systemUTC());
+class OrderServiceIT extends OrderStandIT {
 
     private static final String BUYER_A = "0199e0a0-0000-4000-8000-0000000000a1";
     private static final String BUYER_B = "0199e0a0-0000-4000-8000-0000000000a2";
@@ -51,28 +32,6 @@ class OrderServiceIT {
     private static final String O302 = "0199e0a0-0000-7000-8000-000000000302";
     private static final String O303 = "0199e0a0-0000-7000-8000-000000000303";
     private static final String O304 = "0199e0a0-0000-7000-8000-000000000304";
-
-    private static StandHttp gateway;
-    private static StandHttp monitoring;
-
-    @TestConfiguration(proxyBeanMethods = false)
-    static class TestBeans {
-        @Bean
-        JwtDecoder jwtDecoder() {
-            return StandHttp.decoderFor(TOKENS);
-        }
-    }
-
-    @DynamicPropertySource
-    static void properties(DynamicPropertyRegistry registry) {
-        StandHttp.register(registry, PORT, MANAGEMENT);
-    }
-
-    @BeforeAll
-    static void clients() {
-        gateway = StandHttp.asService("api-gateway", PORT);
-        monitoring = StandHttp.asService("prometheus", MANAGEMENT);
-    }
 
     private static String buyer(String id) {
         return TOKENS.token().subject(id).scopes("orders.read").roles("buyer").amr("pwd").build();

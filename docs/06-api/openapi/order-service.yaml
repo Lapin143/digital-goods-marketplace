@@ -39,6 +39,7 @@ paths:
       - U2
       - U16
       x-sms-session: denied
+      x-idempotency-external-steps: true
       security:
       - bearerJwt:
         - orders.create

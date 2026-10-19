@@ -222,8 +222,8 @@ components:
     Problem:
       type: object
       description: 'Проблема по RFC 9457 (`application/problem+json`). Клиент смотрит на `code`, а не на текст.
-        Расширения: `errors`, `currentStatus`, `available`, `retryAfterAt`, `attemptsLeft`, `limit` (conventions.md,
-        раздел 9)'
+        Расширения: `errors`, `currentStatus`, `cancelReason`, `available`, `retryAfterAt`, `attemptsLeft`, `limit`
+        (conventions.md, раздел 9)'
       properties:
         type:
           type: string
@@ -297,6 +297,9 @@ components:
         currentStatus:
           type: string
           description: Текущий статус объекта, для `state-conflict`
+        cancelReason:
+          type: string
+          description: Причина отмены заказа, для `state-conflict` по заказу в статусе «отменён» (платёжная сессия недоступна)
         available:
           type: integer
           description: Доступное число ключей, для `insufficient-stock`

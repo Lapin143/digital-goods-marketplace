@@ -8,7 +8,7 @@
 
 listOrders              done
 
-createOrder             slice2
-getOrder                slice2
-getOrderPaymentSession  slice2
+createOrder             done
+getOrder                done
+getOrderPaymentSession  done
 updateDeliveryAddress   later

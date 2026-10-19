@@ -26,7 +26,8 @@
       ],
       "callers": [],
       "smsSession": "denied",
-      "idempotent": true
+      "idempotent": true,
+      "externalSteps": true
     },
     {
       "method": "GET",
