@@ -157,7 +157,8 @@ expect_denied "kafka: payment-service не читает в чужой групп
 # Очередь недоставленных: сервис в неё только пишет (запись платформы в delivery.events.dlq видит make dlq-check), читает оператор от имени kafka-init
 k_dlq_read_own()     { kcli platform-service /s/tls_ca.crt "$CONS --topic delivery.events.dlq --group platform-service --from-beginning --max-messages 1 --timeout-ms 15000"; }
 k_dlq_read_foreign() { kcli catalog-service /s/tls_ca.crt "$CONS --topic delivery.events.dlq --group catalog-service --from-beginning --max-messages 1 --timeout-ms 15000"; }
-k_dlq_read_operator() { kcli kafka-init /s/tls_ca.crt "$BIN/kafka-topics.sh --bootstrap-server $B --command-config \$D/c.properties --describe --topic delivery.events.dlq" | grep -q 'PartitionCount'; }
+k_dlq_read_operator() { local o; o=$(kcli kafka-init /s/tls_ca.crt "$BIN/kafka-topics.sh --bootstrap-server $B --command-config \$D/c.properties --describe --topic delivery.events.dlq") || { echo "$o"; return 1; }
+  echo "$o" | grep -q 'PartitionCount' || { echo "нет PartitionCount:"; echo "$o"; return 1; }; }
 expect_denied "kafka: platform-service пишет в delivery.events.dlq, но читать её не может (ACL: в .dlq сервис только пишет)" "$DENY" k_dlq_read_own
 expect_denied "kafka: catalog-service не читает чужую delivery.events.dlq (ACL)" "$DENY" k_dlq_read_foreign
 expect_ok     "kafka: оператор (kafka-init) видит delivery.events.dlq" k_dlq_read_operator
