@@ -83,7 +83,7 @@ flowchart TB
             api-gateway["<b>API Gateway</b><br/><i>[Контейнер: Spring Cloud Gateway]</i><br/>8443"]
             web-app["<b>Веб-интерфейс</b><br/><i>[Контейнер: nginx, React]</i><br/>8443"]
         end
-        subgraph p-auth["<b>Профиль auth, 672 МБ</b>"]
+        subgraph p-auth["<b>Профиль auth, 768 МБ</b>"]
             keycloak["<b>Сервер идентификации</b><br/><i>[Контейнер: Keycloak]</i><br/>8443, 9000"]
         end
         subgraph p-purchase["<b>Профиль purchase, 992 МБ</b>"]
