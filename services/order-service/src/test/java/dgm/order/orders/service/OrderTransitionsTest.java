@@ -501,7 +501,8 @@ class OrderTransitionsTest {
         assertTrue(refunded.isPresent());
         assertEquals(OrderStatus.REFUNDED, refunded.get().status());
         FakeOrderStore.Published event = store.events("order.refunded").get(0);
-        assertEquals(Set.of("orderId", "buyerId", "sellerId", "total", "refundReason"), event.data().keySet());
+        assertEquals(Set.of("orderId", "orderNumber", "buyerId", "sellerId", "total", "refundReason"), event.data().keySet());
+        assertEquals(refunded.get().number(), event.data().get("orderNumber"));
         assertEquals(Map.of("amount", 100_00L, "currency", "RUB"), event.data().get("total"));
         assertEquals("late_payment", event.data().get("refundReason"));
         assertFalse(event.data().toString().contains("buyer@mail.example"));

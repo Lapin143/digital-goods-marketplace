@@ -89,10 +89,11 @@ final class OrderEvents {
         return data;
     }
 
-    /** {@code order.refunded}: SM-01/T8. Деньги вернулись покупателю; по событию уходит письмо о возврате (FT-11.0). */
+    /** {@code order.refunded}: SM-01/T8. Деньги вернулись покупателю; по событию уходит письмо о возврате (FT-11.0), номер заказа нужен ему (Р-153). */
     static Map<String, Object> refunded(StoredOrder o, String refundReason) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("orderId", o.id().toString());
+        data.put("orderNumber", o.number());
         data.put("buyerId", o.buyerId().toString());
         data.put("sellerId", o.sellerId().toString());
         data.put("total", money(o.amount(), o.currency()));
