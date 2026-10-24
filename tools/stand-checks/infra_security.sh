@@ -10,7 +10,8 @@
 #   Redis       обычный порт закрыт, без пароля и с неверным паролем отвергают, чужой центр не принимается, у пользователя сервиса
 #               нет доступа к чужим ключам и опасным командам, у администратора есть.
 #   Kafka       клиент без сертификата и клиент с сертификатом чужого центра отвергаются, клиент с верным сертификатом
-#               не может писать в чужую тему (ACL), но пишет и читает свою; темы созданы (17).
+#               не может писать в чужую тему (ACL), но пишет и читает свою; темы созданы (17); в очередь недоставленных
+#               сервис только пишет, читать её не может ни свой, ни чужой.
 # Клиенты запускаются контейнерами тех же образов в сети data. Каталог секретов только для чтения.
 set -uo pipefail
 
@@ -153,5 +154,12 @@ expect_ok     "kafka: payment-service (потребитель по AsyncAPI) ч�
 expect_denied "kafka: order-service издатель order.events и не потребитель: читать её не может (ACL)" "$DENY" k_cons_publisher
 expect_denied "kafka: catalog-service не читает order.events (ACL)" "$DENY" k_cons_foreign_topic
 expect_denied "kafka: payment-service не читает в чужой группе order-service (ACL)" "$DENY" k_cons_foreign_group
+# Очередь недоставленных: сервис в неё только пишет (запись платформы в delivery.events.dlq видит make dlq-check), читает оператор от имени kafka-init
+k_dlq_read_own()     { kcli platform-service /s/tls_ca.crt "$CONS --topic delivery.events.dlq --group platform-service --from-beginning --max-messages 1 --timeout-ms 15000"; }
+k_dlq_read_foreign() { kcli catalog-service /s/tls_ca.crt "$CONS --topic delivery.events.dlq --group catalog-service --from-beginning --max-messages 1 --timeout-ms 15000"; }
+k_dlq_read_operator() { kcli kafka-init /s/tls_ca.crt "$BIN/kafka-topics.sh --bootstrap-server $B --command-config \$D/c.properties --describe --topic delivery.events.dlq" | grep -q 'PartitionCount'; }
+expect_denied "kafka: platform-service пишет в delivery.events.dlq, но читать её не может (ACL: в .dlq сервис только пишет)" "$DENY" k_dlq_read_own
+expect_denied "kafka: catalog-service не читает чужую delivery.events.dlq (ACL)" "$DENY" k_dlq_read_foreign
+expect_ok     "kafka: оператор (kafka-init) видит delivery.events.dlq" k_dlq_read_operator
 
 finish

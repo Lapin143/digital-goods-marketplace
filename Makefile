@@ -220,6 +220,10 @@ orders-check: ## Проверить заказ и оплату сквозь ст
 payments-check: ## Проверить платежи сквозь стенд (К5): повторное и потерянное уведомление шлюза, поздняя оплата с повторным резервом, автовозврат, очередь ручных возвратов и отметка администратора (набор full с ускоренными сроками: make fast-up DEBUG=1, make keycloak-users; ключи и продавца берёт у orders-check)
 	$(KC_ENV) python3 tools/stand-checks/payments_checks.py
 
+.PHONY: dlq-check
+dlq-check: ## Проверить очередь недоставленных сообщений сквозь стенд (TC-012): ядовитая запись уходит в .dlq сразу, событие раньше модели заказа после повторов 31 с, dlq_replay.py показывает и возвращает его, обращение одно, второй возврат ничего не меняет (набор full, DEBUG=1; Keycloak не нужен)
+	python3 tools/stand-checks/dlq_checks.py
+
 .PHONY: ui-smoke
 ui-smoke: ## Дымовой сценарий интерфейса в браузере (К4): модератор входит с TOTP и решает заявку и товары щелчками, гость находит опубликованный товар (набор full, DEBUG=1, make keycloak-users, пакет playwright из tools/stand-checks/requirements-ui.txt и Chromium)
 	$(KC_ENV) python3 tools/stand-checks/ui_smoke.py

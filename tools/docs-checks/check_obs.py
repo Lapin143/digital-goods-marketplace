@@ -35,7 +35,7 @@ JAVA_SERVICES = ['api-gateway', 'catalog-service', 'inventory-service', 'order-s
 OBS_PORTS = {'prometheus': 9090, 'alertmanager': 9093, 'grafana': 3000, 'loki': 3100, 'tempo': 3200, 'alloy': 12345}
 DATASOURCES = {'prometheus': ('Prometheus', 'prometheus', 9090), 'loki': ('Loki', 'loki', 3100), 'tempo': ('Tempo', 'tempo', 3200)}
 EXPECTED_DASHBOARDS = {'dgm-services', 'dgm-gateway'}
-EXPECTED_ALERTS = {'ServiceDown', 'ObsComponentDown', 'HighServerErrorRate', 'GatewayRateLimiterFailOpen', 'BackupTooOld'}
+EXPECTED_ALERTS = {'ServiceDown', 'ObsComponentDown', 'HighServerErrorRate', 'GatewayRateLimiterFailOpen', 'EventSentToDlq', 'EventSentToDlqMinor', 'BackupTooOld'}
 
 
 def load(path):

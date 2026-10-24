@@ -52,8 +52,14 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.header.Header;
+import org.apache.kafka.common.serialization.StringDeserializer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.MethodOrderer;
@@ -1630,6 +1636,106 @@ class PlatformServiceIT {
         assertEquals(1, count("select count(*) from public.outbox where event_type = 'ticket.created' and payload ->> 'orderId' = ?", orderId.toString()));
         assertEquals(0, supportDb().queryForObject("select count(*) from (select order_id from support.ticket where status in ('created', 'in_progress') "
                 + "group by order_id having count(*) > 1) d", Integer.class), "дублей открытых обращений в базе нет");
+    }
+
+    // ---- очередь недоставленных (шаг 16 Ф4): запись в .dlq и возврат тем же способом, что у tools/ops/dlq_replay.py ----
+
+    /**
+     * Записи темы недоставленных с ключом {@code key}: от имени kafka-init (суперпользователь стенда, у сервисов права читать {@code .dlq} нет),
+     * с начала, всеми разделами, без группы потребителей. Читает, пока не наберётся {@code min} записей или не выйдет срок.
+     */
+    private static List<ConsumerRecord<String, String>> deadLetters(String topic, String key, int min, Duration timeout) {
+        Map<String, Object> props = new LinkedHashMap<>(Stand.kafkaSecurity("kafka-init"));
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, Stand.kafkaBootstrap());
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        props.put(ConsumerConfig.CLIENT_ID_CONFIG, "platform-it-dlq-reader");
+        List<ConsumerRecord<String, String>> found = new ArrayList<>();
+        try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props, new StringDeserializer(), new StringDeserializer())) {
+            List<TopicPartition> partitions = consumer.partitionsFor(topic).stream().map(info -> new TopicPartition(topic, info.partition())).toList();
+            consumer.assign(partitions);
+            consumer.seekToBeginning(partitions);
+            long deadline = System.nanoTime() + timeout.toNanos();
+            while (System.nanoTime() < deadline && found.size() < min) {
+                for (ConsumerRecord<String, String> record : consumer.poll(Duration.ofMillis(500))) {
+                    if (key.equals(record.key())) {
+                        found.add(record);
+                    }
+                }
+            }
+        }
+        return found;
+    }
+
+    private static String header(ConsumerRecord<String, String> record, String name) {
+        Header header = record.headers().lastHeader(name);
+        return header == null ? null : new String(header.value(), StandardCharsets.UTF_8);
+    }
+
+    /** Возвращает запись в исходную тему, как {@code dlq_replay.py replay}: тот же ключ и значение, заголовки без {@code dlq-*}, плюс {@code dlq-replayed-from}. */
+    private static void replay(ConsumerRecord<String, String> dead, String publisher) throws Exception {
+        ProducerRecord<String, String> record = new ProducerRecord<>(header(dead, "dlq-original-topic"), dead.key(), dead.value());
+        for (Header header : dead.headers()) {
+            if (!header.key().startsWith("dlq-")) {
+                record.headers().add(header.key(), header.value());
+            }
+        }
+        record.headers().add("dlq-replayed-from", (dead.topic() + " " + dead.partition() + ":" + dead.offset()).getBytes(StandardCharsets.UTF_8));
+        producer(publisher).send(record).get(20, TimeUnit.SECONDS);
+    }
+
+    private int deliveryFailedLetters(UUID orderId) {
+        return notificationDb().queryForObject("select count(*) from notification.notification where template = 'delivery-failed' and params ->> 'orderId' = ?",
+                Integer.class, orderId.toString());
+    }
+
+    @Tag("TC-611")
+    @Test
+    @Order(36)
+    void deliveryEventBeforeTheOrderGoesToTheDlqAndTheReplayAppliesItOnceWhileTheSecondReplayChangesNothing() throws Exception {
+        KeycloakStub.User buyer = provisioned("buyer");
+        provisioned("admin");
+        UUID orderId = UUID.randomUUID();
+
+        // delivery.failed раньше order.paid: модели чтения заказа нет, обработчик поддержки повторяет 1, 5 и 25 секунд и сдаётся (поток потребителя один,
+        // order.paid из соседней темы за это время не прочитать)
+        UUID failed = publishFailed(orderId, "attempts_exhausted");
+        List<ConsumerRecord<String, String>> dead = deadLetters("delivery.events.dlq", orderId.toString(), 1, Duration.ofSeconds(150));
+        assertEquals(1, dead.size(), "запись попала в delivery.events.dlq");
+        ConsumerRecord<String, String> record = dead.get(0);
+        assertEquals("delivery.events", header(record, "dlq-original-topic"));
+        assertEquals("support-event-handler", header(record, "dlq-consumer"));
+        assertEquals("4", header(record, "dlq-attempts"), "первая попытка и три повтора");
+        assertEquals("dgm.kit.events.RetryableEventException", header(record, "dlq-error-class"));
+        assertTrue(header(record, "dlq-failed-at").endsWith("Z"));
+        assertTrue(Long.parseLong(header(record, "dlq-original-offset")) >= 0);
+        assertNotNull(header(record, "dlq-original-partition"));
+        assertNotNull(header(record, "dlq-error-message"));
+        assertEquals("delivery.failed", header(record, "ce_type"), "заголовки исходной записи сохранены");
+        assertNotNull(header(record, "traceparent"));
+        assertTrue(record.value().contains(failed.toString()), "значение записи это исходный конверт события");
+        assertFalse(handledBySupport(failed), "обработчик поддержки событие не применил");
+        assertEquals(0, tickets(orderId));
+        int letters = deliveryFailedLetters(orderId);
+        assertTrue(letters >= 1, "письмо администратору по тому же событию ушло с первого раза: его обработчик отказа не получил");
+
+        // Причина снята: заказ появился. Возврат записи: поддержка применяет событие, обработчик писем получает дубль
+        paidAndSeen(orderId, freshOrderNumber(), UUID.fromString(buyer.id), "snapshot-" + UUID.randomUUID() + "@mail.example");
+        replay(record, "delivery-service");
+        assertTrue(await(Duration.ofSeconds(90), () -> tickets(orderId) == 1 && handledBySupport(failed)), "обращение создано при возврате");
+        UUID ticketId = UUID.fromString(supportDb().queryForObject("select id::text from support.ticket where order_id = ?", String.class, orderId));
+        assertEquals(List.of("ticket.created"), ticketEvents(ticketId));
+        assertEquals(letters, deliveryFailedLetters(orderId), "второго письма администратору нет: дубль отсеян по (обработчик, событие)");
+
+        // Второй возврат той же записи: события одного заказа идут в один раздел по порядку, поэтому после метки дубль уже разобран
+        replay(record, "delivery-service");
+        UUID marker = publishDelivery(orderId, "delivery.overdue", Map.of("paidAt", now(), "thresholdSeconds", 1800));
+        assertTrue(await(Duration.ofSeconds(90), () -> handledBySupport(marker)), "метка после дубля разобрана");
+        assertEquals(1, tickets(orderId), "обращение по-прежнему одно");
+        assertEquals(List.of("ticket.created"), ticketEvents(ticketId), "второго ticket.created нет");
+        assertEquals(letters, deliveryFailedLetters(orderId), "повтор письма не создал");
+        assertTrue(handledBySupport(failed), "событие отмечено разобранным один раз");
+        assertEquals(1, deadLetters("delivery.events.dlq", orderId.toString(), Integer.MAX_VALUE, Duration.ofSeconds(5)).size(),
+                "дубль в .dlq не вернулся: запись там одна");
     }
 
     @Tag("TC-114")

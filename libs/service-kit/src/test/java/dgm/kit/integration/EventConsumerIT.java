@@ -215,6 +215,7 @@ class EventConsumerIT {
         assertEquals(1, count(inventoryJdbc, "select count(*) from outbox where aggregate_id = ?", subject), "реакция записана один раз");
     }
 
+    @Tag("TC-611")
     @Test
     void failingHandlerIsRetriedThenSentToDlqAndEverythingRolledBackWhileReadingContinues() throws Exception {
         String badSubject = Env.subject("fails");
@@ -243,6 +244,7 @@ class EventConsumerIT {
         assertEquals(1, count(inventoryJdbc, "select count(*) from outbox where aggregate_id = ?", goodSubject));
     }
 
+    @Tag("TC-611")
     @Test
     void invalidMessageGoesToDlqAtOnce() throws Exception {
         String subject = Env.subject("invalid");

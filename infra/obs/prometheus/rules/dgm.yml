@@ -47,6 +47,34 @@ groups:
           summary: "Шлюз пропускает запросы без проверки лимита (группа {{ $labels.group }})"
           description: "Ограничитель частоты на Redis не отвечает, запросы проходят без проверки лимита."
 
+  - name: dgm-events
+    rules:
+      # Событие не обработано после повторов (или не разобрано) и лежит в теме .dlq: заказ, обращение или письмо могут отставать, пока его не разберут
+      # руками (runbook, «Событие в .dlq»). Счётчик появляется сразу со значением 1, а increase() по новому ряду даёт 0, поэтому вторая ветка
+      # ловит ряд, которого десять минут назад не было. По ADR-011 любое сообщение в .dlq тем payment.events, order.events, inventory.events
+      # и delivery.events это инцидент высокой важности (critical), для остальных тем предупреждение
+      - alert: EventSentToDlq
+        expr: |
+          increase(events_dlq_total{topic=~"(payment|order|inventory|delivery)[.]events"}[10m]) > 0
+          or
+          (events_dlq_total{topic=~"(payment|order|inventory|delivery)[.]events"} > 0 unless events_dlq_total offset 10m)
+        labels:
+          severity: critical
+        annotations:
+          summary: "Сервис {{ $labels.service }}: событие темы {{ $labels.topic }} ушло в очередь недоставленных"
+          description: "Обработчик {{ $labels.consumer }} не обработал событие после повторов. Порядок разбора: runbook, раздел «Событие в .dlq», tools/ops/dlq_replay.py."
+
+      - alert: EventSentToDlqMinor
+        expr: |
+          increase(events_dlq_total{topic!~"(payment|order|inventory|delivery)[.]events"}[10m]) > 0
+          or
+          (events_dlq_total{topic!~"(payment|order|inventory|delivery)[.]events"} > 0 unless events_dlq_total offset 10m)
+        labels:
+          severity: warning
+        annotations:
+          summary: "Сервис {{ $labels.service }}: событие темы {{ $labels.topic }} ушло в очередь недоставленных"
+          description: "Обработчик {{ $labels.consumer }} не обработал событие после повторов. Порядок разбора: runbook, раздел «Событие в .dlq», tools/ops/dlq_replay.py."
+
   - name: dgm-backup
     rules:
       # Возраст последней успешной копии: метрику отдаст backup-job в Ф6, до этого правило не срабатывает (нет ряда)

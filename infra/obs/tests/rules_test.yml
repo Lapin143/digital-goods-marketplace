@@ -111,3 +111,63 @@ tests:
             exp_annotations:
               summary: "Резервная копия старше 26 часов"
               description: "Новой успешной копии нет больше 26 часов, проверьте backup-job."
+
+  # Событие ушло в очередь недоставленных: новый ряд со значением 1 (первое событие обработчика) даёт оповещение сразу, а спустя десять
+  # минут без новых событий оповещение гаснет; второй ряд растёт с нуля (0 → 1), и его рост виден через increase()
+  - interval: 1m
+    input_series:
+      - series: 'events_dlq_total{service="platform-service", topic="delivery.events", consumer="support-event-handler"}'
+        values: '_ _ _ 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1'
+      - series: 'events_dlq_total{service="platform-service", topic="catalog.events", consumer="seller-role-handler"}'
+        values: '_ _ _ 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1'
+      - series: 'events_dlq_total{service="order-service", topic="payment.events", consumer="order-payment-handler"}'
+        values: '0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: EventSentToDlq
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: EventSentToDlq
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              service: platform-service
+              topic: delivery.events
+              consumer: support-event-handler
+            exp_annotations:
+              summary: "Сервис platform-service: событие темы delivery.events ушло в очередь недоставленных"
+              description: "Обработчик support-event-handler не обработал событие после повторов. Порядок разбора: runbook, раздел «Событие в .dlq», tools/ops/dlq_replay.py."
+      - eval_time: 13m
+        alertname: EventSentToDlq
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              service: order-service
+              topic: payment.events
+              consumer: order-payment-handler
+            exp_annotations:
+              summary: "Сервис order-service: событие темы payment.events ушло в очередь недоставленных"
+              description: "Обработчик order-payment-handler не обработал событие после повторов. Порядок разбора: runbook, раздел «Событие в .dlq», tools/ops/dlq_replay.py."
+      - eval_time: 25m
+        alertname: EventSentToDlq
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: EventSentToDlqMinor
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: EventSentToDlqMinor
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: platform-service
+              topic: catalog.events
+              consumer: seller-role-handler
+            exp_annotations:
+              summary: "Сервис platform-service: событие темы catalog.events ушло в очередь недоставленных"
+              description: "Обработчик seller-role-handler не обработал событие после повторов. Порядок разбора: runbook, раздел «Событие в .dlq», tools/ops/dlq_replay.py."
+      - eval_time: 13m
+        alertname: EventSentToDlqMinor
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: EventSentToDlqMinor
+        exp_alerts: []

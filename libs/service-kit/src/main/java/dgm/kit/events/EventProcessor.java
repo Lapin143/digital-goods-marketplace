@@ -245,7 +245,7 @@ public final class EventProcessor {
         add(out, "dlq-attempts", Integer.toString(attempts));
         add(out, "dlq-failed-at", DateTimeFormatter.ISO_INSTANT.format(clock.instant()));
         dlq.send(out);
-        metrics.counter("events_dlq_total", "consumer", consumer).increment();
+        metrics.counter("events_dlq_total", "topic", record.topic(), "consumer", consumer).increment();
         LOG.error("Запись {}[{}]@{} отправлена в {}: {} ({})", record.topic(), record.partition(), record.offset(), out.topic(),
                 error.getClass().getSimpleName(), Redaction.mask(error.getMessage(), 200));
     }

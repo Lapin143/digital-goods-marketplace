@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.support.SimpleTransactionStatus;
@@ -269,6 +270,7 @@ class EventProcessorTest {
 
     // --- повторы и DLQ ----------------------------------------------------------------------------------------------------------
 
+    @Tag("TC-611")
     @Test
     void temporaryFailureIsRetriedAfterOneAndFiveSecondsAndSucceeds() throws Exception {
         int[] calls = {0};
@@ -286,6 +288,7 @@ class EventProcessorTest {
         assertEquals(1, processed.keys.size(), "после отката и успешного повтора строка одна");
     }
 
+    @Tag("TC-611")
     @Test
     void exhaustedRetriesGoToDlqWithDocumentedHeaders() throws Exception {
         handler.action = e -> {
@@ -312,9 +315,10 @@ class EventProcessorTest {
         assertEquals("order.paid", header(out, "ce_type"), "исходные заголовки сохранены");
         assertTrue(header(out, "traceparent").startsWith("00-0af7"));
         assertTrue(processed.keys.isEmpty(), "строки processed_event откатились вместе с обработчиком");
-        assertEquals(1, count("events_dlq_total", "consumer", "reservation-handler"));
+        assertEquals(1, count("events_dlq_total", "topic", "order.events", "consumer", "reservation-handler"), "метрика с темой и обработчиком, по ней срабатывает оповещение");
     }
 
+    @Tag("TC-611")
     @Test
     void fatalErrorGoesToDlqAtOnceWithoutRetries() throws Exception {
         handler.action = e -> {
@@ -359,6 +363,7 @@ class EventProcessorTest {
         assertEquals("dgm.kit.events.RetryableEventException", header(dlq.sent.get(0), "dlq-error-class"));
     }
 
+    @Tag("TC-611")
     @Test
     void invalidEnvelopeGoesToDlqImmediatelyUnderServiceName() throws Exception {
         for (String bad : new String[] {"not json", "{}", EventEnvelopeTest.valid().replace("1.0", "2.0"),
@@ -373,6 +378,7 @@ class EventProcessorTest {
         assertTrue(sleeps.isEmpty());
     }
 
+    @Tag("TC-611")
     @Test
     void failureToWriteDlqLeavesRecordUncommittable() {
         dlq.failing = true;
