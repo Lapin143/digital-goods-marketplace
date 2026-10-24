@@ -70,8 +70,9 @@ class DeliveryStatusConcurrencyIT extends DeliveryStatusStandIT {
     @Test
     void aWebhookAndThePollerRaceOnTheSameDeliveryAndItIsClosedOnce() throws Exception {
         for (int round = 0; round < 4; round++) {
-            Placed p = seedSent(Duration.ofMinutes(10), Instant.now().plus(Duration.ofMinutes(20)));
-            UUID id = idOf(p);
+            // письмо настоящее: заглушка почты отвечает о статусе только тех сообщений, которые приняла
+            Placed p = place(1);
+            UUID id = sent(p);
             providerSays(id, "delivered", null);
 
             Concurrent.race(2, call -> {
