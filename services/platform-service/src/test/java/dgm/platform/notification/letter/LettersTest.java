@@ -30,8 +30,8 @@ class LettersTest {
     }
 
     @Test
-    void thereAreExactlyTheFourTemplatesOfSliceOne() {
-        assertEquals(Set.of("seller-approved", "seller-rejected", "seller-returned", "user-sms-login"), letters.codes());
+    void theFourTemplatesOfSliceOneAreStillThere() {
+        assertTrue(letters.codes().containsAll(Set.of("seller-approved", "seller-rejected", "seller-returned", "user-sms-login")), letters.codes().toString());
     }
 
     @Test

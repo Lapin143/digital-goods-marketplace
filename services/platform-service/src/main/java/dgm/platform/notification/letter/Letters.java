@@ -36,22 +36,57 @@ public final class Letters {
         /** Момент времени в формате RFC 3339, в письме выводится в часовом поясе платформы. */
         TIME,
         /** Тип профиля продавца из события {@code seller.approved}. */
-        SELLER_TYPE
+        SELLER_TYPE,
+        /** Целое число без знака до 12 цифр: номер заказа, число попыток (Р-153). */
+        NUMBER,
+        /** Сумма в минимальных единицах валюты и код валюты через пробел, например {@code 149900 RUB}; в письме «1 499,00 ₽». */
+        MONEY,
+        /** Идентификатор в виде UUID. */
+        ID,
+        /** Причина возврата из события {@code order.refunded}, в письме готовая фраза. */
+        REFUND_REASON,
+        /** Причина неудачи выдачи из события {@code delivery.failed}, в письме словами. */
+        FAILURE_REASON,
+        /** Число секунд, в письме минуты: порог контроля доставки из события {@code delivery.overdue}. */
+        SECONDS_AS_MINUTES
     }
 
     /** Предел текста модератора, как в схеме события (AsyncAPI: maxLength 1000). */
     public static final int MAX_TEXT = 1000;
 
+    /** Адрес сайта на стенде (Compose: {@code DGM_PUBLIC_ORIGIN}). */
+    public static final String DEFAULT_SITE_URL = "https://localhost:8443";
+
     private static final Map<String, Map<String, Kind>> FIELDS = Map.of(
             "seller-approved", Map.of("sellerType", Kind.SELLER_TYPE),
             "seller-rejected", Map.of("reason", Kind.TEXT, "nextApplicationAt", Kind.TIME),
             "seller-returned", Map.of("comment", Kind.TEXT),
-            "user-sms-login", Map.of("loggedInAt", Kind.TIME));
+            "user-sms-login", Map.of("loggedInAt", Kind.TIME),
+            // срез 2 (Р-138, Р-153): три письма покупателю и три администратору
+            "order-created", Map.of("orderNumber", Kind.NUMBER, "total", Kind.MONEY, "orderId", Kind.ID, "payUntil", Kind.TIME),
+            "order-paid", Map.of("orderNumber", Kind.NUMBER, "productTitle", Kind.TEXT, "total", Kind.MONEY),
+            "order-refunded", Map.of("orderNumber", Kind.NUMBER, "total", Kind.MONEY, "refundReason", Kind.REFUND_REASON),
+            "payment-refund-escalated", Map.of("orderId", Kind.ID, "amount", Kind.MONEY, "attempts", Kind.NUMBER),
+            "delivery-failed", Map.of("orderId", Kind.ID, "reason", Kind.FAILURE_REASON, "attempts", Kind.NUMBER),
+            "delivery-overdue", Map.of("orderId", Kind.ID, "paidAt", Kind.TIME, "threshold", Kind.SECONDS_AS_MINUTES));
 
     private static final Map<String, String> SELLER_TYPES = Map.of(
             "sole_proprietor", "индивидуальный предприниматель",
             "self_employed", "самозанятый",
             "legal_entity", "юридическое лицо");
+
+    private static final Map<String, String> REFUND_REASONS = Map.of(
+            "late_payment", "Причина: оплата пришла после того, как срок заказа истёк и товар уже нельзя было закрепить за вами.",
+            "seller_api_timeout", "Причина: система продавца не ответила вовремя, и мы не смогли выдать вам товар.",
+            "dispute_decision", "Причина: решение по вашему спору.");
+
+    private static final Map<String, String> FAILURE_REASONS = Map.of(
+            "attempts_exhausted", "письмо не принято после всех попыток отправки",
+            "address_rejected", "адрес покупателя отклонён почтовым провайдером");
+
+    private static final Pattern NUMBER = Pattern.compile("^[0-9]{1,12}$");
+    private static final Pattern MONEY = Pattern.compile("^([0-9]{1,15}) ([A-Z]{3})$");
+    private static final char NBSP = '\u00A0';
 
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{([A-Za-z][A-Za-z0-9]*)}");
     private static final String SUBJECT_PREFIX = "Тема: ";
@@ -65,15 +100,23 @@ public final class Letters {
     private final Map<String, Template> templates = new LinkedHashMap<>();
     private final ZoneId zone;
     private final String zoneLabel;
+    private final String siteUrl;
+
+    /** Письма со ссылкой на адрес стенда по умолчанию. */
+    public Letters(ZoneId zone, String zoneLabel) {
+        this(zone, zoneLabel, DEFAULT_SITE_URL);
+    }
 
     /**
      * @param zone      часовой пояс времени в письмах
      * @param zoneLabel подпись пояса после времени, например «МСК»
+     * @param siteUrl   адрес сайта без косой черты в конце: поле {@code {siteUrl}} любого шаблона (ссылки на страницы заказа)
      * @throws IllegalStateException шаблон не найден или не проходит проверку
      */
-    public Letters(ZoneId zone, String zoneLabel) {
+    public Letters(ZoneId zone, String zoneLabel, String siteUrl) {
         this.zone = zone;
         this.zoneLabel = zoneLabel;
+        this.siteUrl = siteUrl.endsWith("/") ? siteUrl.substring(0, siteUrl.length() - 1) : siteUrl;
         for (Map.Entry<String, Map<String, Kind>> entry : FIELDS.entrySet()) {
             templates.put(entry.getKey(), load(entry.getKey(), entry.getValue().keySet()));
         }
@@ -102,6 +145,7 @@ public final class Letters {
     public Letter render(String template, String recipientName, Map<String, Object> params) {
         Map<String, String> values = new LinkedHashMap<>(resolve(template, params));
         values.put("name", recipientName == null || recipientName.isBlank() ? FALLBACK_NAME : recipientName.strip());
+        values.put("siteUrl", siteUrl);
         Template parsed = templates.get(template);
         Matcher matcher = PLACEHOLDER.matcher(parsed.body());
         StringBuilder text = new StringBuilder();
@@ -141,6 +185,12 @@ public final class Letters {
             case TEXT -> text(where, text);
             case TIME -> time(where, text);
             case SELLER_TYPE -> sellerType(where, text);
+            case NUMBER -> number(where, text);
+            case MONEY -> money(where, text);
+            case ID -> uuid(where, text);
+            case REFUND_REASON -> fromList(where, text, REFUND_REASONS);
+            case FAILURE_REASON -> fromList(where, text, FAILURE_REASONS);
+            case SECONDS_AS_MINUTES -> minutes(where, text);
         };
     }
 
@@ -165,6 +215,54 @@ public final class Letters {
             throw new InvalidNotificationException(where + " не из списка типов профиля");
         }
         return label;
+    }
+
+    private static String number(String where, String value) {
+        if (!NUMBER.matcher(value).matches()) {
+            throw new InvalidNotificationException(where + " должен быть целым числом без знака");
+        }
+        return value;
+    }
+
+    /** Сумма в минимальных единицах: «149900 RUB» превращается в «1 499,00 ₽», группы по три цифры разделены неразрывным пробелом. */
+    private static String money(String where, String value) {
+        Matcher matcher = MONEY.matcher(value);
+        if (!matcher.matches()) {
+            throw new InvalidNotificationException(where + " должен быть суммой в минимальных единицах и кодом валюты, например 149900 RUB");
+        }
+        String digits = matcher.group(1);
+        String padded = digits.length() < 3 ? "0".repeat(3 - digits.length()) + digits : digits;
+        String whole = padded.substring(0, padded.length() - 2).replaceFirst("^0+(?=.)", "");
+        StringBuilder grouped = new StringBuilder();
+        for (int i = 0; i < whole.length(); i++) {
+            if (i > 0 && (whole.length() - i) % 3 == 0) {
+                grouped.append(NBSP);
+            }
+            grouped.append(whole.charAt(i));
+        }
+        String currency = "RUB".equals(matcher.group(2)) ? "₽" : matcher.group(2);
+        return grouped + "," + padded.substring(padded.length() - 2) + NBSP + currency;
+    }
+
+    private static String uuid(String where, String value) {
+        try {
+            return java.util.UUID.fromString(value).toString();
+        } catch (IllegalArgumentException e) {
+            throw new InvalidNotificationException(where + " должен быть UUID");
+        }
+    }
+
+    private static String fromList(String where, String value, Map<String, String> allowed) {
+        String text = allowed.get(value);
+        if (text == null) {
+            throw new InvalidNotificationException(where + " не из списка известных значений");
+        }
+        return text;
+    }
+
+    private static String minutes(String where, String value) {
+        long seconds = Long.parseLong(number(where, value));
+        return Math.max(1, Math.round(seconds / 60.0)) + " мин";
     }
 
     private static Template load(String code, Set<String> fields) {
@@ -194,6 +292,7 @@ public final class Letters {
         }
         Set<String> unknown = new TreeSet<>(used);
         unknown.remove("name");
+        unknown.remove("siteUrl");
         unknown.removeAll(fields);
         if (!unknown.isEmpty()) {
             throw new IllegalStateException("Шаблон " + code + ": в тексте неизвестные поля " + unknown);

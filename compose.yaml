@@ -535,6 +535,8 @@ services:
       <<: *service-env
       # Redis нужен коду подтверждения телефона и входу по SMS (шаг 6 среза 1); пользователь platform задан в application.yml
       DGM_REDIS_HOST: redis
+      # Адрес сайта в ссылках писем (шаг 15 среза 2, Р-153)
+      DGM_PUBLIC_ORIGIN: ${DGM_PUBLIC_ORIGIN:-https://localhost:8443}
       # Куча 192 МБ из лимита 352 МБ (memory-budget.md)
       JAVA_TOOL_OPTIONS: -Xmx192m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED
     tmpfs:

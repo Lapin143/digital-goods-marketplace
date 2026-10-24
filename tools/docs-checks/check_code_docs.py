@@ -47,30 +47,20 @@ SLICE2_EVENTS = (
 )
 
 # События среза 2, которые код ещё не издаёт: событие -> шаг руководства среза 2, где издание появится. Пока событие здесь, проверка не ищет его строку в
-# коде издателя; издание появилось, запись надо убрать (проверка скажет). К шагу 22 словарь пуст.
+# коде издателя; издание появилось, запись надо убрать (проверка скажет). К шагу 22 словарь пуст; на шаге 15 ушли последние записи.
 UNPUBLISHED_SLICE2 = {
-    'ticket.created': 15, 'ticket.resolved': 15,
 }
 
 # Потребители событий, которых код получит позже: событие -> {(сервис, обработчик)}. Пока обработчика нет, пара стоит здесь; появился обработчик,
 # запись надо убрать (проверка скажет). Так каталог (он описывает R1 целиком) и код среза расходятся только там, где это записано.
-# Пары среза 2 уходят на шагах 5, 9, 11, 13 и 15 руководства среза 2 (пары order-service ушли на шаге 11, delivery-service на шаге 13); к шагу 22 остаются только пары среза 3.
+# Пары среза 2 ушли на шагах 5, 9, 11, 13 и 15 руководства среза 2 (order-service на шаге 11, delivery-service на шаге 13, platform-service на шаге 15);
+# остаются только пары среза 3.
 LATER_CONSUMERS = {
     'product.published': {('platform-service', 'notification-handler')},  # письмо продавцу о решении по товару, FT-11.4, срез 3
     'product.rejected': {('platform-service', 'notification-handler')},
     'product.blocked': {('platform-service', 'notification-handler')},
     'user.deactivated': {('platform-service', 'notification-handler')},  # письмо о деактивации, FT-11.0, срез 3
     'audit.recorded': {('platform-service', 'audit-consumer')},  # потребитель журнала аудита, срез 3
-    # срез 2 (сага заказа получила своих потребителей на шаге 11)
-    'delivery.accepted': {('platform-service', 'support-event-handler')},  # шаг 15
-    'order.paid': {('platform-service', 'notification-handler'), ('platform-service', 'support-event-handler')},  # письма и обращения, шаг 15 (приём оплаты выдачей ушёл на шаге 13)
-    'order.created': {('platform-service', 'notification-handler')},  # письма и обращения, шаг 15
-    'order.issued': {('platform-service', 'support-event-handler')},
-    'order.refunded': {('platform-service', 'notification-handler')},
-    'payment.refund-escalated': {('platform-service', 'notification-handler')},
-    'delivery.delivered': {('platform-service', 'support-event-handler')},
-    'delivery.failed': {('platform-service', 'notification-handler'), ('platform-service', 'support-event-handler')},
-    'delivery.overdue': {('platform-service', 'notification-handler'), ('platform-service', 'support-event-handler')},
 }
 
 EVENTS_README = os.path.join(L.DOCS, '06-api', 'events', 'README.md')

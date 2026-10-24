@@ -14,6 +14,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param retryDelays  паузы повторов после первой, второй, третьей неудачи (ADR-011: 1, 5, 25 секунд)
  * @param zone         часовой пояс времени в письмах
  * @param zoneLabel    подпись пояса после времени
+ * @param siteUrl      адрес сайта для ссылок в письмах без косой черты в конце (на стенде {@code DGM_PUBLIC_ORIGIN}, Р-153)
  */
 @ConfigurationProperties(prefix = "dgm.notification")
 public record NotificationProperties(
@@ -21,5 +22,6 @@ public record NotificationProperties(
         @DefaultValue("10") int batch,
         @DefaultValue({"1s", "5s", "25s"}) List<Duration> retryDelays,
         @DefaultValue("Europe/Moscow") String zone,
-        @DefaultValue("МСК") String zoneLabel) {
+        @DefaultValue("МСК") String zoneLabel,
+        @DefaultValue("https://localhost:8443") String siteUrl) {
 }

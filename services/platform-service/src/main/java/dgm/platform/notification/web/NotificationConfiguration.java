@@ -34,7 +34,7 @@ public class NotificationConfiguration {
 
     @Bean
     Letters letters(NotificationProperties properties) {
-        return new Letters(ZoneId.of(properties.zone()), properties.zoneLabel());
+        return new Letters(ZoneId.of(properties.zone()), properties.zoneLabel(), properties.siteUrl());
     }
 
     @Bean

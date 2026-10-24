@@ -80,3 +80,5 @@ dgm:
     # Время в письмах (вход по SMS, срок повторной заявки) выводится в этом поясе
     zone: Europe/Moscow
     zone-label: МСК
+    # Адрес сайта в ссылках писем («Заказ создан»); на стенде тот же, что у страницы оплаты заглушки (Compose: DGM_PUBLIC_ORIGIN)
+    site-url: ${DGM_PUBLIC_ORIGIN:https://localhost:8443}

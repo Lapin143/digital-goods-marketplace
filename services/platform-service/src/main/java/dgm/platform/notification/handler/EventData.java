@@ -32,4 +32,23 @@ final class EventData {
         }
         return text;
     }
+
+    /** Целое число без знака как строка цифр (параметры шаблонов строковые). */
+    static String number(Map<String, Object> data, String field) {
+        Object value = data.get(field);
+        if (!(value instanceof Number number) || number.doubleValue() != number.longValue() || number.longValue() < 0) {
+            throw new FatalEventException("Поле " + field + " должно быть целым числом не меньше нуля");
+        }
+        return Long.toString(number.longValue());
+    }
+
+    /** Поле {@code Money} схемы событий ({@code amount} в минимальных единицах и {@code currency}) как «149900 RUB». */
+    static String money(Map<String, Object> data, String field) {
+        if (!(data.get(field) instanceof Map<?, ?> money)) {
+            throw new FatalEventException("Нет обязательного поля " + field + " или оно не сумма");
+        }
+        Map<String, Object> inner = new java.util.LinkedHashMap<>();
+        money.forEach((k, v) -> inner.put(String.valueOf(k), v));
+        return number(inner, "amount") + " " + text(inner, "currency", 3);
+    }
 }

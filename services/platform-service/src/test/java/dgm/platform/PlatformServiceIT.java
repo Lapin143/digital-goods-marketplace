@@ -7,9 +7,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dgm.kit.boot.ModuleDatabases;
+import dgm.kit.boot.Modules;
 import dgm.kit.boot.testing.StandHttp;
 import dgm.kit.boot.testing.StandHttp.Response;
 import dgm.kit.crypto.WebhookSignature;
+import dgm.kit.events.HandleResult;
 import dgm.kit.json.Json;
 import dgm.kit.kafka.KafkaClients;
 import dgm.kit.outbox.EnvelopeBuilder;
@@ -17,12 +19,14 @@ import dgm.kit.outbox.OutboxRow;
 import dgm.kit.outbox.OutgoingEvent;
 import dgm.kit.redis.KitRedis;
 import dgm.kit.secret.SecretFiles;
+import dgm.kit.testing.Concurrent;
 import dgm.kit.testing.Stand;
 import dgm.kit.testing.TestTokens;
 import dgm.kit.time.Timestamps;
 import dgm.kit.tls.TlsMaterial;
 import dgm.kit.trace.TraceContext;
 import dgm.platform.identity.service.IdentityReconciler;
+import dgm.platform.support.service.SupportService;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
@@ -87,6 +91,8 @@ class PlatformServiceIT {
     private static final int MANAGEMENT = StandHttp.freePort();
     private static final TestTokens TOKENS = TestTokens.create(Clock.systemUTC());
     private static final KeycloakStub KEYCLOAK = startStub();
+    /** Адрес сайта в ссылках писем среза 2: свой, чтобы тест видел, что ссылка собрана из настройки, а не из значения по умолчанию. */
+    private static final String SITE = "https://shop.it.example";
 
     private static StandHttp gateway;
 
@@ -108,6 +114,7 @@ class PlatformServiceIT {
         registry.add("dgm.email.base-url", () -> "https://localhost:" + env("DGM_STUBS_PORT", "18443"));
         // Лестница повторов письма сжата: настоящие 1, 5 и 25 секунд проверяет модульный тест, здесь важен порядок событий
         registry.add("dgm.notification.retry-delays", () -> "PT0.2S,PT0.2S,PT0.2S");
+        registry.add("dgm.notification.site-url", () -> SITE);
         // Сверку в тестах запускает сам тест: расписание уходит за пределы прогона
         registry.add("dgm.identity.reconcile-interval", () -> "PT1H");
         registry.add("dgm.identity.reconcile-initial-delay", () -> "PT1H");
@@ -143,6 +150,10 @@ class PlatformServiceIT {
     private IdentityReconciler reconciler;
     @Autowired
     private KitRedis redis;
+    @Autowired
+    private Modules modules;
+    @Autowired
+    private SupportService support;
 
     // ---- помощники ----
 
@@ -1320,6 +1331,305 @@ class PlatformServiceIT {
         assertEquals(sellerId.toString(), jdbc().queryForObject("select seller_id::text from identity.user_account where id = ?", String.class, user));
         assertEquals(List.of("user.registered", "user.role-assigned", "audit.recorded"), events(applicant.id));
         assertTrue(await(Duration.ofSeconds(30), () -> applicant.roles.contains("seller")));
+    }
+
+    // ---- заказ, выдача и поддержка (шаг 15 Ф4): события соседей в Kafka, письма и обращения системы ----
+
+    private static final String NBSP = "\u00A0";
+
+    private JdbcTemplate supportDb() {
+        return databases.jdbc("support");
+    }
+
+    /** Короткий номер заказа события: уникален в модели чтения, поэтому каждый тест берёт свой из диапазона, который не пересекается с соседями. */
+    private static long freshOrderNumber() {
+        return ThreadLocalRandom.current().nextLong(5_000_000L, 9_000_000L);
+    }
+
+    private static Map<String, Object> money(long amount) {
+        Map<String, Object> money = new LinkedHashMap<>();
+        money.put("amount", amount);
+        money.put("currency", "RUB");
+        return money;
+    }
+
+    private static String now() {
+        return Timestamps.format(Instant.now());
+    }
+
+    /** {@code order.paid} от имени order-service; в {@code delivery.address} лежит адрес из снимка, которого в очереди писем быть не должно (INV-44). */
+    private static UUID publishPaid(UUID orderId, long number, UUID buyerId, String title, String snapshotAddress) throws Exception {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("orderId", orderId.toString());
+        data.put("orderNumber", number);
+        data.put("buyerId", buyerId.toString());
+        data.put("sellerId", UUID.randomUUID().toString());
+        data.put("productId", UUID.randomUUID().toString());
+        data.put("productTitle", title);
+        data.put("quantity", 1);
+        data.put("total", money(149900));
+        data.put("commission", money(2998));
+        data.put("paidAt", now());
+        data.put("latePayment", false);
+        data.put("delivery", Map.of("channel", "email", "address", snapshotAddress));
+        UUID eventId = UUID.randomUUID();
+        publish("order-service", "order.events", "Order", orderId.toString(), "order.paid", eventId, data);
+        return eventId;
+    }
+
+    private static UUID publishCreated(UUID orderId, long number, UUID buyerId) throws Exception {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("orderId", orderId.toString());
+        data.put("orderNumber", number);
+        data.put("buyerId", buyerId.toString());
+        data.put("sellerId", UUID.randomUUID().toString());
+        data.put("productId", UUID.randomUUID().toString());
+        data.put("quantity", 1);
+        data.put("unitPrice", money(149900));
+        data.put("total", money(149900));
+        data.put("commission", money(2998));
+        data.put("reserveExpiresAt", Timestamps.format(Instant.now().plus(Duration.ofMinutes(15))));
+        data.put("paymentSessionExpiresAt", "2026-10-03T12:12:02.000Z");
+        UUID eventId = UUID.randomUUID();
+        publish("order-service", "order.events", "Order", orderId.toString(), "order.created", eventId, data);
+        return eventId;
+    }
+
+    private static UUID publishRefunded(UUID orderId, long number, UUID buyerId) throws Exception {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("orderId", orderId.toString());
+        data.put("orderNumber", number);
+        data.put("buyerId", buyerId.toString());
+        data.put("sellerId", UUID.randomUUID().toString());
+        data.put("total", money(149900));
+        data.put("refundReason", "late_payment");
+        UUID eventId = UUID.randomUUID();
+        publish("order-service", "order.events", "Order", orderId.toString(), "order.refunded", eventId, data);
+        return eventId;
+    }
+
+    /** Событие выдачи от имени delivery-service; ключ записи и {@code subject} это заказ, как у настоящего издателя. */
+    private static UUID publishDelivery(UUID eventId, UUID orderId, String type, Map<String, Object> extra) throws Exception {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("deliveryId", UUID.randomUUID().toString());
+        data.put("orderId", orderId.toString());
+        data.put("deliveryType", "primary");
+        data.putAll(extra);
+        publish("delivery-service", "delivery.events", "Delivery", orderId.toString(), type, eventId, data);
+        return eventId;
+    }
+
+    private static UUID publishDelivery(UUID orderId, String type, Map<String, Object> extra) throws Exception {
+        return publishDelivery(UUID.randomUUID(), orderId, type, extra);
+    }
+
+    private static UUID publishFailed(UUID orderId, String reason) throws Exception {
+        return publishDelivery(orderId, "delivery.failed", Map.of("reason", reason, "attempts", 6));
+    }
+
+    private boolean viewExists(UUID orderId) {
+        return supportDb().queryForObject("select count(*) from support.order_view where order_id = ?", Integer.class, orderId) == 1;
+    }
+
+    private boolean deliveryStatusIs(UUID orderId, String status) {
+        return supportDb().queryForList("select delivery_status from support.order_view where order_id = ?", String.class, orderId).contains(status);
+    }
+
+    private boolean handledBySupport(UUID eventId) {
+        return supportDb().queryForObject("select count(*) from public.processed_event where consumer = 'support-event-handler' and event_id = ?",
+                Integer.class, eventId) == 1;
+    }
+
+    private int tickets(UUID orderId) {
+        return supportDb().queryForObject("select count(*) from support.ticket where order_id = ?", Integer.class, orderId);
+    }
+
+    private List<String> ticketEvents(UUID ticketId) {
+        return jdbc().queryForList("select event_type from public.outbox where aggregate_id = ? order by id", String.class, ticketId.toString());
+    }
+
+    private Map<String, Object> ticketPayload(UUID ticketId, String type) {
+        return Json.parseObject(jdbc().queryForObject("select payload::text from public.outbox where aggregate_id = ? and event_type = ?",
+                String.class, ticketId.toString(), type));
+    }
+
+    /** Модель чтения заказа на стенде строится по настоящему {@code order.paid}, поэтому события выдачи публикуются только после неё: события разных тем не упорядочены. */
+    private void paidAndSeen(UUID orderId, long number, UUID buyerId, String address) throws Exception {
+        publishPaid(orderId, number, buyerId, "Ключ " + orderId, address);
+        assertTrue(await(Duration.ofSeconds(90), () -> viewExists(orderId)), "модель чтения заказа создана по order.paid");
+    }
+
+    /** Письма на адрес, в которых упомянут заказ: администраторы получают и письма чужих заказов, их тест не считает. */
+    private static List<Map<?, ?>> mailsAbout(String address, UUID orderId) {
+        return mails(address).stream().filter(m -> String.valueOf(m.get("text")).contains(orderId.toString())).toList();
+    }
+
+    private static String textAbout(String address, String subject, UUID orderId) {
+        return mailsAbout(address, orderId).stream().filter(m -> subject.equals(m.get("subject"))).map(m -> String.valueOf(m.get("text"))).findFirst()
+                .orElseThrow(() -> new AssertionError("нет письма «" + subject + "» о заказе " + orderId + " для " + address));
+    }
+
+    @Tag("TC-609")
+    @Test
+    @Order(33)
+    void failedDeliveryOpensOneSystemTicketAndTheDeliveredEventClosesItWithoutDuplicates() throws Exception {
+        KeycloakStub.User buyer = provisioned("buyer");
+        UUID buyerId = UUID.fromString(buyer.id);
+        UUID orderId = UUID.randomUUID();
+        long number = freshOrderNumber();
+
+        paidAndSeen(orderId, number, buyerId, "snapshot-" + UUID.randomUUID() + "@mail.example");
+        Map<String, Object> view = supportDb().queryForMap("select order_number, buyer_id::text as buyer_id, order_status, delivery_status "
+                + "from support.order_view where order_id = ?", orderId);
+        assertEquals(number, ((Number) view.get("order_number")).longValue());
+        assertEquals(buyer.id, view.get("buyer_id"));
+        assertEquals("paid", view.get("order_status"));
+        assertNull(view.get("delivery_status"));
+
+        publishDelivery(orderId, "delivery.accepted", Map.of("attemptNo", 1, "acceptedAt", now()));
+        assertTrue(await(Duration.ofSeconds(90), () -> deliveryStatusIs(orderId, "sent")), "принятое провайдером письмо даёт статус «отправлено»");
+        assertEquals(0, tickets(orderId));
+
+        UUID failed = publishFailed(orderId, "attempts_exhausted");
+        assertTrue(await(Duration.ofSeconds(90), () -> tickets(orderId) == 1), "обращение создано по delivery.failed");
+        Map<String, Object> ticket = supportDb().queryForMap("select id::text as id, buyer_id::text as buyer_id, source, reason, status, resolved_by, "
+                + "operator_id is null as no_operator from support.ticket where order_id = ?", orderId);
+        UUID ticketId = UUID.fromString((String) ticket.get("id"));
+        assertEquals(buyer.id, ticket.get("buyer_id"));
+        assertEquals("system", ticket.get("source"));
+        assertEquals("attempts_exhausted", ticket.get("reason"));
+        assertEquals("created", ticket.get("status"));
+        assertNull(ticket.get("resolved_by"));
+        assertEquals(Boolean.TRUE, ticket.get("no_operator"));
+        assertTrue(deliveryStatusIs(orderId, "failed"));
+        assertEquals(List.of("ticket.created"), ticketEvents(ticketId), "событие записано в Outbox вместе с обращением");
+        Map<String, Object> created = ticketPayload(ticketId, "ticket.created");
+        assertEquals(Set.of("ticketId", "orderId", "buyerId", "source", "reason"), created.keySet(), "в событии нет адресов, ключей и лишних полей");
+        assertEquals(orderId.toString(), created.get("orderId"));
+        assertEquals("system", created.get("source"));
+        assertEquals(1, count("select count(*) from public.outbox where aggregate_id = ? and topic = 'support.events'", ticketId.toString()));
+
+        // Тот же конверт второй раз, другая неудача и просроченная выдача того же заказа: обращение остаётся одно
+        publishDelivery(failed, orderId, "delivery.failed", Map.of("reason", "attempts_exhausted", "attempts", 6));
+        UUID other = publishFailed(orderId, "address_rejected");
+        UUID overdue = publishDelivery(orderId, "delivery.overdue", Map.of("paidAt", now(), "thresholdSeconds", 1800));
+        assertTrue(await(Duration.ofSeconds(90), () -> handledBySupport(other) && handledBySupport(overdue)), "события разобраны");
+        assertEquals(1, tickets(orderId), "по заказу одно открытое обращение (INV-21)");
+        assertEquals(List.of("ticket.created"), ticketEvents(ticketId), "второго ticket.created нет");
+
+        publishDelivery(orderId, "delivery.delivered", Map.of("deliveredAt", now()));
+        assertTrue(await(Duration.ofSeconds(90), () -> "resolved".equals(supportDb().queryForObject(
+                "select status from support.ticket where id = ?", String.class, ticketId))), "доставка закрывает обращение");
+        assertEquals("system", supportDb().queryForObject("select resolved_by from support.ticket where id = ?", String.class, ticketId));
+        assertTrue(deliveryStatusIs(orderId, "delivered"));
+        assertEquals(List.of("ticket.created", "ticket.resolved"), ticketEvents(ticketId));
+        Map<String, Object> resolved = ticketPayload(ticketId, "ticket.resolved");
+        assertEquals(Set.of("ticketId", "orderId", "buyerId", "resolvedBy"), resolved.keySet());
+        assertEquals("system", resolved.get("resolvedBy"));
+        assertEquals(1, tickets(orderId), "закрытое обращение не заменяется новым");
+    }
+
+    @Tag("TC-610")
+    @Test
+    @Order(34)
+    void sixLettersOfTheSecondSliceReachTheBuyerByTheAccountAddressAndTheAdministratorsByTheOrderId() throws Exception {
+        KeycloakStub.User buyer = provisioned("buyer");
+        KeycloakStub.User firstAdmin = provisioned("admin");
+        KeycloakStub.User secondAdmin = provisioned("admin");
+        UUID buyerId = UUID.fromString(buyer.id);
+        UUID orderId = UUID.randomUUID();
+        long number = freshOrderNumber();
+        String snapshot = "snapshot-" + UUID.randomUUID() + "@mail.example";
+
+        publishCreated(orderId, number, buyerId);
+        paidAndSeen(orderId, number, buyerId, snapshot);
+        publishRefunded(orderId, number, buyerId);
+        assertTrue(await(Duration.ofSeconds(90), () -> mails(buyer.email).size() == 3), "три письма покупателю дошли до заглушки почты");
+
+        String created = String.valueOf(mailWithSubject(buyer.email, "Заказ создан и ждёт оплаты").get("text"));
+        assertTrue(created.contains("Заказ №" + number + " на сумму 1" + NBSP + "499,00" + NBSP + "₽ создан и ждёт оплаты."), created);
+        assertTrue(created.contains(SITE + "/account/orders/" + orderId + "\n"), "ссылка на страницу заказа собрана из адреса сайта: " + created);
+        String paid = String.valueOf(mailWithSubject(buyer.email, "Заказ оплачен").get("text"));
+        assertTrue(paid.contains("Оплата заказа №" + number + " получена: Ключ " + orderId + ", сумма 1" + NBSP + "499,00" + NBSP + "₽."), paid);
+        assertFalse(paid.contains(snapshot), "адрес из снимка заказа в письме не используется");
+        String refunded = String.valueOf(mailWithSubject(buyer.email, "Деньги за заказ возвращены").get("text"));
+        assertTrue(refunded.contains("По заказу №" + number + " мы вернули вам 1" + NBSP + "499,00" + NBSP + "₽. Причина: оплата пришла после"), refunded);
+        assertTrue(mails(snapshot).isEmpty(), "на адрес из снимка заказа писем нет: адрес письму даёт identity в момент отправки (INV-44)");
+        for (String text : List.of(created, paid, refunded)) {
+            assertTrue(text.startsWith("Здравствуйте, "), text);
+            assertFalse(text.contains(buyer.email), "адреса получателя в тексте письма нет");
+        }
+
+        publish("payment-service", "payment.events", "Payment", orderId.toString(), "payment.refund-escalated", UUID.randomUUID(),
+                Map.of("paymentId", UUID.randomUUID().toString(), "orderId", orderId.toString(), "amount", money(149900), "attempts", 5));
+        publishFailed(orderId, "attempts_exhausted");
+        publishDelivery(orderId, "delivery.overdue", Map.of("paidAt", "2026-10-03T12:03:41.000Z", "thresholdSeconds", 1800));
+        for (KeycloakStub.User admin : List.of(firstAdmin, secondAdmin)) {
+            assertTrue(await(Duration.ofSeconds(90), () -> mailsAbout(admin.email, orderId).size() == 3), "три письма администратору " + admin.email);
+            Set<String> subjects = new java.util.HashSet<>();
+            for (Map<?, ?> mail : mailsAbout(admin.email, orderId)) {
+                subjects.add(String.valueOf(mail.get("subject")));
+            }
+            assertEquals(Set.of("Возврат денег не удался, нужна ручная обработка", "Ключ не доставлен покупателю", "Ключ не доставлен вовремя"), subjects);
+            String escalated = textAbout(admin.email, "Возврат денег не удался, нужна ручная обработка", orderId);
+            assertTrue(escalated.contains("по заказу " + orderId + " на сумму 1" + NBSP + "499,00" + NBSP + "₽ не удался после 5 попыток"), escalated);
+            String failed = textAbout(admin.email, "Ключ не доставлен покупателю", orderId);
+            assertTrue(failed.contains("закончилась ошибкой: письмо не принято после всех попыток отправки (попыток отправки: 6)"), failed);
+            String overdue = textAbout(admin.email, "Ключ не доставлен вовремя", orderId);
+            assertTrue(overdue.contains("оплачен 03.10.2026 15:03 (МСК), но ключ не доставлен покупателю за 30 мин"), overdue);
+            assertFalse(failed.contains(buyer.email) || overdue.contains(buyer.email) || escalated.contains(buyer.email), "адреса покупателя в письмах администратору нет");
+        }
+        assertEquals(3, mails(buyer.email).size(), "оповещения администраторов покупателю не уходят");
+
+        // Строки очереди: у каждого получателя своя, параметры без адресов, ключей и персональных данных
+        for (String template : List.of("order-created", "order-paid", "order-refunded")) {
+            assertTrue(await(Duration.ofSeconds(20), () -> notificationIs(buyer.id, template, "sent")), template);
+        }
+        for (KeycloakStub.User admin : List.of(firstAdmin, secondAdmin)) {
+            for (String template : List.of("payment-refund-escalated", "delivery-failed", "delivery-overdue")) {
+                assertTrue(await(Duration.ofSeconds(20), () -> notificationIs(admin.id, template, "sent")), template);
+                String row = wholeRow(notification(admin.id, template).get("id"));
+                assertFalse(row.contains(admin.email) || row.contains(buyer.email), template + ": адресов в таблице уведомлений нет (INV-44)");
+            }
+        }
+        assertEquals(0, notificationDb().queryForObject("select count(*) from notification.notification n where n::text like '%' || ? || '%'",
+                Integer.class, snapshot), "адрес из order.paid в очередь писем не попал");
+        assertEquals(0, notificationDb().queryForObject("select count(*) from notification.notification where params::text ~* '\"(email|phone|name|address|recipient)\"'",
+                Integer.class), "в параметрах шаблонов нет ключей с персональными данными");
+        assertEquals(2, notificationDb().queryForObject("select count(*) from notification.notification where template = 'delivery-failed' "
+                + "and params ->> 'orderId' = ? and user_id in (?, ?)", Integer.class, orderId.toString(), UUID.fromString(firstAdmin.id),
+                UUID.fromString(secondAdmin.id)), "одно событие дало по строке каждому администратору");
+    }
+
+    @Tag("TC-041")
+    @Tag("concurrency")
+    @Test
+    @Order(35)
+    void parallelDeliveryFailuresOfOneOrderLeaveOneOpenTicketAndOneEvent() throws Exception {
+        KeycloakStub.User buyer = provisioned("buyer");
+        UUID orderId = UUID.randomUUID();
+        paidAndSeen(orderId, freshOrderNumber(), UUID.fromString(buyer.id), "snapshot-" + UUID.randomUUID() + "@mail.example");
+
+        // Участники гонки работают так же, как обработчик: каждый в своей транзакции модуля support (пул роли app_support держит два соединения)
+        List<HandleResult> results = Concurrent.race(6, call ->
+                modules.transactions("support").execute(status -> support.onDeliveryFailed(orderId, "attempts_exhausted", Instant.now())));
+
+        assertEquals(1, results.stream().filter(HandleResult.done()::equals).count(), "обращение создал один участник: " + results);
+        assertEquals(5, results.stream().filter(HandleResult.ignored("ticket-already-open")::equals).count(), "остальные увидели открытое обращение: " + results);
+        assertEquals(1, tickets(orderId));
+        assertEquals(1, count("select count(*) from public.outbox where event_type = 'ticket.created' and payload ->> 'orderId' = ?", orderId.toString()),
+                "одно событие ticket.created на обращение");
+
+        // Тот же заказ с другой стороны: десять событий delivery.failed по Kafka с разными идентификаторами
+        List<UUID> events = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            events.add(publishFailed(orderId, i % 2 == 0 ? "attempts_exhausted" : "address_rejected"));
+        }
+        assertTrue(await(Duration.ofSeconds(90), () -> events.stream().allMatch(this::handledBySupport)), "все десять событий разобраны");
+        assertEquals(1, tickets(orderId), "обращение по-прежнему одно");
+        assertEquals(1, count("select count(*) from public.outbox where event_type = 'ticket.created' and payload ->> 'orderId' = ?", orderId.toString()));
+        assertEquals(0, supportDb().queryForObject("select count(*) from (select order_id from support.ticket where status in ('created', 'in_progress') "
+                + "group by order_id having count(*) > 1) d", Integer.class), "дублей открытых обращений в базе нет");
     }
 
     @Tag("TC-114")
