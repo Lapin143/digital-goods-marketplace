@@ -161,8 +161,10 @@ def attempts_exhausted(fx):
            bool(letters) and fx['people']['admin-1']['email'].lower() in {r.lower() for r in recipients} and 'попыток отправки: 6' in text
            and 'письмо не принято после всех попыток отправки' in text and P.KEY_PREFIX not in text, '%s %s' % (recipients, text[:200]))
     mails = stubs.emails(to=buyer.email)
-    expect('TC-010. У покупателя нет ни письма о сбое, ни ключей: только письма платформы «Заказ создан» и «Заказ оплачен»',
-           {m['subject'] for m in mails} <= {P.CREATED_SUBJECT, P.PAID_SUBJECT} and not any(P.KEY_PREFIX in P.body_of(m) for m in mails), str([m['subject'] for m in mails]))
+    subjects = {m['subject'] for m in mails}
+    expect('TC-010. У покупателя нет ни письма о сбое, ни ключей: есть письма платформы «Заказ создан» и «Заказ оплачен», писем выдачи и «%s» нет' % FAILED_SUBJECT,
+           {P.CREATED_SUBJECT, P.PAID_SUBJECT} <= subjects and not (subjects & {FAILED_SUBJECT, OVERDUE_SUBJECT}) and not stubs.emails(to=buyer.email, sender='delivery')
+           and not any(P.KEY_PREFIX in P.body_of(m) for m in mails), str([m['subject'] for m in mails]))
     P.email_is_default(stubs, 'TC-010')
     O.modes_are_default(stubs, 'TC-010')
     fx['failed_order'] = oid
