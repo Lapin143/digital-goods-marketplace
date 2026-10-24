@@ -136,6 +136,7 @@ class PaymentSessionIT extends PaymentStandIT {
         assertTrue(gatewayPaymentsOf(orderId).isEmpty(), "у шлюза платежа нет");
     }
 
+    @Tag("TC-040")
     @Test
     void afterTheGatewayRecoveredARepeatContinuesWithTheSameRow() throws Exception {
         UUID orderId = UUID.randomUUID();
@@ -151,6 +152,7 @@ class PaymentSessionIT extends PaymentStandIT {
         assertEquals(1, gatewayPaymentsOf(orderId).size());
     }
 
+    @Tag("TC-040")
     @Test
     void aLostGatewayAnswerIsRepeatedByTheClientWithTheSameKeyAndGivesOnePayment() throws Exception {
         UUID orderId = UUID.randomUUID();
@@ -217,5 +219,15 @@ class PaymentSessionIT extends PaymentStandIT {
     void aCallWithoutAClientCertificateNeverReachesTheHandler() {
         StandHttp anonymous = StandHttp.withoutCertificate(PORT);
         assertThrows(IOException.class, () -> anonymous.post(SESSIONS, openBody(UUID.randomUUID(), AMOUNT, sessionEnd()), "Idempotency-Key", key()));
+    }
+
+    /** ST-08: сертификат чужого центра с именем {@code order-service} не открывает платёжную сессию, платёж не создан ни у платформы, ни у шлюза. */
+    @Test
+    void aCertificateOfAForeignAuthorityWithTheNameOfTheOrderServiceNeverReachesTheHandler() {
+        UUID orderId = UUID.randomUUID();
+        StandHttp impostor = StandHttp.withForeignCertificate("order-service", PORT);
+        assertThrows(IOException.class, () -> impostor.post(SESSIONS, openBody(orderId, AMOUNT, sessionEnd()), "Idempotency-Key", key()));
+        assertEquals(0, paymentsOf(orderId), "ничего не записано");
+        assertEquals(0, gatewayPaymentsOf(orderId).size(), "шлюз платежа не видел");
     }
 }

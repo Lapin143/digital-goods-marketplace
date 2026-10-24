@@ -50,6 +50,7 @@ ORDERS = '/api/v1/orders'
 CACHE = os.path.join(G.SECRETS, 'purchase_fixture.json')
 PLENTY_KEYS = 60   # хватает на orders-check, payments-check, purchase-check и delivery-check подряд (каждый берёт не больше десяти)
 SCARCE_KEYS = 4
+RACE_KEYS = 1      # товар для гонки двух покупателей (ST-10): ключ один и тратится первым же прогоном concurrency_checks.py
 PRICE = 149900
 
 
@@ -254,7 +255,7 @@ def publish_product(moderator, seller_token, title, count):
 
 
 def build_fixture(kc, admin, people, stamp):
-    print('== Продавец и два товара для заказов: заявка, одобрение, вход с TOTP, публикация, ключи')
+    print('== Продавец и три товара для заказов: заявка, одобрение, вход с TOTP, публикация, ключи')
     moderator = SA.Staff(kc, admin, people['moderator-1'])
     seller = SA.applicant(kc, admin, stamp, 'ord')
     if not seller:
@@ -270,28 +271,31 @@ def build_fixture(kc, admin, people, stamp):
         return None
     plenty = publish_product(moderator, token, 'Звёздный путь %d: ключ Steam' % stamp, PLENTY_KEYS)
     scarce = plenty and publish_product(moderator, token, 'Редкий ключ %d: Steam' % stamp, SCARCE_KEYS)
-    return {'plenty': plenty, 'scarce': scarce, 'stamp': stamp} if plenty and scarce else None
+    race = scarce and publish_product(moderator, token, 'Последний ключ %d: Steam' % stamp, RACE_KEYS)   # гонка двух покупателей за один ключ (ST-10), concurrency_checks.py
+    return {'plenty': plenty, 'scarce': scarce, 'race': race, 'stamp': stamp} if plenty and scarce and race else None
 
 
-def cache_is_usable(data, scarce_needed=True):
+def cache_is_usable(data, scarce_needed=True, race_needed=False):
     """Товары прошлого прогона годятся, если на витрине и ключей хватает. Товар с четырьмя ключами нужен только тем, кто его тратит (orders-check,
-    payments-check), а проверкам покупки и выдачи достаточно товара с запасом (scarce_needed=False)."""
-    plenty, scarce = data.get('plenty'), data.get('scarce')
+    payments-check), а проверкам покупки и выдачи достаточно товара с запасом (scarce_needed=False). Товар с одним ключом нужен только
+    concurrency_checks.py (race_needed=True): он тратит этот ключ, и второй прогон заводит продавца заново."""
+    plenty, scarce, race = data.get('plenty'), data.get('scarce'), data.get('race')
     if not plenty or not scarce:
         return False
     in_plenty, in_scarce = keys_of(plenty), keys_of(scarce)
     shown = [G.call('GET', '%s/%s' % (SA.STOREFRONT, p)).status for p in (plenty, scarce)]
     scarce_ok = bool(in_scarce and in_scarce.get('free') == SCARCE_KEYS and not in_scarce.get('reserved')) or not scarce_needed
-    return bool(in_plenty and in_plenty.get('free', 0) >= 20 and scarce_ok and shown == [200, 200])
+    race_ok = not race_needed or bool(race and keys_of(race) == {'free': RACE_KEYS} and G.call('GET', '%s/%s' % (SA.STOREFRONT, race)).status == 200)
+    return bool(in_plenty and in_plenty.get('free', 0) >= 20 and scarce_ok and race_ok and shown == [200, 200])
 
 
-def prepare(kc, admin, people, stamp, scarce_needed=True):
+def prepare(kc, admin, people, stamp, scarce_needed=True, race_needed=False):
     """Товары для заказов: прошлого прогона, если ключи целы, иначе новые с новым продавцом."""
     try:
         cached = json.load(open(CACHE, encoding='utf-8'))
     except (OSError, ValueError):
         cached = None
-    if cached and cache_is_usable(cached, scarce_needed):
+    if cached and cache_is_usable(cached, scarce_needed, race_needed):
         print('-- Товары прошлого прогона на месте и ключи целы: продавца заново не заводим')
         return cached
     fixture = build_fixture(kc, admin, people, stamp)
@@ -447,7 +451,7 @@ def phone_not_confirmed(fx):
 
 def payment_session_failed(fx):
     kc, admin, stubs = fx['kc'], fx['admin'], fx['stubs']
-    print('== Шлюз не открыл платёжную сессию (US-5.2, NFT-4.3; TC-004, BPMN-01 E12)')
+    print('== Шлюз не открыл платёжную сессию (US-5.2, NFT-4.3; TC-004, TC-040, BPMN-01 E12)')
     stubs.reset()
     buyer = new_buyer(kc, admin, fx['stamp'], 'o4')
     if not buyer:
@@ -530,8 +534,8 @@ def run_scenarios(fx):
         guarded(fn.__name__, fn, fx)
 
 
-def context(kc, admin, people, stamp, scarce_needed=True):
-    fixture = prepare(kc, admin, people, stamp, scarce_needed)
+def context(kc, admin, people, stamp, scarce_needed=True, race_needed=False):
+    fixture = prepare(kc, admin, people, stamp, scarce_needed, race_needed)
     if not fixture:
         return None
     return dict(fixture, kc=kc, admin=admin, stubs=SB.StubsAdmin.from_env(), stamp=stamp, correlations=[], emails=[])

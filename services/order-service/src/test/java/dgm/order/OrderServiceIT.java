@@ -199,6 +199,15 @@ class OrderServiceIT extends OrderStandIT {
         assertThrows(IOException.class, () -> StandHttp.withoutCertificate(PORT).get("/api/v1/orders"));
     }
 
+    /** ST-08: сертификат чужого центра с именем {@code api-gateway} не открывает ни чтение заказов, ни создание заказа. */
+    @Test
+    void aCertificateOfAForeignAuthorityWithTheNameOfTheGatewayIsRefused() {
+        StandHttp impostor = StandHttp.withForeignCertificate("api-gateway", PORT);
+        assertThrows(IOException.class, () -> impostor.get("/api/v1/orders", StandHttp.bearer(buyer(BUYER_A))));
+        assertThrows(IOException.class, () -> impostor.post("/api/v1/orders", "{\"productId\":\"" + O301 + "\",\"quantity\":1}",
+                "Authorization", "Bearer " + buyer(BUYER_A), "Idempotency-Key", O304));
+    }
+
     @Test
     void readinessAndMetricsOnManagementPort() throws IOException {
         assertEquals(200, monitoring.get("/actuator/health/readiness").status());

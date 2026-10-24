@@ -201,6 +201,43 @@ class OutboxRelayIT {
         }
     }
 
+    /**
+     * TC-035, первый вариант (ADR-005, INV-43): данные и событие записаны и закоммичены, затем экземпляр с публикатором остановился, не
+     * доставив событие брокеру (брокер недоступен, экземпляр закрыт). После запуска нового экземпляра событие уходит в Kafka ровно один раз.
+     */
+    @Tag("TC-035")
+    @Test
+    void eventCommittedBeforeTheStopOfThePublisherIsPublishedExactlyOnceAfterTheNextStart() throws Exception {
+        String aggregate = Env.subject("crash");
+        UUID id = write(aggregate, 1);
+
+        ScriptedPublisher brokerDown = new ScriptedPublisher();
+        brokerDown.failFor.add(id);
+        OutboxRelay stopped = relay(brokerDown, Clocks.system(), new SimpleMeterRegistry());
+        try {
+            assertEquals(0, stopped.runOnce());
+        } finally {
+            stopped.close();
+        }
+        assertEquals(1, count("published_at is null and failed_at is null"), "событие не потеряно и не помечено отправленным");
+        assertTrue(brokerDown.delivered.isEmpty());
+
+        OutboxRelay restarted = relay(kafka, Clocks.system(), new SimpleMeterRegistry());
+        try {
+            assertTrue(Env.await(Duration.ofSeconds(30), () -> {
+                restarted.runOnce();
+                return count("published_at is null") == 0;
+            }), "новый экземпляр отправил событие");
+            assertEquals(0, restarted.runOnce(), "отправленная строка второй раз не берётся");
+        } finally {
+            restarted.close();
+        }
+
+        List<ConsumerRecord<String, String>> records = Env.readTopic("order.events", r -> aggregate.equals(r.key()), 2, Duration.ofSeconds(8));
+        assertEquals(1, records.size(), "в теме ровно одно сообщение этого агрегата");
+        assertEquals(id, EventEnvelope.parse(records.get(0).value()).id());
+    }
+
     @Test
     void rowWithoutRequiredHeadersIsParkedAtOnceAndNextRowIsSent() throws Exception {
         UUID bad = UUID.randomUUID();
@@ -267,6 +304,8 @@ class OutboxRelayIT {
         assertEquals(0, count("true"));
     }
 
+    /** TC-035, второй вариант: сбой посреди транзакции не оставляет события в Outbox. */
+    @Tag("TC-035")
     @Test
     void eventExistsOnlyIfTheDataTransactionCommitted() {
         assertThrows(IllegalStateException.class, () -> tx.executeWithoutResult(status -> {

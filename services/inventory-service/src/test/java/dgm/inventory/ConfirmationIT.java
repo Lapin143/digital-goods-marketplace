@@ -280,4 +280,19 @@ class ConfirmationIT extends ReservationStandIT {
         assertThrows(IOException.class, () -> StandHttp.withoutCertificate(PORT).post(CONFIRM, body(orderId, orderId, 1), "Idempotency-Key", key()));
         assertThrows(IOException.class, () -> StandHttp.withoutCertificate(PORT).get(KEY_VALUES + "?orderId=" + orderId));
     }
+
+    /**
+     * ST-08: сертификат чужого центра с именем допущенного вызывающего не открывает ни одну внутреннюю операцию, значения ключей тоже:
+     * имя в сертификате ничего не значит, пока сертификат не выдан центром проекта.
+     */
+    @Test
+    void aCertificateOfAForeignAuthorityWithTheNameOfAnAllowedCallerIsRefusedOnEveryInternalOperation() {
+        UUID orderId = UUID.randomUUID();
+        assertThrows(IOException.class, () -> StandHttp.withForeignCertificate("order-service", PORT).post(RESERVATIONS, body(orderId, orderId, 1),
+                "Idempotency-Key", key()));
+        assertThrows(IOException.class, () -> StandHttp.withForeignCertificate("order-service", PORT).post(CONFIRM, body(orderId, orderId, 1),
+                "Idempotency-Key", key()));
+        assertThrows(IOException.class, () -> StandHttp.withForeignCertificate("delivery-service", PORT).get(KEY_VALUES + "?orderId=" + orderId));
+        assertNull(reservation(orderId), "ничего не записано");
+    }
 }

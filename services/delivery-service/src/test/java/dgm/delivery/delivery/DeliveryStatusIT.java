@@ -3,12 +3,15 @@ package dgm.delivery.delivery;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dgm.kit.boot.testing.StandHttp;
 import dgm.kit.boot.testing.StandHttp.Response;
 import dgm.kit.crypto.WebhookSignature;
 import dgm.kit.json.Json;
 import dgm.kit.time.Timestamps;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -216,6 +219,23 @@ class DeliveryStatusIT extends DeliveryStatusStandIT {
         Response stale = gatewayCaller.post(PATH, body, WebhookSignature.TIMESTAMP_HEADER, old, WebhookSignature.SIGNATURE_HEADER, sign(old, body));
         assertEquals(401, stale.status());
         assertEquals("webhook-expired", code(stale), "подпись верна, метка старше пяти минут: повторная отправка перехваченного тела");
+
+        assertEquals("sent", status(p));
+        assertEquals(List.of(), providerStatuses(id));
+        assertEquals(0, events(p, "delivery.delivered").size());
+    }
+
+    /** ST-08 и ST-04: верно подписанное уведомление провайдера от «шлюза платформы» с сертификатом чужого центра не доходит до обработчика. */
+    @Test
+    void aSignedNotificationFromAClientWithAForeignCertificateNeverReachesTheHandler() throws Exception {
+        Placed p = place(1);
+        UUID id = sent(p);
+        String body = Json.write(notice(id, "delivered"));
+        String now = Timestamps.format(Instant.now());
+        StandHttp impostor = StandHttp.withForeignCertificate("api-gateway", PORT);
+
+        assertThrows(IOException.class, () -> impostor.post(PATH, body, WebhookSignature.TIMESTAMP_HEADER, now, WebhookSignature.SIGNATURE_HEADER,
+                sign(now, body)));
 
         assertEquals("sent", status(p));
         assertEquals(List.of(), providerStatuses(id));

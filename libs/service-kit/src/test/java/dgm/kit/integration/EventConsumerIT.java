@@ -216,6 +216,7 @@ class EventConsumerIT {
     }
 
     @Tag("TC-611")
+    @Tag("TC-035")
     @Test
     void failingHandlerIsRetriedThenSentToDlqAndEverythingRolledBackWhileReadingContinues() throws Exception {
         String badSubject = Env.subject("fails");

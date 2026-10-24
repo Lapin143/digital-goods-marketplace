@@ -4,8 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dgm.kit.boot.testing.StandHttp;
 import dgm.kit.boot.testing.StandHttp.Response;
 import dgm.kit.crypto.WebhookSignature;
 import dgm.kit.json.Json;
@@ -220,6 +222,23 @@ class PaymentWebhookIT extends PaymentWebhookStandIT {
         Response stale = gatewayCaller.post(PATH, body, WebhookSignature.TIMESTAMP_HEADER, old, WebhookSignature.SIGNATURE_HEADER, sign(old, body));
         assertEquals(401, stale.status());
         assertEquals("webhook-expired", code(stale), "подпись верна, метка старше пяти минут: повторная отправка перехваченного тела");
+
+        assertEquals("created", status(p.orderId()));
+        assertEquals(0, eventsOf(p.gatewayId()).size());
+        assertEquals(0, outboxCount(p.orderId()));
+    }
+
+    /** ST-08 и ST-04: верно подписанное уведомление от «шлюза платформы» с сертификатом чужого центра не доходит до обработчика. */
+    @Test
+    void aSignedNotificationFromAClientWithAForeignCertificateNeverReachesTheHandler() throws Exception {
+        Opened p = opened();
+        gatewayPays(p);
+        String body = Json.write(paid(p));
+        String now = Timestamps.format(Instant.now());
+        StandHttp impostor = StandHttp.withForeignCertificate("api-gateway", PORT);
+
+        assertThrows(IOException.class, () -> impostor.post(PATH, body, WebhookSignature.TIMESTAMP_HEADER, now, WebhookSignature.SIGNATURE_HEADER,
+                sign(now, body)));
 
         assertEquals("created", status(p.orderId()));
         assertEquals(0, eventsOf(p.gatewayId()).size());
