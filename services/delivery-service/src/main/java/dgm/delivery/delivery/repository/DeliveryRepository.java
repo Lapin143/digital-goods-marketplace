@@ -1,9 +1,13 @@
 package dgm.delivery.delivery.repository;
 
+import dgm.delivery.delivery.domain.DeliveryState;
+import dgm.delivery.delivery.domain.DueWatch;
 import dgm.delivery.delivery.domain.QueuedDelivery;
+import dgm.delivery.delivery.domain.SentDelivery;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -43,4 +47,44 @@ public interface DeliveryRepository {
      * @return сколько выдач изменено
      */
     int anonymizeOpen(UUID buyerId, String replacement);
+
+    /** Состояние выдачи или пусто, если такой выдачи нет. */
+    Optional<DeliveryState> find(UUID id);
+
+    /** Первичная выдача заказа или пусто. */
+    Optional<DeliveryState> primaryOf(UUID orderId);
+
+    /**
+     * Записывает статус письма от провайдера (дедупликация по паре «выдача, статус», ADR-006).
+     *
+     * @return {@code true}: статус новый; {@code false}: такой уже принят, повтор ничего не меняет
+     */
+    boolean recordProviderStatus(UUID deliveryId, String providerStatus, Instant occurredAt, Instant now);
+
+    /** T5: «отправлено» в «доставлено», время доставки по данным провайдера. {@code false}: выдача уже не «отправлено». */
+    boolean markDelivered(UUID id, Instant deliveredAt);
+
+    /** T6: «отправлено» в «ошибка» по сообщению провайдера о недоставке. {@code false}: выдача уже не «отправлено». */
+    boolean markUndelivered(UUID id, String failReason, String errorCode);
+
+    /** Срок контроля заказа (момент оплаты плюс окно) или пусто. */
+    Optional<Instant> watchDeadline(UUID orderId);
+
+    /** Закрывает контроль заказа: из «открыт» и из «передан в поддержку». {@code false}: контроль уже закрыт либо его нет. */
+    boolean closeWatch(UUID orderId, Instant now);
+
+    /**
+     * Блокирует в текущей транзакции до {@code limit} открытых контролей, срок которых наступил ({@code FOR UPDATE SKIP LOCKED}: другой
+     * экземпляр сервиса их пропускает). Вызывать только внутри транзакции.
+     */
+    List<DueWatch> lockDueWatches(Instant now, int limit);
+
+    /** «Открыт» в «передан в поддержку». {@code false}: контроль уже не открыт. */
+    boolean handOver(UUID orderId, Instant now);
+
+    /**
+     * Выдачи «отправлено», которым пора спросить статус у провайдера: письмо принято не позже {@code sentBefore}, порядок {@code (sent_at, id)}, после
+     * курсора {@code after} (пусто: с начала).
+     */
+    List<SentDelivery> sentBefore(Instant sentBefore, SentDelivery after, int limit);
 }

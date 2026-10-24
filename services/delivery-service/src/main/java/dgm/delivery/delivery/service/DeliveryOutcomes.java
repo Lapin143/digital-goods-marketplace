@@ -7,6 +7,7 @@ import dgm.delivery.delivery.domain.QueuedDelivery;
 import dgm.delivery.delivery.repository.DeliveryRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,13 +24,21 @@ public final class DeliveryOutcomes {
     private final DeliveryRepository deliveries;
     private final DeliveryTransaction transaction;
     private final DeliverySchedule schedule;
+    private final DeliverySettings settings;
     private final Clock clock;
     private final MeterRegistry meters;
 
     public DeliveryOutcomes(DeliveryRepository deliveries, DeliveryTransaction transaction, DeliverySchedule schedule, Clock clock, MeterRegistry meters) {
+        this(deliveries, transaction, schedule, DeliverySettings.defaults(), clock, meters);
+    }
+
+    /** @param settings окно контроля: от него считается момент оплаты для метрики {@code delivery_time_seconds} */
+    public DeliveryOutcomes(DeliveryRepository deliveries, DeliveryTransaction transaction, DeliverySchedule schedule, DeliverySettings settings, Clock clock,
+                            MeterRegistry meters) {
         this.deliveries = deliveries;
         this.transaction = transaction;
         this.schedule = schedule;
+        this.settings = settings;
         this.clock = clock;
         this.meters = meters;
     }
@@ -67,6 +76,11 @@ public final class DeliveryOutcomes {
         }
         transaction.publish(DeliveryEvents.TOPIC, DeliveryEvents.AGGREGATE, d.orderId().toString(), DeliveryEvents.ACCEPTED, DeliveryEvents.SCHEMA_VERSION,
                 DeliveryEvents.accepted(d.id(), d.orderId(), d.kind(), d.nextAttemptNo(), finishedAt));
+        // NFT-2.0: от оплаты до приёма письма провайдером; момент оплаты это срок контроля минус окно
+        deliveries.watchDeadline(d.orderId()).ifPresent(deadline -> {
+            Duration sincePayment = Duration.between(deadline.minus(settings.controlWindow()), finishedAt);
+            meters.timer("delivery_time_seconds", "stage", "sent").record(sincePayment.isNegative() ? Duration.ZERO : sincePayment);
+        });
         return true;
     }
 

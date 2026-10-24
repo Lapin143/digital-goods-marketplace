@@ -4,14 +4,19 @@ import dgm.delivery.delivery.client.EmailClient;
 import dgm.delivery.delivery.client.HttpEmailClient;
 import dgm.delivery.delivery.client.KeyClient;
 import dgm.delivery.delivery.client.PeerKeyClient;
+import dgm.delivery.delivery.client.StatusClient;
 import dgm.delivery.delivery.dispatcher.DeliveryDispatcher;
 import dgm.delivery.delivery.domain.DeliverySchedule;
 import dgm.delivery.delivery.letter.LetterBuilder;
 import dgm.delivery.delivery.repository.DeliveryRepository;
 import dgm.delivery.delivery.service.DeliveryIntake;
 import dgm.delivery.delivery.service.DeliveryOutcomes;
+import dgm.delivery.delivery.poller.StatusPoller;
 import dgm.delivery.delivery.service.DeliverySettings;
+import dgm.delivery.delivery.service.DeliveryStatuses;
 import dgm.delivery.delivery.service.DeliveryTransaction;
+import dgm.delivery.delivery.service.StatusSettings;
+import dgm.delivery.delivery.watch.DeliveryWatch;
 import dgm.kit.boot.PeerClients;
 import dgm.kit.boot.SecretsDirectory;
 import dgm.kit.tls.TlsMaterial;
@@ -28,7 +33,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 /**
  * Подключение модуля выдачи: расписание повторов (параметр платформы {@code delivery.retry-schedule}, FT-11.1), настройки диспетчера и контроля,
  * клиент ключей ({@code inventory-service} в {@code dgm.peers}), клиент почты (адрес {@code dgm.email.base-url}, ключ в секрете
- * {@code delivery_email_key}), сборщик письма и диспетчер. Обработчики событий это компоненты пакета {@code events}.
+ * {@code delivery_email_key}), сборщик письма, диспетчер, применение статусов писем (вебхук и опрос) и контроль 30 минут. Обработчики событий это компоненты пакета {@code events}.
  */
 @Configuration(proxyBeanMethods = false)
 @EnableScheduling
@@ -59,9 +64,19 @@ public class DeliveryConfiguration {
         return new PeerKeyClient(() -> peers.get(PeerKeyClient.PEER));
     }
 
+    /** Один клиент провайдера для отправки письма и для запроса статуса (опрос). */
     @Bean
-    EmailClient emailClient(SecretsDirectory secrets, TlsMaterial tls, @Value("${dgm.email.base-url:https://external-stubs:8443}") String baseUrl) {
+    HttpEmailClient emailClient(SecretsDirectory secrets, TlsMaterial tls, @Value("${dgm.email.base-url:https://external-stubs:8443}") String baseUrl) {
         return new HttpEmailClient(baseUrl, () -> secrets.read(EMAIL_KEY_SECRET), tls.trustOnlyContext());
+    }
+
+    @Bean
+    StatusSettings statusSettings(Environment environment) {
+        StatusSettings defaults = StatusSettings.defaults();
+        return new StatusSettings(
+                environment.getProperty("dgm.delivery.poller.min-age", Duration.class, defaults.pollAfter()),
+                environment.getProperty("dgm.delivery.poller.batch", Integer.class, defaults.pollBatch()),
+                environment.getProperty("dgm.delivery.watch.batch", Integer.class, defaults.watchBatch()));
     }
 
     @Bean
@@ -75,9 +90,27 @@ public class DeliveryConfiguration {
     }
 
     @Bean
-    DeliveryOutcomes deliveryOutcomes(DeliveryRepository deliveries, DeliveryTransaction transaction, DeliverySchedule schedule, Clock clock,
+    DeliveryOutcomes deliveryOutcomes(DeliveryRepository deliveries, DeliveryTransaction transaction, DeliverySchedule schedule, DeliverySettings settings,
+                                      Clock clock, MeterRegistry meters) {
+        return new DeliveryOutcomes(deliveries, transaction, schedule, settings, clock, meters);
+    }
+
+    @Bean
+    DeliveryStatuses deliveryStatuses(DeliveryRepository deliveries, DeliveryTransaction transaction, DeliverySettings settings, Clock clock,
                                       MeterRegistry meters) {
-        return new DeliveryOutcomes(deliveries, transaction, schedule, clock, meters);
+        return new DeliveryStatuses(deliveries, transaction, settings, clock, meters);
+    }
+
+    @Bean
+    StatusPoller statusPoller(DeliveryRepository deliveries, StatusClient provider, DeliveryStatuses statuses, StatusSettings settings, Clock clock,
+                              MeterRegistry meters) {
+        return new StatusPoller(deliveries, provider, statuses, settings, clock, meters);
+    }
+
+    @Bean
+    DeliveryWatch deliveryWatch(DeliveryRepository deliveries, DeliveryTransaction transaction, DeliverySettings settings, StatusSettings statusSettings,
+                                Clock clock, MeterRegistry meters) {
+        return new DeliveryWatch(deliveries, transaction, settings, statusSettings, clock, meters);
     }
 
     @Bean

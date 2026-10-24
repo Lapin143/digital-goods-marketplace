@@ -1,6 +1,9 @@
 package dgm.delivery.delivery;
 
+import dgm.delivery.delivery.domain.DeliveryState;
+import dgm.delivery.delivery.domain.DueWatch;
 import dgm.delivery.delivery.domain.QueuedDelivery;
+import dgm.delivery.delivery.domain.SentDelivery;
 import dgm.delivery.delivery.repository.DeliveryRepository;
 import java.time.Duration;
 import java.time.Instant;
@@ -9,6 +12,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -32,6 +36,7 @@ public final class FakeDeliveries implements DeliveryRepository {
         public String lastErrorCode;
         public String failReason;
         public Instant sentAt;
+        public Instant deliveredAt;
 
         Row(UUID id, UUID orderId, UUID buyerId, String kind, String address, String title, int quantity, Instant nextAttemptAt) {
             this.id = id;
@@ -51,9 +56,12 @@ public final class FakeDeliveries implements DeliveryRepository {
 
     private final Map<UUID, Row> rows = new LinkedHashMap<>();
     private final Map<UUID, Instant> watches = new LinkedHashMap<>();
+    private final Map<UUID, String> watchStatuses = new LinkedHashMap<>();
+    private final Map<String, Instant> providerStatuses = new LinkedHashMap<>();
     private final List<Attempt> attempts = new ArrayList<>();
     private final List<Duration> leases = new ArrayList<>();
     private final List<Integer> limits = new ArrayList<>();
+    private final List<Integer> watchLimits = new ArrayList<>();
 
     /** Если задано, любая запись исхода бросает это исключение (сбой базы между отправкой и записью). */
     public RuntimeException failOnMark;
@@ -78,7 +86,11 @@ public final class FakeDeliveries implements DeliveryRepository {
 
     @Override
     public boolean insertWatch(UUID orderId, Instant deadline, Instant now) {
-        return watches.putIfAbsent(orderId, deadline) == null;
+        boolean created = watches.putIfAbsent(orderId, deadline) == null;
+        if (created) {
+            watchStatuses.put(orderId, "open");
+        }
+        return created;
     }
 
     @Override
@@ -155,6 +167,95 @@ public final class FakeDeliveries implements DeliveryRepository {
         return changed;
     }
 
+    @Override
+    public Optional<DeliveryState> find(UUID id) {
+        return Optional.ofNullable(rows.get(id)).map(FakeDeliveries::state);
+    }
+
+    @Override
+    public Optional<DeliveryState> primaryOf(UUID orderId) {
+        return rows.values().stream().filter(r -> r.orderId.equals(orderId) && "primary".equals(r.kind)).findFirst().map(FakeDeliveries::state);
+    }
+
+    private static DeliveryState state(Row r) {
+        return new DeliveryState(r.id, r.orderId, r.kind, r.status, r.attemptNo);
+    }
+
+    @Override
+    public boolean recordProviderStatus(UUID deliveryId, String providerStatus, Instant occurredAt, Instant now) {
+        return providerStatuses.putIfAbsent(deliveryId + "/" + providerStatus, occurredAt) == null;
+    }
+
+    @Override
+    public boolean markDelivered(UUID id, Instant deliveredAt) {
+        Row row = rows.get(id);
+        if (row == null || !"sent".equals(row.status)) {
+            return false;
+        }
+        row.status = "delivered";
+        row.deliveredAt = deliveredAt;
+        return true;
+    }
+
+    @Override
+    public boolean markUndelivered(UUID id, String failReason, String errorCode) {
+        Row row = rows.get(id);
+        if (row == null || !"sent".equals(row.status)) {
+            return false;
+        }
+        row.status = "failed";
+        row.failReason = failReason;
+        row.lastErrorCode = errorCode;
+        return true;
+    }
+
+    @Override
+    public Optional<Instant> watchDeadline(UUID orderId) {
+        return Optional.ofNullable(watches.get(orderId));
+    }
+
+    @Override
+    public boolean closeWatch(UUID orderId, Instant now) {
+        String status = watchStatuses.get(orderId);
+        if (status == null || "closed".equals(status)) {
+            return false;
+        }
+        watchStatuses.put(orderId, "closed");
+        return true;
+    }
+
+    @Override
+    public List<DueWatch> lockDueWatches(Instant now, int limit) {
+        watchLimits.add(limit);
+        return watches.entrySet().stream()
+                .filter(e -> "open".equals(watchStatuses.get(e.getKey())) && !e.getValue().isAfter(now))
+                .sorted(Map.Entry.<UUID, Instant>comparingByValue().thenComparing(Map.Entry.comparingByKey()))
+                .limit(limit)
+                .map(e -> new DueWatch(e.getKey(), e.getValue()))
+                .toList();
+    }
+
+    @Override
+    public boolean handOver(UUID orderId, Instant now) {
+        if (!"open".equals(watchStatuses.get(orderId))) {
+            return false;
+        }
+        watchStatuses.put(orderId, "handed_over");
+        return true;
+    }
+
+    @Override
+    public List<SentDelivery> sentBefore(Instant sentBefore, SentDelivery after, int limit) {
+        Comparator<SentDelivery> order = Comparator.comparing(SentDelivery::sentAt).thenComparing(SentDelivery::id);
+        return rows.values().stream()
+                .filter(r -> "sent".equals(r.status) && !r.sentAt.isAfter(sentBefore))
+                .map(r -> new SentDelivery(r.id, r.sentAt))
+                .filter(d -> after == null || order.compare(d, after) > 0)
+                .sorted(order)
+                .limit(limit)
+                .toList();
+    }
+
     private void failIfAsked() {
         if (failOnMark != null) {
             throw failOnMark;
@@ -177,11 +278,36 @@ public final class FakeDeliveries implements DeliveryRepository {
         return watches;
     }
 
+    /** Состояние контроля заказа: open, handed_over или closed; {@code null}, если контроля нет. */
+    public String watchStatus(UUID orderId) {
+        return watchStatuses.get(orderId);
+    }
+
+    /** Принятые статусы провайдера в виде «выдача/статус». */
+    public java.util.Set<String> providerStatuses() {
+        return providerStatuses.keySet();
+    }
+
+    /** Выдача «отправлено» для тестов статусов: как после принятия письма провайдером. */
+    public Row addSent(UUID id, UUID orderId, UUID buyerId, String address, String title, int quantity, int attemptNo, Instant sentAt) {
+        Row row = new Row(id, orderId, buyerId, "primary", address, title, quantity, null);
+        row.status = "sent";
+        row.attemptNo = attemptNo;
+        row.sentAt = sentAt;
+        rows.put(id, row);
+        return row;
+    }
+
     public List<Duration> leases() {
         return leases;
     }
 
     public List<Integer> limits() {
         return limits;
+    }
+
+    /** Размеры пачек, с которыми контроль 30 минут просил открытые контроли. */
+    public List<Integer> watchLimits() {
+        return watchLimits;
     }
 }

@@ -8,7 +8,9 @@ import dgm.delivery.delivery.client.EmailClient;
 import dgm.delivery.delivery.client.KeyClient;
 import dgm.delivery.delivery.dispatcher.DeliveryDispatcher;
 import dgm.delivery.delivery.letter.LetterBuilder;
+import dgm.delivery.delivery.poller.StatusPoller;
 import dgm.delivery.delivery.repository.DeliveryRepository;
+import dgm.delivery.delivery.watch.DeliveryWatch;
 import dgm.kit.boot.testing.StandHttp;
 import dgm.kit.boot.testing.StubsAdmin;
 import dgm.kit.json.Json;
@@ -53,8 +55,9 @@ import org.springframework.test.context.DynamicPropertySource;
  * остатков это {@link InventoryStub} в процессе теста: ключи, отказы и счёт вызовов под управлением теста.
  *
  * <p>Фоновый диспетчер в тестах не работает: проход вызывает сам тест ({@link #drive}), иначе он забрал бы выдачу, которую тест держит «в
- * очереди», или чужие выдачи по {@code order.paid} прошлых тестов других сервисов (потребитель читает тему с начала). Расписание повторов
- * сжато до долей секунды, аренда 30 секунд (сорвавшийся проход в тестах изображает сам тест с арендой в две секунды).
+ * очереди», или чужие выдачи по {@code order.paid} прошлых тестов других сервисов (потребитель читает тему с начала). Опрос статусов писем и
+ * контроль 30 минут тоже отложены: их проходы ({@link #poller}, {@link #watch}) вызывает тест, а возраст выдачи для опроса равен нулю.
+ * Расписание повторов сжато до долей секунды, аренда 30 секунд (сорвавшийся проход в тестах изображает сам тест с арендой в две секунды).
  *
  * <p>Нужен набор стенда {@code dev-kit} с отладочными портами ({@code make up SET=dev-kit DEBUG=1}, заглушки на {@code 18443} и
  * {@code 18444}) и миграции базы выдачи ({@code make db-migrate S="delivery-service"}).
@@ -86,6 +89,10 @@ abstract class DeliveryStandIT {
     LetterBuilder letterBuilder;
     @Autowired
     DeliveryRepository repository;
+    @Autowired
+    StatusPoller poller;
+    @Autowired
+    DeliveryWatch watch;
 
     /** Оплаченный заказ. */
     record Placed(UUID orderId, UUID buyerId, String email, String title, int quantity) {
@@ -111,6 +118,12 @@ abstract class DeliveryStandIT {
         registry.add("dgm.delivery.dispatcher.interval", () -> "PT1H");
         registry.add("dgm.delivery.dispatcher.initial-delay", () -> "PT1H");
         registry.add("dgm.delivery.dispatcher.lease", () -> "PT30S");
+        // Опрос статусов писем и контроль 30 минут тоже вызывает тест; для опроса выдача годится сразу, без пятиминутной выдержки
+        registry.add("dgm.delivery.poller.interval", () -> "PT1H");
+        registry.add("dgm.delivery.poller.initial-delay", () -> "PT1H");
+        registry.add("dgm.delivery.poller.min-age", () -> "PT0S");
+        registry.add("dgm.delivery.watch.interval", () -> "PT1H");
+        registry.add("dgm.delivery.watch.initial-delay", () -> "PT1H");
         // Шесть попыток за долю секунды: настоящие паузы 10 с … 10 минут проверяет модульный тест расписания
         registry.add("delivery.retry-schedule", () -> "200ms,200ms,200ms,200ms,200ms");
     }

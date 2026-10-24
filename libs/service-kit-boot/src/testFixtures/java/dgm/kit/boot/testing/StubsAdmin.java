@@ -218,6 +218,16 @@ public final class StubsAdmin {
         return object(call("POST", "/admin/emails/" + path(messageId) + "/status", Json.write(Map.of("status", status))));
     }
 
+    /**
+     * Статус письма с полями команды: {@code reason} ({@code address_rejected} или {@code other}, для {@code failed}) и поля вебхука
+     * ({@code send = false} меняет статус письма у провайдера и вебхука не шлёт: платформа узнаёт о нём только опросом).
+     */
+    public Map<String, Object> emailStatus(String messageId, String status, Map<String, ?> fields) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>(fields);
+        body.put("status", status);
+        return object(call("POST", "/admin/emails/" + path(messageId) + "/status", Json.write(body)));
+    }
+
     /** Сообщения «телефона» номера {@code to}: доставленные, а с {@code everything} все принятые. */
     public List<Map<String, Object>> sms(String to, boolean everything) {
         StringBuilder query = new StringBuilder();

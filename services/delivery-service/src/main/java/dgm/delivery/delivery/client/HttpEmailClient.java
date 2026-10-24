@@ -1,6 +1,8 @@
 package dgm.delivery.delivery.client;
 
 import dgm.delivery.delivery.domain.AttemptResult;
+import dgm.delivery.delivery.domain.ProviderLookup;
+import dgm.delivery.delivery.domain.ProviderStatus;
 import dgm.delivery.delivery.letter.Letter;
 import dgm.kit.json.Json;
 import dgm.kit.secret.SecretValue;
@@ -28,7 +30,7 @@ import org.slf4j.LoggerFactory;
  * ключа временные ({@link AttemptResult.Retryable}). Адрес, тема, текст и ключ в журнал, тексты ошибок и метрики не попадают. Ключ читается из
  * хранилища секретов при каждой отправке.
  */
-public final class HttpEmailClient implements EmailClient {
+public final class HttpEmailClient implements EmailClient, StatusClient {
 
     /** Лимит одного вызова провайдера. */
     public static final Duration CALL_LIMIT = Duration.ofSeconds(5);
@@ -37,6 +39,7 @@ public final class HttpEmailClient implements EmailClient {
 
     private final HttpClient http;
     private final URI endpoint;
+    private final URI statusBase;
     private final Supplier<SecretValue> apiKey;
 
     /**
@@ -46,7 +49,9 @@ public final class HttpEmailClient implements EmailClient {
      */
     public HttpEmailClient(String base, Supplier<SecretValue> apiKey, SSLContext tls) {
         Objects.requireNonNull(base, "base");
-        this.endpoint = URI.create(base.endsWith("/") ? base.substring(0, base.length() - 1) : base).resolve("/email/v1/messages");
+        URI root = URI.create(base.endsWith("/") ? base.substring(0, base.length() - 1) : base);
+        this.endpoint = root.resolve("/email/v1/messages");
+        this.statusBase = root;
         this.apiKey = Objects.requireNonNull(apiKey, "apiKey");
         this.http = HttpClient.newBuilder().sslContext(tls).version(HttpClient.Version.HTTP_1_1).connectTimeout(CALL_LIMIT)
                 .followRedirects(HttpClient.Redirect.NEVER).build();
@@ -85,6 +90,41 @@ public final class HttpEmailClient implements EmailClient {
             return new AttemptResult.Permanent("address_rejected");
         }
         return new AttemptResult.Retryable(temporaryCode(status));
+    }
+
+    /** {@code GET /email/v1/messages/{id}}: статус письма. 404 это «провайдер письма не знает», остальные неудачи это «не ответил». */
+    @Override
+    public ProviderLookup statusOf(UUID messageId) {
+        HttpResponse<String> response;
+        try {
+            HttpRequest request = HttpRequest.newBuilder(statusBase.resolve("/email/v1/messages/" + messageId)).timeout(CALL_LIMIT)
+                    .header("Authorization", "Bearer " + apiKey.get().reveal())
+                    .header("Accept", "application/json")
+                    .GET().build();
+            response = http.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (HttpTimeoutException e) {
+            return new ProviderLookup.Unavailable("provider_timeout");
+        } catch (IOException e) {
+            return new ProviderLookup.Unavailable("provider_unavailable");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new ProviderLookup.Unavailable("provider_interrupted");
+        }
+        if (response.statusCode() == 404) {
+            return new ProviderLookup.Unknown();
+        }
+        if (response.statusCode() / 100 != 2) {
+            return new ProviderLookup.Unavailable(temporaryCode(response.statusCode()));
+        }
+        try {
+            Map<String, Object> body = Json.parseObject(response.body());
+            if (!(body.get("status") instanceof String status)) {
+                return new ProviderLookup.Unavailable("provider_bad_response");
+            }
+            return new ProviderLookup.Known(ProviderStatus.parse(status), body.get("reason") instanceof String reason ? reason : null);
+        } catch (RuntimeException e) {
+            return new ProviderLookup.Unavailable("provider_bad_response");
+        }
     }
 
     private static String temporaryCode(int status) {
