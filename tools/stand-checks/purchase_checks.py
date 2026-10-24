@@ -14,9 +14,9 @@
               Покупатель получил от платформы письма «Заказ создан и ждёт оплаты» (с номером и ссылкой на заказ) и «Заказ оплачен» (без ключа):
               ключ уходит одним письмом и только от выдачи. Остаток ключей: на три свободных меньше, на три выданных больше
   другой      второй покупатель берёт один ключ: его ключ не совпадает ни с одним ключом первого заказа (один ключ достаётся одному заказу)
-  сроки       по времени событий payment.paid, order.paid, delivery.accepted, order.issued видно, где проходит время между оплатой и письмом;
+  сроки       по времени событий payment.confirmed, order.paid, delivery.accepted, order.issued видно, где проходит время между оплатой и письмом;
               от оплаты до выдачи не больше минуты. Идентификатор запроса оформления виден в журналах шлюза, order-service, inventory-service
-              и payment-service; события payment.paid и order.paid, delivery.accepted и order.issued идут в одной трассе (потребитель продолжает
+              и payment-service; события payment.confirmed и order.paid, delivery.accepted и order.issued идут в одной трассе (потребитель продолжает
               трассу издателя); трасса рвётся на очереди выдачи: диспетчер начинает новую (Р-155), связь по номеру заказа в ключе записей Kafka
   канарейка   значения ключей (DGM-ORD-…) не найдены в журналах контейнеров, в темах payment, order и delivery.events и в дампах пяти баз;
               адресов покупателей нет в журналах delivery-service и platform-service, а в темах Kafka адрес лежит только в order.paid, единственном
@@ -25,6 +25,7 @@
 Только стандартная библиотека Python.
 """
 import concurrent.futures
+import json
 import os
 import re
 import sys
@@ -42,6 +43,7 @@ import dlq_replay as D  # noqa: E402
 import gateway_checks as G  # noqa: E402
 import kc_client as K  # noqa: E402
 import orders_checks as O  # noqa: E402
+import sellers_checks as SC  # noqa: E402
 import stubs_admin as SB  # noqa: E402
 
 expect = G.expect
@@ -58,6 +60,25 @@ ISSUE_SECONDS = 60
 
 
 # --------------------------------------------------------------------------------------------------- базы
+def new_buyer(kc, admin, stamp, tag):
+    """Покупатель, которого платформа уже знает. Профиль на платформе создаётся при первом запросе к ней (AccountProvisioningFilter, ADR-025): настоящий
+    покупатель подтверждает телефон через платформу ещё до заказа. Здесь признак телефона выставлен в Keycloak напрямую, поэтому первый запрос
+    делается явно: иначе письмо «Заказ создан» уходит человеку, которого платформа ещё не знает, и отбрасывается как письмо несуществующему получателю, а сверка создаёт профиль
+    только через минуту."""
+    buyer = O.new_buyer(kc, admin, stamp, tag)
+    if not buyer:
+        return None
+    headers = SC.auth(buyer.token(), **{'Content-Type': 'application/json', 'Idempotency-Key': str(uuid.uuid4())})
+    body = json.dumps({'orderId': str(uuid.uuid4()), 'reason': 'key_not_received'}).encode()
+    first = G.call('POST', '/api/v1/support-tickets', headers=headers, body=body)    # заказа нет: 404 после создания профиля
+    rows = O.sql('platform_db', "select count(*) from identity.user_account where lower(email) = lower('%s')" % buyer.email)
+    known = bool(rows) and int(rows[0][0]) == 1
+    if not expect('%s: первый запрос к платформе создал профиль покупателя (заказа нет, ответ %s)' % (tag, first.status), known, '%s %s' % (O.describe(first), rows)):
+        return None
+    return buyer
+
+
+
 def one_int(database, query):
     rows = O.sql(database, query)
     return int(rows[0][0]) if rows else None
@@ -163,7 +184,7 @@ def purchase_with_key(fx):
     kc, admin, stubs = fx['kc'], fx['admin'], fx['stubs']
     print('== Покупка до письма с ключом: оплата, выдача, письма платформы, остаток (US-5.3, US-6.1 – US-6.3, FT-7.0, FT-7.1, INV-18, INV-19; TC-001 шаги 5 и 6)')
     stubs.reset()
-    buyer = O.new_buyer(kc, admin, fx['stamp'], 'k1')
+    buyer = new_buyer(kc, admin, fx['stamp'], 'k1')
     if not buyer:
         return
     pid = fx['plenty']
@@ -241,7 +262,7 @@ def another_buyer_other_key(fx):
     if not fx.get('keys'):
         G.bad('Контроль: ключи первого заказа неизвестны, сравнивать не с чем (сценарий покупки не дошёл до письма)')
         return
-    buyer = O.new_buyer(kc, admin, fx['stamp'], 'k2')
+    buyer = new_buyer(kc, admin, fx['stamp'], 'k2')
     if not buyer:
         return
     with stubs.payment_mode(scenario='hold'):
@@ -305,23 +326,23 @@ def timeline_and_trace(fx):
     topics = read_topics(EVENT_TOPICS)
     fx['topics'] = topics
     events = events_of(topics, oid)
-    chain = ['payment.paid', 'order.paid', 'delivery.accepted', 'order.issued']
+    chain = ['payment.confirmed', 'order.paid', 'delivery.accepted', 'order.issued']
     missing = [t for t in chain if t not in events]
     if not expect('В темах Kafka есть события заказа: %s' % ', '.join(chain), not missing, 'нет: %s; есть: %s' % (missing, sorted(events))):
         return
     stamps = [instant(events[t]['time']) for t in chain]
     steps = ['%s → %s: %d мс' % (chain[i], chain[i + 1], (stamps[i + 1] - stamps[i]).total_seconds() * 1000) for i in range(len(chain) - 1)]
     print('   Время между событиями заказа: ' + '; '.join(steps))
-    expect('Время событий идёт по порядку: payment.paid не позже order.paid, дальше delivery.accepted и order.issued',
+    expect('Время событий идёт по порядку: payment.confirmed не позже order.paid, дальше delivery.accepted и order.issued',
            all(stamps[i] <= stamps[i + 1] for i in range(len(stamps) - 1)), str([events[t]['time'] for t in chain]))
     total = (stamps[-1] - stamps[0]).total_seconds()
     expect('От подтверждения платежа до выданного заказа %.1f с, не больше %d с' % (total, ISSUE_SECONDS), total <= ISSUE_SECONDS, str(total))
     traces = {t: trace_of(events[t]) for t in chain}
     valid = all(len(v) == 2 and re.fullmatch(r'[0-9a-f]{32}', v[0]) and re.fullmatch(r'[0-9a-f]{16}', v[1]) for v in traces.values())
     expect('У четырёх событий есть traceparent и correlationid', valid and all(events[t].get('correlationid') for t in chain), str(traces))
-    expect('payment.paid и order.paid в одной трассе и с одним correlationid, отрезки разные: потребитель продолжает трассу издателя',
-           valid and traces['payment.paid'][0] == traces['order.paid'][0] and traces['payment.paid'][1] != traces['order.paid'][1]
-           and events['payment.paid'].get('correlationid') == events['order.paid'].get('correlationid'), '%s %s' % (traces['payment.paid'], traces['order.paid']))
+    expect('payment.confirmed и order.paid в одной трассе и с одним correlationid, отрезки разные: потребитель продолжает трассу издателя',
+           valid and traces['payment.confirmed'][0] == traces['order.paid'][0] and traces['payment.confirmed'][1] != traces['order.paid'][1]
+           and events['payment.confirmed'].get('correlationid') == events['order.paid'].get('correlationid'), '%s %s' % (traces['payment.confirmed'], traces['order.paid']))
     expect('delivery.accepted и order.issued в одной трассе и с одним correlationid: событие выдачи продолжается в order-service',
            valid and traces['delivery.accepted'][0] == traces['order.issued'][0] and traces['delivery.accepted'][1] != traces['order.issued'][1]
            and events['delivery.accepted'].get('correlationid') == events['order.issued'].get('correlationid'), '%s %s' % (traces['delivery.accepted'], traces['order.issued']))

@@ -60,7 +60,7 @@ def repeated_notification(fx):
     kc, admin, stubs = fx['kc'], fx['admin'], fx['stubs']
     print('== Шлюз повторяет уведомление об оплате (US-5.5, FT-6.2, NFT-2.3; TC-006, BPMN-01 E5)')
     stubs.reset()
-    buyer = O.new_buyer(kc, admin, fx['stamp'], 'p1')
+    buyer = P.new_buyer(kc, admin, fx['stamp'], 'p1')
     if not buyer:
         return
     pid = fx['plenty']
@@ -98,7 +98,7 @@ def lost_notification(fx):
     kc, admin, stubs = fx['kc'], fx['admin'], fx['stubs']
     print('== Вебхук потерян: платёж подбирает сверка со шлюзом (FT-6.2, NFT-4.3, ADR-015; TC-006)')
     stubs.reset()
-    buyer = O.new_buyer(kc, admin, fx['stamp'], 'p2')
+    buyer = P.new_buyer(kc, admin, fx['stamp'], 'p2')
     if not buyer:
         return
     with stubs.payment_mode(scenario='success', delayMs=300, webhook={'send': False}):
@@ -126,7 +126,7 @@ def late_payments(fx):
     plenty, scarce = fx['plenty'], fx['scarce']
     people = fx['people']
     names = ['p7', 'p8', 'p9', 'pb']
-    buyers = {n: O.new_buyer(kc, admin, fx['stamp'], n) for n in names}
+    buyers = {n: P.new_buyer(kc, admin, fx['stamp'], n) for n in names}
     if not all(buyers.values()):
         return
     fx['emails'] += [b.email for b in buyers.values()]

@@ -85,7 +85,7 @@ def provision_admin(fx):
 def start_order(fx, tag):
     """Покупатель и заказ на один ключ; оплачивает платёжная заглушка в режиме по умолчанию (сама присылает вебхук). Режим почты задаёт вызывающий.
     Возвращает (покупатель, идентификатор заказа) или (None, None)."""
-    buyer = O.new_buyer(fx['kc'], fx['admin'], fx['stamp'], tag)
+    buyer = P.new_buyer(fx['kc'], fx['admin'], fx['stamp'], tag)
     if not buyer:
         return None, None
     fx['emails'].append(buyer.email)
