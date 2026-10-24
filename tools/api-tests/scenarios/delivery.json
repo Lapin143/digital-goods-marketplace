@@ -1,0 +1,95 @@
+{
+  "id": "DLV-01",
+  "title": "Выдача: вход вебхука e-mail-провайдера закрыт подписью, тело проверяется по схеме, неизвестное письмо и незнакомый статус принимаются без изменений (US-6.3, ST-02, ST-04)",
+  "steps": [
+    {
+      "name": "Статус письма без подписи: 401",
+      "op": "receiveKeyEmailStatus",
+      "as": "guest",
+      "body": {"messageId": "msg_newman_1", "status": "delivered", "occurredAt": "2026-10-03T12:00:00.123Z"},
+      "unsigned": true,
+      "expect": 401,
+      "assert": [
+        {"header": "Content-Type", "contains": "application/problem+json"}
+      ]
+    },
+    {
+      "name": "Статус письма с неверной подписью: 401",
+      "op": "receiveKeyEmailStatus",
+      "as": "guest",
+      "body": {"messageId": "msg_newman_2", "status": "delivered", "occurredAt": "2026-10-03T12:00:00.123Z"},
+      "sign": {"badSignature": true},
+      "expect": 401
+    },
+    {
+      "name": "Верная подпись и устаревшая метка времени (10 минут): 401",
+      "op": "receiveKeyEmailStatus",
+      "as": "guest",
+      "body": {"messageId": "msg_newman_3", "status": "delivered", "occurredAt": "2026-10-03T12:00:00.123Z"},
+      "sign": {"timestampOffsetSeconds": -600},
+      "expect": 401
+    },
+    {
+      "name": "Верно подписанный статус неизвестного письма принят без изменений: 200, провайдер не повторяет его бесконечно",
+      "op": "receiveKeyEmailStatus",
+      "as": "guest",
+      "body": {"messageId": "msg_newman_unknown", "status": "delivered", "occurredAt": "2026-10-03T12:00:00.123Z"},
+      "sign": {},
+      "expect": 200
+    },
+    {
+      "name": "Незнакомый статус (перечисление открытое) принят и ничего не меняет: 200",
+      "op": "receiveKeyEmailStatus",
+      "as": "guest",
+      "body": {"messageId": "msg_newman_unknown", "status": "opened", "occurredAt": "2026-10-03T12:00:00.123Z"},
+      "sign": {},
+      "expect": 200
+    },
+    {
+      "name": "Отказ с причиной из перечисления для неизвестного письма принят: 200",
+      "op": "receiveKeyEmailStatus",
+      "as": "guest",
+      "body": {"messageId": "msg_newman_unknown", "status": "failed", "occurredAt": "2026-10-03T12:00:00.123Z", "reason": "address_rejected"},
+      "sign": {},
+      "expect": 200
+    },
+    {
+      "name": "Тело без идентификатора письма: 400",
+      "op": "receiveKeyEmailStatus",
+      "as": "guest",
+      "body": {"status": "delivered", "occurredAt": "2026-10-03T12:00:00.123Z"},
+      "sign": {},
+      "expect": 400,
+      "assert": [
+        {"header": "Content-Type", "contains": "application/problem+json"}
+      ]
+    },
+    {
+      "name": "Тело с лишним полем: 400",
+      "op": "receiveKeyEmailStatus",
+      "as": "guest",
+      "body": {"messageId": "msg_newman_4", "status": "delivered", "occurredAt": "2026-10-03T12:00:00.123Z", "address": "buyer@example.test"},
+      "sign": {},
+      "expect": 400,
+      "assert": [
+        {"bodyNotContains": "buyer@example.test"}
+      ]
+    },
+    {
+      "name": "Причина вне перечисления: 400",
+      "op": "receiveKeyEmailStatus",
+      "as": "guest",
+      "body": {"messageId": "msg_newman_5", "status": "failed", "occurredAt": "2026-10-03T12:00:00.123Z", "reason": "mailbox_full"},
+      "sign": {},
+      "expect": 400
+    },
+    {
+      "name": "Момент времени не по RFC 3339: 400",
+      "op": "receiveKeyEmailStatus",
+      "as": "guest",
+      "body": {"messageId": "msg_newman_6", "status": "delivered", "occurredAt": "вчера"},
+      "sign": {},
+      "expect": 400
+    }
+  ]
+}

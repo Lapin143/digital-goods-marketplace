@@ -12,8 +12,10 @@
               резерв использован один раз, все копии приняты с 200
   потеря      вебхук не отправлен (режим send=false), заглушка у себя платёж оплатила: заказ становится оплаченным только сверкой платежей
               (ADR-015, шаг 8); без сверки этот сценарий красный. Контроль: в журнале заглушки вебхук помечен потерянным, а доставленных нет
-  поздняя     TC-007 (E6): подтверждение после снятия резерва, ключей хватает: резерв создаётся заново, заказ cancelled → paid;
-              TC-008 (E7): ключей не хватает: частичной выдачи нет, автовозврат всей суммы, платёж и заказ refunded;
+  поздняя     TC-007 (E6): подтверждение после снятия резерва, ключей хватает: резерв создаётся заново, заказ cancelled → paid, дальше выдача
+              как обычно (шаг 17): заказ issued, одно письмо с двумя разными ключами;
+              TC-008 (E7): ключей не хватает: частичной выдачи нет, автовозврат всей суммы, платёж и заказ refunded, покупатель получил
+              письмо о возврате с причиной (шаг 17), писем с ключами у него нет;
               TC-009 (E8): шлюз не принимает возврат: попытки по расписанию, очередь администратора, администратор отмечает возврат
               выполненным, платёж и заказ refunded, повторная отметка 409 refund-not-allowed
 
@@ -31,6 +33,7 @@ import accounts_checks as A  # noqa: E402
 import gateway_checks as G  # noqa: E402
 import kc_client as K  # noqa: E402
 import orders_checks as O  # noqa: E402
+import purchase_checks as P  # noqa: E402
 import seller_approval_checks as SA  # noqa: E402
 import sellers_checks as SC  # noqa: E402
 
@@ -164,6 +167,10 @@ def late_payments(fx):
            '%s %s -> %s' % (O.reservations_of(oid), before_plenty, O.keys_of(plenty)))
     expect('TC-007. Платёж confirmed, возврата нет, в Outbox одно order.paid', O.payment_of(oid) and O.payment_of(oid)[0] == 'confirmed' and O.outbox_count(oid, 'order.paid') == 1
            and O.outbox_count(oid, 'order.refund-requested') == 0, '%s %s' % (O.payment_of(oid), O.outbox_count(oid, 'order.paid')))
+    issued_ok, issued = O.wait_order(buyers['p7'], oid, 'issued', wait=60)
+    letter, keys = P.key_letter('TC-007', stubs, buyers['p7'].email, 2)
+    expect('TC-007. После поздней оплаты выдача идёт как обычно: заказ issued со временем выдачи, письмо с двумя разными ключами одно', issued_ok and bool(issued.get('issuedAt')) and len(keys) == 2,
+           '%s %s' % (str(issued)[:200], len(keys)))
 
     # TC-008: ключей не хватает, шлюз принимает возврат сразу
     oid, spid, _ = orders['p8']
@@ -176,6 +183,13 @@ def late_payments(fx):
     expect('TC-008. Один запрос возврата и одно order.refunded; чужие ключи не тронуты (свободен один)', O.outbox_count(oid, 'order.refund-requested') == 1
            and O.outbox_count(oid, 'order.refunded') == 1 and (O.keys_of(scarce) or {}).get('free') == 1, '%s %s' % (O.outbox_count(oid, 'order.refunded'), O.keys_of(scarce)))
     expect('TC-008. Покупатель видит возврат в истории заказов', any(i.get('orderId') == oid for i in O.list_orders(buyers['p8'], 'refunded')))
+    refund_letters = P.wait_letters(stubs, to=buyers['p8'].email, subject='Деньги за заказ возвращены')
+    refund_text = P.body_of(refund_letters[0]) if refund_letters else ''
+    expect('TC-008. Покупатель получил одно письмо «Деньги за заказ возвращены» с номером заказа и причиной «оплата пришла после того, как срок заказа истёк»',
+           len(refund_letters) == 1 and '№%s' % refunded.get('orderNumber') in refund_text and 'оплата пришла после того, как срок заказа истёк' in refund_text,
+           '%s %s' % (len(refund_letters), refund_text[:200]))
+    expect('TC-008. Ключей покупателю не выдавали: писем от выдачи у него нет, ключей в его письмах нет', not stubs.emails(to=buyers['p8'].email, sender='delivery')
+           and not any(P.KEY_PREFIX in P.body_of(m) for m in stubs.emails(to=buyers['p8'].email)), str([m['subject'] for m in stubs.emails(to=buyers['p8'].email)]))
 
     # TC-009: шлюз возврат не принимает
     oid, spid, _ = orders['p9']

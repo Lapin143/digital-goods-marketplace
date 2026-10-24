@@ -48,7 +48,7 @@ import stubs_admin as SB  # noqa: E402
 expect = G.expect
 ORDERS = '/api/v1/orders'
 CACHE = os.path.join(G.SECRETS, 'purchase_fixture.json')
-PLENTY_KEYS = 30
+PLENTY_KEYS = 60   # хватает на orders-check, payments-check, purchase-check и delivery-check подряд (каждый берёт не больше десяти)
 SCARCE_KEYS = 4
 PRICE = 149900
 
@@ -273,23 +273,25 @@ def build_fixture(kc, admin, people, stamp):
     return {'plenty': plenty, 'scarce': scarce, 'stamp': stamp} if plenty and scarce else None
 
 
-def cache_is_usable(data):
+def cache_is_usable(data, scarce_needed=True):
+    """Товары прошлого прогона годятся, если на витрине и ключей хватает. Товар с четырьмя ключами нужен только тем, кто его тратит (orders-check,
+    payments-check), а проверкам покупки и выдачи достаточно товара с запасом (scarce_needed=False)."""
     plenty, scarce = data.get('plenty'), data.get('scarce')
     if not plenty or not scarce:
         return False
     in_plenty, in_scarce = keys_of(plenty), keys_of(scarce)
     shown = [G.call('GET', '%s/%s' % (SA.STOREFRONT, p)).status for p in (plenty, scarce)]
-    return bool(in_plenty and in_scarce and in_plenty.get('free', 0) >= 20 and in_scarce.get('free') == SCARCE_KEYS and not in_scarce.get('reserved')
-                and shown == [200, 200])
+    scarce_ok = bool(in_scarce and in_scarce.get('free') == SCARCE_KEYS and not in_scarce.get('reserved')) or not scarce_needed
+    return bool(in_plenty and in_plenty.get('free', 0) >= 20 and scarce_ok and shown == [200, 200])
 
 
-def prepare(kc, admin, people, stamp):
+def prepare(kc, admin, people, stamp, scarce_needed=True):
     """Товары для заказов: прошлого прогона, если ключи целы, иначе новые с новым продавцом."""
     try:
         cached = json.load(open(CACHE, encoding='utf-8'))
     except (OSError, ValueError):
         cached = None
-    if cached and cache_is_usable(cached):
+    if cached and cache_is_usable(cached, scarce_needed):
         print('-- Товары прошлого прогона на месте и ключи целы: продавца заново не заводим')
         return cached
     fixture = build_fixture(kc, admin, people, stamp)
@@ -528,8 +530,8 @@ def run_scenarios(fx):
         guarded(fn.__name__, fn, fx)
 
 
-def context(kc, admin, people, stamp):
-    fixture = prepare(kc, admin, people, stamp)
+def context(kc, admin, people, stamp, scarce_needed=True):
+    fixture = prepare(kc, admin, people, stamp, scarce_needed)
     if not fixture:
         return None
     return dict(fixture, kc=kc, admin=admin, stubs=SB.StubsAdmin.from_env(), stamp=stamp, correlations=[], emails=[])
