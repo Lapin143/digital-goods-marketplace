@@ -111,6 +111,8 @@ class DeliveryEventsIT extends DeliveryStandIT {
 
         UUID eventId = anonymized(buyer);
         awaitProcessed(eventId);
+        // проходы диспетчера, которые довели «отправлено», могли успеть взять и выдачу «в очереди» до обезличивания (ключей у неё ещё нет): считаем с этого места
+        int keyCallsBefore = INVENTORY.calls(queued.orderId()).size();
 
         assertEquals("anonymized@anonymized.invalid", deliveryOf(queued).get("address"));
         assertEquals("anonymized@anonymized.invalid", deliveryOf(sent).get("address"), "отправленная выдача открыта, адрес в ней тоже заменяется");
@@ -121,7 +123,7 @@ class DeliveryEventsIT extends DeliveryStandIT {
         assertEquals("address_anonymized", deliveryOf(queued).get("last_error_code"));
         assertEquals(0, stubs.emails("anonymized@anonymized.invalid", null, null).size());
         assertEquals(0, mails(queued).size());
-        assertEquals(0, INVENTORY.calls(queued.orderId()).size());
+        assertEquals(keyCallsBefore, INVENTORY.calls(queued.orderId()).size(), "после обезличивания ключи по выдаче не запрашиваются");
 
         UUID again = anonymized(buyer);
         awaitProcessed(again);

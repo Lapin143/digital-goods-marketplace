@@ -52,14 +52,21 @@ LOKI = os.environ.get('LOKI_URL', 'http://127.0.0.1:13100')
 SKEW = 30           # допуск расхождения часов шлюза и сервисов, секунд (JwtSettings.DEFAULT_SKEW)
 EXPIRY_SECONDS = 5  # срок токена, который выпускается ради проверки просрочки
 
-# Клиент Kafka в контейнере образа: принципал delivery-service (потребитель order.events по ACL), смещения не сохраняются, читается вся тема с начала
+# Клиент Kafka в контейнере образа: принципал delivery-service (потребитель order.events по ACL), читается вся тема с начала. Группа не используется:
+# в группе delivery-service с шага 13 работает настоящий потребитель сервиса, и общий идентификатор группы отдал бы консоли его смещения и отнял бы у неё
+# разделы. Консоль назначает себе разделы вручную (--partition) и читает их по очереди, пока не найдёт маркер; в теме order.events три раздела.
 KAFKA_CONSUMER = r"""
 D=/tmp/c; mkdir -p $D
 cat /s/tls_delivery-service.key /s/tls_delivery-service.crt > $D/ks.pem
 printf 'security.protocol=SSL\nssl.truststore.type=PEM\nssl.truststore.location=/s/tls_ca.crt\nssl.keystore.type=PEM\nssl.keystore.location=%s\ndefault.api.timeout.ms=15000\nrequest.timeout.ms=10000\n' $D/ks.pem > $D/c.properties
 export KAFKA_HEAP_OPTS=-Xmx128m LOG_DIR=/tmp/l
-/opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:9093 --consumer.config $D/c.properties --topic order.events \
-  --group delivery-service --from-beginning --timeout-ms 12000 --consumer-property enable.auto.commit=false --property print.key=true
+for P in 0 1 2; do
+  /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:9093 --consumer.config $D/c.properties --topic order.events \
+    --partition $P --offset earliest --timeout-ms 12000 --consumer-property enable.auto.commit=false --property print.key=true > $D/out.$P 2> $D/err.$P
+  cat $D/out.$P
+  if grep -q '@MARKER@' $D/out.$P; then break; fi
+done
+cat $D/err.* >&2
 """
 
 
@@ -267,10 +274,10 @@ def outbox_to_kafka():
     image = compose_image(r'^apache/kafka:')
     if not published or not G.expect('образ Kafka найден в compose.yaml', image):
         return
-    inner = KAFKA_CONSUMER
+    inner = KAFKA_CONSUMER.replace('@MARKER@', marker)
     r = drun('dgm_data', image, '-c', inner, entrypoint='bash')
     line = next((l for l in r.stdout.splitlines() if marker in l), '')
-    G.expect('маркер прочитан из темы order.events (потребитель delivery-service по ACL AsyncAPI, без сохранения смещений)', bool(line), (r.stdout + r.stderr)[-300:])
+    G.expect('маркер прочитан из темы order.events (потребитель delivery-service по ACL AsyncAPI, без группы и без сохранения смещений)', bool(line), (r.stdout + r.stderr)[-300:])
     if line:
         key_out, _, value = line.partition('\t')
         try:
