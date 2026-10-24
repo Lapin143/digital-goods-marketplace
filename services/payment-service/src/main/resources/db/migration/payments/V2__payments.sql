@@ -120,7 +120,6 @@ create table payments.payment_event (
     outcome            text        not null,
     occurred_at        timestamptz not null,
     received_at        timestamptz not null default now(),
-    constraint pk_payment_event primary key (gateway_payment_id, event_type),
     constraint fk_payment_event_payment_id foreign key (payment_id) references payments.payment (id),
     constraint ck_payment_event_outcome check (outcome in ('applied', 'amount_mismatch', 'anomaly')),
     constraint ck_payment_event_event_type_len check (char_length(event_type) between 1 and 64),

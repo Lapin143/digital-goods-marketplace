@@ -29,7 +29,7 @@ public final class JdbcPaymentEventRepository implements PaymentEventRepository 
     public boolean insertIfAbsent(String gatewayPaymentId, String eventType, String gatewayEventId, UUID paymentId, String outcome, Instant occurredAt,
                                   Instant receivedAt) {
         return jdbc.update("insert into payments.payment_event (gateway_payment_id, event_type, gateway_event_id, payment_id, outcome, occurred_at, received_at) "
-                + "values (?, ?, ?, ?, ?, ?, ?) on conflict (gateway_payment_id, event_type) do nothing", gatewayPaymentId, eventType, gatewayEventId,
+                + "values (?, ?, ?, ?, ?, ?, ?)", gatewayPaymentId, eventType, gatewayEventId,
                 paymentId, outcome, OffsetDateTime.ofInstant(occurredAt, ZoneOffset.UTC), OffsetDateTime.ofInstant(receivedAt, ZoneOffset.UTC)) == 1;
     }
 }

@@ -59,7 +59,7 @@ public final class JdbcPaymentRepository implements PaymentRepository {
 
     @Override
     public Optional<Payment> lockByOrder(UUID orderId) {
-        return jdbc.query("select " + COLUMNS + " from payments.payment where order_id = ? for update", MAPPER, orderId).stream().findFirst();
+        return jdbc.query("select " + COLUMNS + " from payments.payment where order_id = ?", MAPPER, orderId).stream().findFirst();
     }
 
     @Override
