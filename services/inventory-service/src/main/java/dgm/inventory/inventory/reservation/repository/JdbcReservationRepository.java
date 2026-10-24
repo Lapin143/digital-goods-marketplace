@@ -54,18 +54,18 @@ public final class JdbcReservationRepository implements ReservationRepository {
     @Override
     public Optional<Reservation> releaseIfDue(UUID id, Instant now) {
         return jdbc.query("update inventory.reservation set status = 'released', release_reason = 'expired', released_at = ? "
-                + "where id = ? and status = 'active' and expires_at <= ? returning " + COLUMNS, MAPPER, time(now), id, time(now)).stream().findFirst();
+                + "where id = ? and expires_at <= ? returning " + COLUMNS, MAPPER, time(now), id, time(now)).stream().findFirst();
     }
 
     @Override
     public Optional<Reservation> release(UUID id, String reason, Instant at) {
         return jdbc.query("update inventory.reservation set status = 'released', release_reason = ?, released_at = ? "
-                + "where id = ? and status = 'active' returning " + COLUMNS, MAPPER, reason, time(at), id).stream().findFirst();
+                + "where id = ? returning " + COLUMNS, MAPPER, reason, time(at), id).stream().findFirst();
     }
 
     @Override
     public Optional<Reservation> markUsed(UUID id, Instant at) {
-        return jdbc.query("update inventory.reservation set status = 'used', used_at = ? where id = ? and status = 'active' returning " + COLUMNS,
+        return jdbc.query("update inventory.reservation set status = 'used', used_at = ? where id = ? returning " + COLUMNS,
                 MAPPER, time(at), id).stream().findFirst();
     }
 

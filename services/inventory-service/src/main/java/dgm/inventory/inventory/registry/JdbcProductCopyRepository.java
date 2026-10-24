@@ -35,7 +35,7 @@ public final class JdbcProductCopyRepository implements ProductCopyRepository {
 
     @Override
     public Optional<ProductCopy> lock(UUID productId) {
-        return jdbc.query("select " + COLUMNS + " from inventory.product_copy where product_id = ? for update", COPY, productId).stream()
+        return jdbc.query("select " + COLUMNS + " from inventory.product_copy where product_id = ?", COPY, productId).stream()
                 .findFirst();
     }
 
