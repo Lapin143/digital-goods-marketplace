@@ -52,9 +52,13 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.TopicPartition;
@@ -140,8 +144,37 @@ class PlatformServiceIT {
     }
 
     @BeforeAll
-    static void clients() {
+    static void clients() throws Exception {
+        skipBacklog();
         gateway = StandHttp.asService("api-gateway", PORT);
+    }
+
+    /** Темы, которые читает платформа (потребители обработчиков). */
+    private static final List<String> CONSUMED_TOPICS = List.of("catalog.events", "identity.events", "order.events", "payment.events", "delivery.events");
+
+    /**
+     * Переносит группу потребителей платформы в конец своих тем до запуска контекста. Группа читает темы с начала, а на общем стенде в них лежат события,
+     * которые оставили тесты соседних сервисов в том же прогоне CI (заказы, которых платформа не знает): поток потребителя один, и каждое такое
+     * {@code delivery.failed} держит его 31 секунду повторов, пока тесты платформы ждут свои события. Контекст запускается позже этого метода,
+     * потому что Spring создаёт его при создании экземпляра теста, после статических {@code @BeforeAll}.
+     */
+    private static void skipBacklog() throws Exception {
+        Map<String, Object> props = new LinkedHashMap<>(Stand.kafkaSecurity("kafka-init"));
+        props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, Stand.kafkaBootstrap());
+        props.put(AdminClientConfig.CLIENT_ID_CONFIG, "platform-it-offsets");
+        try (Admin admin = Admin.create(props)) {
+            Set<String> existing = admin.listTopics().names().get(30, TimeUnit.SECONDS);
+            Map<TopicPartition, OffsetSpec> latest = new LinkedHashMap<>();
+            for (String topic : CONSUMED_TOPICS) {
+                if (existing.contains(topic)) {
+                    admin.describeTopics(List.of(topic)).allTopicNames().get(30, TimeUnit.SECONDS).get(topic).partitions()
+                            .forEach(partition -> latest.put(new TopicPartition(topic, partition.partition()), OffsetSpec.latest()));
+                }
+            }
+            Map<TopicPartition, OffsetAndMetadata> ends = new LinkedHashMap<>();
+            admin.listOffsets(latest).all().get(30, TimeUnit.SECONDS).forEach((partition, info) -> ends.put(partition, new OffsetAndMetadata(info.offset())));
+            admin.alterConsumerGroupOffsets("platform-service", ends).all().get(30, TimeUnit.SECONDS);
+        }
     }
 
     @AfterAll

@@ -85,6 +85,10 @@ fun registerStandTest(taskName: String, taskDescription: String, tag: String) = 
         includeTags(tag)
     }
     shouldRunAfter(tasks.named("test"))
+    // Прошедшие тесты тоже в журнале: если прогон завис или оборван по времени, по последним строкам видно, где он остановился
+    testLogging {
+        events("passed", "failed", "skipped")
+    }
 }
 
 val integrationTest = registerStandTest("integrationTest", "Интеграционные тесты на поднятом стенде (тег integration)", "integration")

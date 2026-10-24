@@ -153,7 +153,7 @@ jobs:
   # 19093 (Kafka) и 16379 (Redis) по TLS с клиентским сертификатом сервиса, Docker на стенде у них не нужен.
   kit:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -184,8 +184,20 @@ jobs:
         run: |
           tools/ci/diag.sh "Интеграционные тесты каркаса и сервисов" ./gradlew --console=plain --continue \
             :libs:service-kit:integrationTest :services:catalog-service:integrationTest :services:order-service:integrationTest \
-            :services:inventory-service:integrationTest :services:payment-service:integrationTest :services:delivery-service:integrationTest \
-            :services:platform-service:integrationTest
+            :services:inventory-service:integrationTest :services:payment-service:integrationTest :services:delivery-service:integrationTest
+
+      # Платформа идёт отдельным шагом и последней: её потребитель читает темы соседей, поэтому её тесты переносят группу в конец тем (PlatformServiceIT.skipBacklog).
+      # Запуск 40113780546 вышел за 30 минут именно на этом модуле, а журналы запусков без входа недоступны: лимит 20 минут через timeout даёт аннотацию
+      # с последними тестами вместо отмены всего задания, а время шага видно по API
+      - name: Интеграционные тесты платформы
+        if: always()
+        env:
+          DGM_SECRETS_DIR: ${{ github.workspace }}/secrets
+          DIAG_FILTER: 'FAILED|error:|warning:|What went wrong|Could not|BUILD FAILED|Caused by|AssertionFailedError|Exception'
+          DIAG_MAX: "20"
+          DIAG_TAIL: "60"
+        run: |
+          tools/ci/diag.sh "Интеграционные тесты платформы" timeout 1200 ./gradlew --console=plain :services:platform-service:integrationTest
 
       # Рецепт руководства разработчика (раздел 10): order-service запускается из Gradle на стороне хоста, инфраструктура в Compose (dev-min, отладочные порты)
       - name: Сервис из Gradle при инфраструктуре в Compose
