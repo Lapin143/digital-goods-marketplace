@@ -36,7 +36,7 @@ public final class InMemoryNotifications implements NotificationRepository {
     @Override
     public boolean insert(NewNotification notification) {
         if (notification.sourceEventId() != null && rows.values().stream().anyMatch(r -> notification.sourceEventId().equals(r.source.sourceEventId())
-                && notification.template().equals(r.source.template()))) {
+                && notification.template().equals(r.source.template()) && notification.userId().equals(r.source.userId()))) {
             return false;
         }
         rows.put(notification.id(), new Row(notification));

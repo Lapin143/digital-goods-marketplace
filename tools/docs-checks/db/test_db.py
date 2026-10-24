@@ -785,9 +785,11 @@ def t_notification():
     ok(c, ins % ('', q(uid()), q(uid()), """'{"orderId": "x", "amount": 100}'""", ''))
     for key in ('email', 'phone', 'name', 'address'):
         raises(c, ins % ('', q(uid()), q(uid()), """'{"%s": "v"}'""" % key, ''), '23514', 'ck_notification_params')
-    ev = uid()
+    ev, rcpt = uid(), uid()
+    ok(c, ins % (', source_event_id', q(uid()), q(rcpt), "'{}'", ', ' + q(ev)))
+    raises(c, ins % (', source_event_id', q(uid()), q(rcpt), "'{}'", ', ' + q(ev)), '23505', 'uq_notification_source_event_id_template_user_id')
+    # Р-153: то же событие и шаблон для другого получателя (письма всем администраторам) допустимы
     ok(c, ins % (', source_event_id', q(uid()), q(uid()), "'{}'", ', ' + q(ev)))
-    raises(c, ins % (', source_event_id', q(uid()), q(uid()), "'{}'", ', ' + q(ev)), '23505', 'uq_notification_source_event_id_template')
     n = uid()
     ok(c, ins % ('', q(n), q(uid()), "'{}'", ''))
     raises(c, "update notification.notification set in_dead_queue = true where id = %s" % q(n), '23514', 'ck_notification_dead_queue')

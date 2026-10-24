@@ -320,7 +320,7 @@ erDiagram
 | `template` | `text` | да |  | Код шаблона письма, например order.paid |
 | `channel` | `text` | да | `'email'::text` | email, sms или webhook (в R1 письма) |
 | `params` | `jsonb` | да | `'{}'::jsonb` | Параметры шаблона без персональных данных: идентификаторы, суммы, статусы |
-| `source_event_id` | `uuid` | нет |  | Событие, из которого создано уведомление: повторная обработка события не создаёт второе письмо по тому же шаблону |
+| `source_event_id` | `uuid` | нет |  | Событие, из которого создано уведомление: повторная обработка события не создаёт второе письмо по тому же шаблону тому же получателю |
 | `attempts` | `integer` | да | `0` | Число выполненных попыток отправки |
 | `next_attempt_at` | `timestamp with time zone` | нет |  | Срок следующей попытки, есть только у уведомления в очереди |
 | `last_error_code` | `text` | нет |  | Код последней ошибки без свободного текста |
@@ -352,7 +352,7 @@ erDiagram
 | `ix_notification_dead_queue` | `ix_notification_dead_queue ON notification.notification USING btree (updated_at) WHERE in_dead_queue` | Разбор недоставленных писем администратором и оповещение |
 | `ix_notification_dispatch` | `ix_notification_dispatch ON notification.notification USING btree (next_attempt_at, id) WHERE (status = 'queued'::text)` | Отправитель: WHERE status = 'queued' AND next_attempt_at <= now() ORDER BY next_attempt_at FOR UPDATE SKIP LOCKED |
 | `ix_notification_user_id` | `ix_notification_user_id ON notification.notification USING btree (user_id, created_at DESC)` | Уведомления пользователя для разбора обращений и обезличивания по идентификатору |
-| `uq_notification_source_event_id_template` | `UNIQUE uq_notification_source_event_id_template ON notification.notification USING btree (source_event_id, template) WHERE (source_event_id IS NOT NULL)` | Одно событие даёт одно письмо по шаблону, повторная обработка события безопасна (ADR-006) |
+| `uq_notification_source_event_id_template_user_id` | `UNIQUE uq_notification_source_event_id_template_user_id ON notification.notification USING btree (source_event_id, template, user_id) WHERE (source_event_id IS NOT NULL)` | Одно событие даёт одно письмо по шаблону каждому получателю, повторная обработка события безопасна (ADR-006). Получателей несколько у писем администраторам (Р-153) |
 
 **Триггеры**
 

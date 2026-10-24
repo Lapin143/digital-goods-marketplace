@@ -17,7 +17,7 @@ import org.springframework.stereotype.Component;
 /**
  * Очередь уведомлений в PostgreSQL под ролью {@code app_notification}. Выбор очередного письма идёт по индексу
  * {@code ix_notification_dispatch} с {@code FOR UPDATE SKIP LOCKED}, дедупликация по уникальному индексу
- * {@code uq_notification_source_event_id_template}.
+ * {@code uq_notification_source_event_id_template_user_id}: одно событие даёт одно письмо по шаблону каждому получателю (Р-153).
  */
 @Component
 public final class JdbcNotificationRepository implements NotificationRepository {
@@ -35,7 +35,7 @@ public final class JdbcNotificationRepository implements NotificationRepository 
     public boolean insert(NewNotification notification) {
         int rows = jdbc.update("insert into notification.notification (id, user_id, template, channel, params, source_event_id, "
                 + "next_attempt_at, created_at, updated_at) values (?, ?, ?, 'email', ?::jsonb, ?, ?, ?, ?) "
-                + "on conflict (source_event_id, template) where source_event_id is not null do nothing",
+                + "on conflict (source_event_id, template, user_id) where source_event_id is not null do nothing",
                 notification.id(), notification.userId(), notification.template(), Json.write(notification.params()), notification.sourceEventId(),
                 utc(notification.createdAt()), utc(notification.createdAt()), utc(notification.createdAt()));
         return rows == 1;

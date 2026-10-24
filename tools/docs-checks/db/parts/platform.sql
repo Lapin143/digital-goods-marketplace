@@ -321,7 +321,7 @@ comment on column notification.notification.user_id is 'UserID получате�
 comment on column notification.notification.template is 'Код шаблона письма, например order.paid';
 comment on column notification.notification.channel is 'email, sms или webhook (в R1 письма)';
 comment on column notification.notification.params is 'Параметры шаблона без персональных данных: идентификаторы, суммы, статусы';
-comment on column notification.notification.source_event_id is 'Событие, из которого создано уведомление: повторная обработка события не создаёт второе письмо по тому же шаблону';
+comment on column notification.notification.source_event_id is 'Событие, из которого создано уведомление: повторная обработка события не создаёт второе письмо по тому же шаблону тому же получателю';
 comment on column notification.notification.attempts is 'Число выполненных попыток отправки';
 comment on column notification.notification.next_attempt_at is 'Срок следующей попытки, есть только у уведомления в очереди';
 comment on column notification.notification.last_error_code is 'Код последней ошибки без свободного текста';
@@ -330,8 +330,8 @@ comment on column notification.notification.sent_at is 'Когда провай�
 comment on column notification.notification.status is 'queued, sent, delivered, failed (статусной модели SM нет, значения служебные)';
 comment on column notification.notification.created_at is 'Когда поставлено в очередь';
 comment on column notification.notification.updated_at is 'Последнее изменение';
-create unique index uq_notification_source_event_id_template on notification.notification (source_event_id, template) where source_event_id is not null;
-comment on index notification.uq_notification_source_event_id_template is 'Одно событие даёт одно письмо по шаблону, повторная обработка события безопасна (ADR-006)';
+create unique index uq_notification_source_event_id_template_user_id on notification.notification (source_event_id, template, user_id) where source_event_id is not null;
+comment on index notification.uq_notification_source_event_id_template_user_id is 'Одно событие даёт одно письмо по шаблону каждому получателю, повторная обработка события безопасна (ADR-006). Получателей несколько у писем администраторам (Р-153)';
 create index ix_notification_dispatch on notification.notification (next_attempt_at, id) where status = 'queued';
 comment on index notification.ix_notification_dispatch is 'Отправитель: WHERE status = ''queued'' AND next_attempt_at <= now() ORDER BY next_attempt_at FOR UPDATE SKIP LOCKED';
 create index ix_notification_dead_queue on notification.notification (updated_at) where in_dead_queue;

@@ -476,7 +476,7 @@ def build_queries():
     Q(f, 'F-16', 'Уведомления пользователя',
       "select * from notification.notification where user_id = %s order by created_at desc limit 20" % U('u', 700), ['ix_notification_user_id'], True)
     Q(f, 'F-17', 'ADR-006 одно событие, одно письмо',
-      "select 1 from notification.notification where source_event_id = %s and template = 'order_issued'" % U('ne', 700), ['uq_notification_source_event_id_template'])
+      "select 1 from notification.notification where source_event_id = %s and template = 'order_issued'" % U('ne', 700), ['uq_notification_source_event_id_template_user_id'])
     Q(f, 'F-18', 'US-8.7 журнал аудита без фильтров',
       "select * from audit_admin.audit_log order by occurred_at desc, id desc limit 50", ['ix_audit_log_occurred_at'], True)
     Q(f, 'F-19', 'US-8.7 журнал аудита за период',

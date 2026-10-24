@@ -128,7 +128,7 @@
 | F-14 | `platform_db` | Отправитель уведомлений | Sort 8 строк; Bitmap Index Scan по ix_notification_dispatch | верно |
 | F-15 | `platform_db` | Недоставленные письма | Index Scan по ix_notification_dead_queue | верно |
 | F-16 | `platform_db` | Уведомления пользователя | Index Scan по ix_notification_user_id | верно |
-| F-17 | `platform_db` | ADR-006 одно событие, одно письмо | Index Only Scan по uq_notification_source_event_id_template | верно |
+| F-17 | `platform_db` | ADR-006 одно событие, одно письмо | Index Only Scan по uq_notification_source_event_id_template_user_id | верно |
 | F-18 | `platform_db` | US-8.7 журнал аудита без фильтров | Index Scan по audit_log_2026_10_occurred_at_id_idx; Index Scan по audit_log_2026_11_occurred_at_id_idx; Index Scan по audit_log_2026_12_occurred_at_id_idx; Index Scan по audit_log_2027_01_occurred_at_id_idx; Index Scan по audit_log_2027_02_occurred_at_id_idx; Index Scan по audit_log_2027_03_occurred_at_id_idx; Index Scan по audit_log_default_occurred_at_id_idx | верно |
 | F-19 | `platform_db` | US-8.7 журнал аудита за период | Index Scan по audit_log_2026_11_occurred_at_id_idx | верно |
 | F-20 | `platform_db` | US-8.7 журнал аудита по сотруднику | Index Scan по audit_log_2026_10_actor_id_occurred_at_id_idx; Index Scan по audit_log_2026_11_actor_id_occurred_at_id_idx; Index Scan по audit_log_2026_12_actor_id_occurred_at_id_idx; Index Scan по audit_log_2027_01_actor_id_occurred_at_id_idx; Index Scan по audit_log_2027_02_actor_id_occurred_at_id_idx; Index Scan по audit_log_2027_03_actor_id_occurred_at_id_idx; Index Scan по audit_log_default_actor_id_occurred_at_id_idx | верно |
