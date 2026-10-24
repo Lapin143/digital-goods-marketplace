@@ -83,8 +83,8 @@ def repeated_notification(fx):
     stubs.resend_webhook(spid, 'payment.paid')
     stubs.idle()
     after = O.get_order(buyer, oid)
-    expect('TC-006. Повтор уведомления уже после оплаты ничего не меняет: статус paid, время оплаты прежнее, второго order.paid нет',
-           after.status == 200 and after.json().get('status') == 'paid' and after.json().get('paidAt') == paid_at and O.outbox_count(oid, 'order.paid') == 1, O.describe(after))
+    expect('TC-006. Повтор уведомления уже после оплаты ничего не меняет: статус paid или issued, время оплаты прежнее, второго order.paid нет',
+           after.status == 200 and O.reached_status('paid', after.json().get('status')) and after.json().get('paidAt') == paid_at and O.outbox_count(oid, 'order.paid') == 1, O.describe(after))
     page, again = O.pay_on_page(body['paymentSession']['url'])
     expect('TC-006. Повторное нажатие «Оплатить» на странице уже оплаченного платежа безвредно: возврат на платформу 303, заказ тот же',
            again.status == 303 and O.get_order(buyer, oid).json().get('paidAt') == paid_at and O.outbox_count(oid, 'order.paid') == 1, '%s' % again.status)

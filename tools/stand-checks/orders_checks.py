@@ -170,17 +170,31 @@ def get_order(buyer, order_id):
 
 
 def list_orders(buyer, status):
-    response = G.call('GET', '%s?status=%s&limit=100' % (ORDERS, status), headers=G.bearer(buyer.token()))
-    return response.json().get('items') or [] if response.status == 200 else []
+    """Заказы покупателя в статусе; для paid и выданные (issued): выдача идёт сама, см. PAID_OR_LATER."""
+    items = []
+    for one in (PAID_OR_LATER if status == 'paid' else (status,)):
+        response = G.call('GET', '%s?status=%s&limit=100' % (ORDERS, one), headers=G.bearer(buyer.token()))
+        items += response.json().get('items') or [] if response.status == 200 else []
+    return items
+
+
+# С шага 13 выдача работает: оплаченный заказ за секунды становится выданным (paid, затем issued после delivery.accepted).
+# Поэтому «заказ оплачен» это paid или уже issued; строго paid ждёт только проверка, которой выдача мешать не может.
+PAID_OR_LATER = ('paid', 'issued')
+
+
+def reached_status(want, actual):
+    """Статус достигнут: для paid засчитывается и issued (выдача идёт сама), остальные сравниваются точно."""
+    return actual in PAID_OR_LATER if want == 'paid' else actual == want
 
 
 def wait_order(buyer, order_id, status, wait=60.0):
-    """(достигнут ли статус, последнее тело заказа)."""
+    """(достигнут ли статус, последнее тело заказа). Для paid засчитывается и issued, см. PAID_OR_LATER."""
     box = {}
 
     def reached():
         box['response'] = get_order(buyer, order_id)
-        return box['response'].status == 200 and box['response'].json().get('status') == status
+        return box['response'].status == 200 and reached_status(status, box['response'].json().get('status'))
 
     ok = bool(A.eventually(reached, wait=wait, step=1.0))
     response = box['response']
@@ -366,12 +380,12 @@ def purchase_to_payment(fx):
         expect('TC-001. Кнопка «Оплатить» (форма POST без префикса) возвращает покупателя на платформу: 303 с номером платежа', done.status == 303
                and 'paymentId=' in (done.header('Location') or ''), '%s %s' % (done.status, done.header('Location')))
         paid_ok, paid = wait_order(buyer, oid, 'paid', wait=30)
-        expect('TC-001. Заказ стал paid, время оплаты записано, выдачи ещё нет', paid_ok and paid.get('paidAt') and not paid.get('issuedAt'), str(paid)[:300])
+        expect('TC-001. Заказ стал paid (или уже issued: выдача идёт сама), время оплаты записано', paid_ok and paid.get('paidAt'), str(paid)[:300])
         expect('TC-001. Платёж confirmed, резерв использован, ключи остаются за заказом', payment_of(oid) and payment_of(oid)[0] == 'confirmed'
                and reservations_of(oid) == [('used', '', 2)], '%s %s' % (payment_of(oid), reservations_of(oid)))
         closed = G.call('GET', '%s/%s/payment-session' % (ORDERS, oid), headers=G.bearer(buyer.token()))
         expect('TC-001. У оплаченного заказа платёжной сессии больше нет: 409', closed.status == 409, describe(closed))
-        expect('TC-001. Заказ в истории покупателя со статусом paid', any(i.get('orderId') == oid for i in list_orders(buyer, 'paid')))
+        expect('TC-001. Заказ в истории покупателя оплаченным (paid или issued)', any(i.get('orderId') == oid for i in list_orders(buyer, 'paid')))
     modes_are_default(stubs, 'TC-001')
     fx['correlations'].append(correlation)
     fx['emails'] += [buyer.email, other.email]
