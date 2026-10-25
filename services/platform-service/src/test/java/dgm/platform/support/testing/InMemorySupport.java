@@ -2,9 +2,12 @@ package dgm.platform.support.testing;
 
 import dgm.platform.support.domain.OrderView;
 import dgm.platform.support.domain.ResolvedTicket;
+import dgm.platform.support.domain.SupportTicket;
+import dgm.platform.support.domain.TicketFilter;
 import dgm.platform.support.repository.SupportRepository;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +29,7 @@ public final class InMemorySupport implements SupportRepository {
         public final String reason;
         public String status = "created";
         public String resolvedBy;
+        public String action;
         public Instant createdAt;
         public Instant resolvedAt;
 
@@ -109,6 +113,61 @@ public final class InMemorySupport implements SupportRepository {
             }
         }
         return resolved;
+    }
+
+    @Override
+    public boolean insertBuyerTicket(UUID ticketId, UUID orderId, UUID buyerId, Instant at) {
+        if (tickets.stream().anyMatch(t -> t.orderId.equals(orderId) && t.open())) {
+            return false;
+        }
+        tickets.add(new Ticket(ticketId, orderId, buyerId, "buyer", "key_not_received", at));
+        return true;
+    }
+
+    @Override
+    public Optional<SupportTicket> findTicket(UUID ticketId) {
+        return tickets.stream().filter(t -> t.id.equals(ticketId)).findFirst().map(InMemorySupport::domain);
+    }
+
+    @Override
+    public List<SupportTicket> findTickets(TicketFilter filter) {
+        return tickets.stream()
+                .filter(t -> t.buyerId.equals(filter.buyerId()))
+                .filter(t -> filter.orderId().map(t.orderId::equals).orElse(true))
+                .filter(t -> filter.statuses().isEmpty() || filter.statuses().contains(t.status))
+                .filter(t -> filter.after().map(a -> t.createdAt.isBefore(a.createdAt())
+                        || (t.createdAt.equals(a.createdAt()) && t.id.compareTo(a.id()) < 0)).orElse(true))
+                .sorted(Comparator.comparing((Ticket t) -> t.createdAt).thenComparing(t -> t.id).reversed())
+                .limit(filter.limit() + 1L)
+                .map(InMemorySupport::domain)
+                .toList();
+    }
+
+    private static SupportTicket domain(Ticket t) {
+        return new SupportTicket(t.id, t.orderId, t.buyerId, t.source, t.reason, t.status, t.createdAt, Optional.ofNullable(t.resolvedAt),
+                Optional.ofNullable(t.resolvedBy), Optional.ofNullable(t.action));
+    }
+
+    /** Снимок обращений для отката транзакции в {@link FakeSupportTransaction}. */
+    List<Ticket> snapshot() {
+        return List.copyOf(tickets);
+    }
+
+    void restore(List<Ticket> snapshot) {
+        tickets.clear();
+        tickets.addAll(snapshot);
+    }
+
+    /** Закрывает обращение как решённое оператором: так в тестах появляется «решено», после которого новое обращение возможно. */
+    public void resolveByOperator(UUID ticketId, String action, Instant at) {
+        for (Ticket ticket : tickets) {
+            if (ticket.id.equals(ticketId)) {
+                ticket.status = "resolved";
+                ticket.resolvedBy = "operator";
+                ticket.action = action;
+                ticket.resolvedAt = at;
+            }
+        }
     }
 
     public List<Ticket> tickets() {

@@ -2385,6 +2385,133 @@ class PlatformServiceIT {
         assertTrue(races.stream().allMatch(done -> done == 0 || done == 15), "проход либо сделан целиком, либо уступил блокировку: " + races);
     }
 
+    // ---- обращения покупателя (шаг 9 среза 3) ----
+
+    private static final String TICKETS = "/api/v1/support-tickets";
+
+    private static String buyerToken(String subject, String... amr) {
+        return token(subject, "buyer", "support.write", amr.length == 0 ? new String[] {"pwd"} : amr);
+    }
+
+    private static Response createTicket(String subject, UUID orderId, String key, String... amr) throws IOException {
+        return gateway.post(TICKETS, "{\"orderId\":\"" + orderId + "\",\"reason\":\"key_not_received\"}",
+                "Authorization", "Bearer " + buyerToken(subject, amr), "Idempotency-Key", key);
+    }
+
+    /** Выданный заказ покупателя в модели чтения поддержки: события {@code order.paid} и {@code order.issued} применяет служба напрямую. */
+    private UUID issuedOrder(String buyerId, Instant issuedAt) {
+        UUID orderId = UUID.randomUUID();
+        long number = freshOrderNumber();
+        support.onOrderPaid(orderId, number, UUID.fromString(buyerId));
+        support.onOrderIssued(orderId, number, UUID.fromString(buyerId), issuedAt);
+        return orderId;
+    }
+
+    @Tag("TC-701")
+    @Test
+    @Order(50)
+    void tenParallelRequestsLeaveOneTicketAndOneEventAndTheKeyReplaysTheAnswer() throws Exception {
+        KeycloakStub.User buyer = KEYCLOAK.add("buyer", "Иван", "Петров");
+        UUID orderId = issuedOrder(buyer.id, Instant.now().minus(Duration.ofHours(1)));
+
+        List<Response> answers = Concurrent.race(10, index -> createTicket(buyer.id, orderId, UUID.randomUUID().toString()));
+
+        assertEquals(1, answers.stream().filter(a -> a.status() == 201).count(), "одно обращение создано: " + answers.stream().map(Response::status).toList());
+        List<Response> refused = answers.stream().filter(a -> a.status() != 201).toList();
+        assertEquals(9, refused.size());
+        for (Response answer : refused) {
+            assertEquals(409, answer.status(), answer.body());
+            assertEquals("ticket-already-open", answer.json().get("code"));
+        }
+        assertEquals(1, supportDb().queryForObject("select count(*) from support.ticket where order_id = ?", Integer.class, orderId));
+        Response created = answers.stream().filter(a -> a.status() == 201).findFirst().orElseThrow();
+        String ticketId = String.valueOf(created.json().get("ticketId"));
+        assertEquals(TICKETS + "/" + ticketId, created.header("Location"));
+        assertEquals("buyer", created.json().get("source"));
+        assertEquals("key_not_received", created.json().get("reason"));
+        assertEquals("created", created.json().get("status"));
+        assertNull(created.json().get("emailChange"));
+        assertEquals(List.of("ticket.created"), ticketEvents(UUID.fromString(ticketId)), "событие одно, у отказов его нет");
+
+        // Тот же ключ идемпотентности: прежний ответ, второго обращения и события нет
+        String key = UUID.randomUUID().toString();
+        UUID second = issuedOrder(buyer.id, Instant.now().minus(Duration.ofMinutes(5)));
+        Response first = createTicket(buyer.id, second, key);
+        Response replay = createTicket(buyer.id, second, key);
+        assertEquals(201, first.status(), first.body());
+        assertEquals(201, replay.status(), replay.body());
+        assertEquals("true", replay.header("Idempotency-Replayed"));
+        assertEquals(first.json().get("ticketId"), replay.json().get("ticketId"));
+        assertEquals(1, supportDb().queryForObject("select count(*) from support.ticket where order_id = ?", Integer.class, second));
+
+        // Список и карточка: свои обращения видны, чужое обращение даёт 404 как несуществующее
+        Response list = gateway.get(TICKETS + "?orderId=" + orderId, StandHttp.bearer(buyerToken(buyer.id)));
+        assertEquals(200, list.status(), list.body());
+        assertEquals(1, ((List<?>) list.json().get("items")).size());
+        KeycloakStub.User stranger = KEYCLOAK.add("buyer", "Пётр", "Сидоров");
+        Response foreign = gateway.get(TICKETS + "/" + ticketId, StandHttp.bearer(buyerToken(stranger.id)));
+        Response missing = gateway.get(TICKETS + "/" + UUID.randomUUID(), StandHttp.bearer(buyerToken(stranger.id)));
+        assertEquals(404, foreign.status());
+        assertEquals(missing.status(), foreign.status());
+        assertEquals(missing.json().get("detail"), foreign.json().get("detail"));
+        assertEquals(200, gateway.get(TICKETS + "/" + ticketId, StandHttp.bearer(buyerToken(buyer.id))).status());
+    }
+
+    @Tag("TC-702")
+    @Test
+    @Order(51)
+    void theWindowCountsFromTheFirstIssueAndASmsSessionMayAskForHelp() throws Exception {
+        KeycloakStub.User buyer = KEYCLOAK.add("buyer", "Анна", "Иванова");
+        UUID late = issuedOrder(buyer.id, Instant.now().minus(Duration.ofHours(72)).minusSeconds(5));
+        UUID fresh = issuedOrder(buyer.id, Instant.now().minus(Duration.ofHours(71)));
+        // Повторное событие выдачи время первичной выдачи не сдвигает (INV-17): окно не продлевается
+        long lateNumber = supportDb().queryForObject("select order_number from support.order_view where order_id = ?", Long.class, late);
+        support.onOrderIssued(late, lateNumber, UUID.fromString(buyer.id), Instant.now());
+
+        Response closed = createTicket(buyer.id, late, UUID.randomUUID().toString());
+        assertEquals(409, closed.status(), closed.body());
+        assertEquals("ticket-window-closed", closed.json().get("code"));
+        assertEquals(0, supportDb().queryForObject("select count(*) from support.ticket where order_id = ?", Integer.class, late));
+
+        Response bySms = createTicket(buyer.id, fresh, UUID.randomUUID().toString(), "sms");
+        assertEquals(201, bySms.status(), bySms.body());
+    }
+
+    @Tag("TC-703")
+    @Test
+    @Order(52)
+    void aForeignAndAnUnissuedOrderAreRefusedAndTheSixthTicketInAnHourGetsRetryAfter() throws Exception {
+        KeycloakStub.User buyer = KEYCLOAK.add("buyer", "Олег", "Орлов");
+        KeycloakStub.User owner = KEYCLOAK.add("buyer", "Нина", "Нилова");
+        UUID foreignOrder = issuedOrder(owner.id, Instant.now().minus(Duration.ofHours(1)));
+        UUID missingOrder = UUID.randomUUID();
+        UUID paidOnly = UUID.randomUUID();
+        support.onOrderPaid(paidOnly, freshOrderNumber(), UUID.fromString(buyer.id));
+
+        Response foreign = createTicket(buyer.id, foreignOrder, UUID.randomUUID().toString());
+        Response missing = createTicket(buyer.id, missingOrder, UUID.randomUUID().toString());
+        assertEquals(404, foreign.status(), foreign.body());
+        assertEquals(404, missing.status());
+        assertEquals(missing.json().get("detail"), foreign.json().get("detail"), "чужой и несуществующий заказ неразличимы");
+        Response unissued = createTicket(buyer.id, paidOnly, UUID.randomUUID().toString());
+        assertEquals(409, unissued.status(), unissued.body());
+        assertEquals("state-conflict", unissued.json().get("code"));
+
+        int limit = ((Number) parameter(newAdmin().id, "support.requests-per-hour").get("value")).intValue();
+        for (int i = 0; i < limit; i++) {
+            UUID order = issuedOrder(buyer.id, Instant.now().minus(Duration.ofMinutes(10 + i)));
+            assertEquals(201, createTicket(buyer.id, order, UUID.randomUUID().toString()).status(), "обращение " + (i + 1) + " из " + limit);
+        }
+        UUID over = issuedOrder(buyer.id, Instant.now().minus(Duration.ofMinutes(3)));
+        Response limited = createTicket(buyer.id, over, UUID.randomUUID().toString());
+        assertEquals(429, limited.status(), limited.body());
+        assertEquals("rate-limited", limited.json().get("code"));
+        assertTrue(Integer.parseInt(limited.header("Retry-After")) > 0);
+        assertEquals(0, supportDb().queryForObject("select count(*) from support.ticket where order_id = ?", Integer.class, over),
+                "при отказе по лимиту обращение откатывается вместе с транзакцией");
+        assertEquals(0, count("select count(*) from public.outbox where event_type = 'ticket.created' and payload ->> 'orderId' = ?", over.toString()));
+    }
+
     @Tag("TC-114")
     @Test
     @Order(99)
