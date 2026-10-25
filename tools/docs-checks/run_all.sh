@@ -48,7 +48,8 @@ run python3 "$REPO/infra/kafka/gen_kafka.py" --check
 run python3 "$HERE/db/gen_migrations.py" --check
 run python3 "$HERE/check_db_roles.py"
 run python3 "$HERE/check_kit.py"
-run python3 "$HERE/check_ledger.py"
+# Срез 2 закрыт (шаг 22 Ф4): в реестрах операций не должно остаться ни slice1, ни slice2; новая операция среза без обработчика краснит проверку
+run python3 "$HERE/check_ledger.py" --strict
 run python3 "$HERE/check_code_docs.py"
 run python3 "$HERE/gen_routes.py" --check
 run python3 "$REPO/tools/api-tests/build.py" --check
