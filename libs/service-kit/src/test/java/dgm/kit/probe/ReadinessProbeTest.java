@@ -2,8 +2,8 @@ package dgm.kit.probe;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import java.io.IOException;
 import java.net.URI;
@@ -99,10 +99,19 @@ class ReadinessProbeTest {
 
     @Test
     void closedProbeRefusesConnections() throws Exception {
-        ReadinessProbe probe = started(() -> true);
-        int port = probe.port();
-        probe.close();
-        HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/ready")).timeout(Duration.ofSeconds(2)).build();
-        assertThrows(IOException.class, () -> CLIENT.send(request, HttpResponse.BodyHandlers.ofString()));
+        // Освобождённый порт может сразу достаться другому слушателю в этой же JVM (был сбой на CI); отказ хотя бы в одной из попыток
+        // доказывает, что закрытая проверка порт отпустила, а сломанное закрытие не отказало бы ни разу
+        for (int attempt = 1; attempt <= 5; attempt++) {
+            ReadinessProbe probe = started(() -> true);
+            int port = probe.port();
+            probe.close();
+            HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/ready")).timeout(Duration.ofSeconds(2)).build();
+            try {
+                CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+            } catch (IOException refused) {
+                return;
+            }
+        }
+        fail("Закрытая проверка готовности продолжает отвечать на пяти разных портах");
     }
 }

@@ -50,7 +50,7 @@ class StorefrontProductServiceTest {
     void aMissReadsTheDatabaseAndFillsTheCacheWithTheConfiguredTtl() {
         assertEquals("{\"title\":\"Товар 1\"}", body(id(1)));
         assertTrue(memory.has(id(1)));
-        assertEquals(Duration.ofSeconds(30), memory.ttl(id(1)));
+        assertEquals(Duration.ofSeconds(60), memory.ttl(id(1)));
         assertEquals(1, products.cardReads());
     }
 
