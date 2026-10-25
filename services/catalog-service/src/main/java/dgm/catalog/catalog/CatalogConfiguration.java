@@ -4,6 +4,7 @@ import dgm.catalog.catalog.cache.ProductCache;
 import dgm.catalog.catalog.cache.RedisCacheBackend;
 import dgm.catalog.catalog.domain.CacheSettings;
 import dgm.catalog.catalog.domain.ProductSettings;
+import dgm.kit.config.ConfigRegistry;
 import dgm.kit.redis.KitRedis;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
@@ -19,18 +20,19 @@ import org.springframework.core.env.Environment;
 @Configuration(proxyBeanMethods = false)
 public class CatalogConfiguration {
 
+    /** Срок рассмотрения товара {@code moderation.review-deadline-seconds}: живой, его обновляет слушатель параметров платформы. */
     @Bean
-    ProductSettings productSettings(Environment environment) {
+    ProductSettings productSettings(Environment environment, ConfigRegistry registry) {
         Long seconds = environment.getProperty(ProductSettings.REVIEW_KEY, Long.class);
         ProductSettings defaults = ProductSettings.defaults();
-        return seconds == null ? defaults : new ProductSettings(Duration.ofSeconds(seconds));
+        return ProductSettings.live(registry, seconds == null ? defaults : new ProductSettings(Duration.ofSeconds(seconds)));
     }
 
-    /** Срок жизни карточки в кэше витрины: {@code catalog.cache.product-ttl-seconds}, по умолчанию 30 секунд. */
+    /** Срок жизни карточки в кэше витрины: {@code catalog.cache-ttl-seconds}, по умолчанию 60 секунд; живой, как и срок рассмотрения. */
     @Bean
-    CacheSettings cacheSettings(Environment environment) {
+    CacheSettings cacheSettings(Environment environment, ConfigRegistry registry) {
         Long seconds = environment.getProperty(CacheSettings.PRODUCT_TTL_KEY, Long.class);
-        return seconds == null ? CacheSettings.defaults() : new CacheSettings(Duration.ofSeconds(seconds));
+        return CacheSettings.live(registry, seconds == null ? CacheSettings.defaults() : new CacheSettings(Duration.ofSeconds(seconds)));
     }
 
     /** Кэш на Redis каркаса; без {@code dgm.redis.host} кэш выключен и карточка читается из базы. */

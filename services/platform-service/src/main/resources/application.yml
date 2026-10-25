@@ -10,6 +10,10 @@ spring:
         size: 2
 
 dgm:
+  config:
+    # Параметры платформы лежат в её собственной базе (модуль audit_admin), права на чтение platform.config у сервиса нет:
+    # слушатель параметров ему не нужен (Р-168, пункт 7.3 руководства среза 3)
+    enabled: false
   security:
     jwt:
       issuer: ${DGM_JWT_ISSUER:https://localhost:8443/auth/realms/dgm}

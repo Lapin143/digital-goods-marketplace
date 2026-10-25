@@ -40,6 +40,9 @@ abstract class InventoryStandIT {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         StandHttp.register(registry, PORT, MANAGEMENT);
+        // Слушатель параметров выключен: в общей теме стенда лежат значения платформы и соседних проверок, они подменили бы значения теста.
+        // Слушатель проверяет ConfigListenerIT в service-kit
+        registry.add("dgm.config.enabled", () -> "false");
         // Redis набора infra с хоста: отладочный порт, пользователь ACL inventory (очередь сроков резерва)
         registry.add("dgm.redis.host", () -> env("DGM_REDIS_HOST", "localhost"));
         registry.add("dgm.redis.port", () -> env("DGM_REDIS_PORT", "16379"));

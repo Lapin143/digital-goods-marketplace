@@ -13,13 +13,18 @@ import dgm.inventory.inventory.reservation.domain.ReservationSettings;
 import dgm.inventory.inventory.reservation.service.ReservationService;
 import dgm.inventory.inventory.reservation.service.ReservationService.Detected;
 import dgm.inventory.inventory.reservation.service.ReservationService.Expiry;
+import dgm.kit.config.ConfigRegistry;
+import dgm.kit.config.ConfigRegistry.Outcome;
 import dgm.kit.problem.ProblemException;
 import dgm.kit.problem.ProblemType;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -62,6 +67,34 @@ class ReservationServiceTest {
         fast.keys.load(PRODUCT, 1);
         Reservation reservation = fast.service.reserve(ORDER, PRODUCT, 1);
         assertEquals(FakeStock.START.plusSeconds(30), reservation.expiresAt());
+    }
+
+    @Tag("TC-808")
+    @Test
+    void aChangedTtlAppliesToNewReservationsOnlyAndEarlierOnesKeepTheirExpiry() {
+        ConfigRegistry registry = new ConfigRegistry(List.of(), new SimpleMeterRegistry());
+        FakeStock live = new FakeStock(ReservationSettings.live(registry, new ReservationSettings(TTL, Duration.ofSeconds(30))));
+        live.keys.load(PRODUCT, 2);
+        Reservation first = live.service.reserve(ORDER, PRODUCT, 1);
+
+        assertEquals(Outcome.APPLIED, registry.apply("reservation.ttl-seconds", 1800, 2));
+        Reservation second = live.service.reserve(UUID.fromString("0199e0a0-0000-7000-8000-000000000302"), PRODUCT, 1);
+
+        assertEquals(FakeStock.START.plus(TTL), first.expiresAt(), "резерв, созданный раньше, срок не меняет");
+        assertEquals(FakeStock.START.plusSeconds(1800), second.expiresAt(), "новый резерв берёт значение параметра");
+        assertEquals(FakeStock.START.plus(TTL), live.queue.scheduled.get(first.id()), "таймер первого резерва остался прежним");
+    }
+
+    @Tag("TC-808")
+    @Test
+    void aPinnedTtlKeepsTheValueOfTheFastTimeProfile() {
+        ConfigRegistry registry = new ConfigRegistry(List.of("reservation.ttl-seconds"), new SimpleMeterRegistry());
+        FakeStock fast = new FakeStock(ReservationSettings.live(registry, new ReservationSettings(Duration.ofSeconds(30), Duration.ofSeconds(5))));
+        fast.keys.load(PRODUCT, 1);
+
+        assertEquals(Outcome.PINNED, registry.apply("reservation.ttl-seconds", 900, 1));
+
+        assertEquals(FakeStock.START.plusSeconds(30), fast.service.reserve(ORDER, PRODUCT, 1).expiresAt());
     }
 
     @Test

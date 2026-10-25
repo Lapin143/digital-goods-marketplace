@@ -43,6 +43,9 @@ abstract class CatalogStandIT {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         StandHttp.register(registry, PORT, MANAGEMENT);
+        // Слушатель параметров выключен: в общей теме стенда лежат значения платформы и соседних проверок, они подменили бы значения теста.
+        // Слушатель проверяет ConfigListenerIT в service-kit
+        registry.add("dgm.config.enabled", () -> "false");
         // Хранилище с хоста: отладочный порт набора storage. Ссылки подписываются для имени шлюза, как у пользователя
         registry.add("dgm.storage.endpoint", Stand::storageEndpoint);
         registry.add("dgm.storage.public-base-url", () -> "https://localhost:8443/files");

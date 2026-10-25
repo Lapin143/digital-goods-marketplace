@@ -109,6 +109,9 @@ abstract class DeliveryStandIT {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         StandHttp.register(registry, PORT, MANAGEMENT);
+        // Слушатель параметров выключен: в общей теме стенда лежат значения платформы и соседних проверок, они подменили бы значения теста.
+        // Слушатель проверяет ConfigListenerIT в service-kit
+        registry.add("dgm.config.enabled", () -> "false");
         registry.add("dgm.peers.inventory-service.base-url", INVENTORY::baseUrl);
         // Предохранитель клиента проверяют модульные тесты и сквозные проверки К7; здесь окно такое, что отказы разных тестов его не откроют
         registry.add("dgm.peers.inventory-service.breaker-window", () -> "1000");

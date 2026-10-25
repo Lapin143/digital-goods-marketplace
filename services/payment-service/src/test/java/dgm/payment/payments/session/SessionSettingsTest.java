@@ -4,7 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dgm.kit.config.ConfigRegistry;
+import dgm.kit.config.ConfigRegistry.Outcome;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -64,5 +68,60 @@ class SessionSettingsTest {
     void theReturnAddressPointsToTheOrderPageOfThePlatform() {
         UUID order = UUID.fromString("0199e0a0-0000-7000-8000-000000000301");
         assertEquals(ORIGIN + "/orders/" + order, of(900, 720, 60).returnUrl(order));
+    }
+
+    // ------------------------------------------------------------------------------------------------ TC-808
+
+    private static ConfigRegistry registry(String... pinned) {
+        return new ConfigRegistry(List.of(pinned), new SimpleMeterRegistry());
+    }
+
+    @Tag("TC-808")
+    @Test
+    void liveSettingsFollowTheRegistryAndKeepTheMarginOfTheSessionBeforeTheEndOfTheReserve() {
+        ConfigRegistry registry = registry();
+        SessionSettings live = SessionSettings.live(registry, of(900, 720, 60));
+        assertEquals(of(900, 720, 60), live, "пока сообщений нет, работают значения из application.yml");
+
+        assertEquals(Outcome.APPLIED, registry.apply("reservation.ttl-seconds", 1800, 2));
+        assertEquals(Outcome.APPLIED, registry.apply("payment-session.ttl-seconds", 1500, 2));
+        assertEquals(Duration.ofSeconds(1800), live.reservationTtl());
+        assertEquals(Duration.ofSeconds(1500), live.sessionTtl());
+
+        assertEquals(Outcome.INVARIANT, registry.apply("payment-session.ttl-seconds", 1741, 3), "запас до конца резерва меньше 60 секунд");
+        assertEquals(Outcome.INVARIANT, registry.apply("reservation.ttl-seconds", 1559, 3), "резерв съедает запас сессии");
+        assertEquals(Outcome.APPLIED, registry.apply("payment-session.ttl-seconds", 1740, 3), "ровно с запасом 60 секунд");
+        assertEquals(Duration.ofSeconds(1740), live.sessionTtl());
+        assertEquals(Duration.ofSeconds(60), live.margin(), "запас и адрес не параметры платформы");
+    }
+
+    @Tag("TC-808")
+    @Test
+    void aKeyAlreadyRegisteredWithAnotherInitialValueStopsTheStart() {
+        ConfigRegistry registry = registry();
+        registry.register("reservation.ttl-seconds", 1000, 1, 86_400);
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> SessionSettings.live(registry, of(900, 720, 60)));
+        assertTrue(e.getMessage().contains("reservation.ttl-seconds"), e.getMessage());
+    }
+
+    @Tag("TC-808")
+    @Test
+    void theSameKeysMayBeObtainedByAnotherModuleOfTheServiceWithTheSameInitialValues() {
+        ConfigRegistry registry = registry();
+        SessionSettings first = SessionSettings.live(registry, of(900, 720, 60));
+        registry.obtain("reservation.ttl-seconds", 900, 1, 86_400);
+        registry.apply("reservation.ttl-seconds", 1000, 2);
+        assertEquals(Duration.ofSeconds(1000), first.reservationTtl());
+    }
+
+    @Tag("TC-808")
+    @Test
+    void pinnedKeysKeepTheFastTimeValues() {
+        ConfigRegistry registry = registry("reservation.ttl-seconds", "payment-session.ttl-seconds");
+        SessionSettings live = SessionSettings.live(registry, of(30, 24, 5));
+        assertEquals(Outcome.PINNED, registry.apply("reservation.ttl-seconds", 900, 1));
+        assertEquals(Outcome.PINNED, registry.apply("payment-session.ttl-seconds", 720, 1));
+        assertEquals(Duration.ofSeconds(30), live.reservationTtl());
+        assertEquals(Duration.ofSeconds(24), live.sessionTtl());
     }
 }

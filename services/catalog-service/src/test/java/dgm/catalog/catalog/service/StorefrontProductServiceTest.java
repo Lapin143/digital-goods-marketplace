@@ -102,6 +102,6 @@ class StorefrontProductServiceTest {
     void theTtlComesFromTheSettingsAndIsBounded() {
         assertThrows(IllegalArgumentException.class, () -> new CacheSettings(Duration.ZERO));
         assertThrows(IllegalArgumentException.class, () -> new CacheSettings(Duration.ofSeconds(3601)));
-        assertEquals(Duration.ofSeconds(30), CacheSettings.defaults().productTtl());
+        assertEquals(Duration.ofSeconds(60), CacheSettings.defaults().productTtl(), "значение платформы и бюджетов времени");
     }
 }

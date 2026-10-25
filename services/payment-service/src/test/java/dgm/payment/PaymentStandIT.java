@@ -63,6 +63,9 @@ abstract class PaymentStandIT {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         StandHttp.register(registry, PORT, MANAGEMENT);
+        // Слушатель параметров выключен: в общей теме стенда лежат значения платформы и соседних проверок, они подменили бы значения теста.
+        // Слушатель проверяет ConfigListenerIT в service-kit
+        registry.add("dgm.config.enabled", () -> "false");
         // Заглушка шлюза набора stubs с хоста: отладочный порт приложения (платёжное API)
         registry.add("dgm.peers.payment-gateway.base-url", () -> env("DGM_STUBS_API", "https://localhost:18443"));
         // Предохранитель клиента шлюза проверяют модульные тесты и сквозные проверки К7; здесь окно такое, что отказы разных тестов его не откроют

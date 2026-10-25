@@ -2,6 +2,7 @@ package dgm.payment.payments;
 
 import dgm.kit.boot.PeerClients;
 import dgm.kit.boot.SecretsDirectory;
+import dgm.kit.config.ConfigRegistry;
 import dgm.payment.payments.gateway.PaymentGateway;
 import dgm.payment.payments.gateway.client.HttpPaymentGateway;
 import dgm.payment.payments.domain.RefundSchedule;
@@ -51,12 +52,12 @@ public class PaymentConfiguration {
     static final String GATEWAY_KEY_SECRET = "payment_gateway_key";
 
     @Bean
-    SessionSettings sessionSettings(Environment environment) {
-        return new SessionSettings(
+    SessionSettings sessionSettings(Environment environment, ConfigRegistry registry) {
+        return SessionSettings.live(registry, new SessionSettings(
                 Duration.ofSeconds(seconds(environment, SessionSettings.RESERVATION_TTL_KEY, 900)),
                 Duration.ofSeconds(seconds(environment, SessionSettings.SESSION_TTL_KEY, 720)),
                 Duration.ofSeconds(seconds(environment, SessionSettings.MARGIN_KEY, 60)),
-                environment.getProperty(SessionSettings.PUBLIC_ORIGIN_KEY, "https://localhost:8443"));
+                environment.getProperty(SessionSettings.PUBLIC_ORIGIN_KEY, "https://localhost:8443")));
     }
 
     @Bean
