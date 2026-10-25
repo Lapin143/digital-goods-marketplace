@@ -435,8 +435,9 @@ class SellerModerationServiceTest {
         documentOf(profile, 2);
         Moderator brokenAddress = new Moderator(MODERATOR_ID, "x".repeat(200));
 
-        assertThrows(IllegalArgumentException.class, () -> service.card(brokenAddress, profile.id()));
+        ProblemException e = assertThrows(ProblemException.class, () -> service.card(brokenAddress, profile.id()));
 
+        assertEquals(ProblemType.DEPENDENCY_UNAVAILABLE, e.type(), "запись не удалась: 503 и ни одной ссылки");
         assertTrue(transaction.published().isEmpty(), "записи об открытии фиксируются все вместе или ни одной");
         assertEquals(0, storage.presigned);
     }

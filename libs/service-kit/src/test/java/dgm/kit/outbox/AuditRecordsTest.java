@@ -142,7 +142,7 @@ class AuditRecordsTest {
         assertEquals(List.of(), view.get("changes"));
         assertEquals("audit.viewed", view.get("action"));
         assertEquals(false, view.get("actorIpHashed"));
-        Map<String, Object> opened = AuditRecords.staffRead(AT, ACTOR, "moderator", "203.0.113.7", "seller-document.opened", "seller", "id",
+        Map<String, Object> opened = AuditRecords.staffRead(AT, ACTOR, "moderator", "203.0.113.7", "seller.document_opened", "seller", "id",
                 List.of(AuditRecords.change("documentId", null, "0199e0a0-0000-7000-8000-000000000201")));
         assertEquals(1, ((List<?>) opened.get("changes")).size());
         assertEquals(List.of(), AuditRecords.staffRead(AT, ACTOR, "admin", "", "audit.viewed", "audit-log", "journal", null).get("changes"));

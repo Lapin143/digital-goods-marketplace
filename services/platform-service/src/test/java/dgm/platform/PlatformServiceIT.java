@@ -2128,7 +2128,8 @@ class PlatformServiceIT {
         assertEquals(403, wrongScope.status(), "область staff.admin журнал не открывает");
         Response smsSession = auditGet(admin.id, "admin", "", "sms");
         assertEquals(403, smsSession.status());
-        assertEquals("full-login-required", smsSession.json().get("code"));
+        // роль администратора требует второго фактора раньше, чем проверяется запрет сессии по SMS (AccessRules): сессия по SMS его не содержит
+        assertEquals("second-factor-required", smsSession.json().get("code"));
         assertEquals(401, gateway.get(AUDIT_RECORDS).status());
         assertEquals(0, viewRecords(admin.id));
         assertEquals(0, count("select count(*) from public.outbox where aggregate_id = ? and event_type = 'audit.recorded'", admin.id),

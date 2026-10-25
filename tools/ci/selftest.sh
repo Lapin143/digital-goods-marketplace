@@ -204,7 +204,7 @@ PY
       "нет права READ на тему inventory.events" tools/docs-checks/check_code_docs.py
     mutate_repo "check_code_docs находит событие среза 3, которого нет в каталоге" "tools/docs-checks/check_code_docs.py" "'user.registered', 'user.email-changed'" "'user.registered', 'user.email-changedx'" \
       "событие user.email-changedx среза 3 не найдено в каталоге" tools/docs-checks/check_code_docs.py
-    mutate_repo "check_code_docs находит событие среза 3, которое уже издаётся, но числится неизданным" "tools/docs-checks/check_code_docs.py" "    'config.changed': 6," "    'config.changed': 6, 'user.registered': 3," \
+    mutate_repo "check_code_docs находит событие среза 3, которое уже издаётся, но числится неизданным" "tools/docs-checks/check_code_docs.py" "    'user.email-changed': 15," "    'user.email-changed': 15, 'user.registered': 3," \
       "событие user.registered уже издаётся в коде" tools/docs-checks/check_code_docs.py
     mutate_repo "check_code_docs находит событие среза 2, которого нет в каталоге" "tools/docs-checks/check_code_docs.py" "'order.created', 'order.paid', 'order.cancelled'" "'order.created', 'order.paidx', 'order.cancelled'" \
       "событие order.paidx среза 2 не найдено в каталоге" tools/docs-checks/check_code_docs.py
