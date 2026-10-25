@@ -49,4 +49,19 @@ public final class KafkaClients {
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 10);
         return new KafkaConsumer<>(props, new StringDeserializer(), new StringDeserializer());
     }
+
+    /**
+     * Потребитель сжатой темы параметров ({@code platform.config}): без группы, смещения не подтверждаются, чтение с начала темы
+     * ({@code assign} и {@code seekToBeginning} делает {@code KafkaConfigFeed}). Ожидание метаданных короткое, чтобы недоступная
+     * Kafka не держала поток слушателя минутами.
+     */
+    public static KafkaConsumer<String, String> configConsumer(String bootstrap, Map<String, Object> security, String clientId) {
+        Map<String, Object> props = new LinkedHashMap<>(security);
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
+        props.put(ConsumerConfig.CLIENT_ID_CONFIG, clientId);
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        props.put(ConsumerConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, 15_000);
+        return new KafkaConsumer<>(props, new StringDeserializer(), new StringDeserializer());
+    }
 }
