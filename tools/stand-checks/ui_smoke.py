@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Дымовой сценарий интерфейса на стенде (контрольная точка К4, шаг 19 Ф4; US-2.2, US-3.3 – US-3.5, ST-13).
+"""Дымовой сценарий интерфейса на стенде (контрольные точки К4 и К8; US-2.2, US-3.3 – US-3.5, US-5.1 – US-5.4, US-5.9, ST-13).
 
     make ui-smoke
 
@@ -11,13 +11,17 @@
   модератор   вход через Keycloak с паролем и кодом TOTP (клиент dgm-staff), очередь заявок, карточка с документом, «Одобрить» с подтверждением; очередь
               товаров, «Опубликовать» одного товара и «Отклонить» с причиной другого. Каждое решение проверяется по API: статус заявки или товара,
               причина у продавца;
-  гость       без входа находит опубликованный товар по названию на витрине, открывает карточку, видит цену и «Нет в наличии», отклонённого товара не видит.
+  гость       без входа находит опубликованный товар по названию на витрине, открывает карточку, видит цену и «Нет в наличии», отклонённого товара не видит;
+  покупатель  (срез 2, К8) входит через Keycloak, выбирает количество, нажимает «Купить», на странице платёжной заглушки нажимает «Оплатить», возвращается на экран
+              заказа, дожидается «Выдан», проверяет, что на экране нет значений ключей, а они пришли письмом, и находит заказ в истории. Две ветки: отказ в оплате
+              (причина на экране, «Оформить заново», ключи вернулись в продажу) и истёкший резерв (возврат к оплате из заказа не создаёт второго платежа, потом резерв
+              заканчивается, заказ отменён с причиной). Заглушки в режиме hold (исход выбирает щелчок) и возвращаются в исходный режим.
 
-Данные готовятся так же, как в seller_approval_checks.py: два одноразовых покупателя подают заявки (одну одобряет модератор в браузере, другую через API,
-её продавец заводит два товара). Тексты кнопок и сообщений берутся из словаря интерфейса (ru.json), поэтому правка словаря не ломает сценарий. Если шаг упал, в журнал
+Данные модератора и гостя готовятся так же, как в seller_approval_checks.py: два одноразовых покупателя подают заявки (одну одобряет модератор в браузере, другую через API,
+её продавец заводит два товара). Для покупки берётся продавец и товар с запасом ключей из orders_checks.py (secrets/purchase_fixture.json), покупатели одноразовые с подтверждённым телефоном. Тексты кнопок и сообщений берутся из словаря интерфейса (ru.json), поэтому правка словаря не ломает сценарий. Если шаг упал, в журнал
 попадают адрес страницы, её текст, сообщения консоли браузера и ответы с кодом 400 и выше, а снимок экрана ложится в каталог UI_REPORT_DIR (по умолчанию build/ui-smoke).
 
-Переменные: UI_VIDEO=1 (запись экрана каждого сценария в UI_REPORT_DIR/video/moderator.webm и guest.webm; запись не должна ронять проверку, при сбое печатается замечание; в CI включена, видео лежит в артефакте запуска), UI_BASE (адрес шлюза, по умолчанию https://localhost:8443), UI_REPORT_DIR, UI_TIMEOUT_MS (ожидание элемента, по умолчанию 20000), UI_NO_SANDBOX=1
+Переменные: UI_PURCHASE_REPEAT (сколько раз подряд проходит покупка до выдачи, по умолчанию 1, в CI 3: серия К8), UI_VIDEO=1 (запись экрана каждого сценария в UI_REPORT_DIR/video/moderator.webm, guest.webm, buyer-1.webm … buyer-N.webm, refusal.webm и expired.webm; запись не должна ронять проверку, при сбое печатается замечание; в CI включена, видео лежит в артефакте запуска), UI_BASE (адрес шлюза, по умолчанию https://localhost:8443), UI_REPORT_DIR, UI_TIMEOUT_MS (ожидание элемента, по умолчанию 20000), UI_NO_SANDBOX=1
 (запуск Chromium без песочницы, если среда её не разрешает), остальные те же, что у make seller-approval-check. Пакет playwright ставится из tools/stand-checks/requirements-ui.txt,
 браузер командой python3 -m playwright install --with-deps chromium. Остальные проверки стенда обходятся стандартной библиотекой Python, этой нужен Playwright.
 """
@@ -32,6 +36,8 @@ sys.path.insert(0, HERE)
 import accounts_checks as A  # noqa: E402
 import gateway_checks as G  # noqa: E402
 import kc_client as K  # noqa: E402
+import orders_checks as O  # noqa: E402
+import purchase_checks as P  # noqa: E402
 import seller_approval_checks as SAC  # noqa: E402
 import sellers_checks as SC  # noqa: E402
 
@@ -44,6 +50,8 @@ BASE = os.environ.get('UI_BASE', 'https://localhost:8443').rstrip('/')
 REPORT = os.environ.get('UI_REPORT_DIR', os.path.join('build', 'ui-smoke'))
 TIMEOUT = int(os.environ.get('UI_TIMEOUT_MS', '20000'))
 VIDEO = os.environ.get('UI_VIDEO') == '1'
+PURCHASE_REPEAT = max(1, int(os.environ.get('UI_PURCHASE_REPEAT', '1')))
+UUID = r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 DICTIONARY = os.path.join(HERE, '..', '..', 'frontend', 'web-app', 'src', 'i18n', 'ru.json')
 with open(DICTIONARY, encoding='utf-8') as _file:
     RU = json.load(_file)
@@ -294,6 +302,213 @@ def guest_scenario(browser, data):
         close_context(context, page, 'guest')
 
 
+# --------------------------------------------------------------------------------------------------- покупатель (К8)
+def sign_in_buyer(page, admin, buyer, button):
+    """Вход покупателя с карточки товара: кнопка «Войти, чтобы купить», страница Keycloak, возврат на ту же карточку."""
+    page.get_by_role('button', name=button, exact=True).click()
+    page.wait_for_url(re.compile(r'/auth/realms/dgm/'), timeout=TIMEOUT * 2)
+    admin.clear_attacks(buyer.id)
+    page.locator('input[name=username]').fill(buyer.email)
+    page.locator('input[name=password]').fill(buyer.data['password'])
+    page.locator('#kc-login').click()
+    page.wait_for_url(re.compile(r'^' + re.escape(BASE) + r'/products/'), timeout=TIMEOUT * 2)
+
+
+def open_product(page, pid):
+    page.goto('%s/products/%s' % (BASE, pid), wait_until='domcontentloaded')
+
+
+def buy(page, quantity=None):
+    """Форма покупки: количество, «Купить» и переход на страницу платёжной заглушки. Возвращает адрес страницы оплаты."""
+    field = page.get_by_label(T('purchase.quantity'), exact=True)
+    visible(field)
+    if quantity is not None:
+        field.fill(str(quantity))
+    page.get_by_role('button', name=T('purchase.buy'), exact=True).click()
+    page.wait_for_url(re.compile(r'/payment/pay/'), timeout=TIMEOUT)
+    visible(page.get_by_role('heading', name='Платёжный шлюз (заглушка)', level=1, exact=True))
+    return page.url
+
+
+def order_id_on_stub_page(page):
+    found = re.search(r'заказ (%s)' % UUID, page.inner_text('body'))
+    if not found:
+        raise AssertionError('на странице оплаты нет номера заказа')
+    return found.group(1)
+
+
+def back_to_platform(page, button):
+    """Кнопка на странице заглушки, затем 303 на платформу: адрес /orders/<id> ведёт на экран заказа, вход обновляется по сессии Keycloak без пароля."""
+    page.get_by_role('button', name=button, exact=True).click()
+    page.wait_for_url(re.compile(r'^' + re.escape(BASE) + r'/account/orders/' + UUID + r'$'), timeout=TIMEOUT * 2)
+    visible(page.get_by_role('heading', name=re.compile(r'^' + re.escape(RU['order.title']).replace(re.escape('{number}'), r'\d+') + r'$'), level=1))
+
+
+def order_number(page):
+    return re.search(r'\d+', page.get_by_role('heading', level=1).first.inner_text()).group(0)
+
+
+def purchase_scenario(browser, fx, buyer, name, pid):
+    """Покупка до выдачи: количество 2, оплата на странице заглушки, «Выдан», письмо с ключами, запись в истории (US-5.1, US-5.3, US-5.9, US-6.1)."""
+    print('== Покупатель в браузере (%s): карточка, «Купить», оплата, экран заказа до «Выдан», история (К8; US-5.1, US-5.3, US-5.9)' % name)
+    stubs, admin = fx['stubs'], fx['admin']
+    quantity = 2
+    context = new_context(browser)
+    context.set_default_timeout(TIMEOUT)
+    page = context.new_page()
+    watch = Watch(page)
+    state = {}
+    try:
+        def sign_in():
+            open_product(page, pid)
+            visible(page.get_by_role('button', name=T('purchase.signIn'), exact=True))
+            sign_in_buyer(page, admin, buyer, T('purchase.signIn'))
+            visible(page.get_by_label(T('purchase.quantity'), exact=True))
+        if not step(page, watch, 'карточка товара: гость видит «%s», после входа появляется форма количества' % T('purchase.signIn'), sign_in):
+            return
+
+        def total():
+            page.get_by_label(T('purchase.quantity'), exact=True).fill(str(quantity))
+            visible(page.get_by_text(re.compile(r'Итого:\s*2\s998')).first)
+        if not step(page, watch, 'количество %d: итог 2 998 ₽ считается из цены карточки' % quantity, total):
+            return
+
+        def start():
+            state['pay_url'] = buy(page, quantity)
+            visible(page.get_by_text(re.compile(r'2998\.00 RUB')).first)
+            state['order_id'] = order_id_on_stub_page(page)
+        if not step(page, watch, '«%s»: переход на страницу платёжной заглушки, сумма 2998.00 RUB' % T('purchase.buy'), start):
+            return
+        oid = state['order_id']
+        O.expect('заказ из браузера создан в статусе awaiting_payment, резерв активен на две штуки', O.reservations_of(oid) == [('active', '', quantity)], str(O.reservations_of(oid)))
+
+        def pay():
+            back_to_platform(page, 'Оплатить')
+            state['number'] = order_number(page)
+            visible(page.get_by_text(T('order.status.issued'), exact=True), 60000)
+            visible(page.get_by_text(T('order.state.issued', address=buyer.email), exact=True))
+        if not step(page, watch, '«Оплатить» на заглушке, возврат на экран заказа, статус «%s» без перезагрузки страницы' % T('order.status.issued'), pay):
+            return
+
+        letter, keys = P.key_letter('UI', stubs, buyer.email, quantity)
+        text = page.inner_text('body')
+        O.expect('на экране заказа нет значений ключей: они пришли только письмом (INV-20, FT-5.4)', bool(keys) and not any(key in text for key in keys), str(keys)[:200])
+        order = O.get_order(buyer, oid)
+        O.expect('по API заказ issued, ключей в ответе нет', order.status == 200 and order.json().get('status') == 'issued' and 'keys' not in order.json(), O.describe(order))
+
+        def history():
+            page.get_by_role('link', name=T('nav.orders'), exact=True).click()
+            visible(page.get_by_role('heading', name=T('orders.title'), level=1, exact=True))
+            row = page.get_by_role('row').filter(has=page.get_by_role('link', name=state['number'], exact=True))
+            visible(row)
+            visible(row.get_by_text(T('order.status.issued'), exact=True))
+        step(page, watch, 'история заказов: заказ № %s со статусом «%s»' % (state.get('number', '?'), T('order.status.issued')), history)
+        fx['emails'].append(buyer.email)
+    finally:
+        close_context(context, page, name)
+
+
+def refusal_scenario(browser, fx, buyer, pid):
+    """Отказ в оплате: причина на экране, «Оформить заново», ключи вернулись в продажу (US-5.4, FT-6.3), то же, что проверяет orders-check, но глазами покупателя."""
+    print('== Покупатель в браузере: отказ в оплате, причина на экране, повторный заказ (К8; US-5.4)')
+    admin = fx['admin']
+    before = O.keys_of(pid)
+    context = new_context(browser)
+    context.set_default_timeout(TIMEOUT)
+    page = context.new_page()
+    watch = Watch(page)
+    try:
+        def start():
+            open_product(page, pid)
+            sign_in_buyer(page, admin, buyer, T('purchase.signIn'))
+            buy(page)
+        if not step(page, watch, 'вход и «%s» на одну штуку: страница платёжной заглушки' % T('purchase.buy'), start):
+            return
+
+        def declined():
+            back_to_platform(page, 'Отклонить')
+            visible(page.get_by_text(T('order.status.cancelled'), exact=True), 60000)
+            visible(page.get_by_text(T('order.state.cancelled', reason=T('order.cancel.payment_declined')), exact=True))
+            O.expect('у отменённого заказа нет кнопки «%s»' % T('order.pay'), page.get_by_role('button', name=T('order.pay'), exact=True).count() == 0)
+        if not step(page, watch, '«Отклонить» на заглушке: экран заказа показывает «%s» и причину отказа' % T('order.status.cancelled'), declined):
+            return
+        O.expect('ключи вернулись в продажу: свободных столько же, сколько до заказа', A.eventually(lambda: O.keys_of(pid) == before, wait=30), '%s %s' % (before, O.keys_of(pid)))
+
+        def again():
+            page.get_by_role('link', name=T('order.buyAgain'), exact=True).click()
+            page.wait_for_url(re.compile(r'/products/' + pid + r'$'))
+            visible(page.get_by_label(T('purchase.quantity'), exact=True))
+            visible(page.get_by_role('button', name=T('purchase.buy'), exact=True))
+        step(page, watch, '«%s» ведёт на карточку товара с формой покупки' % T('order.buyAgain'), again)
+    finally:
+        close_context(context, page, 'refusal')
+
+
+def expired_scenario(browser, fx, buyer, pid):
+    """Истёкший резерв: закрыл страницу оплаты, вернулся к оплате из заказа (второго платежа нет), не заплатил, резерв кончился (US-5.3, US-5.4)."""
+    print('== Покупатель в браузере: возврат к оплате из заказа и истёкший резерв (К8; US-5.3, US-5.4)')
+    stubs, admin = fx['stubs'], fx['admin']
+    before = O.keys_of(pid)
+    context = new_context(browser)
+    context.set_default_timeout(TIMEOUT)
+    page = context.new_page()
+    watch = Watch(page)
+    state = {}
+    try:
+        def start():
+            open_product(page, pid)
+            sign_in_buyer(page, admin, buyer, T('purchase.signIn'))
+            state['pay_url'] = buy(page)
+            state['order_id'] = order_id_on_stub_page(page)
+        if not step(page, watch, 'вход и «%s»: страница платёжной заглушки, платить не будем' % T('purchase.buy'), start):
+            return
+        oid = state['order_id']
+
+        def back_to_order():
+            page.goto('%s/account/orders/%s' % (BASE, oid), wait_until='domcontentloaded')
+            visible(page.get_by_text(T('order.status.awaiting_payment'), exact=True), TIMEOUT * 2)
+            visible(page.get_by_role('button', name=T('order.pay'), exact=True))
+        if not step(page, watch, 'экран заказа после закрытой страницы оплаты: «%s», остаток резерва и «%s»' % (T('order.status.awaiting_payment'), T('order.pay')), back_to_order):
+            return
+
+        def pay_again():
+            page.get_by_role('button', name=T('order.pay'), exact=True).click()
+            page.wait_for_url(re.compile(r'/payment/pay/'), timeout=TIMEOUT)
+        step(page, watch, '«%s» из заказа открывает ту же страницу оплаты' % T('order.pay'), pay_again)
+        O.expect('адрес страницы оплаты прежний, у шлюза один платёж по заказу: второй не создавался', page.url == state['pay_url'] and len(O.stub_payments(stubs, oid)) == 1,
+                 '%s %s' % (page.url, len(O.stub_payments(stubs, oid))))
+
+        def expired():
+            page.goto('%s/account/orders/%s' % (BASE, oid), wait_until='domcontentloaded')
+            visible(page.get_by_text(T('order.status.cancelled'), exact=True), 120000)
+            visible(page.get_by_text(T('order.state.cancelled', reason=T('order.cancel.reservation_expired')), exact=True))
+            visible(page.get_by_role('link', name=T('order.buyAgain'), exact=True))
+        step(page, watch, 'резерв закончился без оплаты: экран заказа показывает «%s», причину и «%s»' % (T('order.status.cancelled'), T('order.buyAgain')), expired)
+        O.expect('резерв released по сроку, ключи свободны', A.eventually(lambda: O.reservations_of(oid) == [('released', 'expired', 1)] and O.keys_of(pid) == before, wait=30),
+                 '%s %s %s' % (O.reservations_of(oid), before, O.keys_of(pid)))
+    finally:
+        close_context(context, page, 'expired')
+
+
+def purchase_scenarios(browser, fx):
+    pid, kc, admin, stubs = fx['plenty'], fx['kc'], fx['admin'], fx['stubs']
+    stubs.reset()
+    names = ['buyer-%d' % n for n in range(1, PURCHASE_REPEAT + 1)] + ['refusal', 'expired']
+    buyers = {}
+    for name in names:
+        buyers[name] = P.new_buyer(kc, admin, fx['stamp'], 'ui-' + name)
+    if not all(buyers.values()):
+        G.bad('покупатели для сценариев браузера заведены', str([n for n, b in buyers.items() if not b]))
+        return
+    A.eventually(lambda: not (O.keys_of(pid) or {}).get('reserved'), wait=60, step=2.0)   # резервы прошлых проверок успевают истечь
+    with stubs.payment_mode(scenario='hold'):
+        for name in names[:PURCHASE_REPEAT]:
+            purchase_scenario(browser, fx, buyers[name], name, pid)
+        refusal_scenario(browser, fx, buyers['refusal'], pid)
+        expired_scenario(browser, fx, buyers['expired'], pid)
+    O.modes_are_default(stubs, 'UI')
+
+
 # --------------------------------------------------------------------------------------------------- запуск
 def main():
     if sync_playwright is None:
@@ -308,20 +523,26 @@ def main():
     moderator = SAC.Staff(kc, admin, people['moderator-1'])
     moderator.token()
     data = prepare(kc, admin, moderator, stamp)
-    if data:
+    fx = O.context(kc, admin, people, stamp, scarce_needed=False)
+    if data or fx:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(args=['--no-sandbox'] if os.environ.get('UI_NO_SANDBOX') else [])
             try:
-                moderator_scenario(browser, kc, admin, people['moderator-1'], moderator, data)
-                guest_scenario(browser, data)
+                if data:
+                    moderator_scenario(browser, kc, admin, people['moderator-1'], moderator, data)
+                    guest_scenario(browser, data)
+                if fx:
+                    O.guarded('purchase_scenarios', purchase_scenarios, browser, fx)
             finally:
                 browser.close()
+    if not fx:
+        G.bad('Продавец и товары для покупки не заведены, сценарии покупателя не запускались')
     print('\nПроверок успешно: %d, с ошибками: %d' % (G.PASSED, len(G.FAILED)))
     for name in G.FAILED:
         print('  - %s' % name)
     if os.environ.get('GITHUB_ACTIONS'):
         print('::notice title=ui_smoke::Проверок успешно: %d, с ошибками: %d%s' % (G.PASSED, len(G.FAILED), ('; не прошли: ' + '|'.join(G.FAILED)) if G.FAILED else ''))
-    return 1 if G.FAILED or not data else 0
+    return 1 if G.FAILED or not data or not fx else 0
 
 
 if __name__ == '__main__':
