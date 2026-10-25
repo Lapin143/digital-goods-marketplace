@@ -247,7 +247,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {module: service-kit, task: ':libs:service-kit:concurrencyTest', min: 15}
+          - {module: service-kit, task: ':libs:service-kit:concurrencyTest', min: 3}
           - {module: inventory-service, task: ':services:inventory-service:concurrencyTest', min: 7}
           - {module: payment-service, task: ':services:payment-service:concurrencyTest', min: 7}
           - {module: order-service, task: ':services:order-service:concurrencyTest', min: 5}
