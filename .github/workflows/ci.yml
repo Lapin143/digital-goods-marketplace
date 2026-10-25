@@ -247,12 +247,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {module: service-kit, task: ':libs:service-kit:concurrencyTest'}
-          - {module: inventory-service, task: ':services:inventory-service:concurrencyTest'}
-          - {module: payment-service, task: ':services:payment-service:concurrencyTest'}
-          - {module: order-service, task: ':services:order-service:concurrencyTest'}
-          - {module: delivery-service, task: ':services:delivery-service:concurrencyTest'}
-          - {module: platform-service, task: ':services:platform-service:concurrencyTest'}
+          - {module: service-kit, task: ':libs:service-kit:concurrencyTest', min: 15}
+          - {module: inventory-service, task: ':services:inventory-service:concurrencyTest', min: 7}
+          - {module: payment-service, task: ':services:payment-service:concurrencyTest', min: 7}
+          - {module: order-service, task: ':services:order-service:concurrencyTest', min: 5}
+          - {module: delivery-service, task: ':services:delivery-service:concurrencyTest', min: 5}
+          - {module: platform-service, task: ':services:platform-service:concurrencyTest', min: 1}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -277,6 +277,7 @@ jobs:
           DGM_SECRETS_DIR: ${{ github.workspace }}/secrets
           CONCURRENCY_REPEAT: ${{ github.event.inputs.repeat || '50' }}
           CONCURRENCY_TASK: ${{ matrix.task }}
+          CONCURRENCY_MIN_TESTS: ${{ matrix.min }}   # не меньше стольких тестов в каждом запуске: пустая или усечённая серия не должна быть зелёной
         run: tools/ci/diag.sh "Серия тестов гонок" tools/ci/concurrency_series.sh "$CONCURRENCY_REPEAT" "$CONCURRENCY_TASK"
 
       - name: Сводка серии
