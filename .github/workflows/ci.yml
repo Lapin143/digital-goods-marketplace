@@ -738,7 +738,7 @@ jobs:
       - name: Журнал аудита (решения модератора, просмотр, права, неизменность, канарейка)
         if: ${{ !cancelled() }}
         env:
-          DIAG_FILTER: 'ОШИБКА|Traceback|Error'
+          DIAG_FILTER: 'ОШИБКА|Traceback|Error|^ +[|] '
           DIAG_MAX: "30"
           DIAG_TAIL: "60"
         run: tools/ci/diag.sh "Журнал аудита" make audit-check
@@ -748,7 +748,7 @@ jobs:
       - name: Параметры платформы (лимит, комиссия, перезапуск сервиса, срок ссылки)
         if: ${{ !cancelled() }}
         env:
-          DIAG_FILTER: 'ОШИБКА|Traceback|Error'
+          DIAG_FILTER: 'ОШИБКА|Traceback|Error|^ +[|] '
           DIAG_MAX: "30"
           DIAG_TAIL: "60"
         run: tools/ci/diag.sh "Параметры платформы" make parameters-check
@@ -757,7 +757,7 @@ jobs:
       - name: Проверка параметров краснеет без слушателя
         if: ${{ !cancelled() }}
         env:
-          DIAG_FILTER: 'ОШИБКА|Traceback|Error'
+          DIAG_FILTER: 'ОШИБКА|Traceback|Error|^ +[|] '
           DIAG_MAX: "30"
           DIAG_TAIL: "60"
         run: tools/ci/diag.sh "Проверка проверки параметров" make parameters-sabotage

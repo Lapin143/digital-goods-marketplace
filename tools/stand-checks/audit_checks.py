@@ -330,9 +330,10 @@ def canary(ctx):
     if record:
         number = change_of(record, 'phone') or {}
         flag = change_of(record, 'phone_confirmed') or {}
+        # API отдаёт значения изменений строками, в том числе логические (F4-29): false и true приходят как «false» и «true»
         expect('TC-802. Номер в записи персональный: до пусто, после только хеш из 64 знаков; признак подтверждения false → true',
-               number.get('personal') is True and number.get('before') is None and HASH.match(str(number.get('after'))) and flag.get('before') is False and flag.get('after') is True,
-               str(record.get('changes'))[:300])
+               number.get('personal') is True and number.get('before') is None and HASH.match(str(number.get('after'))) is not None
+               and str(flag.get('before')).lower() == 'false' and str(flag.get('after')).lower() == 'true', str(record.get('changes'))[:300])
         expect('TC-815. Адрес исполнителя у пользователя хеш, а не открытый адрес', HASH.match(str(record.get('actorIp'))) is not None, str(record.get('actorIp'))[:80])
 
     deactivated = A.post('/api/v1/staff/users/%s/deactivate' % sub, token)
