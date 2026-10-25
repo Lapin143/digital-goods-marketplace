@@ -136,7 +136,7 @@ class AuditControllerTest {
     @Test
     void filtersAreHandedOverAsGiven() {
         controller.list(request("actorId", id(902).toString(), "objectType", "seller", "objectId", "abc", "action", "seller.approved",
-                "occurredFrom", "2026-10-25T12:00:01Z", "occurredTo", "2026-10-25T12:30:00+03:00"));
+                "occurredFrom", "2026-10-25T12:00:01Z", "occurredTo", "2026-10-25T15:30:00+03:00"));
 
         AuditFilter filter = reader.requests().get(0);
         assertEquals(id(902), filter.actorId().orElseThrow());
@@ -144,7 +144,7 @@ class AuditControllerTest {
         assertEquals("abc", filter.objectId().orElseThrow());
         assertEquals("seller.approved", filter.action().orElseThrow());
         assertEquals(Instant.parse("2026-10-25T12:00:01Z"), filter.occurredFrom().orElseThrow());
-        assertEquals(Instant.parse("2026-10-25T09:30:00Z"), filter.occurredTo().orElseThrow());
+        assertEquals(Instant.parse("2026-10-25T12:30:00Z"), filter.occurredTo().orElseThrow());
         assertEquals(20, filter.limit());
     }
 

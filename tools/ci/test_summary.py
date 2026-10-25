@@ -18,9 +18,16 @@ def main():
     root = sys.argv[1] if len(sys.argv) > 1 else '.'
     title = sys.argv[2] if len(sys.argv) > 2 else 'Модульные тесты'
     per = {}
+    failed = []
     for f in glob.glob(os.path.join(root, '**', 'build', 'test-results', '*', 'TEST-*.xml'), recursive=True):
         module = os.path.relpath(f, root).split(os.sep + 'build' + os.sep)[0]
         t = ET.parse(f).getroot()
+        for case in t.iter('testcase'):
+            problem = case.find('failure') if case.find('failure') is not None else case.find('error')
+            if problem is not None:
+                text = (problem.get('message') or (problem.text or '')).strip().splitlines()
+                tail = [l.strip() for l in (problem.text or '').splitlines() if l.strip().startswith('Caused by')][-1:]
+                failed.append('%s %s.%s: %s %s' % (module, (case.get('classname') or '').rsplit('.', 1)[-1], case.get('name'), (text[0] if text else '')[:260], tail[0][:200] if tail else ''))
         d = per.setdefault(module, dict(tests=0, failures=0, errors=0, skipped=0, classes=set()))
         d['tests'] += int(t.get('tests', 0))
         d['failures'] += int(t.get('failures', 0))
@@ -40,6 +47,9 @@ def main():
     if summary:
         with open(summary, 'a', encoding='utf-8') as fh:
             fh.write('### %s\n\n```\n' % title + '\n'.join(lines) + '\n```\n')
+    # Причина каждого упавшего теста (первая строка сообщения и последняя «Caused by») идёт в аннотацию: журнал шага по API не читается
+    for line in failed[:12]:
+        print('::error title=Тест не прошёл::%s' % line.replace('%', '%25').replace('\r', '').replace('\n', ' '))
     if total == 0:
         print('::error title=Тесты::не найдено ни одного отчёта о тестах')
         return 1
