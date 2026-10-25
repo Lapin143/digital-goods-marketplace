@@ -738,6 +738,8 @@ grant usage on schema audit_admin to app_audit_writer;
 grant select, insert on audit_admin.audit_log to app_audit_writer;
 -- строки страховочной секции задание AuditPartitionJob считает напрямую (через родительскую таблицу пришлось бы читать все секции)
 grant select on audit_admin.audit_log_default to app_audit_writer;
+-- чтение журнала администратором (listAuditRecords, US-8.7): только SELECT через родительскую таблицу, записывает журнал один приёмник
+grant select on audit_admin.audit_log to app_audit_admin;
 -- секции на три месяца вперёд создаёт ежесуточное задание под ролью записи через функцию владельца (security definer): прав CREATE на схему у роли нет
 revoke all on function audit_admin.create_audit_log_partition(date) from public;
 grant execute on function audit_admin.create_audit_log_partition(date) to app_audit_writer;

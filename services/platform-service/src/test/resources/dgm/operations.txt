@@ -12,6 +12,7 @@ changeUserRole           done
 createPhoneConfirmation  done
 deactivateUser           done
 issueOtpCode             done
+listAuditRecords         done
 listStaffUsers           done
 receiveSmsStatus         done
 verifyOtpCode            done
@@ -21,7 +22,6 @@ createSupportTicket      slice3
 getEmailChangeState      slice3
 getStaffSupportTicket    slice3
 getSupportTicket         slice3
-listAuditRecords         slice3
 listPlatformParameters   slice3
 listSupportTicketQueue   slice3
 listSupportTickets       slice3

@@ -102,6 +102,24 @@ public final class AuditRecords {
      */
     public static Map<String, Object> staffAction(Instant at, UUID actorId, String actorRole, String actorIp, String action, String objectType,
                                                   String objectId, List<Map<String, Object>> changes) {
+        if (changes == null || changes.isEmpty()) {
+            throw new IllegalArgumentException("Действие без изменений в журнал не пишется");
+        }
+        return record(at, actorId, actorRole, actorIp, action, objectType, objectId, changes);
+    }
+
+    /**
+     * Чтение, которое тоже действие (ADR-014, Р-166): просмотр журнала администратором и открытие документа заявки модератором. Правила те же, что у
+     * {@link #staffAction}, но список изменений может быть пустым: у просмотра журнала параметров поиска нет и в запись они не попадают, а у открытия
+     * документа в нём один элемент с идентификатором документа (содержимого нет).
+     */
+    public static Map<String, Object> staffRead(Instant at, UUID actorId, String actorRole, String actorIp, String action, String objectType,
+                                                String objectId, List<Map<String, Object>> changes) {
+        return record(at, actorId, actorRole, actorIp, action, objectType, objectId, changes == null ? List.of() : changes);
+    }
+
+    private static Map<String, Object> record(Instant at, UUID actorId, String actorRole, String actorIp, String action, String objectType,
+                                              String objectId, List<Map<String, Object>> changes) {
         if (actorRole == null || !ROLES.contains(actorRole)) {
             throw new IllegalArgumentException("Роль исполнителя вне схемы события: " + actorRole);
         }
@@ -115,9 +133,6 @@ public final class AuditRecords {
         requireText(objectId, MAX_OBJECT_ID, "идентификатор объекта");
         if (actorIp == null || actorIp.length() > MAX_IP) {
             throw new IllegalArgumentException("Адрес исполнителя должен быть строкой не длиннее " + MAX_IP + " знаков");
-        }
-        if (changes == null || changes.isEmpty()) {
-            throw new IllegalArgumentException("Действие без изменений в журнал не пишется");
         }
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("occurredAt", Timestamps.format(at));

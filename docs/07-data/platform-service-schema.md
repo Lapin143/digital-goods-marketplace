@@ -526,6 +526,7 @@ erDiagram
 
 | Роль | Таблица | Права |
 | --- | --- | --- |
+| `app_audit_admin` | `audit_admin.audit_log` | SELECT |
 | `app_audit_admin` | `audit_admin.platform_parameter` | INSERT, SELECT, UPDATE |
 | `app_audit_admin` | `public.idempotency_key` | DELETE, INSERT, SELECT, UPDATE |
 | `app_audit_admin` | `public.outbox` | DELETE, INSERT, SELECT, UPDATE |
