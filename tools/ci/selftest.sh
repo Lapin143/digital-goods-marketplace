@@ -184,6 +184,13 @@ PY
       "окно предохранителя по умолчанию (20)" tools/docs-checks/check_kit.py
     mutate_repo "check_kit находит аренду строк без пропуска занятых" "$K/jdbc/RowClaim.java" ' limit ? for update skip locked";' ' limit ? for update";' \
       "RowClaim не использует for update skip locked" tools/docs-checks/check_kit.py
+    mutate_repo "check_kit находит прямое чтение параметра платформы мимо ConfigValue" "services/order-service/src/main/java/dgm/order/orders/service/SagaOrchestrator.java" 'long commission = OrderPricing.commission(amount, settings.commissionRateBp());' 'long commission = OrderPricing.commission(amount, Integer.getInteger("commission.default-rate-bp", 200));' \
+      "ключ параметра «commission.default-rate-bp» назван вне класса настроек" tools/docs-checks/check_kit.py
+    mutate_repo "check_kit находит параметр платформы в fast-time без закрепления" "services/order-service/src/main/resources/application-fast-time.yml" '      - reservation.ttl-seconds
+      - payment-session.ttl-seconds
+  order:' '      - reservation.ttl-seconds
+  order:' \
+      "не закрепляет его в dgm.config.pinned-keys" tools/docs-checks/check_kit.py
     # 7. Правила маршрутов сервисов создаются из OpenAPI: ручная правка файла и правка прав в контракте без перегенерации ловятся.
     mutate_repo "gen_routes --check находит ручную правку правил маршрутов" "services/order-service/src/main/resources/dgm/routes.json" '"orders.read"' '"orders.write"' \
       "не равен результату gen_routes.py" tools/docs-checks/gen_routes.py --check
@@ -206,6 +213,8 @@ PY
       "событие user.email-changedx среза 3 не найдено в каталоге" tools/docs-checks/check_code_docs.py
     mutate_repo "check_code_docs находит событие среза 3, которое уже издаётся, но числится неизданным" "tools/docs-checks/check_code_docs.py" "    'user.email-changed': 15," "    'user.email-changed': 15, 'user.registered': 3," \
       "событие user.registered уже издаётся в коде" tools/docs-checks/check_code_docs.py
+    mutate_repo "check_code_docs находит слушатель параметров, который читает не ту тему" "libs/service-kit-boot/src/main/java/dgm/kit/boot/KitMessagingAutoConfiguration.java" 'CONFIG_TOPIC = "platform.config"' 'CONFIG_TOPIC = "platform.configs"' \
+      "config-listener описан в каталоге, а обработчика с таким именем в коде нет" tools/docs-checks/check_code_docs.py
     mutate_repo "check_code_docs находит событие среза 2, которого нет в каталоге" "tools/docs-checks/check_code_docs.py" "'order.created', 'order.paid', 'order.cancelled'" "'order.created', 'order.paidx', 'order.cancelled'" \
       "событие order.paidx среза 2 не найдено в каталоге" tools/docs-checks/check_code_docs.py
     # Реестры готовности: статус slice2 допустим, а --strict (закрытие среза) краснеет, пока в реестре есть операция среза 1 или 2.

@@ -23,6 +23,8 @@ import os
 import re
 import sys
 
+import yaml
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import docslib as L
 import check_ledger as LG
@@ -76,7 +78,6 @@ LATER_CONSUMERS = {
     # Пары, которые добавляет срез 3 (шаги руководства среза 3 убирают их по одной)
     'order.address-updated': {('delivery-service', 'delivery-domain')},  # повторная выдача по новому адресу, шаг 12
     'user.email-changed': {('platform-service', 'notification-handler')},  # письма о смене e-mail, шаг 15
-    'config.changed': {(s, 'config-listener') for s in ('catalog-service', 'delivery-service', 'inventory-service', 'order-service', 'payment-service')},  # слушатель параметров, шаг 7
 }
 
 EVENTS_README = os.path.join(L.DOCS, '06-api', 'events', 'README.md')
@@ -267,6 +268,29 @@ def event_handlers(service, rep):
     return found
 
 
+KIT_AUTOCONFIG = os.path.join(L.REPO, 'libs', 'service-kit-boot', 'src', 'main', 'java', 'dgm', 'kit', 'boot', 'KitMessagingAutoConfiguration.java')
+KIT_CONFIG_LISTENER = os.path.join(L.REPO, 'libs', 'service-kit', 'src', 'main', 'java', 'dgm', 'kit', 'config', 'ConfigListener.java')
+
+
+def config_listener(service):
+    """Слушатель параметров (config-listener, Р-168) поставляет каркас: класс ConfigListener и bean автоконфигурации, который читает
+    platform.config и включён, пока сервис не задал dgm.config.enabled=false. Возвращает запись того же вида, что event_handlers, или None."""
+    if not os.path.exists(KIT_CONFIG_LISTENER) or not os.path.exists(KIT_AUTOCONFIG):
+        return None
+    text = L.read(KIT_AUTOCONFIG)
+    if not (re.search(r'CONFIG_TOPIC\s*=\s*"platform\.config"', text) and 'new ConfigListener(' in text
+            and re.search(r'@ConditionalOnProperty\(prefix\s*=\s*"dgm\.config",\s*name\s*=\s*"enabled",\s*matchIfMissing\s*=\s*true\)', text)):
+        return None
+    yml = os.path.join(L.REPO, 'services', service, 'src', 'main', 'resources', 'application.yml')
+    if os.path.exists(yml):
+        with open(yml, encoding='utf-8') as f:
+            for doc in yaml.safe_load_all(f):
+                config = ((doc or {}).get('dgm') or {}).get('config') if isinstance(doc, dict) else None
+                if isinstance(config, dict) and config.get('enabled') is False:
+                    return None
+    return {'pairs': {('platform.config', 'config.changed')}, 'files': [L.rel(KIT_AUTOCONFIG)]}
+
+
 def published_events(service, known):
     """События каталога, строка с типом которых есть в исходниках сервиса вне обработчиков EventHandler."""
     found = {}
@@ -318,6 +342,10 @@ def check_events(rep):
         rep.err(where, 'событие %s записано в UNPUBLISHED_SLICE3, а в SLICE3_EVENTS его нет' % e)
     topics, rights = acl(rep)
     handlers = {s: event_handlers(s, rep) for s in LG.SERVICES}
+    for s in LG.SERVICES:
+        listener = config_listener(s)
+        if listener:
+            handlers[s]['config-listener'] = listener
     published = {s: published_events(s, set(catalog)) for s in LG.SERVICES}
     stats = {'events': 0, 'consumers': 0, 'later': 0, 'unpublished': 0}
     for e in SLICE1_EVENTS + SLICE2_EVENTS + SLICE3_EVENTS:

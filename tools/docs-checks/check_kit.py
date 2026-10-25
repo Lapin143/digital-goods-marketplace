@@ -14,12 +14,20 @@
   6. Вызов соседа (шаг 3 среза 2, Р-140): значения клиента по умолчанию (попытка, число попыток, паузы, окно и порог предохранителя)
      равны таблице ADR-015; повторы идут по тем же кодам ответа, что в ADR-015; исключения и метрики клиента на месте; помощник аренды
      использует SKIP LOCKED; множества Redis (Р-141) на месте.
+  7. Параметры платформы (шаг 7 среза 3, правило 19): ключ параметра из начальных значений V5__audit_admin.sql назван в коде сервиса только
+     в классах настроек (*Settings.java) и подключения (*Configuration.java). Прямое чтение через @Value или Environment в другом месте
+     обходит слушатель platform.config, и значение перестаёт быть живым. platform-service читает параметры из собственной базы и не проверяется.
+  8. Профиль fast-time (Р-175): параметр платформы, который профиль меняет, перечислен в dgm.config.pinned-keys того же файла; иначе
+     платформа при старте переиздаст значение по умолчанию, слушатель его применит, и сокращённый срок пропадёт. Закреплять ключ, которого
+     нет среди параметров платформы, нельзя (опечатка закрепила бы пустое место).
 Запуск: python3 tools/docs-checks/check_kit.py
 """
 import glob
 import os
 import re
 import sys
+
+import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import docslib as L
@@ -261,6 +269,82 @@ def peers(rep):
              (attempt, tries, p1, p2, ratio, window, pause))
 
 
+PARAMETERS_SQL = os.path.join(L.REPO, 'services', 'platform-service', 'src', 'main', 'resources', 'db', 'migration', 'audit_admin',
+                              'V5__audit_admin.sql')
+PARAMETER_ROW_RX = re.compile(r"^\s+\('([a-z][a-z0-9.\-]*)',", re.M)
+SERVICES_DIR = os.path.join(L.REPO, 'services')
+
+
+def parameter_keys():
+    """Ключи параметров платформы из начальных значений: перечень «ключ, описание, единица, значение, …» после insert в platform_parameter."""
+    text = L.read(PARAMETERS_SQL)
+    start = text.find('insert into audit_admin.platform_parameter')
+    if start < 0:
+        return None
+    end = text.find(';', start)
+    return PARAMETER_ROW_RX.findall(text[start:end])
+
+
+def config_keys(rep):
+    where = 'параметры платформы: чтение только через ConfigValue (правило 19)'
+    keys = parameter_keys()
+    if not keys:
+        rep.err(where, 'в %s не найден перечень начальных значений platform_parameter' % L.rel(PARAMETERS_SQL))
+        return
+    checked = 0
+    for service in sorted(os.listdir(SERVICES_DIR)):
+        if service == 'platform-service':
+            continue
+        root = os.path.join(SERVICES_DIR, service, 'src', 'main', 'java')
+        for path in sorted(glob.glob(os.path.join(root, '**', '*.java'), recursive=True)):
+            name = os.path.basename(path)
+            if name.endswith('Settings.java') or name.endswith('Configuration.java'):
+                continue
+            checked += 1
+            text = L.read(path)
+            for key in keys:
+                if re.search(r'"[^"\n]*(?<![A-Za-z0-9.\-])%s(?![A-Za-z0-9.\-])[^"\n]*"' % re.escape(key), text):
+                    rep.err(where, '%s: ключ параметра «%s» назван вне класса настроек или подключения: читайте значение из настроек сервиса '
+                            '(ConfigValue), прямое чтение обходит слушатель platform.config' % (L.rel(path), key))
+    rep.fact('параметров платформы %d: прямого чтения в %d файлах сервисов нет' % (len(keys), checked))
+
+
+def flatten(node, prefix=''):
+    out = {}
+    if isinstance(node, dict):
+        for k, v in node.items():
+            out.update(flatten(v, prefix + str(k) + '.' if isinstance(v, dict) else prefix + str(k)))
+    else:
+        out[prefix] = node
+    return out
+
+
+def pinned_keys(rep):
+    where = 'fast-time: параметры платформы закреплены (Р-175)'
+    keys = parameter_keys()
+    if not keys:
+        return
+    known = set(keys)
+    profiles = sorted(glob.glob(os.path.join(SERVICES_DIR, '*', 'src', 'main', 'resources', 'application-fast-time.yml')))
+    changed = 0
+    for path in profiles:
+        with open(path, encoding='utf-8') as f:
+            data = yaml.safe_load(f) or {}
+        flat = flatten(data)
+        raw = flat.get('dgm.config.pinned-keys') or []
+        if isinstance(raw, str):          # допустима и запись «ключ1,ключ2»
+            raw = raw.split(',')
+        pinned = {str(k).strip() for k in raw}
+        for key in sorted(set(flat) & known):
+            changed += 1
+            if key not in pinned:
+                rep.err(where, '%s: профиль задаёт параметр платформы «%s», но не закрепляет его в dgm.config.pinned-keys: слушатель вернул бы '
+                        'значение платформы' % (L.rel(path), key))
+        for key in sorted(pinned - known):
+            rep.err(where, '%s: закреплён ключ «%s», которого нет среди параметров платформы' % (L.rel(path), key))
+    rep.fact('профилей fast-time %d, параметров платформы в них %d, все закреплены' % (len(profiles), changed))
+
+
 def main():
     rep = L.Report('Каркас сервисов против документов')
     problem_types(rep)
@@ -270,6 +354,8 @@ def main():
     metrics(rep)
     idempotency(rep)
     peers(rep)
+    config_keys(rep)
+    pinned_keys(rep)
     return rep.finish()
 
 
