@@ -6,3 +6,4 @@ export type OrderWithPaymentSession = OrderComponents['schemas']['OrderWithPayme
 export type OrderPage = OrderComponents['schemas']['OrderPage'];
 export type CreateOrderRequest = OrderComponents['schemas']['CreateOrderRequest'];
 export type OrderStatus = Order['status'];
+export type PaymentSession = OrderComponents['schemas']['PaymentSession'];

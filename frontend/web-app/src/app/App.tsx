@@ -14,13 +14,15 @@ import { ApplicationCardPage } from '../screens/staff/moderation/ApplicationCard
 import { ApplicationQueuePage } from '../screens/staff/moderation/ApplicationQueuePage';
 import { ProductCardPage } from '../screens/staff/moderation/ProductCardPage';
 import { ProductQueuePage } from '../screens/staff/moderation/ProductQueuePage';
+import { OrderHistoryPage } from '../screens/orders/OrderHistoryPage';
+import { OrderPage, OrderReturnRedirect } from '../screens/orders/OrderPage';
 import { ProductListPage } from '../screens/storefront/ProductListPage';
 import { ProductPage } from '../screens/storefront/ProductPage';
 
 /**
  * Маршруты. Разделы `/seller/*`, `/staff/*` и `/work` открываются входом через клиент `dgm-staff` со вторым фактором,
  * остальное через `dgm-web` (clientKindForPath); `/sms` это ограниченная сессия по коду из SMS. Экраны витрины и аккаунта добавил шаг 17,
- * кабинет продавца добавил шаг 18, рабочее место модератора шаг 19.
+ * кабинет продавца добавил шаг 18, рабочее место модератора шаг 19, заказы покупателя шаг 20 среза 2.
  */
 export function App() {
   return (
@@ -37,6 +39,23 @@ export function App() {
             </RequireAccess>
           }
         />
+        <Route
+          path="account/orders"
+          element={
+            <RequireAccess kind="web" roles={['buyer']}>
+              <OrderHistoryPage />
+            </RequireAccess>
+          }
+        />
+        <Route
+          path="account/orders/:orderId"
+          element={
+            <RequireAccess kind="web" roles={['buyer']}>
+              <OrderPage />
+            </RequireAccess>
+          }
+        />
+        <Route path="orders/:orderId" element={<OrderReturnRedirect />} />
         <Route path="help/email" element={<EmailHelpPage />} />
         <Route
           path="sms/*"
