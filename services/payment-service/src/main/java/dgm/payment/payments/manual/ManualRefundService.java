@@ -27,6 +27,8 @@ public final class ManualRefundService {
 
     /** Код действия в журнале аудита (ADR-014). */
     static final String AUDIT_ACTION = "refund.marked_manual";
+    /** Тип объекта в журнале аудита: строчными буквами, как у соседей («user», «product», «seller»); так требует и таблица журнала. */
+    static final String AUDIT_OBJECT = "payment";
 
     /** Кто отметил возврат: идентификатор пользователя и адрес, которые попадают в аудит. */
     public record Admin(UUID id, String ip) {
@@ -88,7 +90,7 @@ public final class ManualRefundService {
         Instant now = clock.instant();
         RefundPayment changed = outcomes.markRefunded(payment, externalRefundId, now, true);
         transaction.publish(AuditRecords.TOPIC, AuditRecords.AGGREGATE, paymentId.toString(), AuditRecords.EVENT, AuditRecords.SCHEMA_VERSION,
-                AuditRecords.staffAction(now, admin.id(), "admin", admin.ip(), AUDIT_ACTION, "Payment", paymentId.toString(),
+                AuditRecords.staffAction(now, admin.id(), "admin", admin.ip(), AUDIT_ACTION, AUDIT_OBJECT, paymentId.toString(),
                         List.of(AuditRecords.change("status", payment.status(), changed.status()),
                                 AuditRecords.change("inAdminQueue", true, false))));
         return new Completed(paymentId, changed.orderId(), now);

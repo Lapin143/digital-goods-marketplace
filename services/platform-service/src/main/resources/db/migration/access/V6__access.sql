@@ -35,6 +35,11 @@ grant select, insert, update on audit_admin.platform_parameter to app_audit_admi
 -- журнал: только INSERT и SELECT, ни UPDATE, ни DELETE, ни TRUNCATE (ADR-014)
 grant usage on schema audit_admin to app_audit_writer;
 grant select, insert on audit_admin.audit_log to app_audit_writer;
+-- строки страховочной секции задание AuditPartitionJob считает напрямую (через родительскую таблицу пришлось бы читать все секции)
+grant select on audit_admin.audit_log_default to app_audit_writer;
+-- секции на три месяца вперёд создаёт ежесуточное задание под ролью записи через функцию владельца (security definer): прав CREATE на схему у роли нет
+revoke all on function audit_admin.create_audit_log_partition(date) from public;
+grant execute on function audit_admin.create_audit_log_partition(date) to app_audit_writer;
 
 grant usage on schema public to app_identity, app_support, app_notification, app_audit_admin, app_audit_writer;
 grant select, insert, update, delete on public.outbox, public.processed_event, public.idempotency_key
@@ -48,5 +53,5 @@ comment on function identity.user_account_touch() is 'Идентификатор
 comment on function support.ticket_touch() is 'Заказ, покупатель, источник и причина обращения неизменны, версия растёт на единицу';
 comment on function audit_admin.platform_parameter_guard() is 'Ключ параметра неизменен, версия растёт на единицу при каждой правке (ETag)';
 comment on function audit_admin.check_session_shorter_than_reserve() is 'Срок платёжной сессии строго короче срока резерва (INV-07): проверка под консультативной блокировкой при правке любого из двух параметров';
-comment on function audit_admin.audit_changes_valid(jsonb) is 'Форма поля changes журнала аудита: массив записей «поле, признак персональных данных, до, после», у персональных полей значения только HMAC-хеши (INV-42)';
+comment on function audit_admin.audit_changes_valid(jsonb) is 'Форма поля changes журнала аудита: массив записей «поле, признак персональных данных, до, после»; у неперсональных значения строка, число, булево или null (как в контракте AuditChange), у персональных только HMAC-хеш или null (INV-42)';
 comment on function audit_admin.audit_log_deny() is 'Запрещает изменение, удаление и очистку записей журнала аудита для всех ролей, в том числе владельца (INV-42)';

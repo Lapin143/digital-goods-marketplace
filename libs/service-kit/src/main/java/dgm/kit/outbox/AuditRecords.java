@@ -15,8 +15,8 @@ import java.util.regex.Pattern;
  * той же транзакции, что и действие сотрудника (INV-43), а журнал аудита платформы принимает его из темы {@code audit.events}.
  * Схема закрыта (лишних полей нет), поэтому поля собираются здесь, а не в каждом сервисе по-своему.
  *
- * <p>Персональных полей этот помощник не принимает: действия сотрудников над заявкой и товаром несут идентификаторы, статусы и причины
- * решений, а все они не персональные (ADR-014). Для персональных значений владелец данных сам считает хеш и строит запись по-своему.
+ * <p>Значения персональных полей этот помощник не принимает: действия сотрудников над заявкой и товаром несут идентификаторы, статусы и причины
+ * решений, а все они не персональные (ADR-014). Для персональных значений владелец данных сам считает хеш и передаёт готовый в {@link #personalChange}.
  */
 public final class AuditRecords {
 
@@ -28,12 +28,50 @@ public final class AuditRecords {
     /** Роли исполнителя из схемы события. */
     private static final Set<String> ROLES = Set.of("buyer", "seller", "moderator", "support-operator", "admin", "system");
     private static final Pattern ACTION = Pattern.compile("^[a-z]+(\\.[a-z_]+)+$");
+    /** HMAC-SHA-256 в шестнадцатеричной записи: единственная допустимая форма значения персонального поля (ADR-014). */
+    private static final Pattern HASH = Pattern.compile("^[0-9a-f]{64}$");
+    /** Тип объекта: строчные буквы, цифры и знаки «_.-» (ограничение таблицы журнала); «user», «product», «seller», «payment», «parameter». */
+    private static final Pattern OBJECT_TYPE = Pattern.compile("^[a-z0-9_.-]{1,64}$");
     private static final int MAX_ACTION = 64;
     private static final int MAX_OBJECT_TYPE = 64;
     private static final int MAX_OBJECT_ID = 128;
     private static final int MAX_IP = 128;
 
     private AuditRecords() {
+    }
+
+    /** Тип объекта годится для журнала: журнал отвергает всё, что не подходит под это правило, и событие уходило бы в DLQ. */
+    public static boolean isObjectType(String value) {
+        return value != null && OBJECT_TYPE.matcher(value).matches();
+    }
+
+    /** Значение имеет форму хеша персонального поля: 64 шестнадцатеричных знака в нижнем регистре. */
+    public static boolean isHash(String value) {
+        return value != null && HASH.matcher(value).matches();
+    }
+
+    /**
+     * Изменение персонального поля (e-mail, телефон): в журнал идут только <b>готовые</b> HMAC-хеши значений, считает их владелец данных
+     * (ADR-014, Р-164 среза 3): секрета аудита в библиотеке нет. {@code beforeHash} пуст при первом заполнении поля.
+     *
+     * @throws IllegalArgumentException значение не хеш; само значение в сообщение не попадает, чтобы открытый e-mail не утёк в журнал приложения
+     */
+    public static Map<String, Object> personalChange(String field, String beforeHash, String afterHash) {
+        if (field == null || field.isBlank()) {
+            throw new IllegalArgumentException("У изменения нет имени поля");
+        }
+        if (beforeHash != null && !isHash(beforeHash)) {
+            throw new IllegalArgumentException("Значение «до» персонального поля " + field + " не хеш из 64 шестнадцатеричных знаков");
+        }
+        if (afterHash != null && !isHash(afterHash)) {
+            throw new IllegalArgumentException("Значение «после» персонального поля " + field + " не хеш из 64 шестнадцатеричных знаков");
+        }
+        Map<String, Object> change = new LinkedHashMap<>();
+        change.put("field", field);
+        change.put("personal", true);
+        change.put("before", beforeHash);
+        change.put("after", afterHash);
+        return change;
     }
 
     /** Изменение одного неперсонального поля: значения идут как есть. Значение {@code null} значит «поля не было» или «поле очищено». */
@@ -71,6 +109,9 @@ public final class AuditRecords {
             throw new IllegalArgumentException("Код действия не подходит под схему события: " + action);
         }
         requireText(objectType, MAX_OBJECT_TYPE, "тип объекта");
+        if (!isObjectType(objectType)) {
+            throw new IllegalArgumentException("Тип объекта допускает строчные буквы, цифры и знаки «_.-»: " + objectType);
+        }
         requireText(objectId, MAX_OBJECT_ID, "идентификатор объекта");
         if (actorIp == null || actorIp.length() > MAX_IP) {
             throw new IllegalArgumentException("Адрес исполнителя должен быть строкой не длиннее " + MAX_IP + " знаков");

@@ -91,11 +91,11 @@ $fn$
                and (select array_agg(k order by k) from jsonb_object_keys(e) k) = array['after', 'before', 'field', 'personal']
                and jsonb_typeof(e -> 'field') = 'string' and char_length(e ->> 'field') between 1 and 64
                and jsonb_typeof(e -> 'personal') = 'boolean'
-               and jsonb_typeof(e -> 'before') in ('string', 'null')
-               and jsonb_typeof(e -> 'after') in ('string', 'null')
+               and jsonb_typeof(e -> 'before') in ('string', 'number', 'boolean', 'null')
+               and jsonb_typeof(e -> 'after') in ('string', 'number', 'boolean', 'null')
                and (not (e ->> 'personal')::boolean
-                    or ((e ->> 'before') is null or (e ->> 'before') ~ '^[0-9a-f]{64}$')
-                       and ((e ->> 'after') is null or (e ->> 'after') ~ '^[0-9a-f]{64}$'))
+                    or ((jsonb_typeof(e -> 'before') = 'null' or (jsonb_typeof(e -> 'before') = 'string' and (e ->> 'before') ~ '^[0-9a-f]{64}$')))
+                       and ((jsonb_typeof(e -> 'after') = 'null' or (jsonb_typeof(e -> 'after') = 'string' and (e ->> 'after') ~ '^[0-9a-f]{64}$'))))
            ), true)
     from jsonb_array_elements(case when jsonb_typeof(changes) = 'array' then changes else '[]'::jsonb end) e
 $fn$;
@@ -167,7 +167,7 @@ create trigger trg_audit_log_no_truncate before truncate on audit_admin.audit_lo
 
 -- Месячные секции: функция создаёт секцию и вешает на неё запрет TRUNCATE (триггер уровня оператора не наследуется)
 create function audit_admin.create_audit_log_partition(month_start date) returns text
-language plpgsql as
+language plpgsql security definer set search_path = pg_catalog as
 $fn$
 declare
     part_name text := 'audit_log_' || to_char(month_start, 'YYYY_MM');
@@ -176,6 +176,10 @@ declare
 begin
     if month_start <> date_trunc('month', month_start)::date then
         raise exception 'начало секции должно быть первым числом месяца: %', month_start;
+    end if;
+    -- функция работает от владельца схемы и доступна роли записи: период ограничен, чтобы её нельзя было использовать для лишних таблиц
+    if month_start < date '2026-01-01' or month_start > (current_date + interval '24 months')::date then
+        raise exception 'секция журнала вне допустимого периода: %', month_start;
     end if;
     execute format('create table if not exists audit_admin.%I partition of audit_admin.audit_log for values from (%L) to (%L)', part_name, from_ts, to_ts);
     if not exists (
@@ -186,7 +190,7 @@ begin
     return part_name;
 end
 $fn$;
-comment on function audit_admin.create_audit_log_partition(date) is 'Создаёт месячную секцию журнала аудита. Вызывается миграцией и ежемесячным заданием за 3 месяца вперёд';
+comment on function audit_admin.create_audit_log_partition(date) is 'Создаёт месячную секцию журнала аудита. Вызывается миграцией и ежесуточным заданием AuditPartitionJob за 3 месяца вперёд под ролью записи: функция работает от владельца схемы (security definer), период ограничен, право выполнения только у роли записи';
 
 create table audit_admin.audit_log_default partition of audit_admin.audit_log default;
 create trigger trg_audit_log_no_truncate before truncate on audit_admin.audit_log_default

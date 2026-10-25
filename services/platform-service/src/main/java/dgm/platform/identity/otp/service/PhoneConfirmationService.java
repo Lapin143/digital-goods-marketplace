@@ -1,6 +1,7 @@
 package dgm.platform.identity.otp.service;
 
 import dgm.kit.keycloak.KeycloakException;
+import dgm.kit.outbox.AuditRecords;
 import dgm.kit.problem.ProblemException;
 import dgm.kit.problem.ProblemType;
 import dgm.platform.identity.domain.PhoneTakenException;
@@ -125,7 +126,7 @@ public final class PhoneConfirmationService {
                     IdentityEvents.phoneConfirmed(userId));
             tx.publish(IdentityEvents.AUDIT_TOPIC, IdentityEvents.AUDIT_AGGREGATE, userId.toString(), IdentityEvents.AUDIT_EVENT, 1,
                     IdentityEvents.userAudit(now, userId, role, IdentityEvents.AUDIT_PHONE_CONFIRMED, userId,
-                            List.of(IdentityEvents.personalChange("phone", null, hasher.hash(salt, "phone", phone.value())),
+                            List.of(AuditRecords.personalChange("phone", null, hasher.hash(salt, "phone", phone.value())),
                                     IdentityEvents.change("phone_confirmed", false, true)),
                             hasher.hash(salt, "ip", ip.orElse(UNKNOWN_IP))));
             return Boolean.TRUE;

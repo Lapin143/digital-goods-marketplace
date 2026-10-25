@@ -578,11 +578,11 @@ $fn$
                and (select array_agg(k order by k) from jsonb_object_keys(e) k) = array['after', 'before', 'field', 'personal']
                and jsonb_typeof(e -> 'field') = 'string' and char_length(e ->> 'field') between 1 and 64
                and jsonb_typeof(e -> 'personal') = 'boolean'
-               and jsonb_typeof(e -> 'before') in ('string', 'null')
-               and jsonb_typeof(e -> 'after') in ('string', 'null')
+               and jsonb_typeof(e -> 'before') in ('string', 'number', 'boolean', 'null')
+               and jsonb_typeof(e -> 'after') in ('string', 'number', 'boolean', 'null')
                and (not (e ->> 'personal')::boolean
-                    or ((e ->> 'before') is null or (e ->> 'before') ~ '^[0-9a-f]{64}$')
-                       and ((e ->> 'after') is null or (e ->> 'after') ~ '^[0-9a-f]{64}$'))
+                    or ((jsonb_typeof(e -> 'before') = 'null' or (jsonb_typeof(e -> 'before') = 'string' and (e ->> 'before') ~ '^[0-9a-f]{64}$')))
+                       and ((jsonb_typeof(e -> 'after') = 'null' or (jsonb_typeof(e -> 'after') = 'string' and (e ->> 'after') ~ '^[0-9a-f]{64}$'))))
            ), true)
     from jsonb_array_elements(case when jsonb_typeof(changes) = 'array' then changes else '[]'::jsonb end) e
 $fn$;
@@ -654,7 +654,7 @@ create trigger trg_audit_log_no_truncate before truncate on audit_admin.audit_lo
 
 -- Месячные секции: функция создаёт секцию и вешает на неё запрет TRUNCATE (триггер уровня оператора не наследуется)
 create function audit_admin.create_audit_log_partition(month_start date) returns text
-language plpgsql as
+language plpgsql security definer set search_path = pg_catalog as
 $fn$
 declare
     part_name text := 'audit_log_' || to_char(month_start, 'YYYY_MM');
@@ -663,6 +663,10 @@ declare
 begin
     if month_start <> date_trunc('month', month_start)::date then
         raise exception 'начало секции должно быть первым числом месяца: %', month_start;
+    end if;
+    -- функция работает от владельца схемы и доступна роли записи: период ограничен, чтобы её нельзя было использовать для лишних таблиц
+    if month_start < date '2026-01-01' or month_start > (current_date + interval '24 months')::date then
+        raise exception 'секция журнала вне допустимого периода: %', month_start;
     end if;
     execute format('create table if not exists audit_admin.%I partition of audit_admin.audit_log for values from (%L) to (%L)', part_name, from_ts, to_ts);
     if not exists (
@@ -673,7 +677,7 @@ begin
     return part_name;
 end
 $fn$;
-comment on function audit_admin.create_audit_log_partition(date) is 'Создаёт месячную секцию журнала аудита. Вызывается миграцией и ежемесячным заданием за 3 месяца вперёд';
+comment on function audit_admin.create_audit_log_partition(date) is 'Создаёт месячную секцию журнала аудита. Вызывается миграцией и ежесуточным заданием AuditPartitionJob за 3 месяца вперёд под ролью записи: функция работает от владельца схемы (security definer), период ограничен, право выполнения только у роли записи';
 
 create table audit_admin.audit_log_default partition of audit_admin.audit_log default;
 create trigger trg_audit_log_no_truncate before truncate on audit_admin.audit_log_default
@@ -732,6 +736,11 @@ grant select, insert, update on audit_admin.platform_parameter to app_audit_admi
 -- журнал: только INSERT и SELECT, ни UPDATE, ни DELETE, ни TRUNCATE (ADR-014)
 grant usage on schema audit_admin to app_audit_writer;
 grant select, insert on audit_admin.audit_log to app_audit_writer;
+-- строки страховочной секции задание AuditPartitionJob считает напрямую (через родительскую таблицу пришлось бы читать все секции)
+grant select on audit_admin.audit_log_default to app_audit_writer;
+-- секции на три месяца вперёд создаёт ежесуточное задание под ролью записи через функцию владельца (security definer): прав CREATE на схему у роли нет
+revoke all on function audit_admin.create_audit_log_partition(date) from public;
+grant execute on function audit_admin.create_audit_log_partition(date) to app_audit_writer;
 
 grant usage on schema public to app_identity, app_support, app_notification, app_audit_admin, app_audit_writer;
 grant select, insert, update, delete on public.outbox, public.processed_event, public.idempotency_key
@@ -745,5 +754,5 @@ comment on function identity.user_account_touch() is 'Идентификатор
 comment on function support.ticket_touch() is 'Заказ, покупатель, источник и причина обращения неизменны, версия растёт на единицу';
 comment on function audit_admin.platform_parameter_guard() is 'Ключ параметра неизменен, версия растёт на единицу при каждой правке (ETag)';
 comment on function audit_admin.check_session_shorter_than_reserve() is 'Срок платёжной сессии строго короче срока резерва (INV-07): проверка под консультативной блокировкой при правке любого из двух параметров';
-comment on function audit_admin.audit_changes_valid(jsonb) is 'Форма поля changes журнала аудита: массив записей «поле, признак персональных данных, до, после», у персональных полей значения только HMAC-хеши (INV-42)';
+comment on function audit_admin.audit_changes_valid(jsonb) is 'Форма поля changes журнала аудита: массив записей «поле, признак персональных данных, до, после»; у неперсональных значения строка, число, булево или null (как в контракте AuditChange), у персональных только HMAC-хеш или null (INV-42)';
 comment on function audit_admin.audit_log_deny() is 'Запрещает изменение, удаление и очистку записей журнала аудита для всех ролей, в том числе владельца (INV-42)';

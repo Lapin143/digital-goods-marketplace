@@ -101,16 +101,6 @@ public final class IdentityEvents {
         return change;
     }
 
-    /** Изменение персонального поля: в журнал идут только HMAC-хеши значений (ADR-014), {@code before} пуст при первом заполнении. */
-    public static Map<String, Object> personalChange(String field, String beforeHash, String afterHash) {
-        Map<String, Object> change = new LinkedHashMap<>();
-        change.put("field", field);
-        change.put("personal", true);
-        change.put("before", beforeHash);
-        change.put("after", afterHash);
-        return change;
-    }
-
     /**
      * Запись аудита о действии самого пользователя над своей записью: адрес в журнал идёт хешем (у пользователя, в отличие от сотрудника,
      * он персональный, ADR-014).
