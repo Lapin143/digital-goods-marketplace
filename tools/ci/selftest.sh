@@ -202,13 +202,17 @@ PY
       "не читает это событие" tools/docs-checks/check_code_docs.py
     mutate_repo "check_code_docs находит сервис без права на тему" "infra/kafka/topics.sh" 'allow catalog-service --operation Read --operation Describe --topic inventory.events --topic platform.config' 'allow catalog-service --operation Read --operation Describe --topic platform.config' \
       "нет права READ на тему inventory.events" tools/docs-checks/check_code_docs.py
+    mutate_repo "check_code_docs находит событие среза 3, которого нет в каталоге" "tools/docs-checks/check_code_docs.py" "'user.registered', 'user.email-changed'" "'user.registered', 'user.email-changedx'" \
+      "событие user.email-changedx среза 3 не найдено в каталоге" tools/docs-checks/check_code_docs.py
+    mutate_repo "check_code_docs находит событие среза 3, которое уже издаётся, но числится неизданным" "tools/docs-checks/check_code_docs.py" "    'config.changed': 6," "    'config.changed': 6, 'user.registered': 3," \
+      "событие user.registered уже издаётся в коде" tools/docs-checks/check_code_docs.py
     mutate_repo "check_code_docs находит событие среза 2, которого нет в каталоге" "tools/docs-checks/check_code_docs.py" "'order.created', 'order.paid', 'order.cancelled'" "'order.created', 'order.paidx', 'order.cancelled'" \
       "событие order.paidx среза 2 не найдено в каталоге" tools/docs-checks/check_code_docs.py
     # Реестры готовности: статус slice2 допустим, а --strict (закрытие среза) краснеет, пока в реестре есть операция среза 1 или 2.
     mutate_repo "check_ledger --strict находит незакрытую операцию среза" "services/inventory-service/src/test/resources/dgm/operations.txt" 'getProductStock     done' 'getProductStock     slice2' \
       "срез не закрыт, не готово" tools/docs-checks/check_ledger.py --strict
-    mutate_repo "check_ledger находит неизвестный статус" "services/inventory-service/src/test/resources/dgm/operations.txt" 'getProductStock     done' 'getProductStock     slice3' \
-      "неизвестный статус «slice3»" tools/docs-checks/check_ledger.py
+    mutate_repo "check_ledger находит неизвестный статус" "services/inventory-service/src/test/resources/dgm/operations.txt" 'getProductStock     done' 'getProductStock     slice9' \
+      "неизвестный статус «slice9»" tools/docs-checks/check_ledger.py
     mutate_repo "check_testcases находит пропуск в нумерации вне резерва" "docs/08-testing/TC-performance.md" '| TC-068, TC-069 |' '| TC-068 |' \
       "ожидался TC-069" tools/docs-checks/check_testcases.py
     mutate_repo "check_traceability находит клетку «Тест-кейс», не равную расчёту по тест-кейсам" "docs/08-testing/traceability.md" '| TC-070 | `tools/stand-checks` |' '| TC-071 | `tools/stand-checks` |' \

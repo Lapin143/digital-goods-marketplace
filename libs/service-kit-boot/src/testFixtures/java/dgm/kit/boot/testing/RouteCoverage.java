@@ -30,12 +30,13 @@ import org.springframework.web.bind.annotation.RestController;
  */
 public final class RouteCoverage {
 
-    /** Статусы реестра операций: обработчик есть; войдёт в срез 1; войдёт в срез 2; относится к срезу 3 или Ф5. */
+    /** Статусы реестра операций: обработчик есть; войдёт в срез 1; войдёт в срез 2; войдёт в срез 3; относится к Ф5. */
     public static final String DONE = "done";
     public static final String SLICE = "slice1";
     public static final String SLICE2 = "slice2";
+    public static final String SLICE3 = "slice3";
     public static final String LATER = "later";
-    private static final Set<String> STATUSES = Set.of(DONE, SLICE, SLICE2, LATER);
+    private static final Set<String> STATUSES = Set.of(DONE, SLICE, SLICE2, SLICE3, LATER);
 
     private RouteCoverage() {
     }
@@ -91,7 +92,7 @@ public final class RouteCoverage {
 
     /**
      * Полнота операций (находка 5 плана Ф4). Сверяет три вещи: операции из OpenAPI (файл правил маршрутов), обработчики контроллеров и реестр
-     * готовности {@code ledgerResource}, где каждая операция записана строкой «имя статус» ({@code done}, {@code slice1}, {@code slice2}, {@code later};
+     * готовности {@code ledgerResource}, где каждая операция записана строкой «имя статус» ({@code done}, {@code slice1}, {@code slice2}, {@code slice3}, {@code later};
      * после {@code #} комментарий). Красным запуск становится, если
      * <ul>
      * <li>операция есть в OpenAPI и нет в реестре, или наоборот: новая операция не может остаться без решения «когда»;</li>

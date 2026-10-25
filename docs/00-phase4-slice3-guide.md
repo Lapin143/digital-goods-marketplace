@@ -103,6 +103,7 @@
 | --- | --- | --- | --- |
 | F4-25 | Руководство называло для Р-163 только DDL роли `app_orders_read`, но рабочая роль PostgreSQL на стенде это ещё пароль-секрет, запись в `infra/postgres/roles.json`, `infra/pki/inventory.json`, секреты `compose.yaml` и предел соединений: `check_db_roles.py` требует их все, а сумма пределов ролей сервиса не больше 8. Без этого `make reset` не создаёт роль с паролем | 2 | Добавлены секрет `db_app_orders_read` (читатели `order-service` и `postgres`), запись в `roles.json`, секреты в `compose.yaml`; предел 8 разделён: `app_orders` 6 (пул 5 и публикатор Outbox, `pool-size: 5`), `app_orders_read` 2 |
 | F4-26 | Сверка контрактов с решениями среза: у `resendKeyForTicket` 409 различал только `state-conflict` и `request-in-progress`, а Р-170 и US-7.3 требуют отдельных причин; у `listAuditRecords` и `getSellerApplicationCard` не было 503 при сбое самозаписи (Р-166); лимит создания обращений (Р-177) не был описан в `createSupportTicket` | 2 | В реестр ошибок добавлены `ticket-not-in-progress` и `delivery-in-progress` (39 → 41: `conventions.md`, `ProblemType`, `ProblemTypeTest`, README библиотеки, схема `Problem.code`), добавлен общий ответ, 503 у двух операций, описания трёх операций дополнены |
+| F4-27 | Шаг 3 велел создать пустые каркасы сценариев Newman, заготовки целей `make` и новую библиотеку `lib.py`. Сборщик `build.py` отвергает сценарий без шагов, цель без скрипта не проходит охват `check_guide_commands.py`, а вход сотрудника и вызов с заголовками уже есть в `seller_approval_checks.py` и `gateway_checks.py` | 3 | Ничего из этого не создано: сценарии и цели появляются вместе с первой готовой операцией (шаги 5, 8, 9, 17); `wait_sms` добавлен в существующий `StubsAdmin` |
 
 ## Время по шагам
 
@@ -257,20 +258,22 @@
 
 ## Шаг 3. Тестовая основа: статус `slice3`, события среза, помощники стенда
 
-**Файлы:** `services/{platform-service,order-service}/src/test/resources/dgm/operations.txt`, `tools/docs-checks/{check_ledger,check_code_docs}.py`, `tools/stand-checks/{stubs_admin,kc_client,lib}.py`, `tools/api-tests/scenarios/`, `.github/workflows/ci.yml`, `Makefile`.
+**Файлы:** `services/*/src/test/resources/dgm/operations.txt`, `libs/service-kit-boot/src/testFixtures/java/dgm/kit/boot/testing/RouteCoverage.java`, `tools/docs-checks/{check_ledger,check_code_docs}.py`, `tools/ci/selftest.sh`, `tools/stand-checks/{stubs_admin,test_stubs_admin}.py`.
 
 **3.1. Реестры.** Операции среза переводятся из `later` в `slice3` (Р-162), `check_ledger.py --strict` закрывает срез, когда все 17 стали `done`. Тест `RoutesTest` сервиса по-прежнему сверяет реестр с OpenAPI и контроллерами.
 
 **3.2. События.** В `check_code_docs.py` появляются `SLICE3_EVENTS` (`user.registered`, `user.email-changed`, `order.address-updated`, `notification.failed`, `config.changed`) и `UNPUBLISHED_SLICE3` (`config.changed`: шаг 6, `order.address-updated`: шаг 11, `user.email-changed`: шаг 15); в `LATER_CONSUMERS` добавляются семь пар (`audit-consumer` и четыре письма уже там): `delivery-domain` для `order.address-updated`, `notification-handler` для `user.email-changed`, пять `config-listener`. Список `UNPUBLISHED_SLICE3` и все новые записи `LATER_CONSUMERS` убирает тот шаг, где они появляются; к шагу 23 оба пусты.
 
-**3.3. Помощники стенда.** Сотрудники для проверок (оператор поддержки и администратор с областями `staff.support`, `staff.admin`, `staff.audit` и вторым фактором) заводятся как модератор в срезе 1 (`make keycloak-users`); покупатель с ограниченной сессией по SMS как в `sms_login_checks.py`. `StubsAdmin` умеет читать SMS и письма (`sms`, `emails`, `wait_email`); добавляется `wait_sms(to, count)` и разбор кода из текста, чтобы стенд проходил путь покупателя без доступа к Redis. Каркас сценариев Newman `support.json` и `admin.json` (пустая коллекция с проверкой схемы ответов), общая библиотека `lib.py` получает вход сотрудника и вызов с `If-Match`.
+**3.3. Помощники стенда.** Сотрудники для проверок (оператор поддержки и администратор с областями `staff.support`, `staff.admin`, `staff.audit` и вторым фактором) заводятся как модератор в срезе 1 (`make keycloak-users`); покупатель с ограниченной сессией по SMS как в `sms_login_checks.py`. `StubsAdmin` умеет читать SMS и письма (`sms`, `emails`, `wait_email`); добавляется `wait_sms(to, count)` и разбор кода из текста, чтобы стенд проходил путь покупателя без доступа к Redis. Вход сотрудника со вторым фактором уже есть (`Staff` в `seller_approval_checks.py`, `staff_login` в `accounts_checks.py`), вызов с `If-Match` делает `gateway_checks.call(headers=...)`, отдельная библиотека не нужна. Каркасы сценариев Newman и заготовки целей `make` заранее не создаются (F4-27): сборщик отвергает сценарий без шагов, а цель без скрипта нарушает охват `check_guide_commands.py`; `admin.json` появляется на шаге 5, `support.json` на шаге 9, цели `audit-check` и `parameters-check` на шаге 8, `support-check` и `email-change-check` на шаге 17 вместе со скриптами.
 
-**3.4. Цели `make`.** Заготовки целей `audit-check`, `parameters-check`, `support-check`, `email-change-check` (описание в справке `make help`, проверку `check_guide_commands.py` они проходят); тела заполняют шаги 8 и 17.
+**3.4. Цели `make`.** Откладываются, см. 3.3.
 
 *Что проверить:*
 
 - `check_ledger.py` показывает 17 операций `slice3`, `check_code_docs.py` проходит без замечаний, `selftest.sh docs` зелёный.
 - Токены оператора и администратора выдаются, у оператора без области `staff.audit` журнал отвечает 403 (проверка шага 5).
+
+**Результат (25 октября).** Все 17 операций среза переведены в `slice3` (16 в `platform-service`, `updateDeliveryAddress` в `order-service`): `check_ledger.py` показывает «срез 3: 17», `RouteCoverage` знает статус, `--strict` пока смотрит только `slice1` и `slice2` (`slice3` войдёт в строгую проверку на шаге 23, иначе `run_all.sh` краснел бы весь срез). В `check_code_docs.py` появились `SLICE3_EVENTS` (пять событий) и `UNPUBLISHED_SLICE3` (шаги 6, 11, 15), добавлено семь пар `LATER_CONSUMERS` и новая проверка: каждое событие каталога R1 отнесено к одному из трёх срезов (38 = 15 + 18 + 5). `selftest.sh docs` получил две проверки среза 3 и больше не использует `slice3` как пример неизвестного статуса. `StubsAdmin.wait_sms` и `sms_code` (с тремя модульными тестами). Токены сотрудников выдаёт существующий вход (`support-1`, `admin-1` со вторым фактором, роль и область `staff.audit` только у администратора, `gen_realm.py`).
 
 **Commit:** `test: статус slice3, события среза 3, помощники стенда (Р-162)`.
 

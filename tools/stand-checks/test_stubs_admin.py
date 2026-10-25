@@ -86,6 +86,25 @@ class StubsAdminTest(unittest.TestCase):
             S.StubsAdmin(net, poll_seconds=0.01).wait_email(count=2, wait=0.05, to='b')
         self.assertIn('найдено 0 из 2', str(ctx.exception))
 
+    def test_wait_sms_returns_when_enough_and_passes_the_number(self):
+        answers = iter([{'items': []}, {'items': [{'to': '+79990000001', 'code': '123456'}]}])
+        net = FakeNet({('GET', '/admin/sms'): lambda: next(answers)})
+        found = S.StubsAdmin(net, poll_seconds=0.01).wait_sms('+79990000001', wait=5)
+        self.assertEqual(S.StubsAdmin.sms_code(found[-1]), '123456')
+        self.assertEqual(net.calls[0][1], '/admin/sms?to=%2B79990000001')
+
+    def test_wait_sms_times_out_with_explanation(self):
+        net = FakeNet({('GET', '/admin/sms'): {'items': []}})
+        with self.assertRaises(S.StubsError) as ctx:
+            S.StubsAdmin(net, poll_seconds=0.01).wait_sms('+79990000002', count=2, wait=0.05)
+        self.assertIn('найдено 0 из 2', str(ctx.exception))
+
+    def test_sms_code_from_field_or_text(self):
+        self.assertEqual(S.StubsAdmin.sms_code({'code': 654321, 'text': 'x'}), '654321')
+        self.assertEqual(S.StubsAdmin.sms_code({'text': 'Код подтверждения 112233, никому не сообщайте'}), '112233')
+        self.assertIsNone(S.StubsAdmin.sms_code({'text': 'Номер заказа 1234567'}))
+        self.assertIsNone(S.StubsAdmin.sms_code({}))
+
     def test_find_payment_by_predicate(self):
         net = FakeNet({('GET', '/admin/payments'): {'items': [{'paymentId': 'a', 'orderId': 'o1'}, {'paymentId': 'b', 'orderId': 'o2'}]}})
         found = S.StubsAdmin(net, poll_seconds=0.01).find_payment(lambda p: p['orderId'] == 'o2', wait=1)

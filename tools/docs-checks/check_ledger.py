@@ -3,13 +3,14 @@
 """Реестры готовности операций сервисов (находка 5 плана Ф4).
 
 В каждом сервисе файл src/test/resources/dgm/operations.txt перечисляет все операции его OpenAPI со статусом: done (обработчик есть),
-slice1 (войдёт в срез 1, обработчика ещё нет), slice2 (войдёт в срез 2 «Заказ, оплата, выдача», обработчика ещё нет), later (срез 3, Ф5). Что обработчик действительно есть у done и нет у остальных, проверяет
+slice1 (войдёт в срез 1, обработчика ещё нет), slice2 (войдёт в срез 2 «Заказ, оплата, выдача», обработчика ещё нет), slice3 (войдёт в срез 3 «Поддержка, аудит, администрирование»), later (Ф5). Что обработчик действительно есть у done и нет у остальных, проверяет
 тест сервиса (RouteCoverage.ledgerProblems), а здесь проверяется то, что не требует Java:
   1. реестр содержит ровно операции из routes.json сервиса (его создаёт gen_routes.py из OpenAPI), каждую один раз, статусы допустимы;
   2. печатается ход среза: сколько операций готово и сколько ещё в работе по сервисам.
 Запуск:
     python3 tools/docs-checks/check_ledger.py            проверка согласованности, ход среза в справке
-    python3 tools/docs-checks/check_ledger.py --strict   то же, но красный, пока в реестре остаётся хоть одна операция slice1 или slice2 (закрытие среза)
+    python3 tools/docs-checks/check_ledger.py --strict   то же, но красный, пока в реестре остаётся хоть одна операция среза (OPEN_SLICE: slice1 и slice2; slice3 добавляется
+                                                         в OPEN_SLICE на шаге 23 среза 3, когда все 17 операций готовы)
 """
 import json
 import os
@@ -20,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import docslib as L
 
 SERVICES = ['catalog-service', 'inventory-service', 'order-service', 'payment-service', 'delivery-service', 'platform-service']
-STATUSES = ('done', 'slice1', 'slice2', 'later')
+STATUSES = ('done', 'slice1', 'slice2', 'slice3', 'later')
 OPEN_SLICE = ('slice1', 'slice2')
 
 
@@ -70,14 +71,14 @@ def main(argv):
         counts = {s: sum(1 for v in ledger.values() if v == s) for s in STATUSES}
         for s in STATUSES:
             totals[s] += counts[s]
-        rep.fact('%-18s операций %2d: готово %2d, срез 1 %2d, срез 2 %2d, позже %2d'
-                 % (service, len(declared), counts['done'], counts['slice1'], counts['slice2'], counts['later']))
+        rep.fact('%-18s операций %2d: готово %2d, срез 1 %2d, срез 2 %2d, срез 3 %2d, позже %2d'
+                 % (service, len(declared), counts['done'], counts['slice1'], counts['slice2'], counts['slice3'], counts['later']))
         if strict and any(counts[s] for s in OPEN_SLICE):
             open_ops = sorted(op for op, v in ledger.items() if v in OPEN_SLICE)
             rep.err(where, 'срез не закрыт, не готово %d: %s' % (len(open_ops), ', '.join(open_ops)))
-    slice_total = totals['done'] + totals['slice1'] + totals['slice2']
-    rep.fact('срезы 1 и 2 и сделанное раньше: %d операций, из них готово %d, осталось: срез 1 %d, срез 2 %d; позже (срез 3, Ф5): %d'
-             % (slice_total, totals['done'], totals['slice1'], totals['slice2'], totals['later']))
+    slice_total = totals['done'] + totals['slice1'] + totals['slice2'] + totals['slice3']
+    rep.fact('операции R1: %d, из них готово %d, осталось: срез 1 %d, срез 2 %d, срез 3 %d; позже (Ф5): %d'
+             % (slice_total, totals['done'], totals['slice1'], totals['slice2'], totals['slice3'], totals['later']))
     return rep.finish()
 
 

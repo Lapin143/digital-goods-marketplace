@@ -61,7 +61,7 @@ def load():
 
 
 def ledger(service):
-    """Статусы операций сервиса из его реестра: идентификатор -> done, slice1, slice2 или later. Пустой словарь, если реестра нет."""
+    """Статусы операций сервиса из его реестра: идентификатор -> done, slice1, slice2, slice3 или later. Пустой словарь, если реестра нет."""
     path = os.path.join(REPO, 'services', service, 'src', 'test', 'resources', 'dgm', 'operations.txt')
     result = {}
     if not os.path.exists(path):

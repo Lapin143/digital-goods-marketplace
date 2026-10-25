@@ -51,6 +51,20 @@ SLICE2_EVENTS = (
 UNPUBLISHED_SLICE2 = {
 }
 
+# События среза 3 «Поддержка, аудит, администрирование» (руководство среза 3, Р-162): пять событий R1, которых не было в срезах 1 и 2.
+# `user.registered` и `notification.failed` издаются с Ф3 и среза 2, три остальных появятся в этом срезе.
+SLICE3_EVENTS = (
+    'user.registered', 'user.email-changed', 'order.address-updated', 'notification.failed', 'config.changed',
+)
+
+# События среза 3, которые код ещё не издаёт: событие -> шаг руководства среза 3, где издание появится (так же, как UNPUBLISHED_SLICE2).
+# Запись убирает тот шаг, где издание появилось; к шагу 23 словарь пуст.
+UNPUBLISHED_SLICE3 = {
+    'config.changed': 6,
+    'order.address-updated': 11,
+    'user.email-changed': 15,
+}
+
 # Потребители событий, которых код получит позже: событие -> {(сервис, обработчик)}. Пока обработчика нет, пара стоит здесь; появился обработчик,
 # запись надо убрать (проверка скажет). Так каталог (он описывает R1 целиком) и код среза расходятся только там, где это записано.
 # Пары среза 2 ушли на шагах 5, 9, 11, 13 и 15 руководства среза 2 (order-service на шаге 11, delivery-service на шаге 13, platform-service на шаге 15);
@@ -61,6 +75,10 @@ LATER_CONSUMERS = {
     'product.blocked': {('platform-service', 'notification-handler')},
     'user.deactivated': {('platform-service', 'notification-handler')},  # письмо о деактивации, FT-11.0, срез 3
     'audit.recorded': {('platform-service', 'audit-consumer')},  # потребитель журнала аудита, срез 3
+    # Пары, которые добавляет срез 3 (шаги руководства среза 3 убирают их по одной)
+    'order.address-updated': {('delivery-service', 'delivery-domain')},  # повторная выдача по новому адресу, шаг 12
+    'user.email-changed': {('platform-service', 'notification-handler')},  # письма о смене e-mail, шаг 15
+    'config.changed': {(s, 'config-listener') for s in ('catalog-service', 'delivery-service', 'inventory-service', 'order-service', 'payment-service')},  # слушатель параметров, шаг 7
 }
 
 EVENTS_README = os.path.join(L.DOCS, '06-api', 'events', 'README.md')
@@ -291,23 +309,30 @@ def check_events(rep):
     for e in SLICE2_EVENTS:
         if e not in catalog:
             rep.err(where, 'событие %s среза 2 не найдено в каталоге R1' % e)
+    for e in SLICE3_EVENTS:
+        if e not in catalog:
+            rep.err(where, 'событие %s среза 3 не найдено в каталоге R1' % e)
+    for e in sorted(set(catalog) - set(SLICE1_EVENTS) - set(SLICE2_EVENTS) - set(SLICE3_EVENTS)):
+        rep.err(where, 'событие R1 %s не отнесено ни к одному срезу (SLICE1_EVENTS, SLICE2_EVENTS, SLICE3_EVENTS)' % e)
     for e in sorted(set(UNPUBLISHED_SLICE2) - set(SLICE2_EVENTS)):
         rep.err(where, 'событие %s записано в UNPUBLISHED_SLICE2, а в SLICE2_EVENTS его нет' % e)
+    for e in sorted(set(UNPUBLISHED_SLICE3) - set(SLICE3_EVENTS)):
+        rep.err(where, 'событие %s записано в UNPUBLISHED_SLICE3, а в SLICE3_EVENTS его нет' % e)
     topics, rights = acl(rep)
     handlers = {s: event_handlers(s, rep) for s in LG.SERVICES}
     published = {s: published_events(s, set(catalog)) for s in LG.SERVICES}
     stats = {'events': 0, 'consumers': 0, 'later': 0, 'unpublished': 0}
-    for e in SLICE1_EVENTS + SLICE2_EVENTS:
+    for e in SLICE1_EVENTS + SLICE2_EVENTS + SLICE3_EVENTS:
         info = catalog.get(e)
         if not info:
             continue
         stats['events'] += 1
         owners = [info['owner']] if info['owner'] in LG.SERVICES else list(LG.SERVICES)
         is_published = any(e in published[s] for s in owners)
-        if e in UNPUBLISHED_SLICE2:
+        if e in UNPUBLISHED_SLICE2 or e in UNPUBLISHED_SLICE3:
             stats['unpublished'] += 1
             if is_published:
-                rep.err(where, 'событие %s уже издаётся в коде: уберите его из UNPUBLISHED_SLICE2' % e)
+                rep.err(where, 'событие %s уже издаётся в коде: уберите его из %s' % (e, 'UNPUBLISHED_SLICE2' if e in UNPUBLISHED_SLICE2 else 'UNPUBLISHED_SLICE3'))
         elif not is_published:
             rep.err(where, 'событие %s: в коде издателя (%s) нет строки с типом события, издание не реализовано' % (e, ', '.join(owners)))
         later = LATER_CONSUMERS.get(e, set())
@@ -360,7 +385,7 @@ def main():
     rep = L.Report('Документы = код')
     ops = check_operations(rep)
     ev = check_events(rep)
-    rep.fact('операций со статусом done: %d, методов контроллеров: %d; событий среза 1 и 2: %d, из них издаётся в коде: %d; потребителей реализовано: %d, придут позже: %d'
+    rep.fact('операций со статусом done: %d, методов контроллеров: %d; событий срезов 1 – 3: %d, из них издаётся в коде: %d; потребителей реализовано: %d, придут позже: %d'
              % (ops['done'], ops['handlers'], ev['events'], ev['events'] - ev['unpublished'], ev['consumers'], ev['later']))
     return rep.finish()
 

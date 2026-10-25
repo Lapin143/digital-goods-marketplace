@@ -19,6 +19,7 @@ https://127.0.0.1:18444, отладочный порт набора), KC_CA (ф�
 import contextlib
 import json
 import os
+import re
 import sys
 import time
 import urllib.parse
@@ -173,6 +174,26 @@ class StubsAdmin:
         query = {k: v for k, v in (('to', to), ('all', '1' if everything else None)) if v}
         suffix = '?' + urllib.parse.urlencode(query) if query else ''
         return self._items(self._call('GET', '/admin/sms' + suffix))
+
+    @staticmethod
+    def sms_code(item):
+        """Одноразовый код из SMS: поле `code`, которое заглушка выделяет сама, а если его нет, шесть цифр подряд из текста; нет кода: None."""
+        if item.get('code'):
+            return str(item['code'])
+        found = re.search(r'(?<!\d)(\d{6})(?!\d)', item.get('text') or '')
+        return found.group(1) if found else None
+
+    def wait_sms(self, to, count=1, wait=20.0, everything=False):
+        """Ждёт, пока SMS на номер `to` станет не меньше `count` (как wait_email); возвращает их. `everything` берёт и недоставленные.
+        Так стенд проходит путь покупателя (смена e-mail по коду из SMS, срез 3), не заглядывая в Redis платформы."""
+        deadline = time.time() + wait
+        while True:
+            found = self.sms(to=to, everything=everything)
+            if len(found) >= count:
+                return found
+            if time.time() >= deadline:
+                raise StubsError('SMS на %s: найдено %d из %d за %.0f с' % (to, len(found), count, wait))
+            time.sleep(self.poll_seconds)
 
     # --------------------------------------------------------------------------------------------- журнал
     def journal(self, since=0, system=None, kind=None):
