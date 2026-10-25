@@ -8333,7 +8333,7 @@ components:
           type: string
           pattern: ^[a-z]+(\.[a-z_]+)+$
           maxLength: 64
-          description: Код действия, например `product.rejected`, `refund.marked_manual`
+          description: 'Код действия, например `product.rejected`, `refund.marked_manual`. Чтение тоже действие (Р-166 среза 3): `audit.viewed` (администратор открыл журнал) и `seller.document_opened` (модератор получил ссылку на документ заявки). Первая часть кода без дефиса и подчёркивания'
         objectType:
           type: string
           minLength: 1
@@ -8348,7 +8348,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AuditChange'
-          description: Список изменений полей
+          description: 'Список изменений полей. У записи «журнал открыт» (`audit.viewed`) он пустой: параметры поиска в запись не попадают. У `seller.document_opened` одно изменение `documentId` (идентификатор документа, содержимого и ссылки нет)'
         actorIp:
           type: string
           maxLength: 128

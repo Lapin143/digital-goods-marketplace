@@ -2601,12 +2601,12 @@ components:
               before:
                 oneOf:
                 - type: string
-                  description: Значение до изменения или хеш
+                  description: Значение до изменения или хеш. Число и логическое значение отдаются строкой (`900`, `true`), журнал хранит их как есть
                 - type: 'null'
               after:
                 oneOf:
                 - type: string
-                  description: Значение после изменения или хеш
+                  description: Значение после изменения или хеш. Число и логическое значение отдаются строкой (`1200`, `false`), журнал хранит их как есть
                 - type: 'null'
             required:
             - field
