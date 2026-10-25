@@ -60,7 +60,6 @@ SLICE3_EVENTS = (
 # События среза 3, которые код ещё не издаёт: событие -> шаг руководства среза 3, где издание появится (так же, как UNPUBLISHED_SLICE2).
 # Запись убирает тот шаг, где издание появилось; к шагу 23 словарь пуст.
 UNPUBLISHED_SLICE3 = {
-    'config.changed': 6,
     'order.address-updated': 11,
     'user.email-changed': 15,
 }

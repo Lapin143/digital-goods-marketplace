@@ -13,8 +13,10 @@ createPhoneConfirmation  done
 deactivateUser           done
 issueOtpCode             done
 listAuditRecords         done
+listPlatformParameters   done
 listStaffUsers           done
 receiveSmsStatus         done
+setPlatformParameter     done
 verifyOtpCode            done
 verifyPhoneConfirmation  done
 
@@ -22,14 +24,12 @@ createSupportTicket      slice3
 getEmailChangeState      slice3
 getStaffSupportTicket    slice3
 getSupportTicket         slice3
-listPlatformParameters   slice3
 listSupportTicketQueue   slice3
 listSupportTickets       slice3
 receiveMailStatus        slice3
 releaseSupportTicket     slice3
 requestEmailChangeCode   slice3
 resendKeyForTicket       slice3
-setPlatformParameter     slice3
 startEmailChange         slice3
 takeSupportTicket        slice3
 verifyEmailChangeCode    slice3
