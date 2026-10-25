@@ -84,6 +84,24 @@ class DeliveryStatusesTest {
         assertEquals(1, meters.timer("delivery_time_seconds", "stage", "delivered").count(), "время от оплаты до доставки записано");
     }
 
+    @Tag("TC-613")
+    @Test
+    void aDeliveredRepeatCarriesTheRepeatTypeAndDoesNotEnterTheTimeFromThePayment() {
+        UUID repeat = UUID.fromString("0199e0a0-0000-7000-8000-000000000102");
+        deliveries.addSentRepeat(repeat, ORDER, BUYER, "new@mail.example", "Игра", 2, 1, T0.minusSeconds(2));
+
+        assertEquals(Result.APPLIED, statuses.apply(new StatusNotice(repeat.toString(), ProviderStatus.DELIVERED, T0.plusSeconds(3), null)));
+
+        assertEquals("delivered", deliveries.row(repeat).status);
+        assertEquals("sent", deliveries.row(ID).status, "первичная выдача заказа не затронута");
+        List<FakeTransaction.Published> events = transaction.published("delivery.delivered");
+        assertEquals(1, events.size());
+        assertEquals(repeat.toString(), events.get(0).data().get("deliveryId"));
+        assertEquals("repeat", events.get(0).data().get("deliveryType"));
+        assertEquals(0, meters.timer("delivery_time_seconds", "stage", "delivered").count(),
+                "время от оплаты считается по первичной выдаче: повторная через дни испортила бы порог NFT-2.0");
+    }
+
     @Test
     void aFailedStatusMakesTheSentDeliveryFailedWithTheAddressReasonAndPublishesOneEvent() {
         assertEquals(Result.APPLIED, statuses.apply(notice(ProviderStatus.FAILED, T0.plusSeconds(3), "address_rejected")));

@@ -23,6 +23,15 @@ public interface DeliveryRepository {
      */
     boolean insertPrimary(UUID id, UUID orderId, UUID buyerId, String address, String productTitle, int quantity, Instant now);
 
+    /**
+     * Создаёт повторную выдачу в очереди на новый адрес (SM-06/T1, Р-170): покупатель, название товара и число ключей берутся из первичной
+     * выдачи заказа, срок первой попытки наступает сразу. Не создаёт ничего, если первичной выдачи нет либо у заказа уже есть выдача в очереди
+     * (уникальный индекс {@code uq_delivery_order_id_queued}, ADR-011): гонка двух одинаковых событий кончается одной выдачей.
+     *
+     * @return {@code true}: выдача создана; {@code false}: первичной выдачи нет или в очереди уже есть выдача заказа
+     */
+    boolean insertRepeat(UUID id, UUID orderId, String address, Instant now);
+
     /** Открывает контроль доставки заказа (одна запись на заказ). Повтор даёт {@code false}. */
     boolean insertWatch(UUID orderId, Instant deadline, Instant now);
 

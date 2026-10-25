@@ -76,11 +76,14 @@ public final class DeliveryOutcomes {
         }
         transaction.publish(DeliveryEvents.TOPIC, DeliveryEvents.AGGREGATE, d.orderId().toString(), DeliveryEvents.ACCEPTED, DeliveryEvents.SCHEMA_VERSION,
                 DeliveryEvents.accepted(d.id(), d.orderId(), d.kind(), d.nextAttemptNo(), finishedAt));
-        // NFT-2.0: от оплаты до приёма письма провайдером; момент оплаты это срок контроля минус окно
-        deliveries.watchDeadline(d.orderId()).ifPresent(deadline -> {
-            Duration sincePayment = Duration.between(deadline.minus(settings.controlWindow()), finishedAt);
-            meters.timer("delivery_time_seconds", "stage", "sent").record(sincePayment.isNegative() ? Duration.ZERO : sincePayment);
-        });
+        // NFT-2.0: от оплаты до приёма письма провайдером; момент оплаты это срок контроля минус окно. Повторная выдача (через дни после оплаты)
+        // в это время не входит: она исказила бы порог и оповещение по первичной доставке
+        if (d.primary()) {
+            deliveries.watchDeadline(d.orderId()).ifPresent(deadline -> {
+                Duration sincePayment = Duration.between(deadline.minus(settings.controlWindow()), finishedAt);
+                meters.timer("delivery_time_seconds", "stage", "sent").record(sincePayment.isNegative() ? Duration.ZERO : sincePayment);
+            });
+        }
         return true;
     }
 

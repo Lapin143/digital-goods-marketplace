@@ -73,6 +73,14 @@ public final class JdbcDeliveryRepository implements DeliveryRepository {
     }
 
     @Override
+    public boolean insertRepeat(UUID id, UUID orderId, String address, Instant now) {
+        return jdbc.update("insert into delivery.delivery (id, order_id, buyer_id, kind, channel, address, product_title, quantity, attempt_no, "
+                + "next_attempt_at, status, created_at, updated_at) select ?, order_id, buyer_id, 'repeat', 'email', ?, product_title, quantity, 0, ?, "
+                + "'queued', ?, ? from delivery.delivery where order_id = ? and kind = 'primary' on conflict do nothing",
+                id, address, time(now), time(now), time(now), orderId) == 1;
+    }
+
+    @Override
     public boolean insertWatch(UUID orderId, Instant deadline, Instant now) {
         return jdbc.update("insert into delivery.delivery_watch (order_id, deadline_at, status, created_at) values (?, ?, 'open', ?) on conflict do nothing",
                 orderId, time(deadline), time(now)) == 1;

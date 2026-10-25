@@ -75,7 +75,6 @@ LATER_CONSUMERS = {
     'product.blocked': {('platform-service', 'notification-handler')},
     'user.deactivated': {('platform-service', 'notification-handler')},  # письмо о деактивации, FT-11.0, срез 3
     # Пары, которые добавляет срез 3 (шаги руководства среза 3 убирают их по одной)
-    'order.address-updated': {('delivery-service', 'delivery-domain')},  # повторная выдача по новому адресу, шаг 12
     'user.email-changed': {('platform-service', 'notification-handler')},  # письма о смене e-mail, шаг 15
 }
 

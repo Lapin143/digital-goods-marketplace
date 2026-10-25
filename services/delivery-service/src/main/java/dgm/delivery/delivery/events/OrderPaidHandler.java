@@ -3,10 +3,8 @@ package dgm.delivery.delivery.events;
 import dgm.delivery.delivery.service.DeliveryIntake;
 import dgm.kit.events.EventEnvelope;
 import dgm.kit.events.EventHandler;
-import dgm.kit.events.FatalEventException;
 import dgm.kit.events.HandleResult;
 import java.time.Instant;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
@@ -57,10 +55,7 @@ public final class OrderPaidHandler implements EventHandler {
         String title = EventData.text(event, "productTitle", 1, 200);
         int quantity = EventData.integer(event, "quantity", 1, 10);
         Instant paidAt = EventData.instant(event, "paidAt");
-        if (!(event.data().get("delivery") instanceof Map<?, ?> delivery) || !"email".equals(delivery.get("channel"))
-                || !(delivery.get("address") instanceof String address) || address.length() < 3 || address.length() > 254) {
-            throw new FatalEventException("В событии " + event.id() + " нет допустимого адреса доставки по почте");
-        }
+        String address = EventData.emailAddress(event);
         return intake.accept(orderId, buyerId, address, title, quantity, paidAt) ? HandleResult.done() : HandleResult.ignored("delivery-exists");
     }
 }

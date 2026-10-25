@@ -16,8 +16,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Выдачи в памяти для модульных тестов. Повторяет правила SQL из {@code JdbcDeliveryRepository}: одна первичная выдача на заказ, выборка
- * «в очереди, срок наступил, сначала старые», аренда сдвигает срок, исход пишется только если число выполненных попыток совпало.
+ * Выдачи в памяти для модульных тестов. Повторяет правила SQL из {@code JdbcDeliveryRepository}: одна первичная выдача на заказ, не больше одной
+ * выдачи в очереди на заказ (повторная создаётся только при первичной и без очереди), выборка «в очереди, срок наступил, сначала старые», аренда
+ * сдвигает срок, исход пишется только если число выполненных попыток совпало.
  */
 public final class FakeDeliveries implements DeliveryRepository {
 
@@ -77,11 +78,14 @@ public final class FakeDeliveries implements DeliveryRepository {
         return true;
     }
 
-    /** Повторная выдача для тестов (создаётся по обращению, в шаге 13 такого пути ещё нет). */
-    public Row addRepeat(UUID id, UUID orderId, UUID buyerId, String address, String productTitle, int quantity, Instant due) {
-        Row row = new Row(id, orderId, buyerId, "repeat", address, productTitle, quantity, due);
-        rows.put(id, row);
-        return row;
+    @Override
+    public boolean insertRepeat(UUID id, UUID orderId, String address, Instant now) {
+        Row primary = rows.values().stream().filter(r -> r.orderId.equals(orderId) && "primary".equals(r.kind)).findFirst().orElse(null);
+        if (primary == null || rows.values().stream().anyMatch(r -> r.orderId.equals(orderId) && "queued".equals(r.status))) {
+            return false;
+        }
+        rows.put(id, new Row(id, orderId, primary.buyerId, "repeat", address, primary.title, primary.quantity, now));
+        return true;
     }
 
     @Override
@@ -291,6 +295,16 @@ public final class FakeDeliveries implements DeliveryRepository {
     /** Выдача «отправлено» для тестов статусов: как после принятия письма провайдером. */
     public Row addSent(UUID id, UUID orderId, UUID buyerId, String address, String title, int quantity, int attemptNo, Instant sentAt) {
         Row row = new Row(id, orderId, buyerId, "primary", address, title, quantity, null);
+        row.status = "sent";
+        row.attemptNo = attemptNo;
+        row.sentAt = sentAt;
+        rows.put(id, row);
+        return row;
+    }
+
+    /** Повторная выдача «отправлено» для тестов статусов. */
+    public Row addSentRepeat(UUID id, UUID orderId, UUID buyerId, String address, String title, int quantity, int attemptNo, Instant sentAt) {
+        Row row = new Row(id, orderId, buyerId, "repeat", address, title, quantity, null);
         row.status = "sent";
         row.attemptNo = attemptNo;
         row.sentAt = sentAt;

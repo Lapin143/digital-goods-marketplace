@@ -97,6 +97,31 @@ class DeliveryOutcomesTest {
         assertEquals(1.0, meters.counter("delivery_attempts_total", "outcome", "accepted").count());
     }
 
+    @Tag("TC-613")
+    @Test
+    void anAcceptedRepeatLetterCarriesTheRepeatTypeAndDoesNotEnterTheTimeFromThePayment() {
+        QueuedDelivery primary = claim();
+        deliveries.insertWatch(ORDER, T0.minusSeconds(60).plus(Duration.ofMinutes(30)), T0.minusSeconds(60));
+        assertTrue(outcomes.recordAttempt(primary, new AttemptResult.Accepted(), T0));
+        assertEquals(1, meters.timer("delivery_time_seconds", "stage", "sent").count(), "первичная выдача время от оплаты записывает");
+        UUID repeatId = UUID.fromString("0199e0a0-0000-7000-8000-000000000a02");
+        assertTrue(deliveries.insertRepeat(repeatId, ORDER, "new@mail.example", T0));
+        QueuedDelivery repeat = deliveries.claimDue(T0, Duration.ofMinutes(2), 20).get(0);
+        assertEquals("repeat", repeat.kind());
+        assertEquals(repeatId, repeat.id());
+        clock.advance(Duration.ofDays(2));
+
+        assertTrue(outcomes.recordAttempt(repeat, new AttemptResult.Accepted(), T0));
+
+        assertEquals("sent", deliveries.row(repeatId).status);
+        List<Published> accepted = transaction.published().stream().filter(e -> "delivery.accepted".equals(e.eventType())).toList();
+        assertEquals(2, accepted.size());
+        assertEquals("repeat", accepted.get(1).data().get("deliveryType"));
+        assertEquals(repeatId.toString(), accepted.get(1).data().get("deliveryId"));
+        assertEquals(1, accepted.get(1).data().get("attemptNo"));
+        assertEquals(1, meters.timer("delivery_time_seconds", "stage", "sent").count(), "повторная выдача через два дня время от оплаты не добавила");
+    }
+
     @Tag("TC-604")
     @Test
     void aTemporaryErrorKeepsTheDeliveryInTheQueueUntilTheNextPauseOfTheSchedule() {

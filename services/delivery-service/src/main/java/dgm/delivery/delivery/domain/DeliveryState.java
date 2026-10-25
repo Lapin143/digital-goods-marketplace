@@ -20,4 +20,9 @@ public record DeliveryState(UUID id, UUID orderId, String kind, String status, i
         Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(status, "status");
     }
+
+    /** Первичная выдача: только от неё считается время от оплаты до письма и доставки (NFT-2.0). */
+    public boolean primary() {
+        return "primary".equals(kind);
+    }
 }

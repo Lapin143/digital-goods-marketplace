@@ -34,6 +34,11 @@ public record QueuedDelivery(UUID id, UUID orderId, UUID buyerId, String kind, S
         }
     }
 
+    /** Первичная выдача: только от неё считается время от оплаты до письма и доставки (NFT-2.0). */
+    public boolean primary() {
+        return "primary".equals(kind);
+    }
+
     /** Номер попытки, которую нужно выполнить. */
     public int nextAttemptNo() {
         return attemptNo + 1;

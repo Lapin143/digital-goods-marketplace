@@ -4,6 +4,7 @@ import dgm.kit.events.EventEnvelope;
 import dgm.kit.events.FatalEventException;
 import dgm.kit.time.Timestamps;
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -48,5 +49,14 @@ final class EventData {
             return number.intValue();
         }
         throw new FatalEventException("В событии " + event.id() + " поле " + field + " не число из допустимого диапазона");
+    }
+
+    /** Адрес из {@code data.delivery}: канал только почта, адрес от 3 до 254 знаков. В тексте ошибки значения адреса нет. */
+    static String emailAddress(EventEnvelope event) {
+        if (!(event.data().get("delivery") instanceof Map<?, ?> delivery) || !"email".equals(delivery.get("channel"))
+                || !(delivery.get("address") instanceof String address) || address.length() < 3 || address.length() > 254) {
+            throw new FatalEventException("В событии " + event.id() + " нет допустимого адреса доставки по почте");
+        }
+        return address;
     }
 }

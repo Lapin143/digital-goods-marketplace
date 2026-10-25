@@ -11,6 +11,7 @@ import dgm.delivery.delivery.letter.LetterBuilder;
 import dgm.delivery.delivery.repository.DeliveryRepository;
 import dgm.delivery.delivery.service.DeliveryIntake;
 import dgm.delivery.delivery.service.DeliveryOutcomes;
+import dgm.delivery.delivery.service.DeliveryRepeat;
 import dgm.delivery.delivery.poller.StatusPoller;
 import dgm.delivery.delivery.service.DeliverySettings;
 import dgm.delivery.delivery.service.DeliveryStatuses;
@@ -33,7 +34,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 /**
  * Подключение модуля выдачи: расписание повторов (параметр платформы {@code delivery.retry-schedule}, FT-11.1), настройки диспетчера и контроля,
  * клиент ключей ({@code inventory-service} в {@code dgm.peers}), клиент почты (адрес {@code dgm.email.base-url}, ключ в секрете
- * {@code delivery_email_key}), сборщик письма, диспетчер, применение статусов писем (вебхук и опрос) и контроль 30 минут. Обработчики событий это компоненты пакета {@code events}.
+ * {@code delivery_email_key}), сборщик письма, приём оплаты и повторная выдача по смене адреса, диспетчер, применение статусов писем (вебхук и опрос) и контроль 30 минут. Обработчики событий это компоненты пакета {@code events}.
  */
 @Configuration(proxyBeanMethods = false)
 @EnableScheduling
@@ -87,6 +88,11 @@ public class DeliveryConfiguration {
     @Bean
     DeliveryIntake deliveryIntake(DeliveryRepository deliveries, DeliverySettings settings, Clock clock) {
         return new DeliveryIntake(deliveries, settings, clock);
+    }
+
+    @Bean
+    DeliveryRepeat deliveryRepeat(DeliveryRepository deliveries, Clock clock) {
+        return new DeliveryRepeat(deliveries, clock);
     }
 
     @Bean

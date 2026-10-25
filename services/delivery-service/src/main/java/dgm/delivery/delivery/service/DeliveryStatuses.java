@@ -129,10 +129,13 @@ public final class DeliveryStatuses {
         deliveries.closeWatch(state.orderId(), now);
         transaction.publish(DeliveryEvents.TOPIC, DeliveryEvents.AGGREGATE, state.orderId().toString(), DeliveryEvents.DELIVERED, DeliveryEvents.SCHEMA_VERSION,
                 DeliveryEvents.delivered(state.id(), state.orderId(), state.kind(), notice.occurredAt()));
-        deliveries.watchDeadline(state.orderId()).ifPresent(deadline -> {
-            Duration sincePayment = Duration.between(deadline.minus(settings.controlWindow()), notice.occurredAt());
-            meters.timer("delivery_time_seconds", "stage", "delivered").record(sincePayment.isNegative() ? Duration.ZERO : sincePayment);
-        });
+        if (state.primary()) {
+            // NFT-2.0: время от оплаты считается только для первичной выдачи, повторная его не искажает
+            deliveries.watchDeadline(state.orderId()).ifPresent(deadline -> {
+                Duration sincePayment = Duration.between(deadline.minus(settings.controlWindow()), notice.occurredAt());
+                meters.timer("delivery_time_seconds", "stage", "delivered").record(sincePayment.isNegative() ? Duration.ZERO : sincePayment);
+            });
+        }
         return Result.APPLIED;
     }
 
