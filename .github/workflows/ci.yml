@@ -715,6 +715,16 @@ jobs:
           UI_PURCHASE_REPEAT: "3"
         run: tools/ci/diag.sh "Дымовой сценарий интерфейса" make ui-smoke
 
+      # Время и карточные данные (шаг 23 среза 2; NFT-2.0, NFT-2.1, NFT-2.4, NFT-5.1; TC-064 - TC-067): метки времени заказов, выдач и обращений, оставленные проверками выше;
+      # в базах, контрактах и журналах нет мест и следов данных карты. Идёт последней среди проверок покупки: ей нужны их данные
+      - name: Время оплаты, выдачи и обращений, карточных данных нет
+        if: ${{ !cancelled() }}
+        env:
+          DIAG_FILTER: 'ОШИБКА|Traceback|Error|^ +[|] |выборка|обращений системы'
+          DIAG_MAX: "40"
+          DIAG_TAIL: "40"
+        run: tools/ci/diag.sh "Время и карточные данные" make timing-check
+
       # Итог замеров: пик каждого контейнера против лимита; красный шаг, если пик выше 90 % лимита (лимиты назначены по правилу 85 %)
       - name: Замеры памяти, итог
         if: always()
@@ -1268,6 +1278,70 @@ jobs:
         if: failure()
         run: |
           for s in api-gateway catalog-service; do
+            echo "::group::$s"; docker compose --profile '*' logs --no-color --tail 40 "$s" || true; echo "::endgroup::"
+            msg=$(docker compose --profile '*' logs --no-color --tail 12 "$s" 2>&1 | cut -c1-240 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+            echo "::warning title=журнал $s::$msg"
+          done
+
+  # Нагрузочный ориентир NFT-1.2 (шаг 23 Ф4, Р-144): создание заказа с резервом, k6 на раннере против набора full с рабочими сроками (резерв 15 минут: 300 неоплаченных заказов держат ключи на всё время замера).
+  # Идёт вручную и при push в ветку ci/load, как задание load. Сто покупателей и товар с 400 ключами заводит tools/load/order_run.py,
+  # лимиты шлюза не меняются. Порог на раннере даёт предупреждение, а не красный запуск: зачёт по методике на сервере (tools/load/README.md).
+  load-order:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/ci/load' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Версии Docker
+        run: docker version --format 'Docker {{.Server.Version}}' && docker compose version
+
+      # Релиз k6 с контрольной суммой, записанной в этом файле (не из той же загрузки)
+      - name: k6
+        run: |
+          set -euo pipefail
+          curl -sSfL -o "$RUNNER_TEMP/k6.tar.gz" "https://github.com/grafana/k6/releases/download/v${K6_VERSION}/k6-v${K6_VERSION}-linux-amd64.tar.gz"
+          echo "${K6_SHA256}  $RUNNER_TEMP/k6.tar.gz" | sha256sum --check -
+          tar -xzf "$RUNNER_TEMP/k6.tar.gz" -C "$RUNNER_TEMP" --strip-components=1 "k6-v${K6_VERSION}-linux-amd64/k6"
+          sudo install -m 0755 "$RUNNER_TEMP/k6" /usr/local/bin/k6
+          k6 version
+
+      - name: Замеры памяти, начало
+        run: python3 tools/stand-checks/memory.py start "$RUNNER_TEMP/mem.jsonl"
+
+      - name: Набор full с рабочими сроками
+        env:
+          DIAG_FILTER: 'ERROR:|failed to|not found|denied|unhealthy|dependency failed|COPY|не готов|ОШИБКА'
+          DIAG_MAX: "14"
+          DIAG_TAIL: "40"
+        run: tools/ci/diag.sh "make up SET=full" make up SET=full DEBUG=1 WAIT_TIMEOUT=600
+
+      - name: Тестовые пользователи Keycloak
+        run: tools/ci/diag.sh "Тестовые пользователи" make keycloak-users
+
+      - name: Ориентир NFT-1.2 (k6)
+        env:
+          DIAG_FILTER: 'НЕ ВЫПОЛНЕН|ОШИБКА|p95|заказов|сверка|Покупател'
+          DIAG_MAX: "30"
+          DIAG_TAIL: "80"
+        run: tools/ci/diag.sh "Нагрузка на заказ" make load-order
+
+      - name: Замеры памяти, итог
+        if: always()
+        run: python3 tools/stand-checks/memory.py stop "$RUNNER_TEMP/mem.jsonl" --label "набор full под нагрузкой на заказ, 10 заказов в секунду"
+
+      - name: Журналы шлюза и сервисов покупки при ошибке
+        if: failure()
+        run: |
+          for s in api-gateway order-service inventory-service; do
             echo "::group::$s"; docker compose --profile '*' logs --no-color --tail 40 "$s" || true; echo "::endgroup::"
             msg=$(docker compose --profile '*' logs --no-color --tail 12 "$s" 2>&1 | cut -c1-240 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
             echo "::warning title=журнал $s::$msg"
