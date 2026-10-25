@@ -21,7 +21,7 @@
 её продавец заводит два товара). Для покупки берётся продавец и товар с запасом ключей из orders_checks.py (secrets/purchase_fixture.json), покупатели одноразовые с подтверждённым телефоном. Тексты кнопок и сообщений берутся из словаря интерфейса (ru.json), поэтому правка словаря не ломает сценарий. Если шаг упал, в журнал
 попадают адрес страницы, её текст, сообщения консоли браузера и ответы с кодом 400 и выше, а снимок экрана ложится в каталог UI_REPORT_DIR (по умолчанию build/ui-smoke).
 
-Переменные: UI_PURCHASE_REPEAT (сколько раз подряд проходит покупка до выдачи, по умолчанию 1, в CI 3: серия К8), UI_VIDEO=1 (запись экрана каждого сценария в UI_REPORT_DIR/video/moderator.webm, guest.webm, buyer-1.webm … buyer-N.webm, refusal.webm и expired.webm; запись не должна ронять проверку, при сбое печатается замечание; в CI включена, видео лежит в артефакте запуска), UI_BASE (адрес шлюза, по умолчанию https://localhost:8443), UI_REPORT_DIR, UI_TIMEOUT_MS (ожидание элемента, по умолчанию 20000), UI_NO_SANDBOX=1
+Переменные: UI_PURCHASE_REPEAT (сколько раз подряд проходит покупка до выдачи, по умолчанию 1, в CI 3: серия К8), UI_AUTH_GAP (пауза в секундах перед каждым сценарием покупателя, по умолчанию 30: лимит входа шлюза 30 запросов в минуту с адреса), UI_VIDEO=1 (запись экрана каждого сценария в UI_REPORT_DIR/video/moderator.webm, guest.webm, buyer-1.webm … buyer-N.webm, refusal.webm и expired.webm; запись не должна ронять проверку, при сбое печатается замечание; в CI включена, видео лежит в артефакте запуска), UI_BASE (адрес шлюза, по умолчанию https://localhost:8443), UI_REPORT_DIR, UI_TIMEOUT_MS (ожидание элемента, по умолчанию 20000), UI_NO_SANDBOX=1
 (запуск Chromium без песочницы, если среда её не разрешает), остальные те же, что у make seller-approval-check. Пакет playwright ставится из tools/stand-checks/requirements-ui.txt,
 браузер командой python3 -m playwright install --with-deps chromium. Остальные проверки стенда обходятся стандартной библиотекой Python, этой нужен Playwright.
 """
@@ -51,6 +51,10 @@ REPORT = os.environ.get('UI_REPORT_DIR', os.path.join('build', 'ui-smoke'))
 TIMEOUT = int(os.environ.get('UI_TIMEOUT_MS', '20000'))
 VIDEO = os.environ.get('UI_VIDEO') == '1'
 PURCHASE_REPEAT = max(1, int(os.environ.get('UI_PURCHASE_REPEAT', '1')))
+# Шлюз пускает на входные страницы и токены Keycloak (/auth/realms) 30 запросов в минуту с одного адреса (группа auth, NFT-3.5). Один сценарий покупки
+# тратит 10 – 15: токен покупателя, страница входа, обмен кода, затем по одному возврату к Keycloak при каждом полном переходе на страницу заглушки и обратно.
+# Лимит не отключают (его проверяет gateway_checks.py), сценарии идут с паузой, которая возвращает ведро: первый запуск в CI без неё получил 429 на входе
+AUTH_GAP = float(os.environ.get('UI_AUTH_GAP', '30'))
 UUID = r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 DICTIONARY = os.path.join(HERE, '..', '..', 'frontend', 'web-app', 'src', 'i18n', 'ru.json')
 with open(DICTIONARY, encoding='utf-8') as _file:
@@ -494,18 +498,21 @@ def purchase_scenarios(browser, fx):
     pid, kc, admin, stubs = fx['plenty'], fx['kc'], fx['admin'], fx['stubs']
     stubs.reset()
     names = ['buyer-%d' % n for n in range(1, PURCHASE_REPEAT + 1)] + ['refusal', 'expired']
-    buyers = {}
-    for name in names:
-        buyers[name] = P.new_buyer(kc, admin, fx['stamp'], 'ui-' + name)
-    if not all(buyers.values()):
-        G.bad('покупатели для сценариев браузера заведены', str([n for n, b in buyers.items() if not b]))
-        return
     A.eventually(lambda: not (O.keys_of(pid) or {}).get('reserved'), wait=60, step=2.0)   # резервы прошлых проверок успевают истечь
     with stubs.payment_mode(scenario='hold'):
-        for name in names[:PURCHASE_REPEAT]:
-            purchase_scenario(browser, fx, buyers[name], name, pid)
-        refusal_scenario(browser, fx, buyers['refusal'], pid)
-        expired_scenario(browser, fx, buyers['expired'], pid)
+        for name in names:
+            print('   пауза %d с перед сценарием «%s»: лимит входа на шлюзе 30 запросов в минуту с адреса' % (AUTH_GAP, name))
+            time.sleep(AUTH_GAP)
+            buyer = P.new_buyer(kc, admin, fx['stamp'], 'ui-' + name)   # покупатель заводится перед своим сценарием: пачка токенов заранее съела бы ведро
+            if not buyer:
+                G.bad('покупатель для сценария «%s» заведён' % name, 'не заведён')
+                continue
+            if name == 'refusal':
+                refusal_scenario(browser, fx, buyer, pid)
+            elif name == 'expired':
+                expired_scenario(browser, fx, buyer, pid)
+            else:
+                purchase_scenario(browser, fx, buyer, name, pid)
     O.modes_are_default(stubs, 'UI')
 
 
