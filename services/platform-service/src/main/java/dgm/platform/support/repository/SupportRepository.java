@@ -2,6 +2,8 @@ package dgm.platform.support.repository;
 
 import dgm.platform.support.domain.OrderView;
 import dgm.platform.support.domain.ResolvedTicket;
+import dgm.platform.support.domain.SupportTicket;
+import dgm.platform.support.domain.TicketFilter;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -38,4 +40,16 @@ public interface SupportRepository {
 
     /** Закрывает все открытые обращения заказа фактом доставки (SM-07/T4, закрывает система) и возвращает закрытые. */
     List<ResolvedTicket> resolveOpenTickets(UUID orderId, Instant at);
+
+    /**
+     * Создаёт обращение покупателя «не получил ключ» со статусом «создано» (SM-07/T1).
+     *
+     * @return {@code false}: по заказу уже есть открытое обращение (INV-21), второе не создано
+     */
+    boolean insertBuyerTicket(UUID ticketId, UUID orderId, UUID buyerId, Instant at);
+
+    Optional<SupportTicket> findTicket(UUID ticketId);
+
+    /** Обращения покупателя по условиям выборки: не больше {@code limit + 1} строк, лишняя говорит, что есть следующая страница. */
+    List<SupportTicket> findTickets(TicketFilter filter);
 }

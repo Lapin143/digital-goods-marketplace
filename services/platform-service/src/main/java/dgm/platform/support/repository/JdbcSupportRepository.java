@@ -3,11 +3,14 @@ package dgm.platform.support.repository;
 import dgm.kit.boot.ModuleDatabases;
 import dgm.platform.support.domain.OrderView;
 import dgm.platform.support.domain.ResolvedTicket;
+import dgm.platform.support.domain.SupportTicket;
+import dgm.platform.support.domain.TicketFilter;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -23,6 +26,7 @@ import org.springframework.stereotype.Component;
 public final class JdbcSupportRepository implements SupportRepository {
 
     static final String MODULE = "support";
+    private static final String TICKET_COLUMNS = "id, order_id, buyer_id, source, reason, status, created_at, resolved_at, resolved_by, action";
 
     private final JdbcTemplate jdbc;
 
@@ -69,6 +73,47 @@ public final class JdbcSupportRepository implements SupportRepository {
         return jdbc.query("update support.ticket set status = 'resolved', resolved_by = 'system', resolved_at = ? "
                 + "where order_id = ? and status in ('created', 'in_progress') returning id, buyer_id",
                 (rs, row) -> new ResolvedTicket(rs.getObject("id", UUID.class), rs.getObject("buyer_id", UUID.class)), utc(at), orderId);
+    }
+
+    @Override
+    public boolean insertBuyerTicket(UUID ticketId, UUID orderId, UUID buyerId, Instant at) {
+        return jdbc.update("insert into support.ticket (id, order_id, buyer_id, source, reason, created_at, updated_at) "
+                + "values (?, ?, ?, 'buyer', 'key_not_received', ?, ?) on conflict (order_id) where status in ('created', 'in_progress') do nothing",
+                ticketId, orderId, buyerId, utc(at), utc(at)) == 1;
+    }
+
+    @Override
+    public Optional<SupportTicket> findTicket(UUID ticketId) {
+        return jdbc.query("select " + TICKET_COLUMNS + " from support.ticket where id = ?", (rs, row) -> mapTicket(rs), ticketId).stream().findFirst();
+    }
+
+    @Override
+    public List<SupportTicket> findTickets(TicketFilter filter) {
+        StringBuilder sql = new StringBuilder("select " + TICKET_COLUMNS + " from support.ticket where buyer_id = ?");
+        List<Object> args = new ArrayList<>();
+        args.add(filter.buyerId());
+        filter.orderId().ifPresent(orderId -> {
+            sql.append(" and order_id = ?");
+            args.add(orderId);
+        });
+        if (!filter.statuses().isEmpty()) {
+            sql.append(" and status in (").append("?, ".repeat(filter.statuses().size() - 1)).append("?)");
+            args.addAll(filter.statuses());
+        }
+        filter.after().ifPresent(after -> {
+            sql.append(" and (created_at, id) < (?, ?)");
+            args.add(utc(after.createdAt()));
+            args.add(after.id());
+        });
+        sql.append(" order by created_at desc, id desc limit ?");
+        args.add(filter.limit() + 1);
+        return jdbc.query(sql.toString(), (rs, row) -> mapTicket(rs), args.toArray());
+    }
+
+    private static SupportTicket mapTicket(ResultSet rs) throws SQLException {
+        return new SupportTicket(rs.getObject("id", UUID.class), rs.getObject("order_id", UUID.class), rs.getObject("buyer_id", UUID.class),
+                rs.getString("source"), rs.getString("reason"), rs.getString("status"), instant(rs, "created_at").orElseThrow(),
+                instant(rs, "resolved_at"), Optional.ofNullable(rs.getString("resolved_by")), Optional.ofNullable(rs.getString("action")));
     }
 
     private static OrderView map(ResultSet rs) throws SQLException {

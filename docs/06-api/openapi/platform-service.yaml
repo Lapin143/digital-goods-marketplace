@@ -198,6 +198,7 @@ paths:
       - U5
       - U18
       x-sms-session: allowed
+      x-module: support
       security:
       - bearerJwt:
         - support.write
