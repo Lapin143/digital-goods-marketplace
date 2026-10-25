@@ -63,7 +63,8 @@ export function setup() {
   const limit = buyers.length * 3;
   const planned = RATE * seconds(DURATION);
   console.log('покупателей ' + buyers.length + ', заказов в плане ' + planned + ', предел по лимиту неоплаченных ' + limit);
-  if (planned > limit) throw new Error('в плане ' + planned + ' заказов, а покупателей хватает на ' + limit + ': больше трёх неоплаченных заказов на покупателя сервис не пустит');
+  // k6 при постоянной интенсивности иногда запускает на одну итерацию больше плана (301 вместо 300): запас в одну итерацию обязателен
+  if (planned + 1 > limit) throw new Error('в плане ' + planned + ' заказов и одна запасная итерация, а покупателей хватает на ' + limit + ': больше трёх неоплаченных заказов на покупателя сервис не пустит');
 }
 
 export function order() {
