@@ -17,17 +17,29 @@ import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
-/** Заказы в PostgreSQL. Запрос опирается на индекс {@code ix_orders_buyer_id (buyer_id, created_at desc, id desc)}. */
+/**
+ * Заказы в PostgreSQL. История и карточка заказа покупателя (читатель истории, {@code history-reader}) читаются под ролью {@code app_orders_read}: у неё
+ * только {@code SELECT} на {@code orders.orders}, своё ограничение 2 соединения и свой пул, запись база отвергает (ADR-017, Р-163). Запрос истории
+ * опирается на индекс {@code ix_orders_buyer_id (buyer_id, created_at desc, id desc)}. Проходы сторожа заказов это не история: они читают под ролью
+ * {@code app_orders}, как и записывающая часть сервиса.
+ */
 @Component
 public final class JdbcOrderRepository implements OrderRepository {
+
+    /** Имя модуля базы читателя истории в {@code dgm.db.modules}: роль {@code app_orders_read}, пул 2. */
+    public static final String READ_MODULE = "orders-read";
 
     private static final String COLUMNS = "id, number, product_id, product_title, quantity, unit_price, amount, currency, status, "
             + "cancel_reason, delivery_channel, delivery_address, reserve_until, session_until, created_at, paid_at, issued_at";
 
-    private final JdbcTemplate jdbc;
+    /** Читатель истории: роль только на чтение. */
+    private final JdbcTemplate history;
+    /** Проходы сторожа: роль модуля заказов. */
+    private final JdbcTemplate watchdog;
 
     public JdbcOrderRepository(ModuleDatabases databases) {
-        this.jdbc = databases.jdbc("orders");
+        this.history = databases.jdbc(READ_MODULE);
+        this.watchdog = databases.jdbc(JdbcOrderStore.MODULE);
     }
 
     @Override
@@ -54,18 +66,18 @@ public final class JdbcOrderRepository implements OrderRepository {
         });
         sql.append(" order by created_at desc, id desc limit ?");
         args.add(f.limit() + 1);
-        return jdbc.query(sql.toString(), (rs, row) -> map(rs), args.toArray());
+        return history.query(sql.toString(), (rs, row) -> map(rs), args.toArray());
     }
 
     @Override
     public Optional<Order> findOwned(UUID orderId, UUID buyerId) {
-        return jdbc.query("select " + COLUMNS + " from orders.orders where id = ? and buyer_id = ?", (rs, row) -> map(rs), orderId, buyerId).stream()
+        return history.query("select " + COLUMNS + " from orders.orders where id = ? and buyer_id = ?", (rs, row) -> map(rs), orderId, buyerId).stream()
                 .findFirst();
     }
 
     @Override
     public Optional<OrderSession> findSession(UUID orderId, UUID buyerId) {
-        return jdbc.query("select id, status, cancel_reason, payment_session_url, session_until from orders.orders where id = ? and buyer_id = ?",
+        return history.query("select id, status, cancel_reason, payment_session_url, session_until from orders.orders where id = ? and buyer_id = ?",
                 (rs, row) -> new OrderSession(rs.getObject("id", UUID.class), rs.getString("status"),
                         Optional.ofNullable(rs.getString("cancel_reason")), Optional.ofNullable(rs.getString("payment_session_url")),
                         instant(rs, "session_until")), orderId, buyerId).stream().findFirst();
@@ -73,13 +85,13 @@ public final class JdbcOrderRepository implements OrderRepository {
 
     @Override
     public List<UUID> findCreatedBefore(Instant border, int limit) {
-        return jdbc.queryForList("select id from orders.orders where status = 'created' and created_at < ? order by created_at, id limit ?", UUID.class,
+        return watchdog.queryForList("select id from orders.orders where status = 'created' and created_at < ? order by created_at, id limit ?", UUID.class,
                 utc(border), limit);
     }
 
     @Override
     public List<UUID> findAwaitingReserveEndedBefore(Instant border, int limit) {
-        return jdbc.queryForList("select id from orders.orders where status = 'awaiting_payment' and reserve_until < ? order by reserve_until, id limit ?",
+        return watchdog.queryForList("select id from orders.orders where status = 'awaiting_payment' and reserve_until < ? order by reserve_until, id limit ?",
                 UUID.class, utc(border), limit);
     }
 

@@ -16,10 +16,13 @@ dgm:
     migrator-role: migrator_order
     modules:
       # Пределы соединений сервиса 8 (memory-budget, раздел 6): роль app_orders 6 (пул 5 и одно соединение публикатора Outbox) и роль чтения
-      # истории app_orders_read 2 (ADR-017, Р-163; пул читателя появляется на шаге 11 среза 3)
+      # истории app_orders_read 2 (ADR-017, Р-163): читатель истории работает под ней, запись база отвергает
       orders:
         role: app_orders
         pool-size: 5
+      orders-read:
+        role: app_orders_read
+        pool-size: 2
   kafka:
     bootstrap: ${DGM_KAFKA_BOOTSTRAP:kafka:9093}
   outbox:
