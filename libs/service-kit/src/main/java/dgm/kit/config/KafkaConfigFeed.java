@@ -3,6 +3,7 @@ package dgm.kit.config;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import org.apache.kafka.clients.consumer.CloseOptions;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.PartitionInfo;
@@ -66,7 +67,7 @@ public final class KafkaConfigFeed implements ConfigFeed {
     @Override
     public void close() {
         try {
-            consumer.close(Duration.ofSeconds(5));
+            consumer.close(CloseOptions.timeout(Duration.ofSeconds(5)));
         } catch (RuntimeException e) {
             LOG.warn("Потребитель параметров закрыт с ошибкой: {}", e.getMessage());
         }
