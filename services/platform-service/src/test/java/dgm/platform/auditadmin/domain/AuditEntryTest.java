@@ -147,7 +147,9 @@ class AuditEntryTest {
         rejected(moreKeys);
 
         Map<String, Object> personalFlag = AuditData.staff();
-        personalFlag.put("changes", List.of(AuditData.change("x", "yes", 1, 2)));
+        Map<String, Object> flagAsText = AuditData.change("x", false, 1, 2);
+        flagAsText.put("personal", "yes");
+        personalFlag.put("changes", List.of(flagAsText));
         rejected(personalFlag);
 
         Map<String, Object> blankField = AuditData.staff();
