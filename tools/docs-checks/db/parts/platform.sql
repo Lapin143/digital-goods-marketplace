@@ -561,6 +561,7 @@ insert into audit_admin.platform_parameter (key, description, unit, value, defau
     ('payment-session.ttl-seconds',       'Срок платёжной сессии, строго короче резерва (INV-07)', 'seconds', 720, 720, 60, 3599),
     ('orders.max-unpaid',                 'Число одновременно неоплаченных заказов пользователя: «создан» и «ожидает оплаты» (FT-5.1, T-12)', 'count', 3, 3, 1, 20),
     ('support.window-seconds',            'Окно обращения «Не получил ключ» от первичной выдачи (FT-7.2)', 'seconds', 259200, 259200, 3600, 2592000),
+    ('support.requests-per-hour',        'Обращений в поддержку от одного покупателя за час (US-7.1, ADR-017 Р-177)', 'count', 5, 5, 1, 50),
     ('seller.reapplication-pause-seconds', 'Пауза после отказа продавцу перед новой заявкой (FT-2.4)', 'seconds', 86400, 86400, 3600, 604800),
     ('otp.requests-per-10-minutes',       'Запросов кода на учётную запись и номер за 10 минут (NFT-3.5)', 'count', 3, 3, 1, 20),
     ('otp.requests-per-day',              'Запросов кода на учётную запись и номер за сутки (NFT-3.5)', 'count', 10, 10, 1, 100),

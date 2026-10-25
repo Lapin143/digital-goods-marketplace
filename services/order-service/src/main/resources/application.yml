@@ -15,10 +15,11 @@ dgm:
     database: order_db
     migrator-role: migrator_order
     modules:
-      # Предел соединений роли app_orders 8: пул 7 и одно соединение публикатора Outbox
+      # Пределы соединений сервиса 8 (memory-budget, раздел 6): роль app_orders 6 (пул 5 и одно соединение публикатора Outbox) и роль чтения
+      # истории app_orders_read 2 (ADR-017, Р-163; пул читателя появляется на шаге 11 среза 3)
       orders:
         role: app_orders
-        pool-size: 7
+        pool-size: 5
   kafka:
     bootstrap: ${DGM_KAFKA_BOOTSTRAP:kafka:9093}
   outbox:

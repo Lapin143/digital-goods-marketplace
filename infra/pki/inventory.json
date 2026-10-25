@@ -56,6 +56,7 @@
     {"name": "db_app_catalog", "kind": "password", "readers": ["catalog-service", "postgres"], "purpose": "Рабочая роль модуля catalog"},
     {"name": "db_app_inventory", "kind": "password", "readers": ["inventory-service", "postgres"], "purpose": "Рабочая роль модуля inventory"},
     {"name": "db_app_orders", "kind": "password", "readers": ["order-service", "postgres"], "purpose": "Рабочая роль модуля orders"},
+    {"name": "db_app_orders_read", "kind": "password", "readers": ["order-service", "postgres"], "purpose": "Роль только на чтение истории заказов (ADR-017)"},
     {"name": "db_app_payments", "kind": "password", "readers": ["payment-service", "postgres"], "purpose": "Рабочая роль модуля payments"},
     {"name": "db_app_delivery", "kind": "password", "readers": ["delivery-service", "postgres"], "purpose": "Рабочая роль модуля delivery"},
     {"name": "db_app_identity", "kind": "password", "readers": ["platform-service", "postgres"], "purpose": "Рабочая роль модуля identity"},

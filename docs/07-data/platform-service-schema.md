@@ -151,7 +151,7 @@ erDiagram
 
 Журнал аудита: только добавление. Персональные поля только HMAC-хешем (INV-42). Секции по месяцам, без удаления, срок хранения не менее 3 лет.
 
-Таблица секционирована по месяцам `occurred_at`. Секции: `audit_log_2026_10`, `audit_log_2026_11`, `audit_log_2026_12`, `audit_log_2027_01`, `audit_log_2027_02`, `audit_log_2027_03`, `audit_log_default`. Секцию на новый месяц создаёт функция `audit_admin.create_audit_log_partition(date)`.
+Таблица секционирована по месяцам `occurred_at`. Секции: `audit_log_2026_10`, `audit_log_2026_11`, `audit_log_2026_12`, `audit_log_2027_01`, `audit_log_2027_02`, `audit_log_2027_03`, `audit_log_2027_04`, `audit_log_default`. Секцию на новый месяц создаёт функция `audit_admin.create_audit_log_partition(date)`.
 
 **Столбцы**
 

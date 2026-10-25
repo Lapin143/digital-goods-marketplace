@@ -19,4 +19,15 @@ grant usage on schema public to app_orders;
 grant select, insert, update, delete on public.outbox, public.processed_event, public.idempotency_key to app_orders;
 grant usage on all sequences in schema public to app_orders;
 
+-- Роль чтения истории заказов (ADR-017, Р-163): только SELECT на таблицу заказов, без записи и без служебных таблиц Outbox
+do $$
+begin
+    if not exists (select from pg_roles where rolname = 'app_orders_read') then
+        create role app_orders_read nologin;
+    end if;
+end
+$$;
+grant usage on schema orders to app_orders_read;
+grant select on orders.orders to app_orders_read;
+
 comment on function orders.orders_immutable() is 'Снимки заказа неизменны (INV-12, INV-13), дата первой выдачи записывается один раз (INV-17), версия растёт на единицу при каждом изменении';

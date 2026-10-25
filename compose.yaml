@@ -72,6 +72,7 @@ services:
       - db_app_catalog
       - db_app_inventory
       - db_app_orders
+      - db_app_orders_read
       - db_app_payments
       - db_app_delivery
       - db_app_identity
@@ -449,6 +450,7 @@ services:
       - tls_order-service.key
       - tls_order-service.crt
       - db_app_orders
+      - db_app_orders_read
       - db_migrator_order
     healthcheck:
       <<: *service-health
@@ -951,6 +953,8 @@ secrets:
     file: ${DGM_SECRETS_DIR:-./secrets}/db_app_inventory
   db_app_orders:
     file: ${DGM_SECRETS_DIR:-./secrets}/db_app_orders
+  db_app_orders_read:
+    file: ${DGM_SECRETS_DIR:-./secrets}/db_app_orders_read
   db_app_payments:
     file: ${DGM_SECRETS_DIR:-./secrets}/db_app_payments
   db_app_delivery:

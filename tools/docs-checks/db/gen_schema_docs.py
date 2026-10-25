@@ -28,7 +28,7 @@ SERVICES = {
     'order-service': dict(
         db='order_db', title='Заказы',
         about='Сервис владеет заказом ([SM-01](../03-processes/SM-01-order.md)) и ведёт сагу оформления: резерв, платёжная сессия, оплата, выдача ([ADR-004](../05-architecture/adr/ADR-004-saga-purchase.md)). Снимки товара, цены, комиссии и адреса записываются при создании и не меняются.',
-        roles='`app_orders` (схема `orders`)'),
+        roles='`app_orders` (схема `orders`), `app_orders_read` (только `SELECT` на `orders.orders`: чтение истории заказов, [ADR-017](../05-architecture/adr/ADR-017-simplified-cqrs.md))'),
     'payment-service': dict(
         db='payment_db', title='Платежи',
         about='Сервис владеет платежом ([SM-02](../03-processes/SM-02-payment.md)), журналом уведомлений платёжного шлюза, попытками возврата и несопоставленными уведомлениями ([ADR-013](../05-architecture/adr/ADR-013-late-payment.md), [ADR-015](../05-architecture/adr/ADR-015-payment-gateway-integration.md)). Данных банковских карт на платформе нет (NFT-5.1).',

@@ -419,6 +419,22 @@ def t_order_number():
         ok(c, "reset role")
 
 
+@test('orders: роль чтения истории (app_orders_read) читает заказы и не может ни писать, ни читать служебные таблицы', 'FT-5.4, ADR-017')
+def t_orders_read_role():
+    c = conn('order_db')
+    oid = new_order(c)
+    ok(c, "set role app_orders_read")
+    try:
+        assert c.scalar("select count(*) from orders.orders where id = %s" % q(oid)) == '1'
+        raises(c, "update orders.orders set status = 'cancelled' where id = %s" % q(oid), '42501')
+        raises(c, "delete from orders.orders where id = %s" % q(oid), '42501')
+        raises(c, ORD_INS % ('', q(uid()), q(uid()), q(uid()), q(uid()), 1, 100, 100, 200, 2, ''), '42501')
+        raises(c, "select * from public.outbox", '42501')
+        raises(c, "select * from public.idempotency_key", '42501')
+    finally:
+        ok(c, "reset role")
+
+
 # --------------------------------------------------------------------------------------------- платежи
 def new_payment(c, order=None, status='created', extra_cols='', extra_vals=''):
     pid = uid()

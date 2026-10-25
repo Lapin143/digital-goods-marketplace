@@ -7,7 +7,7 @@
 | Сервис | Заказы ([компоненты](../05-architecture/c4-components-order-service.md)) |
 | База | `order_db` |
 | Таблиц предметной области | 1, служебных (`outbox`, `processed_event`, `idempotency_key`) 3 |
-| Роли приложения | `app_orders` (схема `orders`) |
+| Роли приложения | `app_orders` (схема `orders`), `app_orders_read` (только `SELECT` на `orders.orders`: чтение истории заказов, [ADR-017](../05-architecture/adr/ADR-017-simplified-cqrs.md)) |
 | Назначение | Сервис владеет заказом ([SM-01](../03-processes/SM-01-order.md)) и ведёт сагу оформления: резерв, платёжная сессия, оплата, выдача ([ADR-004](../05-architecture/adr/ADR-004-saga-purchase.md)). Снимки товара, цены, комиссии и адреса записываются при создании и не меняются. |
 
 ## Диаграмма связей
@@ -153,3 +153,4 @@ erDiagram
 | `app_orders` | `public.idempotency_key` | DELETE, INSERT, SELECT, UPDATE |
 | `app_orders` | `public.outbox` | DELETE, INSERT, SELECT, UPDATE |
 | `app_orders` | `public.processed_event` | DELETE, INSERT, SELECT, UPDATE |
+| `app_orders_read` | `orders.orders` | SELECT |
