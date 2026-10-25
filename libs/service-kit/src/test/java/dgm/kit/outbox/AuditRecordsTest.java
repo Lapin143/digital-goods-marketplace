@@ -134,6 +134,24 @@ class AuditRecordsTest {
                 () -> AuditRecords.staffAction(AT, ACTOR, "admin", "", "refund.marked_manual", "Payment", "id", oneChange()));
     }
 
+    /** Чтение это тоже действие (Р-166): у просмотра журнала изменений нет, у открытия документа одно, остальные правила те же, что у действия. */
+    @Test
+    void readingMayHaveNoChangesButFollowsTheOtherRulesOfTheAction() {
+        Map<String, Object> view = AuditRecords.staffRead(AT, ACTOR, "admin", "203.0.113.7", "audit.viewed", "audit-log", "journal", List.of());
+        assertEquals(SCHEMA_FIELDS, view.keySet());
+        assertEquals(List.of(), view.get("changes"));
+        assertEquals("audit.viewed", view.get("action"));
+        assertEquals(false, view.get("actorIpHashed"));
+        Map<String, Object> opened = AuditRecords.staffRead(AT, ACTOR, "moderator", "203.0.113.7", "seller-document.opened", "seller", "id",
+                List.of(AuditRecords.change("documentId", null, "0199e0a0-0000-7000-8000-000000000201")));
+        assertEquals(1, ((List<?>) opened.get("changes")).size());
+        assertEquals(List.of(), AuditRecords.staffRead(AT, ACTOR, "admin", "", "audit.viewed", "audit-log", "journal", null).get("changes"));
+        assertThrows(IllegalArgumentException.class, () -> AuditRecords.staffRead(AT, ACTOR, "guest", "", "audit.viewed", "audit-log", "journal", List.of()));
+        assertThrows(IllegalArgumentException.class, () -> AuditRecords.staffRead(AT, ACTOR, "admin", "", "Audit.Viewed", "audit-log", "journal", List.of()));
+        assertThrows(IllegalArgumentException.class, () -> AuditRecords.staffRead(AT, ACTOR, "admin", "", "audit.viewed", "AuditLog", "journal", List.of()));
+        assertThrows(IllegalArgumentException.class, () -> AuditRecords.staffRead(AT, ACTOR, "admin", null, "audit.viewed", "audit-log", "journal", List.of()));
+    }
+
     @Test
     void emptyChangesAndOversizedValuesAreRejected() {
         assertThrows(IllegalArgumentException.class, () -> record("moderator", "seller.approved", "", List.of()));

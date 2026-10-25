@@ -26,6 +26,7 @@ import dgm.kit.problem.ProblemType;
 import dgm.kit.time.ManualClock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -46,6 +47,7 @@ import org.junit.jupiter.api.Test;
 @Tag("TC-213")
 @Tag("TC-214")
 @Tag("TC-215")
+@Tag("TC-811")
 class SellerModerationServiceTest {
 
     private static final Instant T0 = Instant.parse("2026-10-03T12:00:00Z");
@@ -259,7 +261,7 @@ class SellerModerationServiceTest {
             for (Function<UUID, Application> decision : allDecisions()) {
                 assertEquals(ProblemType.NOT_FOUND, failure(() -> decision.apply(id)).type());
             }
-            assertEquals(ProblemType.NOT_FOUND, failure(() -> service.card(id)).type());
+            assertEquals(ProblemType.NOT_FOUND, failure(() -> service.card(MODERATOR, id)).type());
         }
         assertTrue(transaction.published().isEmpty());
         assertEquals(SellerStatus.DRAFT, stored(1).status());
@@ -357,7 +359,7 @@ class SellerModerationServiceTest {
         SellerDocument first = documentOf(profile, 1);
         SellerDocument second = documentOf(profile, 2);
 
-        Card card = service.card(profile.id());
+        Card card = service.card(MODERATOR, profile.id());
 
         assertEquals(profile, card.profile());
         assertEquals(List.of(first, second), card.documents().stream().map(SellerModerationService.CardDocument::document).toList());
@@ -367,14 +369,99 @@ class SellerModerationServiceTest {
             assertTrue(item.link().url().toString().contains(item.document().objectKey()));
         }
         assertEquals(profile, stored(1), "открытие карточки заявку не меняет");
+        assertEquals(List.of("audit.recorded", "audit.recorded"), transaction.published().stream().map(Published::eventType).toList(),
+                "кроме записей об открытии документов, событий нет");
+    }
+
+    /** Чтение документа это действие (Р-166): по записи на каждую выданную ссылку, исполнитель сам модератор, содержимого и ссылки в записи нет. */
+    @Test
+    void everyIssuedLinkIsRecordedAsTheModeratorOpeningTheDocument() {
+        SellerProfile profile = queued(1, T0.minusSeconds(60));
+        SellerDocument first = documentOf(profile, 1);
+        SellerDocument second = documentOf(profile, 2);
+
+        service.card(MODERATOR, profile.id());
+
+        List<Published> records = transaction.published("audit.recorded");
+        assertEquals(2, records.size());
+        List<String> opened = new ArrayList<>();
+        for (Published record : records) {
+            assertEquals("audit.events", record.topic());
+            assertEquals("AuditRecord", record.aggregateType());
+            assertEquals(profile.id().toString(), record.aggregateId(), "ключ записи Kafka тот же, что у решений по этой заявке");
+            assertEquals(AUDIT_FIELDS, record.data().keySet());
+            assertEquals("seller.document_opened", record.data().get("action"));
+            assertEquals("seller", record.data().get("objectType"));
+            assertEquals(profile.id().toString(), record.data().get("objectId"));
+            assertEquals(MODERATOR_ID.toString(), record.data().get("actorId"));
+            assertEquals("moderator", record.data().get("actorRole"));
+            assertEquals("203.0.113.7", record.data().get("actorIp"));
+            assertEquals(false, record.data().get("actorIpHashed"));
+            assertEquals("2026-10-03T12:00:00.000Z", record.data().get("occurredAt"));
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> changes = (List<Map<String, Object>>) record.data().get("changes");
+            assertEquals(1, changes.size());
+            assertEquals("documentId", changes.get(0).get("field"));
+            assertEquals(false, changes.get(0).get("personal"));
+            assertNull(changes.get(0).get("before"));
+            opened.add((String) changes.get(0).get("after"));
+            String text = record.data().toString();
+            assertFalse(text.contains(first.fileName()) || text.contains(second.fileName()), "имени файла в записи нет");
+            assertFalse(text.contains("X-Amz") || text.contains("seller-documents/"), "ссылки в записи нет");
+        }
+        assertEquals(List.of(first.id().toString(), second.id().toString()), opened, "по одной записи на документ, в порядке карточки");
+    }
+
+    /** Не удалось записать открытие: 503 и ни одной ссылки, анкета тоже не отдаётся. */
+    @Test
+    void ifTheOpeningCannotBeRecordedThereAreNoLinksAndTheAnswerIsFiveHundredAndThree() {
+        SellerProfile profile = queued(1, T0.minusSeconds(60));
+        documentOf(profile, 1);
+        transaction.failPublishWith(new IllegalStateException("Outbox недоступен"));
+
+        ProblemException e = failure(() -> service.card(MODERATOR, profile.id()));
+
+        assertEquals(ProblemType.DEPENDENCY_UNAVAILABLE, e.type());
+        assertTrue(e.headers().containsKey("Retry-After"));
+        assertEquals(0, storage.presigned, "ссылки не подписывались");
         assertTrue(transaction.published().isEmpty());
+        assertEquals(profile, stored(1));
+    }
+
+    @Test
+    void failedRecordOfTheSecondDocumentTakesBackTheFirstOneToo() {
+        SellerProfile profile = queued(1, T0.minusSeconds(60));
+        documentOf(profile, 1);
+        documentOf(profile, 2);
+        Moderator brokenAddress = new Moderator(MODERATOR_ID, "x".repeat(200));
+
+        assertThrows(IllegalArgumentException.class, () -> service.card(brokenAddress, profile.id()));
+
+        assertTrue(transaction.published().isEmpty(), "записи об открытии фиксируются все вместе или ни одной");
+        assertEquals(0, storage.presigned);
+    }
+
+    @Test
+    void cardWithoutDocumentsRecordsNothingBecauseNothingWasOpened() {
+        SellerProfile profile = queued(1, T0);
+        service.card(MODERATOR, profile.id());
+        assertTrue(transaction.published().isEmpty());
+    }
+
+    @Test
+    void openingTheSameCardAgainIsAnotherOpeningAndAnotherRecord() {
+        SellerProfile profile = queued(1, T0);
+        documentOf(profile, 1);
+        service.card(MODERATOR, profile.id());
+        service.card(MODERATOR, profile.id());
+        assertEquals(2, transaction.published("audit.recorded").size());
     }
 
     @Test
     void cardOfADecidedApplicationIsStillAvailableForTheHistory() {
         SellerProfile profile = queued(1, T0);
         service.reject(MODERATOR, profile.id(), "Причина");
-        Card card = service.card(profile.id());
+        Card card = service.card(MODERATOR, profile.id());
         assertEquals(SellerStatus.REJECTED, card.profile().status());
         assertEquals("Причина", card.profile().decisionReason());
     }
@@ -382,7 +469,7 @@ class SellerModerationServiceTest {
     @Test
     void cardWithoutDocumentsHasAnEmptyList() {
         SellerProfile profile = queued(1, T0);
-        assertEquals(List.of(), service.card(profile.id()).documents());
+        assertEquals(List.of(), service.card(MODERATOR, profile.id()).documents());
     }
 
     @Test

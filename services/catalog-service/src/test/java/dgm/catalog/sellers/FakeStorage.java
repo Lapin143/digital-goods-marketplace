@@ -22,6 +22,8 @@ public final class FakeStorage implements ObjectStorage {
     /** Удаление падает исключением, которое сервис не должен пропускать в ответ. */
     public boolean failDelete;
     public Duration lastTtl;
+    /** Сколько ссылок подписано: при отказе записать открытие документов их не должно быть ни одной. */
+    public int presigned;
 
     public FakeStorage(Clock clock) {
         this.clock = clock;
@@ -50,6 +52,7 @@ public final class FakeStorage implements ObjectStorage {
     @Override
     public PresignedLink presignGet(String key, Duration ttl) {
         lastTtl = ttl;
+        presigned++;
         return new PresignedLink(URI.create("https://localhost:8443/files/seller-documents/" + key + "?X-Amz-Expires=" + ttl.toSeconds()),
                 clock.instant().plus(ttl));
     }

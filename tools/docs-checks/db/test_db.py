@@ -948,6 +948,23 @@ def t_audit_partition_function():
         finally:
             ok(c, "reset role")
 
+@test('audit_log: администратор читает журнал только через SELECT, записать, изменить, удалить и очистить не может', 'INV-42, US-8.7')
+def t_audit_reader_role():
+    c = conn('platform_db')
+    rid, ev = audit_row(c)
+    ok(c, "set role app_audit_admin")
+    try:
+        assert c.scalar("select action from audit_admin.audit_log where id = %s" % q(rid)) == 'product.rejected'
+        assert c.query("select id from audit_admin.audit_log where (occurred_at, id) < (now() + interval '1 day', %s) order by occurred_at desc, id desc limit 5" % q(uid()))
+        raises(c, AUDIT_INS % ('', q(uid()), q(uid()), 'now()', q(uid()), q(uid()), "'[]'", ''), '42501')
+        raises(c, "update audit_admin.audit_log set action = 'x' where id = %s" % q(rid), '42501')
+        raises(c, "delete from audit_admin.audit_log where id = %s" % q(rid), '42501')
+        raises(c, "truncate audit_admin.audit_log", '42501')
+        raises(c, "select count(*) from audit_admin.audit_log_default", '42501')       # страховочная секция только у приёмника
+    finally:
+        ok(c, "reset role")
+
+
 @test('роли модулей видят только свою схему (правило модульности 2)', 'decomposition 7.2')
 def t_roles():
     c = conn('catalog_db')

@@ -19,6 +19,7 @@ public final class FakeTransaction implements SellerTransaction {
     private final List<Published> committed = new ArrayList<>();
     private List<Published> pending;
     private int executions;
+    private RuntimeException publishFailure;
 
     @Override
     public <T> T execute(Supplier<T> action) {
@@ -36,8 +37,16 @@ public final class FakeTransaction implements SellerTransaction {
         }
     }
 
+    /** Следующие записи в Outbox падают этим исключением, как при недоступной базе. */
+    public void failPublishWith(RuntimeException failure) {
+        this.publishFailure = failure;
+    }
+
     @Override
     public void publish(String topic, String aggregateType, String aggregateId, String eventType, int schemaVersion, Map<String, Object> data) {
+        if (publishFailure != null) {
+            throw publishFailure;
+        }
         if (pending == null) {
             throw new IllegalStateException("Событие записывается только внутри транзакции");
         }

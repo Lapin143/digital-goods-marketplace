@@ -109,7 +109,7 @@ class SellerModerationIT extends CatalogStandIT {
     }
 
     private static Response card(String sellerId) throws IOException {
-        return gateway.get(QUEUE + "/" + sellerId, moderator());
+        return gateway.get(QUEUE + "/" + sellerId, with(moderator(), "X-Forwarded-For", MODERATOR_ADDRESS));
     }
 
     private static Response decide(String sellerId, String decision, String body) throws IOException {
@@ -219,7 +219,9 @@ class SellerModerationIT extends CatalogStandIT {
     @Tag("TC-210")
     void cardShowsTheFormAndDocumentLinksThatOpenTheStoredFileAndNothingChanges() throws Exception {
         Applicant a = onReview();
-        long outboxBefore = db.queryForObject("select count(*) from public.outbox where aggregate_id = ?", Long.class, a.sellerId);
+        long eventsBefore = db.queryForObject("select count(*) from public.outbox where aggregate_id = ? and event_type <> 'audit.recorded'", Long.class,
+                a.sellerId);
+        assertEquals(0, outbox(a.sellerId, "audit.recorded").size());
 
         Response card = card(a.sellerId);
 
@@ -242,7 +244,67 @@ class SellerModerationIT extends CatalogStandIT {
         assertArrayEquals(SellerOnboardingIT.pdf(1024), file.body());
 
         assertEquals("on_review", current(a).json().get("status"), "открытие карточки заявку не меняет");
-        assertEquals(outboxBefore, db.queryForObject("select count(*) from public.outbox where aggregate_id = ?", Long.class, a.sellerId));
+        assertEquals(eventsBefore, db.queryForObject("select count(*) from public.outbox where aggregate_id = ? and event_type <> 'audit.recorded'",
+                Long.class, a.sellerId), "решений и других событий по заявке карточка не добавляет");
+    }
+
+    /** Чтение документа это действие (Р-166): ссылка выдана, и по ней в Outbox лежит запись об открытии, одна на документ и без самой ссылки. */
+    @Test
+    @Tag("TC-811")
+    void everyIssuedDocumentLinkLeavesOneRecordOfTheOpeningByTheModerator() throws Exception {
+        Applicant a = onReview();
+        String documentId = db.queryForObject("select id::text from seller_onboarding.seller_document where seller_id = ?::uuid", String.class, a.sellerId);
+
+        Response first = card(a.sellerId);
+        assertEquals(200, first.status(), first.body());
+
+        List<Map<String, Object>> records = outbox(a.sellerId, "audit.recorded");
+        assertEquals(1, records.size(), "одна ссылка, одна запись");
+        Map<String, Object> record = records.get(0);
+        assertEquals("seller.document_opened", record.get("action"));
+        assertEquals("seller", record.get("objectType"));
+        assertEquals(a.sellerId, record.get("objectId"));
+        assertEquals(MODERATOR.toString(), record.get("actorId"));
+        assertEquals("moderator", record.get("actorRole"));
+        assertEquals(MODERATOR_ADDRESS, record.get("actorIp"), "адрес сотрудника как есть");
+        assertEquals(false, record.get("actorIpHashed"));
+        List<?> changes = (List<?>) record.get("changes");
+        assertEquals(1, changes.size());
+        assertEquals("documentId", ((Map<?, ?>) changes.get(0)).get("field"));
+        assertEquals(documentId, ((Map<?, ?>) changes.get(0)).get("after"));
+        String url = (String) ((Map<?, ?>) ((Map<?, ?>) ((List<?>) first.json().get("documents")).get(0)).get("link")).get("url");
+        assertFalse(record.toString().contains(url) || record.toString().contains("X-Amz"), "ссылки в записи нет");
+
+        assertEquals(200, card(a.sellerId).status());
+        assertEquals(2, outbox(a.sellerId, "audit.recorded").size(), "повторное открытие это ещё одно открытие");
+    }
+
+    /** Не удалось записать открытие: 503, в ответе нет ссылок, а после устранения сбоя карточка открывается. */
+    @Test
+    @Tag("TC-811")
+    void ifTheOpeningCannotBeRecordedTheCardIsRefusedWithoutLinks() throws IOException {
+        Applicant a = onReview();
+        db.execute("create or replace function public.it_refuse_audit() returns trigger language plpgsql as $$ begin "
+                + "raise exception 'отказ записи аудита для проверки закрытого отказа'; end $$");
+        db.execute("drop trigger if exists it_refuse_audit on public.outbox");
+        db.execute("create trigger it_refuse_audit before insert on public.outbox for each row "
+                + "when (new.event_type = 'audit.recorded' and new.aggregate_id = '" + a.sellerId + "') execute function public.it_refuse_audit()");
+        try {
+            Response failed = card(a.sellerId);
+
+            assertEquals(503, failed.status(), failed.body());
+            assertEquals("dependency-unavailable", code(failed));
+            assertNotNull(failed.header("Retry-After"));
+            assertFalse(failed.body().contains("seller-documents/") || failed.body().contains("X-Amz"), "ссылок в ответе нет");
+            assertEquals(0, outbox(a.sellerId, "audit.recorded").size());
+        } finally {
+            db.execute("drop trigger if exists it_refuse_audit on public.outbox");
+            db.execute("drop function if exists public.it_refuse_audit()");
+        }
+
+        Response retried = card(a.sellerId);
+        assertEquals(200, retried.status(), retried.body());
+        assertEquals(1, outbox(a.sellerId, "audit.recorded").size());
     }
 
     @Test

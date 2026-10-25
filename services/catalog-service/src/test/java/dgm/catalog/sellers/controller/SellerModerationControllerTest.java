@@ -12,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dgm.catalog.sellers.FakeSellers;
+import dgm.catalog.sellers.FakeTransaction;
 import dgm.catalog.sellers.domain.DocumentType;
 import dgm.catalog.sellers.domain.SellerDocument;
 import dgm.catalog.sellers.domain.SellerProfile;
@@ -45,6 +46,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 @Tag("TC-213")
 @Tag("TC-214")
 @Tag("TC-215")
+@Tag("TC-811")
 class SellerModerationControllerTest {
 
     private static final String BASE = "/api/v1/staff/seller-applications";
@@ -72,6 +74,13 @@ class SellerModerationControllerTest {
     /** Идентификатор профиля тот же, что даёт {@link FakeSellers#profile}: по пользователю. */
     private static UUID sellerOf(int n) {
         return UUID.nameUUIDFromBytes(("profile-" + user(n)).getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** Запрос карточки от модератора с адресом, который попадёт в запись об открытии документа. */
+    private static MockHttpServletRequest cardRequest(String id) {
+        MockHttpServletRequest request = moderator("GET", BASE + "/" + id);
+        request.setRemoteAddr("203.0.113.7");
+        return request;
     }
 
     /** Заявка на проверке: подана в {@code submittedAt}, срок рассмотрения три дня. */
@@ -227,7 +236,7 @@ class SellerModerationControllerTest {
         SellerProfile profile = queued(1, T0.minusSeconds(60));
         addDocument(profile);
 
-        ResponseEntity<String> response = controller.card(profile.id().toString());
+        ResponseEntity<String> response = controller.card(profile.id().toString(), cardRequest(profile.id().toString()));
 
         assertEquals(200, response.getStatusCode().value());
         assertEquals("no-store", response.getHeaders().getCacheControl());
@@ -254,29 +263,46 @@ class SellerModerationControllerTest {
     }
 
     @Test
-    void openingTheCardChangesNothing() {
+    void openingTheCardChangesNothingButRecordsTheOpeningOfEveryDocument() {
         SellerProfile profile = queued(1, T0);
-        controller.card(profile.id().toString());
+        addDocument(profile);
+        controller.card(profile.id().toString(), cardRequest(profile.id().toString()));
         assertEquals(profile, fx.sellers.stored(user(1)));
-        assertTrue(fx.moderationTransaction.published().isEmpty());
+        assertEquals(List.of("audit.recorded"), fx.moderationTransaction.published().stream().map(FakeTransaction.Published::eventType).toList());
+        Map<String, Object> record = fx.moderationTransaction.published().get(0).data();
+        assertEquals("seller.document_opened", record.get("action"));
+        assertEquals(MODERATOR.toString(), record.get("actorId"));
+        assertEquals("203.0.113.7", record.get("actorIp"));
+    }
+
+    @Test
+    void cardIsFiveHundredAndThreeWithoutLinksWhenTheOpeningCannotBeRecorded() {
+        SellerProfile profile = queued(1, T0);
+        addDocument(profile);
+        fx.moderationTransaction.failPublishWith(new IllegalStateException("Outbox недоступен"));
+
+        ProblemException e = problem(() -> controller.card(profile.id().toString(), cardRequest(profile.id().toString())));
+
+        assertEquals(ProblemType.DEPENDENCY_UNAVAILABLE, e.type());
+        assertEquals(0, fx.storage.presigned);
     }
 
     @Test
     void cardRejectsMalformedIdsWith400AndUnknownOrDraftApplicationsWith404() {
         for (String bad : new String[] {"123", "not-a-uuid", "0199E0A0-0000-7000-8000-000000000101", ""}) {
-            assertEquals(ProblemType.BAD_REQUEST, problem(() -> controller.card(bad)).type(), bad);
+            assertEquals(ProblemType.BAD_REQUEST, problem(() -> controller.card(bad, cardRequest(bad))).type(), bad);
         }
-        assertEquals(ProblemType.NOT_FOUND, problem(() -> controller.card("0199e0a0-0000-7000-8000-000000000999")).type());
+        assertEquals(ProblemType.NOT_FOUND, problem(() -> controller.card("0199e0a0-0000-7000-8000-000000000999", cardRequest("0199e0a0-0000-7000-8000-000000000999"))).type());
         SellerProfile draft = FakeSellers.profile(user(2), SellerStatus.DRAFT, FakeSellers.completeForm(), T0);
         fx.sellers.put(draft);
-        assertEquals(ProblemType.NOT_FOUND, problem(() -> controller.card(draft.id().toString())).type());
+        assertEquals(ProblemType.NOT_FOUND, problem(() -> controller.card(draft.id().toString(), cardRequest(draft.id().toString()))).type());
     }
 
     @Test
     void decidedApplicationsStayVisibleToTheModerator() {
         SellerProfile approved = queued(5, T0.minusSeconds(60)).approve(T0);
         fx.sellers.put(approved);
-        Map<String, Object> card = body(controller.card(approved.id().toString()));
+        Map<String, Object> card = body(controller.card(approved.id().toString(), cardRequest(approved.id().toString())));
         assertEquals("approved", card.get("status"));
         assertEquals("2026-10-06T11:59:00.000Z", card.get("reviewDeadlineAt"), "срок рассмотрения остаётся в записи для истории");
     }

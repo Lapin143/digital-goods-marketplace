@@ -2034,6 +2034,112 @@ class PlatformServiceIT {
         assertEquals(List.of("audit.recorded"), events(object.toString()), "а у зафиксированного действия событие есть");
     }
 
+    private static final String AUDIT_RECORDS = "/api/v1/staff/audit-records";
+
+    private static Response auditGet(String subject, String role, String query, String... amr) throws IOException {
+        return gateway.get(AUDIT_RECORDS + query, StandHttp.bearer(token(subject, role, "staff.audit", amr)));
+    }
+
+    private static Response auditAsAdmin(String subject, String query) throws IOException {
+        return auditGet(subject, "admin", query, "pwd", "otp");
+    }
+
+    private int viewRecords(String actorId) {
+        return auditDb().queryForObject("select count(*) from audit_admin.audit_log where actor_id = ? and action = 'audit.viewed'", Integer.class,
+                UUID.fromString(actorId));
+    }
+
+    private static Map<String, Object> staffAuditAt(UUID actor, UUID objectId, Instant at) {
+        return AuditRecords.staffAction(at, actor, "moderator", "203.0.113.7", "seller.approved", "seller", objectId.toString(),
+                List.of(AuditRecords.change("status", "on_review", "approved"), AuditRecords.change("score", 3, 5)));
+    }
+
+    @Tag("TC-810")
+    @Test
+    @Order(44)
+    void openingTheJournalIsRecordedBeforeTheAnswerAndPagingDoesNotAddRecords() throws Exception {
+        KeycloakStub.User admin = newAdmin();
+        UUID actor = UUID.randomUUID();
+        Instant base = Instant.now().minusSeconds(60);
+        List<UUID> objects = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        List<UUID> events = new ArrayList<>();
+        for (int i = 0; i < objects.size(); i++) {
+            events.add(publishAudit(objects.get(i), staffAuditAt(actor, objects.get(i), base.plusSeconds(i))));
+        }
+        assertTrue(await(Duration.ofSeconds(90), () -> events.stream().allMatch(event -> auditRows(event) == 1)), "три записи в журнале");
+        assertEquals(0, viewRecords(admin.id));
+
+        Response first = auditAsAdmin(admin.id, "?actorId=" + actor + "&limit=2");
+
+        assertEquals(200, first.status());
+        assertEquals("no-store", first.header("Cache-Control"));
+        List<?> items = (List<?>) first.json().get("items");
+        assertEquals(2, items.size());
+        assertEquals(objects.get(2).toString(), ((Map<?, ?>) items.get(0)).get("objectId"), "новые выше");
+        assertEquals(objects.get(1).toString(), ((Map<?, ?>) items.get(1)).get("objectId"));
+        Map<?, ?> changes1 = (Map<?, ?>) ((List<?>) ((Map<?, ?>) items.get(0)).get("changes")).get(1);
+        assertEquals("score", changes1.get("field"));
+        assertEquals("3", changes1.get("before"), "число журнала отдаётся строкой, как в контракте");
+        assertEquals("5", changes1.get("after"));
+        assertEquals("203.0.113.7", ((Map<?, ?>) items.get(0)).get("actorIp"));
+        String cursor = (String) ((Map<?, ?>) first.json().get("page")).get("nextCursor");
+        assertNotNull(cursor);
+        assertEquals(1, count("select count(*) from public.outbox where aggregate_id = ? and event_type = 'audit.recorded'", admin.id),
+                "запись о просмотре зафиксирована до ответа: событие уже в Outbox, в журнале оно появится следом");
+
+        Response second = auditAsAdmin(admin.id, "?actorId=" + actor + "&limit=2&cursor=" + cursor);
+        assertEquals(200, second.status());
+        List<?> rest = (List<?>) second.json().get("items");
+        assertEquals(1, rest.size());
+        assertEquals(objects.get(0).toString(), ((Map<?, ?>) rest.get(0)).get("objectId"));
+        assertNull(((Map<?, ?>) second.json().get("page")).get("nextCursor"));
+        assertEquals(1, count("select count(*) from public.outbox where aggregate_id = ? and event_type = 'audit.recorded'", admin.id),
+                "вторая страница новой записи не даёт");
+
+        Response again = auditAsAdmin(admin.id, "?actorId=" + actor);
+        assertEquals(200, again.status());
+        assertEquals(2, count("select count(*) from public.outbox where aggregate_id = ? and event_type = 'audit.recorded'", admin.id),
+                "новое открытие журнала это новая запись");
+        assertTrue(await(Duration.ofSeconds(90), () -> viewRecords(admin.id) == 2), "обе записи о просмотре дошли до журнала");
+        Map<String, Object> view = auditDb().queryForMap("select actor_role, object_type, object_id, changes::text as changes, actor_ip, actor_ip_hashed "
+                + "from audit_admin.audit_log where actor_id = ? and action = 'audit.viewed' limit 1", UUID.fromString(admin.id));
+        assertEquals("admin", view.get("actor_role"));
+        assertEquals("audit-log", view.get("object_type"));
+        assertEquals("journal", view.get("object_id"));
+        assertEquals("[]", view.get("changes"), "параметров поиска в записи нет");
+        assertNotNull(view.get("actor_ip"));
+        assertEquals(Boolean.FALSE, view.get("actor_ip_hashed"));
+        assertFalse(String.valueOf(view).contains(actor.toString()), "отбор по исполнителю в запись не попал");
+    }
+
+    @Tag("TC-810")
+    @Test
+    @Order(45)
+    void onlyAnAdministratorWithTheAuditScopeAndTheSecondFactorReadsTheJournal() throws Exception {
+        KeycloakStub.User admin = newAdmin();
+        for (String role : List.of("moderator", "support-operator", "buyer", "seller")) {
+            KeycloakStub.User other = KEYCLOAK.add(role, null, null);
+            Response refused = auditGet(other.id, role, "", "pwd", "otp");
+            assertEquals(403, refused.status(), role);
+            assertEquals(0, viewRecords(other.id), role);
+        }
+        Response wrongScope = gateway.get(AUDIT_RECORDS, StandHttp.bearer(adminToken(admin.id)));
+        assertEquals(403, wrongScope.status(), "область staff.admin журнал не открывает");
+        Response smsSession = auditGet(admin.id, "admin", "", "sms");
+        assertEquals(403, smsSession.status());
+        assertEquals("full-login-required", smsSession.json().get("code"));
+        assertEquals(401, gateway.get(AUDIT_RECORDS).status());
+        assertEquals(0, viewRecords(admin.id));
+        assertEquals(0, count("select count(*) from public.outbox where aggregate_id = ? and event_type = 'audit.recorded'", admin.id),
+                "отказанные запросы записей о просмотре не дают");
+
+        Response badParameters = auditAsAdmin(admin.id, "?actorId=x&limit=0");
+        assertEquals(422, badParameters.status());
+        assertEquals("validation-failed", badParameters.json().get("code"));
+        assertEquals(0, count("select count(*) from public.outbox where aggregate_id = ? and event_type = 'audit.recorded'", admin.id),
+                "запрос, не прошедший проверку, журнал не открыл");
+    }
+
     @Tag("TC-114")
     @Test
     @Order(99)
