@@ -51,8 +51,8 @@ public class SellerModerationController {
     }
 
     @GetMapping(BASE + "/{sellerId}")
-    public ResponseEntity<String> card(@PathVariable("sellerId") String sellerId) {
-        return ok(Json.write(ModerationViews.card(service.card(sellerId(sellerId)))));
+    public ResponseEntity<String> card(@PathVariable("sellerId") String sellerId, HttpServletRequest request) {
+        return ok(Json.write(ModerationViews.card(service.card(moderator(request), sellerId(sellerId)))));
     }
 
     @PostMapping(BASE + "/{sellerId}/approve")

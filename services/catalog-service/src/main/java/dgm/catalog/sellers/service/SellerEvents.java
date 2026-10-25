@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Данные событий решения по заявке и запись аудита к ним по схемам AsyncAPI ({@code SellerApprovedData}, {@code SellerRejectedData},
@@ -23,6 +24,11 @@ final class SellerEvents {
     static final String REJECTED = "seller.rejected";
     static final String RETURNED = "seller.returned";
     static final int SCHEMA_VERSION = 1;
+    /**
+     * Действие в журнале аудита: модератор открыл документ заявки (чтение это действие, ADR-014, Р-166). Название «seller.document_opened», а не
+     * «seller-document.opened»: схема {@code AuditRecordedData} допускает в первой части только строчные буквы без дефиса (F4-30).
+     */
+    static final String DOCUMENT_OPENED = "seller.document_opened";
 
     /** Тип объекта и коды действий в журнале аудита (ADR-014): действие названо так же, как событие решения. */
     static final String AUDIT_OBJECT = "seller";
@@ -59,6 +65,15 @@ final class SellerEvents {
             changes.add(AuditRecords.change("decisionReason", before.decisionReason(), after.decisionReason()));
         }
         return AuditRecords.staffAction(at, moderator.id(), Moderator.ROLE, moderator.ip(), action, AUDIT_OBJECT, after.id().toString(), changes);
+    }
+
+    /**
+     * Запись аудита об одной выданной ссылке на документ: объект это заявка (профиль продавца), в изменении только идентификатор документа
+     * (содержимого и самой ссылки нет). Значения «до» нет, «после» это идентификатор: ссылка выдана.
+     */
+    static Map<String, Object> documentOpened(Instant at, Moderator moderator, UUID sellerId, UUID documentId) {
+        return AuditRecords.staffRead(at, moderator.id(), Moderator.ROLE, moderator.ip(), DOCUMENT_OPENED, AUDIT_OBJECT, sellerId.toString(),
+                List.of(AuditRecords.change("documentId", null, documentId.toString())));
     }
 
     private static Map<String, Object> base(SellerProfile profile, Moderator moderator) {

@@ -20,6 +20,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.BiFunction;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
@@ -40,6 +42,9 @@ public final class SellerModerationService {
     /** Документ в карточке со ссылкой, подписанной на срок {@code seller.document-link-ttl-seconds}. */
     public record CardDocument(SellerDocument document, ObjectStorage.PresignedLink link) {
     }
+
+    private static final Logger LOG = LoggerFactory.getLogger(SellerModerationService.class);
+    private static final int DOCUMENT_RETRY_AFTER_SECONDS = 5;
 
     private final SellerRepository repository;
     private final SellerTransaction transaction;
@@ -71,17 +76,41 @@ public final class SellerModerationService {
         return new ReviewQueuePage(List.copyOf(items), limit, next, clock.instant());
     }
 
-    /** Карточка: анкета и ссылки на документы. Открытие ничего не меняет. Подпись ссылок не обращается к хранилищу и идёт вне транзакции. */
-    public Card card(UUID sellerId) {
+    /**
+     * Карточка: анкета и ссылки на документы. Открытие ничего не меняет в заявке, но чтение документа это действие (ADR-014, Р-166): на
+     * каждую выдаваемую ссылку в Outbox ложится запись {@code seller.document_opened}, и она фиксируется до выдачи ссылок. Не удалось записать,
+     * ответ 503 и ни одной ссылки: так документ не открыть без следа. Подпись ссылок не обращается к хранилищу и идёт вне транзакции.
+     * Запись идёт в той же транзакции, что чтение анкеты, поэтому у несуществующей заявки записей нет.
+     */
+    public Card card(Moderator moderator, UUID sellerId) {
         Application application = transaction.execute(() -> {
             SellerProfile profile = repository.findById(sellerId).filter(SellerProfile::visibleToModerator).orElseThrow(SellerModerationService::notFound);
-            return new Application(profile, repository.documents(sellerId));
+            List<SellerDocument> documents = repository.documents(sellerId);
+            recordOpenings(moderator, sellerId, documents);
+            return new Application(profile, documents);
         });
         List<CardDocument> documents = new ArrayList<>();
         for (SellerDocument document : application.documents()) {
             documents.add(new CardDocument(document, storage.presignGet(document.objectKey(), settings.documentLinkTtl())));
         }
         return new Card(application.profile(), List.copyOf(documents));
+    }
+
+    /** По одной записи на документ; любой сбой откатывает чтение и даёт 503 (текст ошибки может нести значения, в журнал идёт только класс). */
+    private void recordOpenings(Moderator moderator, UUID sellerId, List<SellerDocument> documents) {
+        if (documents.isEmpty()) {
+            return;
+        }
+        Instant now = clock.instant();
+        try {
+            for (SellerDocument document : documents) {
+                transaction.publish(AuditRecords.TOPIC, AuditRecords.AGGREGATE, sellerId.toString(), AuditRecords.EVENT,
+                        AuditRecords.SCHEMA_VERSION, SellerEvents.documentOpened(now, moderator, sellerId, document.id()));
+            }
+        } catch (RuntimeException e) {
+            LOG.warn("Запись об открытии документов заявки не зафиксирована, ссылки не выдаются: {}", e.getClass().getSimpleName());
+            throw ProblemException.dependencyUnavailable("Документы временно недоступны, повторите запрос позже.", DOCUMENT_RETRY_AFTER_SECONDS);
+        }
     }
 
     /** SM-05/T3. Роль «Продавец» назначит {@code platform-service} по событию {@code seller.approved} (INV-36, INV-37). */
