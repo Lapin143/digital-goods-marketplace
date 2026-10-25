@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const specs = join(root, '..', '..', 'docs', '06-api', 'openapi');
 const out = join(root, 'src', 'api', 'generated');
-const services = ['catalog', 'platform', 'inventory'];
+const services = ['catalog', 'platform', 'inventory', 'order'];
 
 mkdirSync(out, { recursive: true });
 const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';

@@ -3,6 +3,7 @@ import { ApiError, problemMessage } from '../../api/problem';
 import { t } from '../../i18n';
 import { Button } from '../../ui/Button';
 import { StatePanel } from '../../ui/StatePanel';
+import { BuyPanel } from '../orders/BuyPanel';
 import { productTypeLabel } from './labels';
 import { formatMoney } from './money';
 import { useProduct } from './useStorefront';
@@ -58,6 +59,12 @@ export function ProductPage() {
           {t('product.refresh')}
         </Button>
       </p>
+      <BuyPanel
+        productId={productId}
+        price={item.price}
+        orderUpTo={available ? item.maxOrderQuantity : 0}
+        onStockChanged={() => void product.refetch()}
+      />
       <h2>{t('product.description')}</h2>
       <p className={styles.description}>{item.description}</p>
     </article>

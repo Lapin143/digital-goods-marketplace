@@ -19,12 +19,26 @@ type Step = { kind: 'phone' } | { kind: 'code'; confirmationId: string; phoneMas
 /** Ответы, после которых введённый код уже не поможет: нужен новый код (или другой номер). */
 const START_OVER = new Set(['otp-expired', 'otp-locked', 'phone-not-allowed', 'not-found']);
 
+export interface PhoneConfirmationFlowProps {
+  /** Шаги внутри другого экрана (покупка): заголовки второго уровня, по завершении короткое сообщение вместо страницы. */
+  embedded?: boolean;
+  /** Телефон подтверждён: родительский экран продолжает своё действие. */
+  onConfirmed?: (phoneMasked: string) => void;
+}
+
+/** Страница `/account/phone`. */
+export function PhonePage() {
+  return <PhoneConfirmationFlow />;
+}
+
 /**
  * Подтверждение телефона (US-1.6): запрос кода, ввод кода, ошибки лимитов с временем ожидания.
  * Исход каждого запроса показывается текстом из словаря по коду ошибки. Повтор того же действия после сбоя сети
  * уходит с тем же `Idempotency-Key`, поэтому код не отправляется дважды, а двойное нажатие невозможно (кнопка занята).
+ * Тот же набор шагов открывается внутри покупки (`embedded`): покупатель подтверждает номер, не уходя с карточки товара (US-5.1, шаг 19 Ф4).
  */
-export function PhonePage() {
+export function PhoneConfirmationFlow({ embedded = false, onConfirmed }: PhoneConfirmationFlowProps) {
+  const Title = embedded ? 'h2' : 'h1';
   const api = useApi();
   const keys = useRequestKeys();
   const [step, setStep] = useState<Step>({ kind: 'phone' });
@@ -90,7 +104,9 @@ export function PhonePage() {
         { idempotencyKey: keys.keyFor(`verify:${confirmationId}:${code}`) },
       );
       keys.settle();
-      setStep({ kind: 'done', phoneMasked: response.data.phoneMasked || phoneMasked });
+      const masked = response.data.phoneMasked || phoneMasked;
+      setStep({ kind: 'done', phoneMasked: masked });
+      onConfirmed?.(masked);
     } catch (error) {
       keys.settle(error);
       blockFor(error);
@@ -109,6 +125,10 @@ export function PhonePage() {
   const waiting = waitSeconds > 0;
   const waitNote = waiting ? <p className={styles.wait}>{t('phone.resendIn', { seconds: waitSeconds })}</p> : null;
 
+  if (step.kind === 'done' && embedded) {
+    return <Notice kind="success">{t('phone.done.text', { phone: step.phoneMasked })}</Notice>;
+  }
+
   if (step.kind === 'done') {
     return (
       <section>
@@ -124,7 +144,7 @@ export function PhonePage() {
     const { confirmationId, phoneMasked } = step;
     return (
       <section>
-        <h1>{t('phone.title')}</h1>
+        <Title>{t('phone.title')}</Title>
         <form
           className={styles.form}
           noValidate
@@ -172,7 +192,7 @@ export function PhonePage() {
 
   return (
     <section>
-      <h1>{t('phone.title')}</h1>
+      <Title>{t('phone.title')}</Title>
       <p>{t('phone.lead')}</p>
       <form
         className={styles.form}

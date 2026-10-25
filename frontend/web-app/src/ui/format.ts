@@ -17,3 +17,10 @@ export function formatSize(bytes: number, units: { kb: string; mb: string }): st
   }
   return `${Math.max(1, Math.round(bytes / 1024))} ${units.kb}`;
 }
+
+/** Остаток времени для обратного отсчёта: «14:05». Отрицательное число показывается как «0:00». */
+export function formatCountdown(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
+}

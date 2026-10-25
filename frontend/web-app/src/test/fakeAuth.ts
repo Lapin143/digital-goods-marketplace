@@ -27,11 +27,12 @@ export function fakeUser(payload: Record<string, unknown>, state?: unknown): Use
 export interface FakeManager extends AuthManager {
   signinRedirect: ReturnType<typeof vi.fn<AuthManager['signinRedirect']>>;
   signoutRedirect: ReturnType<typeof vi.fn<AuthManager['signoutRedirect']>>;
+  signinSilent: ReturnType<typeof vi.fn<AuthManager['signinSilent']>>;
   signinRedirectCallback: ReturnType<typeof vi.fn<AuthManager['signinRedirectCallback']>>;
 }
 
 /** Менеджер входа без Keycloak: `user` это то, что он вернёт из getUser (сессия уже есть) или null (входа нет). */
-export function fakeManager(user: User | null, callbackUser?: User): FakeManager {
+export function fakeManager(user: User | null, callbackUser?: User, refreshedUser?: User): FakeManager {
   return {
     getUser: vi.fn(() => Promise.resolve(user)),
     signinRedirect: vi.fn<AuthManager['signinRedirect']>(() => Promise.resolve()),
@@ -39,6 +40,7 @@ export function fakeManager(user: User | null, callbackUser?: User): FakeManager
       callbackUser ? Promise.resolve(callbackUser) : Promise.reject(new Error('нет ответа')),
     ),
     signoutRedirect: vi.fn<AuthManager['signoutRedirect']>(() => Promise.resolve()),
+    signinSilent: vi.fn<AuthManager['signinSilent']>(() => (refreshedUser ? Promise.resolve(refreshedUser) : Promise.reject(new Error('нет refresh-токена')))),
     removeUser: vi.fn(() => Promise.resolve()),
     events: {
       addUserLoaded: vi.fn(),

@@ -1,0 +1,29 @@
+.panel {
+  max-width: 420px;
+  margin: var(--space-4) 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.panel h2 {
+  margin-top: 0;
+}
+
+.total {
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.muted {
+  color: var(--color-muted);
+}

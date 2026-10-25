@@ -35,6 +35,11 @@ export interface AuthApi {
   completeSignIn: (kind: ClientKind) => Promise<string>;
   /** Забыть сессию без перехода на Keycloak (сервер ответил 401). */
   forget: (kind: ClientKind) => void;
+  /**
+   * Получить новый токен без ухода со страницы: после подтверждения телефона в токене появляется признак `phone_verified`.
+   * Не вышло (нет refresh-токена, Keycloak не ответил): `undefined`, и экран предлагает войти заново.
+   */
+  refresh: (kind: ClientKind) => Promise<Session | undefined>;
 }
 
 const KINDS: readonly ClientKind[] = ['web', 'staff', 'sms'];
@@ -149,6 +154,17 @@ export function AuthProvider({ children, managerFactory }: AuthProviderProps) {
         return safeReturnTo(returnTo);
       },
       forget,
+      refresh: async (kind) => {
+        try {
+          const session = toSession(kind, await manager(kind).signinSilent());
+          if (session) {
+            store(kind, session);
+          }
+          return session;
+        } catch {
+          return undefined;
+        }
+      },
     }),
     [ready, sessions, token, forget, manager, store],
   );

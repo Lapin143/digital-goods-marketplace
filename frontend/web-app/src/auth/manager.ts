@@ -8,6 +8,8 @@ export interface AuthManager {
   getUser(): Promise<User | null>;
   signinRedirect(args?: SigninRedirectArgs): Promise<void>;
   signinRedirectCallback(): Promise<User>;
+  /** Новый токен по refresh-токену без ухода со страницы; `null`, если обновить нечем. */
+  signinSilent(): Promise<User | null>;
   signoutRedirect(): Promise<void>;
   removeUser(): Promise<void>;
   events: {
