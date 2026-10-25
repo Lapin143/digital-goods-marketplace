@@ -631,7 +631,7 @@ paths:
       operationId: getSellerApplicationCard
       summary: Карточка заявки с документами
       description: |-
-        Анкета и ссылки на документы (5 минут). Открытие карточки не меняет заявку.
+        Анкета и ссылки на документы (5 минут). Открытие карточки не меняет заявку. Каждая выданная ссылка на документ записывается в журнал аудита до отдачи ссылки: если записать не удалось, ответ 503 и ссылки не выдаются (Р-166 среза 3).
 
         Матрица прав: OP-11. Истории: US-2.2, US-2.3.
       tags:
@@ -702,6 +702,8 @@ paths:
           $ref: components.yaml#/components/responses/E429RateLimited
         '500':
           $ref: components.yaml#/components/responses/E500InternalError
+        '503':
+          $ref: components.yaml#/components/responses/E503DependencyUnavailable
   /api/v1/staff/seller-applications/{sellerId}/approve:
     post:
       operationId: approveSellerApplication

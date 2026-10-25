@@ -265,6 +265,8 @@ components:
           - unpaid-orders-limit
           - ticket-window-closed
           - ticket-already-open
+          - ticket-not-in-progress
+          - delivery-in-progress
           - application-pause-active
           - refund-not-allowed
           - email-not-allowed
@@ -1376,6 +1378,55 @@ components:
                 status: 409
                 detail: По заказу уже есть открытое обращение.
                 code: ticket-already-open
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E409StateConflictRequestInProgressTicketNotInProgressDeliveryInProgress:
+      description: Действие недоступно в этом статусе; Запрос уже выполняется; Обращение не в работе; Выдача ещё выполняется
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            state-conflict:
+              summary: Действие недоступно в этом статусе
+              value:
+                type: https://api.marketplace.example/problems/state-conflict
+                title: Действие недоступно в этом статусе
+                status: 409
+                detail: Действие недоступно в текущем статусе объекта.
+                code: state-conflict
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                currentStatus: paid
+            request-in-progress:
+              summary: Запрос уже выполняется
+              value:
+                type: https://api.marketplace.example/problems/request-in-progress
+                title: Запрос уже выполняется
+                status: 409
+                detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
+                code: request-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            ticket-not-in-progress:
+              summary: Обращение не в работе
+              value:
+                type: https://api.marketplace.example/problems/ticket-not-in-progress
+                title: Обращение не в работе
+                status: 409
+                detail: Действие доступно только по обращению, которое вы взяли в работу.
+                code: ticket-not-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            delivery-in-progress:
+              summary: Выдача ещё выполняется
+              value:
+                type: https://api.marketplace.example/problems/delivery-in-progress
+                title: Выдача ещё выполняется
+                status: 409
+                detail: По заказу выдача ещё в очереди, дождитесь результата.
+                code: delivery-in-progress
                 correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
     E409StateConflictRequestInProgressEmailNotAllowed:
       description: Действие недоступно в этом статусе; Запрос уже выполняется; Адрес использовать нельзя

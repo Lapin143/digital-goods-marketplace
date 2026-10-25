@@ -182,7 +182,7 @@ paths:
       operationId: createSupportTicket
       summary: Создать обращение «Не получил ключ»
       description: |-
-        Создаёт обращение в статусе `created` с источником `buyer` (SM-07, T1), оно встаёт в очередь поддержки. Условия: заказ принадлежит покупателю (U1, иначе 404), заказ в статусе `issued` (иначе 409 `state-conflict`), с первичной выдачи прошло не больше 72 часов (параметр `support.window-seconds`, U5, иначе 409 `ticket-window-closed`; повторная отправка окно не продлевает), по заказу нет открытого обращения (INV-21, иначе 409 `ticket-already-open`). Доступна и сессии по SMS: так покупатель, потерявший доступ к e-mail, обращается в поддержку (US-1.7).
+        Создаёт обращение в статусе `created` с источником `buyer` (SM-07, T1), оно встаёт в очередь поддержки. Условия: заказ принадлежит покупателю (U1, иначе 404), заказ в статусе `issued` (иначе 409 `state-conflict`), с первичной выдачи прошло не больше 72 часов (параметр `support.window-seconds`, U5, иначе 409 `ticket-window-closed`; повторная отправка окно не продлевает), по заказу нет открытого обращения (INV-21, иначе 409 `ticket-already-open`). Покупатель может создать не больше `support.requests-per-hour` обращений в час (по умолчанию 5, Р-177 среза 3), иначе 429 `rate-limited` с `Retry-After`. Доступна и сессии по SMS: так покупатель, потерявший доступ к e-mail, обращается в поддержку (US-1.7).
 
         Матрица прав: OP-70. Истории: US-7.1.
       tags:
@@ -881,7 +881,7 @@ paths:
       operationId: resendKeyForTicket
       summary: Повторно отправить ключ по обращению
       description: |-
-        Обновляет снимок адреса доставки в заказе текущим e-mail учётной записи (синхронный вызов `order-service`, тайм-аут 2 секунды) и запускает повторную выдачу: создаётся выдача типа `repeat` в статусе `queued`, ключ формирует и отправляет сервис выдачи, оператор ключа не видит (INV-23). Окна 72 часа, спора и удержания 7 дней не сдвигаются. Условия: обращение в статусе `in_progress` у этого оператора (U4, U10), заказ `issued`, у заказа нет выдачи в очереди (иначе 409). Действие пишется в журнал аудита без e-mail в открытом виде. Ответ 202: результат виден в статусе выдачи обращения.
+        Обновляет снимок адреса доставки в заказе текущим e-mail учётной записи (синхронный вызов `order-service`, тайм-аут 2 секунды) и запускает повторную выдачу: создаётся выдача типа `repeat` в статусе `queued`, ключ формирует и отправляет сервис выдачи, оператор ключа не видит (INV-23). Окна 72 часа, спора и удержания 7 дней не сдвигаются. Условия: обращение в статусе `in_progress` у этого оператора (U4, U10), заказ `issued` (иначе 409 `state-conflict`), у заказа нет выдачи в очереди (иначе 409 `delivery-in-progress`; обращение не в работе у этого оператора даёт 409 `ticket-not-in-progress`). Действие пишется в журнал аудита без e-mail в открытом виде. Ответ 202: результат виден в статусе выдачи обращения.
 
         Матрица прав: OP-72. Истории: US-7.3.
       tags:
@@ -936,7 +936,7 @@ paths:
         '404':
           $ref: components.yaml#/components/responses/E404NotFound
         '409':
-          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressTicketNotInProgressDeliveryInProgress
         '422':
           $ref: components.yaml#/components/responses/E422IdempotencyKeyReuse
         '429':
@@ -1494,6 +1494,16 @@ paths:
                   version: 3
                   updatedAt: '2026-10-03T11:00:00.456Z'
                   updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
+                - key: support.requests-per-hour
+                  description: Обращений в поддержку от одного покупателя за час (US-7.1, ADR-017 Р-177)
+                  unit: count
+                  value: 5
+                  defaultValue: 5
+                  minValue: 1
+                  maxValue: 50
+                  version: 3
+                  updatedAt: '2026-10-03T11:00:00.456Z'
+                  updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
                 - key: seller.reapplication-pause-seconds
                   description: Пауза после отказа продавцу перед новой заявкой (FT-2.4)
                   unit: seconds
@@ -1683,7 +1693,7 @@ paths:
       operationId: listAuditRecords
       summary: Читать журнал аудита
       description: |-
-        Просмотр и фильтрация журнала. Записи нельзя менять и удалять: ни одной операции записи в этом API нет, а роль приложения в базе имеет только `INSERT` и `SELECT` (OP-87, INV-42, ADR-014). Каждое открытие журнала даёт запись «просмотр журнала» без параметров поиска (roles-permissions.md, решение 4). Порядок: `occurredAt` по убыванию, затем `recordId`. Диапазон времени `occurredFrom` включительно, `occurredTo` не включая.
+        Просмотр и фильтрация журнала. Записи нельзя менять и удалять: ни одной операции записи в этом API нет, а роль приложения в базе имеет только `INSERT` и `SELECT` (OP-87, INV-42, ADR-014). Каждое открытие журнала даёт запись «просмотр журнала» без параметров поиска (roles-permissions.md, решение 4), и она пишется на первой странице до отдачи данных: если записать просмотр не удалось, ответ 503 и записи не отдаются (чтение журнала это действие, ADR-014, Р-166 среза 3). Порядок: `occurredAt` по убыванию, затем `recordId`. Диапазон времени `occurredFrom` включительно, `occurredTo` не включая.
 
         Матрица прав: OP-86. Истории: US-8.7.
       tags:
@@ -1788,6 +1798,8 @@ paths:
           $ref: components.yaml#/components/responses/E429RateLimited
         '500':
           $ref: components.yaml#/components/responses/E500InternalError
+        '503':
+          $ref: components.yaml#/components/responses/E503DependencyUnavailable
   /internal/v1/otp-codes:
     post:
       operationId: issueOtpCode

@@ -28,6 +28,8 @@ public enum ProblemType {
     UNPAID_ORDERS_LIMIT("unpaid-orders-limit", 409, "Слишком много неоплаченных заказов"),
     TICKET_WINDOW_CLOSED("ticket-window-closed", 409, "Срок обращения истёк"),
     TICKET_ALREADY_OPEN("ticket-already-open", 409, "Обращение уже открыто"),
+    TICKET_NOT_IN_PROGRESS("ticket-not-in-progress", 409, "Обращение не в работе"),
+    DELIVERY_IN_PROGRESS("delivery-in-progress", 409, "Выдача ещё выполняется"),
     APPLICATION_PAUSE_ACTIVE("application-pause-active", 409, "Повторная заявка пока недоступна"),
     REFUND_NOT_ALLOWED("refund-not-allowed", 409, "Возврат недоступен"),
     EMAIL_NOT_ALLOWED("email-not-allowed", 409, "Адрес использовать нельзя"),

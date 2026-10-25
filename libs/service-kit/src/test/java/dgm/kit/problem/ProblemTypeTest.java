@@ -12,7 +12,7 @@ class ProblemTypeTest {
 
     @Test
     void registryHasThirtyEightTypes() {
-        assertEquals(39, ProblemType.values().length);
+        assertEquals(41, ProblemType.values().length);
     }
 
     @Test
