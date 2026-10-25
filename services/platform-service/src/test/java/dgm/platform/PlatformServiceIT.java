@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dgm.kit.boot.ModuleDatabases;
@@ -14,6 +15,7 @@ import dgm.kit.crypto.WebhookSignature;
 import dgm.kit.events.HandleResult;
 import dgm.kit.json.Json;
 import dgm.kit.kafka.KafkaClients;
+import dgm.kit.outbox.AuditRecords;
 import dgm.kit.outbox.EnvelopeBuilder;
 import dgm.kit.outbox.OutboxRow;
 import dgm.kit.outbox.OutgoingEvent;
@@ -25,7 +27,10 @@ import dgm.kit.testing.TestTokens;
 import dgm.kit.time.Timestamps;
 import dgm.kit.tls.TlsMaterial;
 import dgm.kit.trace.TraceContext;
+import dgm.platform.auditadmin.service.AuditPartitionService;
+import dgm.platform.auditadmin.service.AuditRecordService;
 import dgm.platform.identity.service.IdentityReconciler;
+import dgm.platform.identity.service.IdentityTransaction;
 import dgm.platform.support.service.SupportService;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -35,9 +40,12 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.YearMonth;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -150,7 +158,8 @@ class PlatformServiceIT {
     }
 
     /** Темы, которые читает платформа (потребители обработчиков). */
-    private static final List<String> CONSUMED_TOPICS = List.of("catalog.events", "identity.events", "order.events", "payment.events", "delivery.events");
+    private static final List<String> CONSUMED_TOPICS = List.of("catalog.events", "identity.events", "order.events", "payment.events", "delivery.events",
+            "audit.events");
 
     /**
      * Переносит группу потребителей платформы в конец своих тем до запуска контекста. Группа читает темы с начала, а на общем стенде в них лежат события,
@@ -193,6 +202,12 @@ class PlatformServiceIT {
     private Modules modules;
     @Autowired
     private SupportService support;
+    @Autowired
+    private AuditRecordService auditRecords;
+    @Autowired
+    private AuditPartitionService auditPartitions;
+    @Autowired
+    private IdentityTransaction identityTransaction;
 
     // ---- помощники ----
 
@@ -1769,6 +1784,254 @@ class PlatformServiceIT {
         assertTrue(handledBySupport(failed), "событие отмечено разобранным один раз");
         assertEquals(1, deadLetters("delivery.events.dlq", orderId.toString(), Integer.MAX_VALUE, Duration.ofSeconds(5)).size(),
                 "дубль в .dlq не вернулся: запись там одна");
+    }
+
+    // ---- журнал аудита (шаг 4 среза 3): потребитель audit-consumer, неизменяемость, секции ----
+
+    /** Журнал под рабочей ролью приёмника {@code app_audit_writer}: только {@code INSERT} и {@code SELECT}. */
+    private JdbcTemplate auditDb() {
+        return databases.jdbc("audit-writer");
+    }
+
+    /** Журнал под владельцем схемы (ролью-мигратором): ему права есть, неизменяемость держат триггеры. */
+    private static JdbcTemplate auditOwnerDb() {
+        return new JdbcTemplate(Stand.dataSource("migrator_platform", "platform_db"));
+    }
+
+    private int auditRows(UUID eventId) {
+        return auditDb().queryForObject("select count(*) from audit_admin.audit_log where event_id = ?", Integer.class, eventId);
+    }
+
+    private static Map<String, Object> staffAudit(UUID objectId, String action) {
+        return AuditRecords.staffAction(Instant.now(), UUID.randomUUID(), "moderator", "203.0.113.7", action, "seller", objectId.toString(),
+                List.of(AuditRecords.change("status", "on_review", "approved"), AuditRecords.change("score", 3, 5)));
+    }
+
+    private static UUID publishAudit(UUID subject, Map<String, Object> data) throws Exception {
+        UUID eventId = UUID.randomUUID();
+        publish("catalog-service", AuditRecords.TOPIC, AuditRecords.AGGREGATE, subject.toString(), AuditRecords.EVENT, eventId, data);
+        return eventId;
+    }
+
+    /** Код SQLSTATE отказа базы: у отклонённой операции это {@code 42501} (нет права) или {@code 23001} (запретил триггер), у принятой {@code none}. */
+    private static String sqlState(Runnable action) {
+        try {
+            action.run();
+        } catch (RuntimeException e) {
+            for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+                if (cause instanceof SQLException sql) {
+                    return sql.getSQLState();
+                }
+            }
+            throw e;
+        }
+        return "none";
+    }
+
+    @Tag("TC-813")
+    @Test
+    @Order(37)
+    void staffAuditEventBecomesOneJournalRecordAndARedeliveryAndAFollowingEventAddNothingExtra() throws Exception {
+        UUID object = UUID.randomUUID();
+        Map<String, Object> data = staffAudit(object, "seller.approved");
+        UUID eventId = publishAudit(object, data);
+        assertTrue(await(Duration.ofSeconds(90), () -> auditRows(eventId) == 1), "запись появилась в журнале");
+
+        Map<String, Object> row = auditDb().queryForMap("select id, actor_id::text as actor_id, actor_role, action, object_type, object_id, actor_ip, "
+                + "actor_ip_hashed, correlation_id::text as correlation_id, occurred_at, recorded_at, "
+                + "changes @> '[{\"field\":\"status\",\"personal\":false,\"before\":\"on_review\",\"after\":\"approved\"},"
+                + "{\"field\":\"score\",\"personal\":false,\"before\":3,\"after\":5}]'::jsonb as changes_ok, jsonb_array_length(changes) as changes_count "
+                + "from audit_admin.audit_log where event_id = ?", eventId);
+        assertEquals(7, ((UUID) row.get("id")).version(), "RecordID это UUID версии 7");
+        assertEquals(data.get("actorId"), row.get("actor_id"));
+        assertEquals("moderator", row.get("actor_role"));
+        assertEquals("seller.approved", row.get("action"));
+        assertEquals("seller", row.get("object_type"));
+        assertEquals(object.toString(), row.get("object_id"));
+        assertEquals(data.get("correlationId"), row.get("correlation_id"));
+        assertEquals(Instant.parse((String) data.get("occurredAt")), ((java.sql.Timestamp) row.get("occurred_at")).toInstant(),
+                "время действия взято из события");
+        assertTrue(((java.sql.Timestamp) row.get("recorded_at")).toInstant().isAfter(((java.sql.Timestamp) row.get("occurred_at")).toInstant().minusSeconds(1)));
+        assertEquals(Boolean.TRUE, row.get("changes_ok"), "значения до и после записаны как есть: строка и число");
+        assertEquals(2, row.get("changes_count"));
+        assertEquals(1, count("select count(*) from public.processed_event where consumer = 'audit-consumer' and event_id = ?", eventId));
+
+        // Повторная доставка того же события (тот же идентификатор), затем метка: когда метка в журнале, дубль уже разобран
+        publish("catalog-service", AuditRecords.TOPIC, AuditRecords.AGGREGATE, object.toString(), AuditRecords.EVENT, eventId, data);
+        UUID markerObject = UUID.randomUUID();
+        UUID marker = publishAudit(markerObject, staffAudit(markerObject, "seller.rejected"));
+        assertTrue(await(Duration.ofSeconds(90), () -> auditRows(marker) == 1), "метка после дубля записана");
+        assertEquals(1, auditRows(eventId), "дубль записи не создал");
+        assertEquals(1, count("select count(*) from public.processed_event where consumer = 'audit-consumer' and event_id = ?", eventId));
+
+        // Два одинаковых действия подряд это два события с разными идентификаторами, и запись у каждого своя
+        UUID second = publishAudit(object, data);
+        assertTrue(await(Duration.ofSeconds(90), () -> auditRows(second) == 1), "второе событие с тем же содержимым записано");
+        assertEquals(2, auditDb().queryForObject("select count(*) from audit_admin.audit_log where object_id = ? and action = 'seller.approved'",
+                Integer.class, object.toString()));
+    }
+
+    @Tag("TC-813")
+    @Test
+    @Order(38)
+    void openPersonalValueInAnAuditEventGoesToTheDlqAtOnceWithoutRepeatsAndLeavesNoRecord() throws Exception {
+        UUID object = UUID.randomUUID();
+        Map<String, Object> open = new LinkedHashMap<>();
+        open.put("field", "email");
+        open.put("personal", true);
+        open.put("before", null);
+        open.put("after", "ivan.petrov@mail.example");
+        Map<String, Object> data = staffAudit(object, "user.email_changed");
+        data.put("changes", List.of(open));
+        UUID eventId = publishAudit(object, data);
+
+        List<ConsumerRecord<String, String>> dead = deadLetters("audit.events.dlq", object.toString(), 1, Duration.ofSeconds(60));
+        assertEquals(1, dead.size(), "запись попала в audit.events.dlq");
+        ConsumerRecord<String, String> record = dead.get(0);
+        assertEquals("audit.events", header(record, "dlq-original-topic"));
+        assertEquals("audit-consumer", header(record, "dlq-consumer"));
+        assertEquals("1", header(record, "dlq-attempts"), "неисправимая ошибка: повторов нет");
+        assertEquals("dgm.kit.events.FatalEventException", header(record, "dlq-error-class"));
+        assertTrue(header(record, "dlq-error-message").contains("email"), "в сообщении есть имя поля");
+        assertFalse(header(record, "dlq-error-message").contains("ivan.petrov"), "а значения нет");
+        assertEquals(0, auditRows(eventId));
+        assertEquals(0, count("select count(*) from public.processed_event where consumer = 'audit-consumer' and event_id = ?", eventId),
+                "отметка об обработке откатилась вместе с отказом: возврат записи из DLQ после исправления пройдёт");
+        assertEquals(0, auditDb().queryForObject("select count(*) from audit_admin.audit_log where object_id = ?", Integer.class, object.toString()));
+    }
+
+    @Tag("TC-813")
+    @Test
+    @Order(39)
+    void twoConsumersWithOneEventAtOnceLeaveOneRecord() {
+        UUID object = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
+        Map<String, Object> data = staffAudit(object, "seller.blocked");
+        List<Boolean> applied = Concurrent.race(8, index -> auditRecords.record(eventId, data).applied());
+        assertEquals(1, applied.stream().filter(Boolean::booleanValue).count(), "применило ровно одно из восьми одновременных обращений");
+        assertEquals(1, auditRows(eventId));
+    }
+
+    @Tag("TC-814")
+    @Test
+    @Order(40)
+    void staffAddressIsStoredAsIsAndAUserAddressOnlyAsAHash() throws Exception {
+        String hash = "9f2c4b1ad03e47f6a8b5c1d2e3f40516273849a0b1c2d3e4f5061728394a5b6c";
+        UUID staffObject = UUID.randomUUID();
+        UUID staffEvent = publishAudit(staffObject, staffAudit(staffObject, "seller.approved"));
+
+        UUID userObject = UUID.randomUUID();
+        Map<String, Object> userData = staffAudit(userObject, "user.phone_confirmed");
+        userData.put("actorRole", "buyer");
+        userData.put("objectType", "user");
+        userData.put("actorIp", hash);
+        userData.put("actorIpHashed", true);
+        userData.put("changes", List.of(AuditRecords.personalChange("phone", null, "a".repeat(64)), AuditRecords.change("phone_confirmed", false, true)));
+        UUID userEvent = publishAudit(userObject, userData);
+
+        UUID systemObject = UUID.randomUUID();
+        Map<String, Object> systemData = staffAudit(systemObject, "user.role_assigned");
+        systemData.put("actorRole", "system");
+        systemData.put("actorIp", "");
+        UUID systemEvent = publishAudit(systemObject, systemData);
+
+        // Адрес пользователя открытым значением: форма не принята, запись не создана
+        UUID rawObject = UUID.randomUUID();
+        Map<String, Object> rawData = new LinkedHashMap<>(userData);
+        rawData.put("actorIp", "198.51.100.23");
+        UUID rawEvent = publishAudit(rawObject, rawData);
+
+        assertTrue(await(Duration.ofSeconds(90), () -> auditRows(staffEvent) == 1 && auditRows(userEvent) == 1 && auditRows(systemEvent) == 1),
+                "три записи в журнале");
+        assertEquals(1, deadLetters("audit.events.dlq", rawObject.toString(), 1, Duration.ofSeconds(60)).size(), "открытый адрес пользователя ушёл в DLQ");
+        assertEquals(0, auditRows(rawEvent));
+
+        Map<String, Object> staff = auditDb().queryForMap("select actor_ip, actor_ip_hashed from audit_admin.audit_log where event_id = ?", staffEvent);
+        assertEquals("203.0.113.7", staff.get("actor_ip"), "адрес сотрудника как есть");
+        assertEquals(Boolean.FALSE, staff.get("actor_ip_hashed"));
+        Map<String, Object> user = auditDb().queryForMap("select actor_ip, actor_ip_hashed, changes::text as changes from audit_admin.audit_log where event_id = ?",
+                userEvent);
+        assertEquals(hash, user.get("actor_ip"), "адрес пользователя хешем");
+        assertEquals(Boolean.TRUE, user.get("actor_ip_hashed"));
+        assertFalse(((String) user.get("changes")).contains("+7"), "телефона в записи нет");
+        Map<String, Object> system = auditDb().queryForMap("select actor_ip, actor_ip_hashed from audit_admin.audit_log where event_id = ?", systemEvent);
+        assertNull(system.get("actor_ip"), "у действия системы адреса нет");
+        assertEquals(Boolean.FALSE, system.get("actor_ip_hashed"));
+    }
+
+    @Tag("TC-812")
+    @Test
+    @Order(41)
+    void journalOnlyGrowsApplicationRoleCannotChangeItAndTheOwnerIsStoppedByTriggers() throws Exception {
+        UUID object = UUID.randomUUID();
+        UUID eventId = publishAudit(object, staffAudit(object, "seller.approved"));
+        assertTrue(await(Duration.ofSeconds(90), () -> auditRows(eventId) == 1), "в журнале есть запись для проверки");
+        UUID id = auditDb().queryForObject("select id from audit_admin.audit_log where event_id = ?", UUID.class, eventId);
+        String partition = auditDb().queryForObject("select tableoid::regclass::text from audit_admin.audit_log where id = ?", String.class, id);
+        String update = "update audit_admin.audit_log set action = 'x' where id = '" + id + "'";
+        String delete = "delete from audit_admin.audit_log where id = '" + id + "'";
+
+        // Роль приёмника: права на INSERT и SELECT, остальных нет (42501)
+        JdbcTemplate writer = auditDb();
+        assertEquals("42501", sqlState(() -> writer.execute(update)));
+        assertEquals("42501", sqlState(() -> writer.execute(delete)));
+        assertEquals("42501", sqlState(() -> writer.execute("truncate audit_admin.audit_log")));
+        assertEquals("42501", sqlState(() -> writer.execute("truncate " + partition)));
+        assertEquals("42501", sqlState(() -> writer.execute("create table audit_admin.evil (x int)")), "создавать таблицы в схеме роль не может");
+        String openValue = "[{\"field\":\"email\",\"personal\":true,\"before\":null,\"after\":\"ivan.petrov@mail.example\"}]";
+        assertEquals("23514", sqlState(() -> writer.update("insert into audit_admin.audit_log (id, event_id, occurred_at, actor_id, actor_role, action, object_type, "
+                + "object_id, changes) values (?, ?, now(), ?, 'admin', 'user.email_changed', 'user', 'u', ?::jsonb)",
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), openValue)), "открытое персональное значение отвергает ограничение таблицы");
+
+        // Владелец схемы: права есть, но триггеры запрещают изменение, удаление и очистку таблицы, месячной и страховочной секции (23001)
+        JdbcTemplate owner = auditOwnerDb();
+        assertEquals("23001", sqlState(() -> owner.execute(update)));
+        assertEquals("23001", sqlState(() -> owner.execute(delete)));
+        assertEquals("23001", sqlState(() -> owner.execute("truncate audit_admin.audit_log")));
+        assertEquals("23001", sqlState(() -> owner.execute("truncate " + partition)));
+        assertEquals("23001", sqlState(() -> owner.execute("truncate audit_admin.audit_log_default")));
+        assertEquals("23001", sqlState(() -> owner.execute("update " + partition + " set action = 'x' where id = '" + id + "'")));
+        assertEquals("23001", sqlState(() -> owner.execute("update audit_admin.audit_log set occurred_at = occurred_at - interval '3 months' where id = '" + id + "'")),
+                "перенос записи в другую секцию правкой времени тоже запрещён");
+
+        assertEquals("seller.approved", auditDb().queryForObject("select action from audit_admin.audit_log where id = ?", String.class, id),
+                "запись осталась как была");
+    }
+
+    @Tag("TC-812")
+    @Test
+    @Order(42)
+    void partitionsForTheCurrentMonthAndThreeAheadExistAndParallelPassesDoNotConflict() {
+        List<Integer> passes = Concurrent.race(4, index -> auditPartitions.run());
+        assertTrue(passes.stream().allMatch(done -> done == 0 || done == AuditPartitionService.MONTHS), "проход либо сделан (4 месяца), либо уступил блокировку: " + passes);
+        assertTrue(passes.stream().anyMatch(done -> done == AuditPartitionService.MONTHS), "хотя бы один проход получил блокировку");
+        YearMonth first = YearMonth.now(ZoneOffset.UTC);
+        for (int i = 0; i < AuditPartitionService.MONTHS; i++) {
+            YearMonth month = first.plusMonths(i);
+            String name = "audit_log_" + month.getYear() + "_" + String.format("%02d", month.getMonthValue());
+            assertEquals(1, auditDb().queryForObject("select count(*) from pg_class where relname = ? and relnamespace = 'audit_admin'::regnamespace",
+                    Integer.class, name), "секция " + name);
+        }
+        assertEquals(0L, auditDb().queryForObject("select count(*) from (select 1 from audit_admin.audit_log_default limit 1001) t", Long.class),
+                "в страховочной секции строк нет: время всех записей теста внутри созданных месяцев");
+    }
+
+    @Tag("TC-812")
+    @Test
+    @Order(43)
+    void actionRolledBackAfterTheAuditEventWasWrittenToTheOutboxLeavesNoEvent() {
+        UUID object = UUID.randomUUID();
+        Map<String, Object> data = staffAudit(object, "user.role_assigned");
+        assertThrows(IllegalStateException.class, () -> identityTransaction.execute(() -> {
+            identityTransaction.publish(AuditRecords.TOPIC, AuditRecords.AGGREGATE, object.toString(), AuditRecords.EVENT, AuditRecords.SCHEMA_VERSION, data);
+            throw new IllegalStateException("сбой после записи в Outbox");
+        }));
+        assertEquals(List.of(), events(object.toString()), "действие откатилось, и события аудита в Outbox нет");
+        identityTransaction.execute(() -> {
+            identityTransaction.publish(AuditRecords.TOPIC, AuditRecords.AGGREGATE, object.toString(), AuditRecords.EVENT, AuditRecords.SCHEMA_VERSION, data);
+            return null;
+        });
+        assertEquals(List.of("audit.recorded"), events(object.toString()), "а у зафиксированного действия событие есть");
     }
 
     @Tag("TC-114")

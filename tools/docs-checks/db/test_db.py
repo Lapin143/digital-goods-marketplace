@@ -902,6 +902,12 @@ def t_audit_content():
     raises(c, AUDIT_INS % ('', q(uid()), q(uid()), 'now()', q(uid()), q(uid()), open_value, ''), '23514', 'ck_audit_log_changes')
     raises(c, AUDIT_INS % ('', q(uid()), q(uid()), 'now()', q(uid()), q(uid()), """'[{"field":"x","personal":false}]'""", ''), '23514', 'ck_audit_log_changes')
     raises(c, AUDIT_INS % ('', q(uid()), q(uid()), 'now()', q(uid()), q(uid()), """'{"field":"x"}'""", ''), '23514', 'ck_audit_log_changes')
+    # контракт AuditChange: у неперсональных полей до и после это строка, число, булево или null (F4-28), у персональных только хеш или null
+    scalars = """'[{"field":"phone_confirmed","personal":false,"before":false,"after":true},{"field":"amount","personal":false,"before":null,"after":1500},{"field":"status","personal":false,"before":"a","after":"b"}]'"""
+    audit_row(c, changes=scalars)
+    raises(c, AUDIT_INS % ('', q(uid()), q(uid()), 'now()', q(uid()), q(uid()), """'[{"field":"phone","personal":true,"before":true,"after":null}]'""", ''), '23514', 'ck_audit_log_changes')
+    raises(c, AUDIT_INS % ('', q(uid()), q(uid()), 'now()', q(uid()), q(uid()), """'[{"field":"phone","personal":true,"before":null,"after":%s}]'""" % ('1' * 64), ''), '23514', 'ck_audit_log_changes')
+    raises(c, AUDIT_INS % ('', q(uid()), q(uid()), 'now()', q(uid()), q(uid()), """'[{"field":"x","personal":false,"before":{"a":1},"after":null}]'""", ''), '23514', 'ck_audit_log_changes')
     raises(c, AUDIT_INS % (', actor_ip, actor_ip_hashed', q(uid()), q(uid()), 'now()', q(uid()), q(uid()), "'[]'", ", '203.0.113.7', true"), '23514', 'ck_audit_log_actor_ip')
     audit_row(c, extra_cols=', actor_ip, actor_ip_hashed', extra_vals=", '203.0.113.7', false")
     rid2, _ = audit_row(c, ts="timestamptz '2020-01-01 00:00:00+00'")
@@ -912,6 +918,35 @@ def t_audit_content():
     raises(c, "truncate audit_admin.audit_log_2027_04", '23001')
     raises(c, "select audit_admin.create_audit_log_partition(date '2027-04-15')")
 
+
+
+@test('audit_log: секции создаёт роль записи через функцию владельца, чужим ролям функция закрыта, период ограничен, новая секция защищена от очистки', 'INV-42, ADR-014')
+def t_audit_partition_function():
+    c = conn('platform_db')
+    ok(c, "begin")                                         # секции теста не остаются в базе: проверка модели данных их не ждёт
+    ok(c, "set role app_audit_writer")
+    try:
+        assert c.scalar("select audit_admin.create_audit_log_partition(date '2027-05-01')") == 'audit_log_2027_05'
+        assert c.scalar("select audit_admin.create_audit_log_partition(date '2027-05-01')") == 'audit_log_2027_05'   # повтор безвреден
+    finally:
+        ok(c, "reset role")
+    raises(c, "truncate audit_admin.audit_log_2027_05", '23001', 'ck_audit_log_append_only')
+    ok(c, "rollback")
+    ok(c, "set role app_audit_writer")
+    try:
+        raises(c, "select audit_admin.create_audit_log_partition(date '2027-05-02')", text='первым числом месяца')
+        raises(c, "select audit_admin.create_audit_log_partition(date '2025-12-01')", text='вне допустимого периода')
+        raises(c, "select audit_admin.create_audit_log_partition(date '2099-01-01')", text='вне допустимого периода')
+        raises(c, "create table audit_admin.evil (x int)", '42501')                       # права CREATE на схему у роли нет, только функция
+        assert c.scalar("select count(*) from (select 1 from audit_admin.audit_log_default limit 1001) t") is not None      # так задание считает страховочную секцию
+    finally:
+        ok(c, "reset role")
+    for role in ('app_support', 'app_identity', 'app_notification', 'app_audit_admin'):
+        ok(c, "set role " + role)
+        try:
+            raises(c, "select audit_admin.create_audit_log_partition(date '2027-06-01')", '42501')
+        finally:
+            ok(c, "reset role")
 
 @test('роли модулей видят только свою схему (правило модульности 2)', 'decomposition 7.2')
 def t_roles():

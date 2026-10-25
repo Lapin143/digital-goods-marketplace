@@ -153,7 +153,7 @@ class ManualRefundServiceTest {
         assertEquals("admin", data.get("actorRole"));
         assertEquals(ADMIN.id().toString(), data.get("actorId"));
         assertEquals("203.0.113.7", data.get("actorIp"));
-        assertEquals("Payment", data.get("objectType"));
+        assertEquals("payment", data.get("objectType"));
         assertEquals(id(1).toString(), data.get("objectId"));
         assertEquals(Set.of("occurredAt", "actorId", "actorRole", "action", "objectType", "objectId", "changes", "actorIp", "actorIpHashed", "correlationId"),
                 data.keySet(), "в записи аудита нет персональных полей");

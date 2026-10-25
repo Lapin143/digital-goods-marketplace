@@ -5,7 +5,7 @@
 | [nfr-methodology.md](nfr-methodology.md) | Методика проверки нефункциональных требований: что, как, при каких условиях и когда измеряем для каждого из 29 NFT |
 | [traceability.md](traceability.md) | Матрица трассировки требований, версия 3: цель, требование, user story, процесс, операции OpenAPI и события AsyncAPI, тест-кейсы и модули кода для требований R1 (срез 1 Ф4) |
 | [test-strategy.md](test-strategy.md) | Стратегия тестирования: восемь уровней, инструменты, назначение проверок 29 NFT и 44 инвариантам, сквозные сценарии, тесты безопасности, заглушки, время в тестах, окружения, нумерация TC, критерии выхода срезов |
-| `TC-*.md` | Тест-кейсы по областям, в файле несколько тест-кейсов TC-NNN. Сейчас есть [TC-accounts.md](TC-accounts.md), [TC-sellers.md](TC-sellers.md), [TC-catalog.md](TC-catalog.md), [TC-keys.md](TC-keys.md), [TC-e2e.md](TC-e2e.md) и [TC-performance.md](TC-performance.md) |
+| `TC-*.md` | Тест-кейсы по областям, в файле несколько тест-кейсов TC-NNN. Сейчас есть [TC-accounts.md](TC-accounts.md), [TC-sellers.md](TC-sellers.md), [TC-catalog.md](TC-catalog.md), [TC-keys.md](TC-keys.md), [TC-e2e.md](TC-e2e.md), [TC-performance.md](TC-performance.md) и [TC-admin.md](TC-admin.md) |
 | `_template-test-case.md` | Шаблон тест-кейса |
 
 ## Состояние
@@ -15,5 +15,5 @@
 | Методика проверки NFR | готова | Ф1 |
 | Матрица трассировки | v3, семь колонок заполнены у R1, «Тест-кейс» и «Код» собираются скриптом `gen_traceability_tc.py`, сверяется скриптом `check_traceability.py` | Ф1, Ф2, Ф4 |
 | Стратегия тестирования | готова, сверяется скриптом `check_strategy.py` | Ф2 |
-| Тест-кейсы | `TC-accounts.md`: 30 тест-кейсов (TC-101 – TC-130), `TC-sellers.md`: 22 (TC-201 – TC-222), `TC-catalog.md`: 29 (TC-301 – TC-329), `TC-keys.md`: 13 (TC-401 – TC-413), `TC-e2e.md`: 3 (TC-003, TC-013, TC-014), `TC-performance.md`: 2 (TC-063, TC-070); все автоматизированы, сверяются с кодом скриптом `check_testcases.py`; остальные области заполняются по срезам | Ф4 |
+| Тест-кейсы | `TC-accounts.md`: 30 тест-кейсов (TC-101 – TC-130), `TC-sellers.md`: 22 (TC-201 – TC-222), `TC-catalog.md`: 29 (TC-301 – TC-329), `TC-keys.md`: 13 (TC-401 – TC-413), `TC-e2e.md`: 3 (TC-003, TC-013, TC-014), `TC-performance.md`: 2 (TC-063, TC-070), `TC-admin.md`: 3 (TC-812 – TC-814); все автоматизированы, сверяются с кодом скриптом `check_testcases.py`; остальные области заполняются по срезам | Ф4 |
 | Сверка «документы = код» | операции, события и темы Kafka сверяются с исходниками сервисов скриптом `check_code_docs.py` | Ф4 |

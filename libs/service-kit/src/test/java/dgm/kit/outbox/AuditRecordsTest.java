@@ -44,6 +44,40 @@ class AuditRecordsTest {
         assertEquals(false, data.get("actorIpHashed"));
     }
 
+    private static final String HASH_A = "a".repeat(64);
+    private static final String HASH_B = "0123456789abcdef".repeat(4);
+
+    @Test
+    void personalChangeCarriesReadyHashesAndTheFlag() {
+        Map<String, Object> change = AuditRecords.personalChange("email", HASH_A, HASH_B);
+        assertEquals(List.of("field", "personal", "before", "after"), List.copyOf(change.keySet()));
+        assertEquals(true, change.get("personal"));
+        assertEquals(HASH_A, change.get("before"));
+        assertEquals(HASH_B, change.get("after"));
+        Map<String, Object> first = AuditRecords.personalChange("phone", null, HASH_A);
+        assertTrue(first.containsKey("before") && first.get("before") == null, "при первом заполнении «до» пусто");
+    }
+
+    @Test
+    void personalChangeRejectsAnythingButAHashAndDoesNotEchoTheValue() {
+        for (String bad : new String[] {"ivan@mail.example", "+79990001122", "A".repeat(64), "a".repeat(63), "a".repeat(65), "", " "}) {
+            IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> AuditRecords.personalChange("email", null, bad));
+            assertFalse(bad.length() > 3 && e.getMessage().contains(bad), "значение не попадает в сообщение об ошибке");
+            assertThrows(IllegalArgumentException.class, () -> AuditRecords.personalChange("email", bad, HASH_A));
+        }
+        assertThrows(IllegalArgumentException.class, () -> AuditRecords.personalChange(" ", HASH_A, HASH_B));
+        assertThrows(IllegalArgumentException.class, () -> AuditRecords.personalChange(null, HASH_A, HASH_B));
+    }
+
+    @Test
+    void isHashAcceptsOnlyLowercaseHexOfSixtyFourChars() {
+        assertTrue(AuditRecords.isHash(HASH_A));
+        assertTrue(AuditRecords.isHash(HASH_B));
+        assertFalse(AuditRecords.isHash(null));
+        assertFalse(AuditRecords.isHash("g".repeat(64)));
+        assertFalse(AuditRecords.isHash(HASH_A + "\n"));
+    }
+
     @Test
     void changeIsOneNonPersonalField() {
         Map<String, Object> change = AuditRecords.change("decisionReason", null, "Документ не читается");
@@ -84,6 +118,20 @@ class AuditRecordsTest {
         }
         assertEquals("user.role_assigned", record("system", "user.role_assigned", "", oneChange()).get("action"));
         assertThrows(IllegalArgumentException.class, () -> record("moderator", "seller." + "a".repeat(60), "", oneChange()));
+    }
+
+    /** Таблица журнала принимает тип объекта только строчными буквами: «Payment» из платежей уходил бы в DLQ (F4-28). */
+    @Test
+    void objectTypeMustMatchTheJournalRule() {
+        assertTrue(AuditRecords.isObjectType("payment"));
+        assertTrue(AuditRecords.isObjectType("seller.document"));
+        assertFalse(AuditRecords.isObjectType("Payment"));
+        assertFalse(AuditRecords.isObjectType("с пробелом"));
+        assertFalse(AuditRecords.isObjectType(""));
+        assertFalse(AuditRecords.isObjectType("a".repeat(65)));
+        assertFalse(AuditRecords.isObjectType(null));
+        assertThrows(IllegalArgumentException.class,
+                () -> AuditRecords.staffAction(AT, ACTOR, "admin", "", "refund.marked_manual", "Payment", "id", oneChange()));
     }
 
     @Test

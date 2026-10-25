@@ -244,7 +244,7 @@ class RefundIT extends RefundStandIT {
         assertEquals("refund.marked_manual", record.get("action"));
         assertEquals("admin", record.get("actorRole"));
         assertEquals(ADMIN.toString(), record.get("actorId"));
-        assertEquals("Payment", record.get("objectType"));
+        assertEquals("payment", record.get("objectType"));
         assertEquals(paymentId.toString(), record.get("objectId"));
         assertEquals(Set.of("occurredAt", "actorId", "actorRole", "action", "objectType", "objectId", "changes", "actorIp", "actorIpHashed", "correlationId"),
                 record.keySet(), "в записи аудита нет персональных данных");
