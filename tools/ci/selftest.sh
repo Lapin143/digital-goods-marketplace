@@ -191,6 +191,8 @@ PY
   order:' '      - reservation.ttl-seconds
   order:' \
       "не закрепляет его в dgm.config.pinned-keys" tools/docs-checks/check_kit.py
+    mutate_repo "check_kit находит расхождение строки о применении параметра с проверкой стенда" "$K/config/ConfigRegistry.java" 'LOG.info("Параметр {} = {} (было' 'LOG.info("Значение {} = {} (было' \
+      "нет строки LOG.info" tools/docs-checks/check_kit.py
     # 7. Правила маршрутов сервисов создаются из OpenAPI: ручная правка файла и правка прав в контракте без перегенерации ловятся.
     mutate_repo "gen_routes --check находит ручную правку правил маршрутов" "services/order-service/src/main/resources/dgm/routes.json" '"orders.read"' '"orders.write"' \
       "не равен результату gen_routes.py" tools/docs-checks/gen_routes.py --check

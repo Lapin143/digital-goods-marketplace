@@ -56,6 +56,7 @@ run python3 "$REPO/tools/api-tests/build.py" --check
 run python3 -m unittest discover -s "$REPO/tools/api-tests"
 run python3 -m unittest "$REPO/tools/stand-checks/test_stubs_admin.py"
 run python3 -m unittest "$REPO/tools/stand-checks/test_timing_checks.py"
+run python3 -m unittest "$REPO/tools/stand-checks/test_audit_checks.py"
 run python3 -m unittest "$REPO/tools/ci/test_jacoco_summary.py"
 run python3 -m unittest "$REPO/tools/ops/test_dlq_replay.py"
 if [ "$1" = "--db" ]; then

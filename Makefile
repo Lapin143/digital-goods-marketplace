@@ -276,6 +276,18 @@ e2e: ## API-тесты Newman: матрица прав ST-02 готовых оп
 e2e-sabotage: ## Проверка проверки API-тестов: ожидание отказа 403 заменено на 200, Newman обязан покраснеть (те же условия, что у make e2e)
 	$(KC_ENV) python3 tools/api-tests/run.py --sabotage
 
+.PHONY: audit-check
+audit-check: ## Проверить журнал аудита сквозь стенд (К9, US-8.7, TC-802, TC-815): решения модератора и открытие документа доходят до журнала за 10 секунд, запись о просмотре журнала, права, операций записи в API нет, роли приложения не меняют записи, e-mail и телефон покупателя не найдены в таблице, теме audit.events и ответах API (набор full, DEBUG=1, make keycloak-users)
+	$(KC_ENV) python3 tools/stand-checks/audit_checks.py
+
+.PHONY: parameters-check
+parameters-check: ## Проверить параметры платформы сквозь стенд (К9, US-8.3, US-8.4, TC-816): лимит неоплаченных заказов, комиссия 3 % у нового заказа и 2 % у прежнего, перезапуск order-service посреди сценария, срок ссылки на документ; в конце все параметры возвращены к умолчанию (набор full с make fast-up DEBUG=1, make keycloak-users)
+	$(KC_ENV) python3 tools/stand-checks/parameters_checks.py
+
+.PHONY: parameters-sabotage
+parameters-sabotage: ## Проверка проверки параметров: слушатель order-service выключен (DGM_CONFIG_ENABLED=false), сценарий лимита обязан покраснеть, с возвращённым слушателем зеленеет (после parameters-check; пересоздаёт order-service дважды)
+	$(KC_ENV) tools/stand-checks/parameters_sabotage.sh
+
 .PHONY: timing-check
 timing-check: ## Проверить время от оплаты до письма и обращения и отсутствие данных карты (NFT-2.0, 2.1, 2.4, 5.1): читает метки, оставленные проверками покупки (набор full с make fast-up DEBUG=1; после purchase-check, delivery-check, concurrency-check)
 	$(KC_ENV) python3 tools/stand-checks/timing_checks.py

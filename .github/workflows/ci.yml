@@ -314,6 +314,10 @@ jobs:
       - name: Версии Docker
         run: docker version --format 'Docker {{.Server.Version}}' && docker compose version
 
+      # Замеры памяти (шаг 8 среза 3, К9): пики пяти сервисов со слушателем параметров и platform-service после запуска; красный шаг выше 90 % лимита
+      - name: Замеры памяти, начало
+        run: python3 tools/stand-checks/memory.py start "$RUNNER_TEMP/mem.jsonl"
+
       - name: Набор dev-purchase (сборка образов, пять сервисов)
         env:
           DIAG_TAIL: "70"
@@ -328,6 +332,10 @@ jobs:
         env:
           DIAG_TAIL: "70"
         run: tools/ci/diag.sh "Проверка сервисов" make services-check
+
+      - name: Замеры памяти, итог
+        if: always()
+        run: python3 tools/stand-checks/memory.py stop "$RUNNER_TEMP/mem.jsonl" --label "пять сервисов со слушателем параметров и platform-service после запуска" --strict --fail 90
 
       - name: Состояние и память контейнеров
         if: always()
@@ -724,6 +732,35 @@ jobs:
           DIAG_MAX: "40"
           DIAG_TAIL: "40"
         run: tools/ci/diag.sh "Время и карточные данные" make timing-check
+
+      # Журнал аудита (шаг 8 среза 3, К9; TC-802, TC-815): решения модератора и открытие документа доходят до журнала за 10 секунд, запись о просмотре,
+      # права и отсутствие операций записи, роли приложения не меняют записи, канарейка: e-mail и телефон покупателя не найдены в таблице, теме audit.events и ответах API
+      - name: Журнал аудита (решения модератора, просмотр, права, неизменность, канарейка)
+        if: ${{ !cancelled() }}
+        env:
+          DIAG_FILTER: 'ОШИБКА|Traceback|Error'
+          DIAG_MAX: "30"
+          DIAG_TAIL: "60"
+        run: tools/ci/diag.sh "Журнал аудита" make audit-check
+
+      # Параметры платформы (шаг 8 среза 3, К9; TC-816): правка на платформе применяется сервисами через тему platform.config без перезапуска и после него;
+      # лимит неоплаченных заказов, комиссия 3 % у нового заказа и 2 % у прежнего, срок ссылки на документ; в конце все параметры возвращены к умолчанию
+      - name: Параметры платформы (лимит, комиссия, перезапуск сервиса, срок ссылки)
+        if: ${{ !cancelled() }}
+        env:
+          DIAG_FILTER: 'ОШИБКА|Traceback|Error'
+          DIAG_MAX: "30"
+          DIAG_TAIL: "60"
+        run: tools/ci/diag.sh "Параметры платформы" make parameters-check
+
+      # Проверка проверки: слушатель order-service выключен, сценарий лимита обязан покраснеть; с возвращённым слушателем он зеленеет. Идёт последним: пересоздаёт order-service
+      - name: Проверка параметров краснеет без слушателя
+        if: ${{ !cancelled() }}
+        env:
+          DIAG_FILTER: 'ОШИБКА|Traceback|Error'
+          DIAG_MAX: "30"
+          DIAG_TAIL: "60"
+        run: tools/ci/diag.sh "Проверка проверки параметров" make parameters-sabotage
 
       # Итог замеров: пик каждого контейнера против лимита; красный шаг, если пик выше 90 % лимита (лимиты назначены по правилу 85 %)
       - name: Замеры памяти, итог

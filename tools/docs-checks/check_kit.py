@@ -20,6 +20,9 @@
   8. Профиль fast-time (Р-175): параметр платформы, который профиль меняет, перечислен в dgm.config.pinned-keys того же файла; иначе
      платформа при старте переиздаст значение по умолчанию, слушатель его применит, и сокращённый срок пропадёт. Закреплять ключ, которого
      нет среди параметров платформы, нельзя (опечатка закрепила бы пустое место).
+  9. Строка журнала о применении значения (шаг 8 среза 3): проверка стенда parameters_checks.py узнаёт о применении параметра по строке
+     «Параметр <ключ> = <значение> (было …», которую пишет ConfigRegistry (метрики сервисов на стенде full с хоста недоступны). Начало строки
+     в коде и в проверке одно и то же, иначе проверка ждала бы строку, которой нет.
 Запуск: python3 tools/docs-checks/check_kit.py
 """
 import glob
@@ -345,6 +348,24 @@ def pinned_keys(rep):
     rep.fact('профилей fast-time %d, параметров платформы в них %d, все закреплены' % (len(profiles), changed))
 
 
+def applied_line(rep):
+    where = 'слушатель параметров: строка журнала о применении (читает проверка стенда)'
+    registry = os.path.join(KIT, 'config', 'ConfigRegistry.java')
+    check = os.path.join(L.REPO, 'tools', 'stand-checks', 'parameters_checks.py')
+    with open(registry, encoding='utf-8') as f:
+        written = re.search(r'LOG\.info\("(Параметр \{\} = \{\} \()', f.read())
+    with open(check, encoding='utf-8') as f:
+        waited = re.search(r"prefix = '(Параметр %s = %s \()'", f.read())
+    if not written:
+        rep.err(where, '%s: нет строки LOG.info("Параметр {} = {} (было …"; проверка стенда ждёт её' % L.rel(registry))
+    elif not waited:
+        rep.err(where, '%s: нет префикса «Параметр %%s = %%s (», по которому проверка считает применения' % L.rel(check))
+    elif written.group(1).replace('{}', '%s') != waited.group(1):
+        rep.err(where, 'ConfigRegistry пишет «%s», а проверка стенда ждёт «%s»' % (written.group(1), waited.group(1)))
+    else:
+        rep.fact('строка о применении параметра в ConfigRegistry и в parameters_checks.py одна: «%s…»' % written.group(1))
+
+
 def main():
     rep = L.Report('Каркас сервисов против документов')
     problem_types(rep)
@@ -356,6 +377,7 @@ def main():
     peers(rep)
     config_keys(rep)
     pinned_keys(rep)
+    applied_line(rep)
     return rep.finish()
 
 
