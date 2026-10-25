@@ -2,6 +2,8 @@ package dgm.platform.support.web;
 
 import dgm.platform.auditadmin.api.PlatformParameters;
 import dgm.platform.support.repository.SupportRepository;
+import dgm.platform.support.service.QueueMetrics;
+import dgm.platform.support.service.QueueService;
 import dgm.platform.support.service.SupportOutbox;
 import dgm.platform.support.service.SupportRateLimiter;
 import dgm.platform.support.service.SupportService;
@@ -15,7 +17,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Подключение модуля {@code support}: ядро поддержки среза 2 (Р-137) и обращения покупателя среза 3 (Р-177). Обработчики событий это
+ * Подключение модуля {@code support}: ядро поддержки среза 2 (Р-137), обращения покупателя и очередь оператора среза 3 (Р-177, Р-163). Обработчики событий это
  * компоненты пакета {@code handler}, потребителя Kafka создаёт каркас, когда в сервисе есть хотя бы один обработчик.
  */
 @Configuration(proxyBeanMethods = false)
@@ -30,5 +32,16 @@ public class SupportConfiguration {
     TicketService ticketService(SupportRepository repository, SupportTransaction transaction, SupportOutbox outbox, SupportRateLimiter limiter,
                                 PlatformParameters parameters, Clock clock, ObjectProvider<MeterRegistry> metrics) {
         return new TicketService(repository, transaction, outbox, limiter, parameters, clock, metrics.getIfAvailable(SimpleMeterRegistry::new));
+    }
+
+    @Bean
+    QueueService queueService(SupportRepository repository, SupportTransaction transaction, SupportOutbox outbox, Clock clock,
+                              ObjectProvider<MeterRegistry> metrics) {
+        return new QueueService(repository, transaction, outbox, clock, metrics.getIfAvailable(SimpleMeterRegistry::new));
+    }
+
+    @Bean
+    QueueMetrics queueMetrics(SupportRepository repository, Clock clock, ObjectProvider<MeterRegistry> metrics) {
+        return new QueueMetrics(repository, clock, metrics.getIfAvailable(SimpleMeterRegistry::new));
     }
 }

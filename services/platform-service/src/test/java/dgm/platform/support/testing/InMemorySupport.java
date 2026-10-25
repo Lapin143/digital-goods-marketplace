@@ -1,7 +1,10 @@
 package dgm.platform.support.testing;
 
 import dgm.platform.support.domain.OrderView;
+import dgm.platform.support.domain.QueueDepth;
+import dgm.platform.support.domain.QueueFilter;
 import dgm.platform.support.domain.ResolvedTicket;
+import dgm.platform.support.domain.StaffTicket;
 import dgm.platform.support.domain.SupportTicket;
 import dgm.platform.support.domain.TicketFilter;
 import dgm.platform.support.repository.SupportRepository;
@@ -32,6 +35,8 @@ public final class InMemorySupport implements SupportRepository {
         public String action;
         public Instant createdAt;
         public Instant resolvedAt;
+        public UUID operatorId;
+        public Instant takenAt;
 
         Ticket(UUID id, UUID orderId, UUID buyerId, String source, String reason, Instant createdAt) {
             this.id = id;
@@ -141,6 +146,66 @@ public final class InMemorySupport implements SupportRepository {
                 .limit(filter.limit() + 1L)
                 .map(InMemorySupport::domain)
                 .toList();
+    }
+
+    @Override
+    public List<StaffTicket> findQueue(QueueFilter filter) {
+        return tickets.stream()
+                .filter(t -> filter.statuses().isEmpty() || filter.statuses().contains(t.status))
+                .filter(t -> filter.operatorId().map(operator -> operator.equals(t.operatorId)).orElse(true))
+                .filter(t -> filter.orderNumber().isEmpty() || views.get(t.orderId).orderNumber() == filter.orderNumber().getAsLong())
+                .filter(t -> filter.after().map(a -> t.createdAt.isAfter(a.createdAt())
+                        || (t.createdAt.equals(a.createdAt()) && t.id.compareTo(a.id()) > 0)).orElse(true))
+                .sorted(Comparator.comparing((Ticket t) -> t.createdAt).thenComparing(t -> t.id))
+                .limit(filter.limit() + 1L)
+                .map(this::staff)
+                .toList();
+    }
+
+    @Override
+    public Optional<StaffTicket> findStaffTicket(UUID ticketId) {
+        return tickets.stream().filter(t -> t.id.equals(ticketId)).findFirst().map(this::staff);
+    }
+
+    /** Условное обновление, как {@code UPDATE ... WHERE status = 'created'}: обращение в другом статусе не меняется. */
+    @Override
+    public boolean takeTicket(UUID ticketId, UUID operatorId, Instant at) {
+        for (Ticket ticket : tickets) {
+            if (ticket.id.equals(ticketId) && "created".equals(ticket.status)) {
+                ticket.status = "in_progress";
+                ticket.operatorId = operatorId;
+                ticket.takenAt = at;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public boolean releaseTicket(UUID ticketId, UUID operatorId) {
+        for (Ticket ticket : tickets) {
+            if (ticket.id.equals(ticketId) && "in_progress".equals(ticket.status) && operatorId.equals(ticket.operatorId)) {
+                ticket.status = "created";
+                ticket.operatorId = null;
+                ticket.takenAt = null;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public QueueDepth queueDepth() {
+        long created = tickets.stream().filter(t -> "created".equals(t.status)).count();
+        long inProgress = tickets.stream().filter(t -> "in_progress".equals(t.status)).count();
+        Optional<Instant> oldest = tickets.stream().filter(t -> "created".equals(t.status)).map(t -> t.createdAt).min(Comparator.naturalOrder());
+        return new QueueDepth(created, inProgress, oldest);
+    }
+
+    private StaffTicket staff(Ticket t) {
+        OrderView view = views.get(t.orderId);
+        return new StaffTicket(t.id, t.orderId, view.orderNumber(), t.buyerId, t.source, t.reason, t.status, Optional.ofNullable(t.operatorId),
+                view.orderStatus(), view.issuedAt(), view.deliveryStatus(), t.createdAt, Optional.ofNullable(t.takenAt), Optional.ofNullable(t.resolvedAt));
     }
 
     private static SupportTicket domain(Ticket t) {

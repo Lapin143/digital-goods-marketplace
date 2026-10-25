@@ -1,7 +1,10 @@
 package dgm.platform.support.repository;
 
 import dgm.platform.support.domain.OrderView;
+import dgm.platform.support.domain.QueueDepth;
+import dgm.platform.support.domain.QueueFilter;
 import dgm.platform.support.domain.ResolvedTicket;
+import dgm.platform.support.domain.StaffTicket;
 import dgm.platform.support.domain.SupportTicket;
 import dgm.platform.support.domain.TicketFilter;
 import java.time.Instant;
@@ -52,4 +55,31 @@ public interface SupportRepository {
 
     /** Обращения покупателя по условиям выборки: не больше {@code limit + 1} строк, лишняя говорит, что есть следующая страница. */
     List<SupportTicket> findTickets(TicketFilter filter);
+
+    /**
+     * Очередь оператора: обращения вместе с моделью чтения заказа, старые выше. Не больше {@code limit + 1} строк, лишняя говорит, что есть
+     * следующая страница.
+     */
+    List<StaffTicket> findQueue(QueueFilter filter);
+
+    /** Карточка обращения для оператора. */
+    Optional<StaffTicket> findStaffTicket(UUID ticketId);
+
+    /**
+     * Берёт обращение в работу одним условным {@code UPDATE ... WHERE status = 'created'} (SM-07/T2, правило 15): из двух операторов,
+     * пришедших одновременно, обновление получает один.
+     *
+     * @return {@code false}: обращения нет или оно уже не в статусе «создано»
+     */
+    boolean takeTicket(UUID ticketId, UUID operatorId, Instant at);
+
+    /**
+     * Возвращает обращение в очередь (SM-07/T3): оператор и время взятия сбрасываются, время создания не меняется.
+     *
+     * @return {@code false}: обращения нет, оно не в работе или в работе у другого оператора
+     */
+    boolean releaseTicket(UUID ticketId, UUID operatorId);
+
+    /** Число открытых обращений по статусам и время самого старого из «созданных» (метрики очереди). */
+    QueueDepth queueDepth();
 }

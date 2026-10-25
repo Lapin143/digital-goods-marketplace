@@ -2,7 +2,10 @@ package dgm.platform.support.repository;
 
 import dgm.kit.boot.ModuleDatabases;
 import dgm.platform.support.domain.OrderView;
+import dgm.platform.support.domain.QueueDepth;
+import dgm.platform.support.domain.QueueFilter;
 import dgm.platform.support.domain.ResolvedTicket;
+import dgm.platform.support.domain.StaffTicket;
 import dgm.platform.support.domain.SupportTicket;
 import dgm.platform.support.domain.TicketFilter;
 import java.sql.ResultSet;
@@ -27,6 +30,9 @@ public final class JdbcSupportRepository implements SupportRepository {
 
     static final String MODULE = "support";
     private static final String TICKET_COLUMNS = "id, order_id, buyer_id, source, reason, status, created_at, resolved_at, resolved_by, action";
+    private static final String STAFF_SELECT = "select t.id, t.order_id, v.order_number, t.buyer_id, t.source, t.reason, t.status, t.operator_id, "
+            + "v.order_status, v.issued_at, v.delivery_status, t.created_at, t.taken_at, t.resolved_at "
+            + "from support.ticket t join support.order_view v on v.order_id = t.order_id";
 
     private final JdbcTemplate jdbc;
 
@@ -108,6 +114,64 @@ public final class JdbcSupportRepository implements SupportRepository {
         sql.append(" order by created_at desc, id desc limit ?");
         args.add(filter.limit() + 1);
         return jdbc.query(sql.toString(), (rs, row) -> mapTicket(rs), args.toArray());
+    }
+
+    @Override
+    public List<StaffTicket> findQueue(QueueFilter filter) {
+        StringBuilder sql = new StringBuilder(STAFF_SELECT).append(" where true");
+        List<Object> args = new ArrayList<>();
+        if (!filter.statuses().isEmpty()) {
+            sql.append(" and t.status in (").append("?, ".repeat(filter.statuses().size() - 1)).append("?)");
+            args.addAll(filter.statuses());
+        }
+        filter.operatorId().ifPresent(operatorId -> {
+            sql.append(" and t.operator_id = ?");
+            args.add(operatorId);
+        });
+        filter.orderNumber().ifPresent(number -> {
+            sql.append(" and v.order_number = ?");
+            args.add(number);
+        });
+        filter.after().ifPresent(after -> {
+            sql.append(" and (t.created_at, t.id) > (?, ?)");
+            args.add(utc(after.createdAt()));
+            args.add(after.id());
+        });
+        sql.append(" order by t.created_at, t.id limit ?");
+        args.add(filter.limit() + 1);
+        return jdbc.query(sql.toString(), (rs, row) -> mapStaff(rs), args.toArray());
+    }
+
+    @Override
+    public Optional<StaffTicket> findStaffTicket(UUID ticketId) {
+        return jdbc.query(STAFF_SELECT + " where t.id = ?", (rs, row) -> mapStaff(rs), ticketId).stream().findFirst();
+    }
+
+    @Override
+    public boolean takeTicket(UUID ticketId, UUID operatorId, Instant at) {
+        return jdbc.update("update support.ticket set status = 'in_progress', operator_id = ?, taken_at = ? where id = ? and status = 'created'",
+                operatorId, utc(at), ticketId) == 1;
+    }
+
+    @Override
+    public boolean releaseTicket(UUID ticketId, UUID operatorId) {
+        return jdbc.update("update support.ticket set status = 'created', operator_id = null, taken_at = null "
+                + "where id = ? and status = 'in_progress' and operator_id = ?", ticketId, operatorId) == 1;
+    }
+
+    @Override
+    public QueueDepth queueDepth() {
+        return jdbc.query("select count(*) filter (where status = 'created') as created, count(*) filter (where status = 'in_progress') as in_progress, "
+                + "min(created_at) filter (where status = 'created') as oldest from support.ticket where status in ('created', 'in_progress')",
+                (rs, row) -> new QueueDepth(rs.getLong("created"), rs.getLong("in_progress"), instant(rs, "oldest"))).get(0);
+    }
+
+    private static StaffTicket mapStaff(ResultSet rs) throws SQLException {
+        return new StaffTicket(rs.getObject("id", UUID.class), rs.getObject("order_id", UUID.class), rs.getLong("order_number"),
+                rs.getObject("buyer_id", UUID.class), rs.getString("source"), rs.getString("reason"), rs.getString("status"),
+                Optional.ofNullable(rs.getObject("operator_id", UUID.class)), rs.getString("order_status"), instant(rs, "issued_at"),
+                Optional.ofNullable(rs.getString("delivery_status")), instant(rs, "created_at").orElseThrow(), instant(rs, "taken_at"),
+                instant(rs, "resolved_at"));
     }
 
     private static SupportTicket mapTicket(ResultSet rs) throws SQLException {

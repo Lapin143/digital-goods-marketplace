@@ -134,7 +134,8 @@
       ],
       "callers": [],
       "smsSession": "denied",
-      "idempotent": true
+      "idempotent": true,
+      "module": "support"
     },
     {
       "method": "POST",
@@ -162,7 +163,8 @@
       ],
       "callers": [],
       "smsSession": "denied",
-      "idempotent": true
+      "idempotent": true,
+      "module": "support"
     },
     {
       "method": "GET",

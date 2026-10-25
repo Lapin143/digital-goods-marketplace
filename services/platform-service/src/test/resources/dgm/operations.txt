@@ -22,14 +22,14 @@ verifyPhoneConfirmation  done
 
 createSupportTicket      done
 getEmailChangeState      slice3
-getStaffSupportTicket    slice3
+getStaffSupportTicket    done
 getSupportTicket         done
-listSupportTicketQueue   slice3
+listSupportTicketQueue   done
 listSupportTickets       done
 receiveMailStatus        slice3
-releaseSupportTicket     slice3
+releaseSupportTicket     done
 requestEmailChangeCode   slice3
 resendKeyForTicket       slice3
 startEmailChange         slice3
-takeSupportTicket        slice3
+takeSupportTicket        done
 verifyEmailChangeCode    slice3

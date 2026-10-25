@@ -32,7 +32,10 @@ import dgm.platform.auditadmin.service.AuditRecordService;
 import dgm.platform.auditadmin.service.ParameterService;
 import dgm.platform.identity.service.IdentityReconciler;
 import dgm.platform.identity.service.IdentityTransaction;
+import dgm.platform.support.domain.QueueDepth;
+import dgm.platform.support.service.QueueMetrics;
 import dgm.platform.support.service.SupportService;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
@@ -42,6 +45,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -203,6 +207,10 @@ class PlatformServiceIT {
     private Modules modules;
     @Autowired
     private SupportService support;
+    @Autowired
+    private QueueMetrics queueMetrics;
+    @Autowired
+    private MeterRegistry meters;
     @Autowired
     private AuditRecordService auditRecords;
     @Autowired
@@ -1850,9 +1858,9 @@ class PlatformServiceIT {
         assertEquals("seller", row.get("object_type"));
         assertEquals(object.toString(), row.get("object_id"));
         assertEquals(data.get("correlationId"), row.get("correlation_id"));
-        assertEquals(Instant.parse((String) data.get("occurredAt")), ((java.sql.Timestamp) row.get("occurred_at")).toInstant(),
+        assertEquals(Instant.parse((String) data.get("occurredAt")), ((Timestamp) row.get("occurred_at")).toInstant(),
                 "время действия взято из события");
-        assertTrue(((java.sql.Timestamp) row.get("recorded_at")).toInstant().isAfter(((java.sql.Timestamp) row.get("occurred_at")).toInstant().minusSeconds(1)));
+        assertTrue(((Timestamp) row.get("recorded_at")).toInstant().isAfter(((Timestamp) row.get("occurred_at")).toInstant().minusSeconds(1)));
         assertEquals(Boolean.TRUE, row.get("changes_ok"), "значения до и после записаны как есть: строка и число");
         assertEquals(2, row.get("changes_count"));
         assertEquals(1, count("select count(*) from public.processed_event where consumer = 'audit-consumer' and event_id = ?", eventId));
@@ -2510,6 +2518,208 @@ class PlatformServiceIT {
         assertEquals(0, supportDb().queryForObject("select count(*) from support.ticket where order_id = ?", Integer.class, over),
                 "при отказе по лимиту обращение откатывается вместе с транзакцией");
         assertEquals(0, count("select count(*) from public.outbox where event_type = 'ticket.created' and payload ->> 'orderId' = ?", over.toString()));
+    }
+
+    // ---- очередь оператора (шаг 10 среза 3) ----
+
+    private static final String QUEUE = "/api/v1/staff/support-tickets";
+    private static final Set<String> STAFF_TICKET_FIELDS = Set.of("ticketId", "orderId", "orderNumber", "buyerId", "source", "reason", "status",
+            "operatorId", "orderStatus", "issuedAt", "deliveryStatus", "createdAt", "takenAt", "resolvedAt", "emailChange");
+
+    private static String operatorToken(String subject) {
+        return token(subject, "support-operator", "staff.support", "pwd", "otp");
+    }
+
+    private static Response queueGet(String subject, String query) throws IOException {
+        return gateway.get(QUEUE + query, StandHttp.bearer(operatorToken(subject)));
+    }
+
+    private static Response queueAction(String subject, UUID ticketId, String action, String key) throws IOException {
+        return gateway.post(QUEUE + "/" + ticketId + "/" + action, null, "Authorization", "Bearer " + operatorToken(subject), "Idempotency-Key", key);
+    }
+
+    /** Обращение системы по заказу: событие {@code delivery.overdue} создаёт его в статусе «создано», лимит обращений покупателя не затрагивается. */
+    private UUID systemTicket(String buyerId) {
+        UUID order = issuedOrder(buyerId, Instant.now().minus(Duration.ofHours(1)));
+        modules.transactions("support").executeWithoutResult(status -> support.onDeliveryOverdue(order, Instant.now()));
+        return supportDb().queryForObject("select id from support.ticket where order_id = ?", UUID.class, order);
+    }
+
+    /** Идентификаторы обращений очереди по запросу, по всем страницам. */
+    private static List<String> queueIds(String subject, String query) throws IOException {
+        List<String> ids = new ArrayList<>();
+        String cursor = null;
+        do {
+            Response page = queueGet(subject, query + "&limit=100" + (cursor == null ? "" : "&cursor=" + cursor));
+            assertEquals(200, page.status(), page.body());
+            for (Object item : (List<?>) page.json().get("items")) {
+                ids.add(String.valueOf(((Map<?, ?>) item).get("ticketId")));
+            }
+            cursor = (String) ((Map<?, ?>) page.json().get("page")).get("nextCursor");
+        } while (cursor != null);
+        return ids;
+    }
+
+    private int auditRowsOf(UUID ticketId, String action) {
+        return auditDb().queryForObject("select count(*) from audit_admin.audit_log where object_id = ? and action = ?", Integer.class, ticketId.toString(), action);
+    }
+
+    @Tag("TC-704")
+    @Test
+    @Order(53)
+    void theQueueHoldsTicketsOfBothSourcesOldestFirstForAnOperatorOnly() throws Exception {
+        KeycloakStub.User buyer = KEYCLOAK.add("buyer", "Вера", "Волкова");
+        KeycloakStub.User operator = KEYCLOAK.add("support-operator", "Ольга", "Лисина");
+        UUID buyerOrder = issuedOrder(buyer.id, Instant.now().minus(Duration.ofHours(1)));
+        Response created = createTicket(buyer.id, buyerOrder, UUID.randomUUID().toString());
+        assertEquals(201, created.status(), created.body());
+        String fromBuyer = String.valueOf(created.json().get("ticketId"));
+        UUID fromSystem = systemTicket(buyer.id);
+
+        List<String> queue = queueIds(operator.id, "?status=created");
+        assertTrue(queue.contains(fromBuyer) && queue.contains(fromSystem.toString()), "в очереди обращения обоих источников");
+        assertTrue(queue.indexOf(fromBuyer) < queue.indexOf(fromSystem.toString()), "старые выше новых");
+
+        Response card = queueGet(operator.id, "/" + fromBuyer);
+        assertEquals(404, queueGet(operator.id, "/" + UUID.randomUUID()).status());
+        assertEquals(404, queueGet(operator.id, "/42").status(), "идентификатор неправильной формы это тот же 404");
+        assertEquals(200, card.status(), card.body());
+        assertEquals(STAFF_TICKET_FIELDS, card.json().keySet(), "поля ровно по схеме StaffSupportTicket, ключей и адресов нет");
+        assertEquals("buyer", card.json().get("source"));
+        assertEquals("created", card.json().get("status"));
+        assertNull(card.json().get("operatorId"));
+        assertEquals("issued", card.json().get("orderStatus"));
+        assertEquals(buyerOrder.toString(), card.json().get("orderId"));
+        assertEquals(supportDb().queryForObject("select order_number from support.order_view where order_id = ?", Long.class, buyerOrder),
+                ((Number) card.json().get("orderNumber")).longValue());
+        assertNull(card.json().get("emailChange"));
+
+        // Права: покупатель, оператор без второго фактора и модератор очередь не видят (ST-02)
+        assertEquals(403, gateway.get(QUEUE, StandHttp.bearer(buyerToken(buyer.id))).status());
+        assertEquals(403, gateway.get(QUEUE, StandHttp.bearer(token(operator.id, "support-operator", "staff.support", "pwd"))).status(), "без второго фактора");
+        assertEquals(403, gateway.get(QUEUE, StandHttp.bearer(token(operator.id, "moderator", "staff.moderation", "pwd", "otp"))).status());
+        assertEquals(401, gateway.get(QUEUE).status());
+
+        Response bad = queueGet(operator.id, "?status=open&operatorId=x&orderNumber=0");
+        assertEquals(422, bad.status(), bad.body());
+        assertEquals("validation-failed", bad.json().get("code"));
+        assertEquals(3, ((List<?>) bad.json().get("errors")).size(), "ошибки трёх параметров приходят одним ответом");
+    }
+
+    @Tag("TC-705")
+    @Test
+    @Order(54)
+    void twentyTimesTwoOperatorsTakeTheSameTicketAndEveryTimeExactlyOneWins() throws Exception {
+        KeycloakStub.User buyer = KEYCLOAK.add("buyer", "Глеб", "Громов");
+        KeycloakStub.User first = KEYCLOAK.add("support-operator", "Ольга", "Лисина");
+        KeycloakStub.User second = KEYCLOAK.add("support-operator", "Игорь", "Ершов");
+        UUID lastTicket = null;
+        for (int round = 0; round < 20; round++) {
+            UUID ticket = systemTicket(buyer.id);
+            List<Response> answers = Concurrent.race(2, index -> queueAction(index == 0 ? first.id : second.id, ticket, "take", UUID.randomUUID().toString()));
+
+            List<Integer> statuses = answers.stream().map(Response::status).sorted().toList();
+            assertEquals(List.of(200, 409), statuses, "круг " + round + ": " + answers.stream().map(Response::body).toList());
+            Response winner = answers.stream().filter(a -> a.status() == 200).findFirst().orElseThrow();
+            Response loser = answers.stream().filter(a -> a.status() == 409).findFirst().orElseThrow();
+            assertEquals("state-conflict", loser.json().get("code"));
+            assertEquals("in_progress", winner.json().get("status"));
+            assertEquals(winner.json().get("operatorId"),
+                    String.valueOf(supportDb().queryForObject("select operator_id from support.ticket where id = ?", UUID.class, ticket)),
+                    "обращение записано за тем оператором, кто получил 200");
+            assertEquals(List.of("ticket.created", "audit.recorded"), ticketEvents(ticket), "запись аудита одна: у проигравшего её нет");
+            lastTicket = ticket;
+        }
+        UUID checked = lastTicket;
+        assertTrue(await(Duration.ofSeconds(90), () -> auditRowsOf(checked, "support.ticket_taken") == 1), "запись о взятии дошла до журнала аудита");
+        Map<String, Object> record = auditDb().queryForMap("select actor_role, object_type, actor_ip, changes::text as changes from audit_admin.audit_log "
+                + "where object_id = ? and action = 'support.ticket_taken'", checked.toString());
+        assertEquals("support-operator", record.get("actor_role"));
+        assertEquals("ticket", record.get("object_type"));
+        assertNotNull(record.get("actor_ip"));
+        assertTrue(String.valueOf(record.get("changes")).contains("in_progress"));
+    }
+
+    @Tag("TC-706")
+    @Test
+    @Order(55)
+    void releaseReturnsTheTicketToTheQueueAndTheQueueMetricEqualsTheCountOfOpenTickets() throws Exception {
+        KeycloakStub.User buyer = KEYCLOAK.add("buyer", "Дарья", "Данилова");
+        KeycloakStub.User first = KEYCLOAK.add("support-operator", "Ольга", "Лисина");
+        KeycloakStub.User second = KEYCLOAK.add("support-operator", "Игорь", "Ершов");
+        UUID ticket = systemTicket(buyer.id);
+        Instant createdAt = supportDb().queryForObject("select created_at from support.ticket where id = ?", Timestamp.class, ticket).toInstant();
+
+        assertEquals(200, queueAction(first.id, ticket, "take", UUID.randomUUID().toString()).status());
+        Response foreign = queueAction(second.id, ticket, "release", UUID.randomUUID().toString());
+        assertEquals(409, foreign.status(), "вернуть чужое обращение нельзя: " + foreign.body());
+        assertEquals("state-conflict", foreign.json().get("code"));
+        assertEquals(first.id, String.valueOf(queueGet(first.id, "/" + ticket).json().get("operatorId")));
+        assertEquals(List.of(ticket.toString()), queueIds(first.id, "?status=in_progress&operatorId=" + first.id).stream().filter(id -> id.equals(ticket.toString())).toList());
+
+        QueueDepth working = queueMetrics.refresh();
+        assertEquals(openTickets("created"), working.created());
+        assertEquals(openTickets("in_progress"), working.inProgress());
+        assertTrue(working.inProgress() >= 1);
+
+        String key = UUID.randomUUID().toString();
+        Response released = queueAction(first.id, ticket, "release", key);
+        assertEquals(200, released.status(), released.body());
+        assertEquals("created", released.json().get("status"));
+        assertNull(released.json().get("operatorId"));
+        assertNull(released.json().get("takenAt"));
+        assertEquals(createdAt, supportDb().queryForObject("select created_at from support.ticket where id = ?", Timestamp.class, ticket).toInstant(),
+                "время создания при возврате не меняется");
+        Response replay = queueAction(first.id, ticket, "release", key);
+        assertEquals(200, replay.status(), replay.body());
+        assertEquals("true", replay.header("Idempotency-Replayed"), "тот же ключ: прежний ответ, а не 409");
+        assertEquals(409, queueAction(first.id, ticket, "release", UUID.randomUUID().toString()).status(), "новый ключ: обращение уже в очереди");
+        assertEquals(List.of("ticket.created", "audit.recorded", "audit.recorded"), ticketEvents(ticket), "взятие и возврат по одной записи аудита");
+
+        QueueDepth back = queueMetrics.refresh();
+        assertEquals(openTickets("created"), back.created(), "метрика равна числу обращений в очереди");
+        assertEquals(openTickets("in_progress"), back.inProgress());
+        assertEquals(back.created(), meterValue("created"));
+        assertEquals(back.inProgress(), meterValue("in_progress"));
+        assertTrue(await(Duration.ofSeconds(90), () -> auditRowsOf(ticket, "support.ticket_released") == 1), "запись о возврате дошла до журнала аудита");
+    }
+
+    private long openTickets(String status) {
+        return supportDb().queryForObject("select count(*) from support.ticket where status = ?", Long.class, status);
+    }
+
+    private long meterValue(String status) {
+        return (long) meters.get(QueueMetrics.TICKETS).tag("status", status).gauge().value();
+    }
+
+    @Tag("TC-707")
+    @Test
+    @Order(56)
+    void theOrderNumberFindsTheTicketsOfThatOrderAndAnUnknownNumberGivesAnEmptyPage() throws Exception {
+        KeycloakStub.User buyer = KEYCLOAK.add("buyer", "Егор", "Егоров");
+        KeycloakStub.User operator = KEYCLOAK.add("support-operator", "Ольга", "Лисина");
+        UUID ticket = systemTicket(buyer.id);
+        UUID order = supportDb().queryForObject("select order_id from support.ticket where id = ?", UUID.class, ticket);
+        long number = supportDb().queryForObject("select order_number from support.order_view where order_id = ?", Long.class, order);
+
+        Response found = queueGet(operator.id, "?orderNumber=" + number);
+        assertEquals(200, found.status(), found.body());
+        List<?> items = (List<?>) found.json().get("items");
+        assertEquals(1, items.size());
+        assertEquals(ticket.toString(), ((Map<?, ?>) items.get(0)).get("ticketId"));
+        assertEquals(number, ((Number) ((Map<?, ?>) items.get(0)).get("orderNumber")).longValue());
+
+        long unknown = number + 10_000_000L;
+        Response none = queueGet(operator.id, "?orderNumber=" + unknown);
+        assertEquals(200, none.status(), none.body());
+        assertEquals(List.of(), none.json().get("items"), "неизвестный номер даёт пустую страницу без подсказок");
+        assertNull(((Map<?, ?>) none.json().get("page")).get("nextCursor"));
+
+        // Решённое обращение по номеру находится, а по умолчанию из очереди уходит
+        modules.transactions("support").executeWithoutResult(status -> support.onDeliveryDelivered(order, Instant.now()));
+        assertEquals(1, ((List<?>) queueGet(operator.id, "?orderNumber=" + number).json().get("items")).size(), "без status: любой статус");
+        assertTrue(queueIds(operator.id, "?status=created").stream().noneMatch(id -> id.equals(ticket.toString())));
+        assertEquals("resolved", ((Map<?, ?>) ((List<?>) queueGet(operator.id, "?orderNumber=" + number).json().get("items")).get(0)).get("status"));
     }
 
     @Tag("TC-114")

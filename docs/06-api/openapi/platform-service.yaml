@@ -743,6 +743,7 @@ paths:
       x-conditions:
       - U4
       x-sms-session: denied
+      x-module: support
       security:
       - bearerJwt:
         - staff.support
@@ -819,6 +820,7 @@ paths:
       x-conditions:
       - U4
       x-sms-session: denied
+      x-module: support
       security:
       - bearerJwt:
         - staff.support
