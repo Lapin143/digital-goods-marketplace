@@ -6,7 +6,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
-/** События заказа (тема {@code order.events}): имена и данные по AsyncAPI. Данные без персональных данных и без значений ключей. */
+/**
+ * События заказа (тема {@code order.events}): имена и данные по AsyncAPI. Данные без значений ключей. Адрес доставки (персональные данные) несут только
+ * {@code order.paid} и {@code order.address-updated}: их читает одна «Выдача», остальные события адреса не содержат.
+ */
 final class OrderEvents {
 
     static final String TOPIC = "order.events";
@@ -17,6 +20,7 @@ final class OrderEvents {
     static final String ISSUED = "order.issued";
     static final String REFUNDED = "order.refunded";
     static final String REFUND_REQUESTED = "order.refund-requested";
+    static final String ADDRESS_UPDATED = "order.address-updated";
     static final int SCHEMA_VERSION = 1;
 
     private OrderEvents() {
@@ -107,6 +111,22 @@ final class OrderEvents {
         data.put("orderId", o.id().toString());
         data.put("amount", money(o.amount(), o.currency()));
         data.put("refundReason", refundReason);
+        return data;
+    }
+
+    /**
+     * {@code order.address-updated}: OP-72, снимок адреса заменён по обращению (US-7.3). Читает только «Выдача»: по событию она отправляет ключ на новый
+     * адрес повторно. Несёт адрес (персональные данные), статус и сроки заказа не несёт: они не менялись.
+     */
+    static Map<String, Object> addressUpdated(StoredOrder o, UUID ticketId) {
+        Map<String, Object> delivery = new LinkedHashMap<>();
+        delivery.put("channel", "email");
+        delivery.put("address", o.deliveryAddress());
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("orderId", o.id().toString());
+        data.put("buyerId", o.buyerId().toString());
+        data.put("ticketId", ticketId.toString());
+        data.put("delivery", delivery);
         return data;
     }
 

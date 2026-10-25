@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.join(REPO, 'tools', 'docs-checks'))
 import check_stub_contract as S  # noqa: E402  (load/resolve по файлам OpenAPI)
 
 # Операции и коды, образцы которых обязательны: ходячий скелет (шаг 12 Ф3), товары продавца (шаг 12 Ф4, SellerProductIT), модерация товаров и карточка витрины (шаг 13 Ф4, ProductModerationIT), пул ключей (шаг 4 Ф4, образцы появятся в шаге 14), учётные записи
-# сотрудников (шаг 5 Ф4) и подтверждение телефона с внутренними операциями входа по SMS (шаг 6 Ф4). Ответ 200 вебхука статуса SMS тела не имеет,
+# сотрудников (шаг 5 Ф4) и подтверждение телефона с внутренними операциями входа по SMS (шаг 6 Ф4), смена адреса доставки заказа (шаг 11 среза 3, OrderAddressIT). Ответ 200 вебхука статуса SMS тела не имеет,
 # поэтому у receiveSmsStatus и receivePaymentGatewayNotification обязательны только отказы
 REQUIRED = {
     'catalog-service': [('listStorefrontProducts', 200), ('listStorefrontProducts', 422), ('getProductCard', 200), ('getProductCard', 404),
@@ -47,7 +47,9 @@ REQUIRED = {
                         ('blockProduct', 200), ('blockProduct', 409)],
     'order-service': [('listOrders', 200), ('listOrders', 422), ('createOrder', 201), ('createOrder', 403), ('createOrder', 409),
                       ('createOrder', 422), ('createOrder', 503), ('getOrder', 200), ('getOrder', 404), ('getOrderPaymentSession', 200),
-                      ('getOrderPaymentSession', 404), ('getOrderPaymentSession', 409)],
+                      ('getOrderPaymentSession', 404), ('getOrderPaymentSession', 409),
+                      ('updateDeliveryAddress', 200), ('updateDeliveryAddress', 404), ('updateDeliveryAddress', 409),
+                      ('updateDeliveryAddress', 422)],
     'payment-service': [('openPaymentSession', 201), ('openPaymentSession', 409), ('openPaymentSession', 422),
                         ('openPaymentSession', 503),
                         ('receivePaymentGatewayNotification', 400), ('receivePaymentGatewayNotification', 401),

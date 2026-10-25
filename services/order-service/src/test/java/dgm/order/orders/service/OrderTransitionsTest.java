@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dgm.kit.problem.ProblemException;
 import dgm.kit.problem.ProblemType;
+import dgm.order.orders.domain.AddressUpdate;
 import dgm.order.orders.domain.CancelReason;
 import dgm.order.orders.domain.NewOrder;
 import dgm.order.orders.domain.OrderStatus;
@@ -27,7 +28,8 @@ import org.junit.jupiter.api.Test;
 /**
  * Переходы заказа в одной короткой транзакции: T1 под блокировкой покупателя с лимитом неоплаченных (Р-142), T2 с событием
  * {@code order.created}, отмены T3, T5, T6, T12 с событием {@code order.cancelled}, оплата T4 и T7 с {@code order.paid}, команда возврата
- * {@code order.refund-requested}, возврат T8, выдача T9, обезличивание адреса. Повтор и запоздавший вызов ничего не меняют.
+ * {@code order.refund-requested}, возврат T8, выдача T9, обезличивание адреса, смена адреса по обращению (OP-72). Повтор и запоздавший вызов ничего
+ * не меняют.
  */
 class OrderTransitionsTest {
 
@@ -616,5 +618,138 @@ class OrderTransitionsTest {
 
         assertEquals(2, store.transactions() - before);
         assertEquals(0, store.events().size());
+    }
+
+    // ------------------------------------------------------------------------------------------------ TC-528: OP-72, смена адреса
+
+    private static final UUID TICKET = UUID.fromString("0199e0a0-0000-7000-8000-000000000501");
+    private static final Instant UPDATED_AT = T0.plus(Duration.ofHours(1));
+    private static final String NEW_ADDRESS = "canary.new-address@mail.example";
+
+    @Tag("TC-528")
+    @Test
+    void anIssuedOrderGetsTheNewAddressKeepsItsStatusAndDatesAndPublishesOneEvent() {
+        store.seed(existing(1, BUYER, OrderStatus.ISSUED));
+        StoredOrder before = store.get(id(1));
+        int transactionsBefore = store.transactions();
+
+        AddressUpdate update = transitions.updateDeliveryAddress(id(1), TICKET, NEW_ADDRESS, UPDATED_AT);
+
+        assertEquals(new AddressUpdate(id(1), NEW_ADDRESS, UPDATED_AT), update);
+        assertEquals(1, store.transactions() - transactionsBefore, "замена и событие в одной транзакции");
+        StoredOrder after = store.get(id(1));
+        assertEquals(NEW_ADDRESS, after.deliveryAddress());
+        assertEquals(OrderStatus.ISSUED, after.status());
+        assertEquals(before.issuedAt(), after.issuedAt(), "окна 72 часа и 7 дней считаются от первой выдачи и не сдвигаются");
+        assertEquals(before.paidAt(), after.paidAt());
+        assertEquals(before.createdAt(), after.createdAt());
+        assertEquals(before.amount(), after.amount());
+        assertEquals(before.number(), after.number());
+
+        assertEquals(1, store.events().size());
+        FakeOrderStore.Published event = store.events().get(0);
+        assertEquals("order.events", event.topic());
+        assertEquals("Order", event.aggregateType());
+        assertEquals(id(1).toString(), event.aggregateId());
+        assertEquals("order.address-updated", event.eventType());
+        assertEquals(1, event.schemaVersion());
+        assertEquals(Set.of("orderId", "buyerId", "ticketId", "delivery"), event.data().keySet());
+        assertEquals(id(1).toString(), event.data().get("orderId"));
+        assertEquals(BUYER.toString(), event.data().get("buyerId"));
+        assertEquals(TICKET.toString(), event.data().get("ticketId"));
+        assertEquals(Map.of("channel", "email", "address", NEW_ADDRESS), event.data().get("delivery"));
+        assertEquals(1.0, meters.counter("orders_address_updated_total").count());
+    }
+
+    @Tag("TC-528")
+    @Test
+    void theAddressIsWrittenAndPublishedEvenIfItDidNotChange() {
+        store.seed(existing(1, BUYER, OrderStatus.ISSUED));
+
+        AddressUpdate update = transitions.updateDeliveryAddress(id(1), TICKET, "buyer@mail.example", UPDATED_AT);
+
+        assertEquals("buyer@mail.example", update.address());
+        assertEquals(1, store.replacedAddresses(), "SEQ-04: запись «адрес актуален на момент решения оператора» делается всегда");
+        assertEquals(1, store.events("order.address-updated").size());
+        assertEquals(Map.of("channel", "email", "address", "buyer@mail.example"), store.events().get(0).data().get("delivery"));
+    }
+
+    @Tag("TC-528")
+    @Test
+    void everyCallIsAResendAndPublishesItsOwnEventWhileTheKeyReplayIsTheGuardsJob() {
+        store.seed(existing(1, BUYER, OrderStatus.ISSUED));
+
+        transitions.updateDeliveryAddress(id(1), TICKET, NEW_ADDRESS, UPDATED_AT);
+        transitions.updateDeliveryAddress(id(1), TICKET, NEW_ADDRESS, UPDATED_AT.plusSeconds(60));
+
+        List<FakeOrderStore.Published> events = store.events("order.address-updated");
+        assertEquals(2, events.size(), "повтор с тем же ключом отсекает охранник идемпотентности каркаса до домена; здесь вызов с новым ключом");
+        assertEquals(events.get(0).data(), events.get(1).data());
+        assertEquals(OrderStatus.ISSUED, store.get(id(1)).status());
+    }
+
+    @Tag("TC-528")
+    @Test
+    void anOrderThatIsNotIssuedIsRefusedWithItsStatusAndNothingIsChanged() {
+        String[] statuses = {OrderStatus.CREATED, OrderStatus.AWAITING_PAYMENT, OrderStatus.PAID, OrderStatus.CANCELLED, OrderStatus.REFUNDED};
+        for (int n = 0; n < statuses.length; n++) {
+            store.seed(existing(n + 1, BUYER, statuses[n]));
+        }
+
+        for (int n = 0; n < statuses.length; n++) {
+            int number = n + 1;
+            String status = statuses[n];
+            ProblemException e = assertThrows(ProblemException.class, () -> transitions.updateDeliveryAddress(id(number), TICKET, NEW_ADDRESS, UPDATED_AT),
+                    status);
+            assertEquals(ProblemType.STATE_CONFLICT, e.type(), status);
+            assertEquals(Map.of("currentStatus", status), e.extensions(), status);
+            assertEquals("buyer@mail.example", store.get(id(number)).deliveryAddress(), status);
+            assertEquals(status, store.get(id(number)).status());
+        }
+
+        assertEquals(0, store.events().size());
+        assertEquals(0, store.replacedAddresses());
+        assertEquals(5.0, counter("orders_address_update_rejected_total", "reason", "not-issued"));
+        assertNull(meters.find("orders_address_updated_total").counter(), "ни одного обновления не было");
+    }
+
+    @Tag("TC-528")
+    @Test
+    void anUnknownOrderIsNotFoundAndNothingIsPublished() {
+        ProblemException e = assertThrows(ProblemException.class, () -> transitions.updateDeliveryAddress(id(9), TICKET, NEW_ADDRESS, UPDATED_AT));
+
+        assertEquals(ProblemType.NOT_FOUND, e.type());
+        assertEquals(0, store.events().size());
+        assertEquals(1.0, counter("orders_address_update_rejected_total", "reason", "not-found"));
+    }
+
+    @Tag("TC-528")
+    @Test
+    void theAddressNeverReachesErrorMessagesMetricsOrTheTextOfTheResult() {
+        store.seed(existing(1, BUYER, OrderStatus.PAID));
+        ProblemException conflict = assertThrows(ProblemException.class, () -> transitions.updateDeliveryAddress(id(1), TICKET, NEW_ADDRESS, UPDATED_AT));
+        ProblemException missing = assertThrows(ProblemException.class, () -> transitions.updateDeliveryAddress(id(9), TICKET, NEW_ADDRESS, UPDATED_AT));
+        store.seed(existing(2, BUYER, OrderStatus.ISSUED));
+        AddressUpdate update = transitions.updateDeliveryAddress(id(2), TICKET, NEW_ADDRESS, UPDATED_AT);
+
+        for (ProblemException e : List.of(conflict, missing)) {
+            assertFalse(String.valueOf(e.getMessage()).contains("canary"));
+            assertFalse(e.extensions().toString().contains("canary"));
+        }
+        assertFalse(update.toString().contains("canary"), "запись результата скрывает адрес в строке для журнала");
+        assertTrue(meters.getMeters().stream().noneMatch(m -> m.getId().toString().contains("canary")), "в метках метрик адреса нет");
+    }
+
+    @Tag("TC-528")
+    @Test
+    void ifTheOutboxIsDownTheAddressIsNotReplaced() {
+        store.seed(existing(1, BUYER, OrderStatus.ISSUED));
+        store.failOnPublish();
+
+        assertThrows(IllegalStateException.class, () -> transitions.updateDeliveryAddress(id(1), TICKET, NEW_ADDRESS, UPDATED_AT));
+
+        assertEquals("buyer@mail.example", store.get(id(1)).deliveryAddress(), "замена и событие откатываются вместе");
+        assertEquals(0, store.events().size());
+        assertNull(meters.find("orders_address_updated_total").counter(), "обновление не состоялось");
     }
 }

@@ -2,6 +2,7 @@ package dgm.order.orders.service;
 
 import dgm.kit.problem.ProblemException;
 import dgm.kit.problem.ProblemType;
+import dgm.order.orders.domain.AddressUpdate;
 import dgm.order.orders.domain.CancelReason;
 import dgm.order.orders.domain.NewOrder;
 import dgm.order.orders.domain.OrderStateMachine;
@@ -227,6 +228,40 @@ public final class OrderTransitions {
                     OrderEvents.issued(updated, deliveryId));
             meters.counter("orders_issued_total").increment();
             return Optional.of(updated);
+        });
+    }
+
+    /**
+     * OP-72: снимок адреса доставки заменяется актуальным e-mail учётной записи по решению оператора поддержки (SEQ-04). Заказ должен быть
+     * «выдан»: повторная отправка нужна только выданному заказу. Адрес записывается всегда, даже если он не менялся: это запись «адрес актуален на
+     * момент решения оператора». Статус, {@code issued_at} и окна 72 часа и 7 дней не меняются. Событие {@code order.address-updated} уходит в Outbox
+     * той же транзакцией, по нему «Выдача» отправляет ключ повторно; отдельной команды «повторить выдачу» нет.
+     *
+     * <p>Адрес это персональные данные: в журнал, метрики и сообщения об ошибках он не попадает.
+     *
+     * @param ticketId обращение, по которому оператор принял решение (в событие, для аудита и трассировки)
+     * @param at       момент обновления, возвращается вызывающему
+     * @throws ProblemException 404, если заказа нет; 409 {@code state-conflict} со статусом заказа, если он не «выдан»
+     */
+    public AddressUpdate updateDeliveryAddress(UUID orderId, UUID ticketId, String address, Instant at) {
+        return transaction.execute(() -> {
+            StoredOrder order = store.lock(orderId).orElse(null);
+            if (order == null) {
+                meters.counter("orders_address_update_rejected_total", "reason", "not-found").increment();
+                throw new ProblemException(ProblemType.NOT_FOUND, "Заказ не найден.");
+            }
+            if (!OrderStatus.ISSUED.equals(order.status()) || !store.replaceAddress(orderId, address)) {
+                LOG.info("Адрес заказа {} не обновлён: статус {}, обращение {}", orderId, order.status(), ticketId);
+                meters.counter("orders_address_update_rejected_total", "reason", "not-issued").increment();
+                throw new ProblemException(ProblemType.STATE_CONFLICT, "Адрес можно обновить только в заказе «выдан».",
+                        Map.of("currentStatus", order.status()), Map.of());
+            }
+            StoredOrder updated = store.find(orderId).orElseThrow(() -> new IllegalStateException("Заказ пропал после обновления адреса"));
+            transaction.publish(OrderEvents.TOPIC, OrderEvents.AGGREGATE, orderId.toString(), OrderEvents.ADDRESS_UPDATED, OrderEvents.SCHEMA_VERSION,
+                    OrderEvents.addressUpdated(updated, ticketId));
+            LOG.info("Адрес заказа {} обновлён по обращению {}", orderId, ticketId);
+            meters.counter("orders_address_updated_total").increment();
+            return new AddressUpdate(orderId, updated.deliveryAddress(), at);
         });
     }
 

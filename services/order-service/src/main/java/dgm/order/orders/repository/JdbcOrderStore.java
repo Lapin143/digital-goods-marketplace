@@ -102,6 +102,11 @@ public final class JdbcOrderStore implements OrderStore {
         return jdbc.update("update orders.orders set delivery_address = ? where buyer_id = ? and delivery_address <> ?", replacement, buyerId, replacement);
     }
 
+    @Override
+    public boolean replaceAddress(UUID orderId, String address) {
+        return jdbc.update("update orders.orders set delivery_address = ? where id = ? and status = 'issued'", address, orderId) == 1;
+    }
+
     private static Instant instant(OffsetDateTime value) {
         return value == null ? null : value.toInstant();
     }

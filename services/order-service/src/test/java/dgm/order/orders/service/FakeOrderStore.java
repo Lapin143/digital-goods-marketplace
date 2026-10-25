@@ -40,6 +40,7 @@ public final class FakeOrderStore implements OrderStore, OrderTransaction {
     private boolean failOnPublish;
     private final Set<String> failingAggregates = new TreeSet<>();
     private int transactions;
+    private int replacedAddresses;
 
     /** Заказ, которого сага не создавала (например, оплаченный или отменённый заказ покупателя). */
     public FakeOrderStore seed(StoredOrder order) {
@@ -271,6 +272,23 @@ public final class FakeOrderStore implements OrderStore, OrderTransaction {
             }
         }
         return changed;
+    }
+
+    @Override
+    public boolean replaceAddress(UUID orderId, String address) {
+        requireTransaction();
+        StoredOrder o = orders.get(orderId);
+        if (o == null || !OrderStatus.ISSUED.equals(o.status())) {
+            return false;
+        }
+        replacedAddresses++;
+        orders.put(orderId, changed(o, o.status(), o.cancelReason(), address, o.paidAt(), o.issuedAt()));
+        return true;
+    }
+
+    /** Сколько раз адрес записан в заказ (запись идёт всегда, даже если адрес тот же: SEQ-04). */
+    public int replacedAddresses() {
+        return replacedAddresses;
     }
 
     private static StoredOrder changed(StoredOrder o, String status, String cancelReason, String address, Instant paidAt, Instant issuedAt) {

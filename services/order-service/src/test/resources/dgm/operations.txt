@@ -12,4 +12,4 @@ listOrders              done
 createOrder             done
 getOrder                done
 getOrderPaymentSession  done
-updateDeliveryAddress   slice3
+updateDeliveryAddress   done

@@ -10,6 +10,7 @@ import dgm.order.orders.client.PeerInventoryClient;
 import dgm.order.orders.client.PeerPaymentClient;
 import dgm.order.orders.repository.OrderRepository;
 import dgm.order.orders.repository.OrderStore;
+import dgm.order.orders.service.DeliveryAddressService;
 import dgm.order.orders.service.OrderSettings;
 import dgm.order.orders.service.OrderTransaction;
 import dgm.order.orders.service.OrderTransitions;
@@ -82,6 +83,11 @@ public class OrderConfiguration {
     @Bean
     OrderWatchdog orderWatchdog(OrderRepository orders, SagaOrchestrator saga, WatchdogSettings settings, Clock clock, MeterRegistry meters) {
         return new OrderWatchdog(orders, saga, settings, clock, meters);
+    }
+
+    @Bean
+    DeliveryAddressService deliveryAddressService(OrderTransitions transitions, Clock clock) {
+        return new DeliveryAddressService(transitions, clock);
     }
 
     @Bean
