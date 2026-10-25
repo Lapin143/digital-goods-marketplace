@@ -28,6 +28,7 @@ import dgm.kit.time.Timestamps;
 import dgm.kit.tls.TlsMaterial;
 import dgm.kit.trace.TraceContext;
 import dgm.platform.auditadmin.service.AuditPartitionService;
+import dgm.platform.auditadmin.service.ParameterService;
 import dgm.platform.auditadmin.service.AuditRecordService;
 import dgm.platform.identity.service.IdentityReconciler;
 import dgm.platform.identity.service.IdentityTransaction;
@@ -2138,6 +2139,249 @@ class PlatformServiceIT {
         assertEquals("validation-failed", badParameters.json().get("code"));
         assertEquals(0, count("select count(*) from public.outbox where aggregate_id = ? and event_type = 'audit.recorded'", admin.id),
                 "запрос, не прошедший проверку, журнал не открыл");
+    }
+
+    private static final String PARAMETERS = "/api/v1/staff/parameters";
+    private static final String SESSION_TTL = "payment-session.ttl-seconds";
+    private static final String RESERVE_TTL = "reservation.ttl-seconds";
+
+    @Autowired
+    private ParameterService parameters;
+
+    private static Response putParameter(String subject, String key, String version, String body) throws IOException {
+        List<String> headers = new ArrayList<>(List.of("Authorization", "Bearer " + adminToken(subject)));
+        if (version != null) {
+            headers.addAll(List.of("If-Match", version));
+        }
+        return gateway.put(PARAMETERS + "/" + key, body, headers.toArray(new String[0]));
+    }
+
+    private static Response putAs(String token, String key, String version, String contentType, String body) throws IOException {
+        return gateway.request("PUT", PARAMETERS + "/" + key, contentType, body.getBytes(StandardCharsets.UTF_8), "Authorization", "Bearer " + token,
+                "If-Match", version);
+    }
+
+    private static Map<?, ?> parameter(String subject, String key) throws IOException {
+        Response list = get(subject, PARAMETERS);
+        assertEquals(200, list.status(), list.body());
+        for (Object item : (List<?>) list.json().get("items")) {
+            if (key.equals(((Map<?, ?>) item).get("key"))) {
+                return (Map<?, ?>) item;
+            }
+        }
+        throw new AssertionError("параметра нет в списке: " + key);
+    }
+
+    private static String etag(Map<?, ?> parameter) {
+        return "\"" + parameter.get("version") + "\"";
+    }
+
+    private int configEvents(String key) {
+        return count("select count(*) from public.outbox where aggregate_id = ? and event_type = 'config.changed'", key);
+    }
+
+    private int parameterAudits(String key) {
+        return count("select count(*) from public.outbox where aggregate_id = ? and event_type = 'audit.recorded'", key);
+    }
+
+    /** Запись сжатой темы {@code platform.config} с ключом {@code key} и данными заданной версии; ждёт, пока публикатор её отправит. */
+    private static Map<String, Object> configRecord(String key, int version) throws InterruptedException {
+        List<Map<String, Object>> found = new ArrayList<>();
+        assertTrue(await(Duration.ofSeconds(90), () -> {
+            for (ConsumerRecord<String, String> record : deadLetters("platform.config", key, Integer.MAX_VALUE, Duration.ofSeconds(3))) {
+                Map<String, Object> envelope = Json.parseObject(record.value());
+                if (((Number) ((Map<?, ?>) envelope.get("data")).get("version")).intValue() == version) {
+                    found.add(envelope);
+                    return true;
+                }
+            }
+            return false;
+        }), "в теме platform.config нет значения " + key + " версии " + version);
+        return found.get(0);
+    }
+
+    @Tag("TC-806")
+    @Test
+    @Order(46)
+    void listShowsAllFifteenParametersAndAChangeReachesTheJournalAndTheCompactedTopic() throws Exception {
+        KeycloakStub.User admin = newAdmin();
+        Response list = get(admin.id, PARAMETERS);
+        assertEquals(200, list.status(), list.body());
+        assertEquals("no-store", list.header("Cache-Control"));
+        List<?> items = (List<?>) list.json().get("items");
+        assertEquals(15, items.size(), "параметры R1");
+        for (Object item : items) {
+            assertEquals(Set.of("key", "description", "unit", "value", "defaultValue", "minValue", "maxValue", "version", "updatedAt", "updatedBy"),
+                    ((Map<?, ?>) item).keySet());
+        }
+
+        String key = "orders.max-unpaid";
+        Map<?, ?> before = parameter(admin.id, key);
+        int oldValue = ((Number) before.get("value")).intValue();
+        int newValue = oldValue == 7 ? 8 : 7;
+        int audits = parameterAudits(key);
+
+        Response changed = putParameter(admin.id, key, etag(before), "{\"value\":" + newValue + "}");
+
+        assertEquals(200, changed.status(), changed.body());
+        assertEquals("\"" + (((Number) before.get("version")).intValue() + 1) + "\"", changed.header("ETag"));
+        assertEquals(newValue, ((Number) changed.json().get("value")).intValue());
+        assertEquals(admin.id, changed.json().get("updatedBy"));
+        assertEquals(newValue, ((Number) parameter(admin.id, key).get("value")).intValue(), "список показывает новое значение");
+        assertEquals(audits + 1, parameterAudits(key), "запись аудита в Outbox зафиксирована вместе с правкой");
+
+        int version = ((Number) changed.json().get("version")).intValue();
+        Map<String, Object> sent = configRecord(key, version);
+        assertEquals("config.changed", sent.get("type"));
+        assertEquals(key, sent.get("subject"));
+        assertEquals("Parameter", sent.get("aggregatetype"));
+        Map<?, ?> data = (Map<?, ?>) sent.get("data");
+        assertEquals(key, data.get("key"));
+        assertEquals(newValue, ((Number) data.get("value")).intValue());
+        assertEquals(admin.id, data.get("changedBy"));
+        assertEquals(before.get("unit"), data.get("unit"));
+
+        assertTrue(await(Duration.ofSeconds(90), () -> auditDb().queryForObject("select count(*) from audit_admin.audit_log where object_id = ? "
+                + "and action = 'parameter.changed' and actor_id = ?", Integer.class, key, UUID.fromString(admin.id)) >= 1), "запись дошла до журнала");
+        Map<String, Object> record = auditDb().queryForMap("select actor_role, object_type, changes::text as changes from audit_admin.audit_log "
+                + "where object_id = ? and action = 'parameter.changed' and actor_id = ? order by occurred_at desc limit 1", key, UUID.fromString(admin.id));
+        assertEquals("admin", record.get("actor_role"));
+        assertEquals("parameter", record.get("object_type"));
+        Map<?, ?> change = (Map<?, ?>) ((List<?>) Json.parse((String) record.get("changes"))).get(0);
+        assertEquals("value", change.get("field"));
+        assertEquals(oldValue, ((Number) change.get("before")).intValue(), "значение до как есть");
+        assertEquals(newValue, ((Number) change.get("after")).intValue(), "значение после как есть");
+
+        Response same = putParameter(admin.id, key, changed.header("ETag"), "{\"value\":" + newValue + "}");
+        assertEquals(200, same.status());
+        assertEquals(changed.header("ETag"), same.header("ETag"), "то же значение версию не меняет");
+        assertEquals(audits + 1, parameterAudits(key), "и записи не добавляет");
+
+        Response back = putParameter(admin.id, key, same.header("ETag"), "{\"value\":" + oldValue + "}");
+        assertEquals(200, back.status(), "значение возвращено прежнее: " + back.body());
+    }
+
+    @Tag("TC-807")
+    @Test
+    @Order(47)
+    void outOfBoundsInvariantSevenAndIfMatchAreRefusedWithoutChangingAnything() throws Exception {
+        KeycloakStub.User admin = newAdmin();
+        Map<?, ?> reserve = parameter(admin.id, RESERVE_TTL);
+        Map<?, ?> session = parameter(admin.id, SESSION_TTL);
+        int reserveValue = ((Number) reserve.get("value")).intValue();
+        int sessionValue = ((Number) session.get("value")).intValue();
+        int events = configEvents(RESERVE_TTL) + configEvents(SESSION_TTL);
+        int audits = parameterAudits(RESERVE_TTL) + parameterAudits(SESSION_TTL);
+
+        for (String bad : new String[] {"0", "-5", "100", "99999", "\"900\"", "1200.5", "null"}) {
+            Response refused = putParameter(admin.id, RESERVE_TTL, etag(reserve), "{\"value\":" + bad + "}");
+            assertEquals(422, refused.status(), bad);
+            assertEquals("validation-failed", refused.json().get("code"), bad);
+            Map<?, ?> error = (Map<?, ?>) ((List<?>) refused.json().get("errors")).get(0);
+            assertEquals("/value", error.get("pointer"));
+            assertTrue(((String) error.get("detail")).contains("300") && ((String) error.get("detail")).contains("3600"), "границы в ответе: " + error);
+        }
+
+        Response sessionUp = putParameter(admin.id, SESSION_TTL, etag(session), "{\"value\":" + reserveValue + "}");
+        assertEquals(422, sessionUp.status(), "сессия не короче резерва: " + sessionUp.body());
+        assertTrue(((String) ((Map<?, ?>) ((List<?>) sessionUp.json().get("errors")).get(0)).get("detail")).contains(RESERVE_TTL), "назван парный параметр");
+        Response reserveDown = putParameter(admin.id, RESERVE_TTL, etag(reserve), "{\"value\":" + sessionValue + "}");
+        assertEquals(422, reserveDown.status(), "резерв не длиннее сессии: " + reserveDown.body());
+        assertTrue(((String) ((Map<?, ?>) ((List<?>) reserveDown.json().get("errors")).get(0)).get("detail")).contains(SESSION_TTL));
+
+        assertEquals(428, putParameter(admin.id, RESERVE_TTL, null, "{\"value\":1000}").status(), "без If-Match");
+        assertEquals(400, putParameter(admin.id, RESERVE_TTL, "1", "{\"value\":1000}").status(), "не строгий ETag");
+        assertEquals(412, putParameter(admin.id, RESERVE_TTL, "\"999999\"", "{\"value\":1000}").status(), "версия не совпала");
+        assertEquals(404, putParameter(admin.id, "no.such-key", "\"1\"", "{\"value\":1}").status());
+        assertEquals(415, putAs(adminToken(admin.id), RESERVE_TTL, etag(reserve), "text/plain", "1000").status(), "не JSON");
+        assertEquals(400, putAs(adminToken(admin.id), RESERVE_TTL, etag(reserve), "application/json", "{\"value\":").status(), "битый JSON");
+        Response extra = putAs(adminToken(admin.id), RESERVE_TTL, etag(reserve), "application/json", "{\"value\":1000,\"unit\":\"hours\"}");
+        assertEquals(422, extra.status(), "лишнее поле: " + extra.body());
+
+        assertEquals(reserveValue, ((Number) parameter(admin.id, RESERVE_TTL).get("value")).intValue());
+        assertEquals(sessionValue, ((Number) parameter(admin.id, SESSION_TTL).get("value")).intValue());
+        assertEquals(reserve.get("version"), parameter(admin.id, RESERVE_TTL).get("version"));
+        assertEquals(events, configEvents(RESERVE_TTL) + configEvents(SESSION_TTL), "отказанные правки событий не дают");
+        assertEquals(audits, parameterAudits(RESERVE_TTL) + parameterAudits(SESSION_TTL), "и записей аудита тоже");
+
+        // Права: параметры меняет только администратор с областью staff.admin и вторым фактором
+        KeycloakStub.User moderator = KEYCLOAK.add("moderator", null, null);
+        String asModerator = token(moderator.id, "moderator", "staff.admin", "pwd", "otp");
+        assertEquals(403, putAs(asModerator, RESERVE_TTL, etag(reserve), "application/json", "{\"value\":1000}").status());
+        assertEquals(403, gateway.get(PARAMETERS, StandHttp.bearer(asModerator)).status());
+        String bySms = token(admin.id, "admin", "staff.admin", "sms");
+        assertEquals(403, putAs(bySms, RESERVE_TTL, etag(reserve), "application/json", "{\"value\":1000}").status(), "сеанс по SMS");
+        assertEquals(403, gateway.get(PARAMETERS, StandHttp.bearer(bySms)).status(), "сеанс по SMS");
+        assertEquals(401, gateway.get(PARAMETERS).status(), "без токена");
+        assertEquals(reserveValue, ((Number) parameter(admin.id, RESERVE_TTL).get("value")).intValue(), "права отказали раньше записи");
+    }
+
+    @Tag("TC-806")
+    @Tag("TC-807")
+    @Test
+    @Order(48)
+    void twoAdministratorsWithOneVersionLeaveOneChangeAndTheInvariantSurvivesOppositeEdits() throws Exception {
+        KeycloakStub.User first = newAdmin();
+        KeycloakStub.User second = newAdmin();
+        String key = "support.requests-per-hour";
+        Map<?, ?> before = parameter(first.id, key);
+        int oldValue = ((Number) before.get("value")).intValue();
+        int audits = parameterAudits(key);
+        int events = configEvents(key);
+
+        List<Integer> statuses = Concurrent.race(2, index -> putParameter(index == 0 ? first.id : second.id, key, etag(before),
+                "{\"value\":" + (oldValue == 9 ? 10 + index : 9 + index * 2) + "}").status());
+        assertEquals(1, statuses.stream().filter(status -> status == 200).count(), "одна правка прошла: " + statuses);
+        assertEquals(1, statuses.stream().filter(status -> status == 412).count(), "вторая получила 412: " + statuses);
+        assertEquals(audits + 1, parameterAudits(key), "запись аудита одна");
+        assertEquals(events + 1, configEvents(key), "config.changed один");
+        assertEquals(((Number) before.get("version")).intValue() + 1, ((Number) parameter(first.id, key).get("version")).intValue());
+        assertEquals(200, putParameter(first.id, key, etag(parameter(first.id, key)), "{\"value\":" + oldValue + "}").status(), "значение возвращено");
+
+        // Противоположные правки пары: каждая по отдельности допустима, вместе нарушают INV-07
+        resetPair(first.id);
+        for (int round = 0; round < 6; round++) {
+            assertEquals(200, putParameter(first.id, RESERVE_TTL, etag(parameter(first.id, RESERVE_TTL)), "{\"value\":2000}").status());
+            assertEquals(200, putParameter(first.id, SESSION_TTL, etag(parameter(first.id, SESSION_TTL)), "{\"value\":600}").status());
+            String sessionTag = etag(parameter(first.id, SESSION_TTL));
+            String reserveTag = etag(parameter(first.id, RESERVE_TTL));
+            List<Integer> pair = Concurrent.race(2, index -> index == 0
+                    ? putParameter(first.id, SESSION_TTL, sessionTag, "{\"value\":1500}").status()   // сессия 1500 при резерве 2000
+                    : putParameter(second.id, RESERVE_TTL, reserveTag, "{\"value\":1000}").status()); // резерв 1000 при сессии 600
+            int sessionNow = ((Number) parameter(first.id, SESSION_TTL).get("value")).intValue();
+            int reserveNow = ((Number) parameter(first.id, RESERVE_TTL).get("value")).intValue();
+            assertTrue(sessionNow < reserveNow, "INV-07 в раунде " + round + ": сессия " + sessionNow + ", резерв " + reserveNow + ", ответы " + pair);
+            assertEquals(1, pair.stream().filter(status -> status == 200).count(), "ровно одна из двух правок прошла: " + pair);
+            assertEquals(1, pair.stream().filter(status -> status == 422).count(), "вторая отклонена по INV-07: " + pair);
+            resetPair(first.id);
+        }
+    }
+
+    /**
+     * Возвращает пару параметров к начальным значениям (сессия 720, резерв 900). Сначала сессия, потом резерв: из любого допустимого
+     * состояния этого порядка хватает, чтобы INV-07 держался на каждом шаге.
+     */
+    private static void resetPair(String subject) throws IOException {
+        assertEquals(200, putParameter(subject, SESSION_TTL, etag(parameter(subject, SESSION_TTL)), "{\"value\":720}").status());
+        assertEquals(200, putParameter(subject, RESERVE_TTL, etag(parameter(subject, RESERVE_TTL)), "{\"value\":900}").status());
+    }
+
+    @Tag("TC-806")
+    @Test
+    @Order(49)
+    void startReissuesEveryParameterToTheCompactedTopicAndASecondInstanceYieldsTheLock() throws Exception {
+        assertEquals(15, count("select count(distinct aggregate_id) from public.outbox where event_type = 'config.changed'"),
+                "при старте значения всех параметров ушли в Outbox событием config.changed");
+        for (String key : List.of(RESERVE_TTL, SESSION_TTL)) {
+            assertFalse(deadLetters("platform.config", key, 1, Duration.ofSeconds(90)).isEmpty(), "в теме есть значение " + key);
+        }
+        int before = count("select count(*) from public.outbox where event_type = 'config.changed'");
+
+        assertEquals(15, parameters.reissue(), "повторное переиздание отправляет все значения снова");
+
+        assertEquals(before + 15, count("select count(*) from public.outbox where event_type = 'config.changed'"));
+        List<Integer> races = Concurrent.race(4, index -> parameters.reissue());
+        assertTrue(races.stream().allMatch(done -> done == 0 || done == 15), "проход либо сделан целиком, либо уступил блокировку: " + races);
     }
 
     @Tag("TC-114")
