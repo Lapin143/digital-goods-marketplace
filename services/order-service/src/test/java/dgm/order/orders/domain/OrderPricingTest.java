@@ -40,6 +40,7 @@ class OrderPricingTest {
         assertThrows(IllegalArgumentException.class, () -> OrderPricing.total(OrderPricing.MAX_AMOUNT, 2));
     }
 
+    @Tag("TC-809")
     @Test
     void theCommissionIsRoundedHalfUpToTheKopeck() {
         assertEquals(5_996L, OrderPricing.commission(299_800, 200));
@@ -47,20 +48,25 @@ class OrderPricingTest {
         assertEquals(1L, OrderPricing.commission(25, 200), "0,5 копейки округляется вверх");
         assertEquals(0L, OrderPricing.commission(24, 200), "0,48 копейки округляется вниз");
         assertEquals(3L, OrderPricing.commission(125, 200), "2,5 копейки округляется вверх");
+        assertEquals(21L, OrderPricing.commission(1_025, 200), "10,25 ₽ при 2 %: 0,21 ₽ (US-8.4, сценарий 3)");
+        assertEquals(25L, OrderPricing.commission(1_250, 200), "12,50 ₽ при 2 %: 0,25 ₽ (US-8.4, сценарий 3)");
     }
 
+    @Tag("TC-809")
     @Test
     void theRateRunsFromZeroToTheWholeAmount() {
         assertEquals(0L, OrderPricing.commission(299_800, 0));
         assertEquals(299_800L, OrderPricing.commission(299_800, 10_000));
     }
 
+    @Tag("TC-809")
     @Test
     void theLargestAmountDoesNotOverflow() {
         assertEquals(OrderPricing.MAX_AMOUNT, OrderPricing.commission(OrderPricing.MAX_AMOUNT, 10_000));
         assertEquals(180_143_985_094_820L, OrderPricing.commission(OrderPricing.MAX_AMOUNT, 200));
     }
 
+    @Tag("TC-809")
     @Test
     void anAmountOrRateOutOfRangeIsRefused() {
         assertThrows(IllegalArgumentException.class, () -> OrderPricing.commission(-1, 200));

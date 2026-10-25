@@ -66,6 +66,9 @@ abstract class OrderStandIT {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         StandHttp.register(registry, PORT, MANAGEMENT);
+        // Слушатель параметров выключен: в общей теме стенда лежат значения платформы и соседних проверок, они подменили бы значения теста.
+        // Слушатель проверяет ConfigListenerIT в service-kit
+        registry.add("dgm.config.enabled", () -> "false");
         registry.add("dgm.peers.catalog-service.base-url", NEIGHBOURS::baseUrl);
         registry.add("dgm.peers.inventory-service.base-url", NEIGHBOURS::baseUrl);
         registry.add("dgm.peers.payment-service.base-url", NEIGHBOURS::baseUrl);

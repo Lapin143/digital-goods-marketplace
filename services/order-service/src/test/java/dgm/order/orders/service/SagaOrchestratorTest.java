@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dgm.kit.client.DependencyUnavailableException;
+import dgm.kit.config.ConfigRegistry;
 import dgm.kit.id.Uuids;
 import dgm.kit.problem.ProblemException;
 import dgm.kit.problem.ProblemType;
@@ -55,6 +56,7 @@ class SagaOrchestratorTest {
     private FakeOrderStore store;
     private ManualClock clock;
     private SimpleMeterRegistry meters;
+    private ConfigRegistry registry;
     private OrderTransitions transitions;
     private Catalog catalog;
     private Inventory inventory;
@@ -138,7 +140,8 @@ class SagaOrchestratorTest {
         store = new FakeOrderStore();
         clock = new ManualClock(T0);
         meters = new SimpleMeterRegistry();
-        OrderSettings settings = new OrderSettings(3, Duration.ofMinutes(15), Duration.ofMinutes(12), 200);
+        registry = new ConfigRegistry(List.of(), meters);
+        OrderSettings settings = OrderSettings.live(registry, new OrderSettings(3, Duration.ofMinutes(15), Duration.ofMinutes(12), 200));
         transitions = new OrderTransitions(store, store, settings, meters);
         catalog = new Catalog();
         inventory = new Inventory();
@@ -162,6 +165,55 @@ class SagaOrchestratorTest {
     private double count(String name, String tag, String value) {
         var counter = meters.find(name).tag(tag, value).counter();
         return counter == null ? 0 : counter.count();
+    }
+
+    // ------------------------------------------------------------------------------------------------ TC-809
+
+    private static UUID buyer(int n) {
+        return UUID.fromString(String.format("0199e0a0-0000-4000-8000-0000000001%02d", n));
+    }
+
+    private void priced(long unitPrice) {
+        catalog.card = Optional.of(new ProductCard(PRODUCT, SELLER, "Лунная тропа: ключ Steam", "published", unitPrice, "RUB", "key_pool"));
+    }
+
+    @Tag("TC-809")
+    @Test
+    void theDefaultRateOfTwoPercentGivesTwentyRoublesOnAThousand() {
+        priced(100_000);
+        assertEquals(2_000L, saga.create(buyer(1), EMAIL, PRODUCT, 1).commission(), "1000 ₽ при 2 % это 20 ₽ (US-8.4, сценарий 1)");
+    }
+
+    @Tag("TC-809")
+    @Test
+    void theCommissionOfTheRequirementsScenarioIsRoundedHalfUpToTheKopeck() {
+        priced(1_025);
+        assertEquals(21L, saga.create(buyer(1), EMAIL, PRODUCT, 1).commission(), "10,25 ₽ при 2 % это 0,205 ₽, округляется до 0,21 ₽");
+        priced(1_250);
+        assertEquals(25L, saga.create(buyer(2), EMAIL, PRODUCT, 1).commission(), "12,50 ₽ при 2 % это ровно 0,25 ₽");
+        priced(1_024);
+        assertEquals(20L, saga.create(buyer(3), EMAIL, PRODUCT, 1).commission(), "10,24 ₽ при 2 % это 0,2048 ₽, округляется вниз");
+    }
+
+    @Tag("TC-809")
+    @Test
+    void theRateIsFixedInTheOrderAtTheMomentOfCreationAndALaterChangeTouchesOnlyNewOrders() {
+        StoredOrder before = saga.create(buyer(1), EMAIL, PRODUCT, 1);
+        assertEquals(2_998L, before.commission(), "2 % от 1499 ₽");
+
+        registry.apply("commission.default-rate-bp", 300, 2);
+        StoredOrder after = saga.create(buyer(2), EMAIL, PRODUCT, 1);
+
+        assertEquals(4_497L, after.commission(), "3 % от 1499 ₽");
+        StoredOrder stored = store.all().stream().filter(o -> o.id().equals(before.id())).findFirst().orElseThrow();
+        assertEquals(2_998L, stored.commission(), "заказ, созданный раньше, ставку не меняет");
+    }
+
+    @Tag("TC-809")
+    @Test
+    void aRateOutsideTheBoundsOfTheServiceIsNotAppliedAndTheOrdersKeepTheLastGoodRate() {
+        registry.apply("commission.default-rate-bp", 10_001, 2);
+        assertEquals(2_998L, saga.create(buyer(1), EMAIL, PRODUCT, 1).commission());
     }
 
     // ------------------------------------------------------------------------------------------------ TC-511

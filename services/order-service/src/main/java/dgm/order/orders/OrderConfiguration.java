@@ -1,6 +1,7 @@
 package dgm.order.orders;
 
 import dgm.kit.boot.PeerClients;
+import dgm.kit.config.ConfigRegistry;
 import dgm.order.orders.client.CatalogClient;
 import dgm.order.orders.client.InventoryClient;
 import dgm.order.orders.client.PaymentClient;
@@ -33,13 +34,14 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableScheduling
 public class OrderConfiguration {
 
+    /** Значения из {@code application.yml} проверяются при старте (INV-07), дальше настройки живые: их обновляет слушатель параметров. */
     @Bean
-    OrderSettings orderSettings(Environment environment) {
-        return new OrderSettings(
+    OrderSettings orderSettings(Environment environment, ConfigRegistry registry) {
+        return OrderSettings.live(registry, new OrderSettings(
                 environment.getProperty(OrderSettings.MAX_UNPAID_KEY, Integer.class, 3),
                 Duration.ofSeconds(environment.getProperty(OrderSettings.RESERVATION_TTL_KEY, Long.class, 900L)),
                 Duration.ofSeconds(environment.getProperty(OrderSettings.SESSION_TTL_KEY, Long.class, 720L)),
-                environment.getProperty(OrderSettings.COMMISSION_KEY, Integer.class, 200));
+                environment.getProperty(OrderSettings.COMMISSION_KEY, Integer.class, 200)));
     }
 
     @Bean
