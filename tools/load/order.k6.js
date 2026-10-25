@@ -1,7 +1,7 @@
 // NFT-1.2, TC-062: создание заказа и резерв не дольше 1 с (95-й перцентиль), ориентир на раннере (шаг 23 Ф4, решение Р-144).
 //
 //   make load-order                                    покупатели, товар и запуск готовит tools/load/order_run.py
-//   k6 run -e FIXTURE=build/load/order-fixture.json tools/load/order.k6.js
+//   k6 run -e FIXTURE=$PWD/build/load/order-fixture.json tools/load/order.k6.js   (путь к файлу покупателей полный: k6 читает его из папки сценария)
 //
 // Что замеряется: время от запроса POST /api/v1/orders до ответа 201 с заказом awaiting_payment. Внутри этого времени шлюз проверяет токен и лимит,
 // order-service проверяет телефон, берёт карточку товара, резервирует ключи в inventory-service и открывает платёжную сессию у шлюза (заглушка).
@@ -21,8 +21,9 @@ import { SharedArray } from 'k6/data';
 const BASE_URL = __ENV.BASE_URL || 'https://localhost:8443';
 const RATE = Number(__ENV.RATE || 10);
 const DURATION = __ENV.DURATION || '30s';
-const FIXTURE = __ENV.FIXTURE || 'build/load/order-fixture.json';
+const FIXTURE = __ENV.FIXTURE;
 
+if (!FIXTURE) throw new Error('не задан FIXTURE: путь к файлу покупателей (make load-order готовит его сам)');
 const fixture = JSON.parse(open(FIXTURE));
 const buyers = new SharedArray('buyers', () => fixture.buyers);
 const createDuration = new Trend('create_order_duration', true);

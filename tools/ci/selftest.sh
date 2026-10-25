@@ -209,8 +209,8 @@ PY
       "срез не закрыт, не готово" tools/docs-checks/check_ledger.py --strict
     mutate_repo "check_ledger находит неизвестный статус" "services/inventory-service/src/test/resources/dgm/operations.txt" 'getProductStock     done' 'getProductStock     slice3' \
       "неизвестный статус «slice3»" tools/docs-checks/check_ledger.py
-    mutate_repo "check_testcases находит пропуск в нумерации вне резерва" "docs/08-testing/TC-performance.md" '| TC-064 – TC-069 |' '| TC-064 – TC-066 |' \
-      "ожидался TC-067" tools/docs-checks/check_testcases.py
+    mutate_repo "check_testcases находит пропуск в нумерации вне резерва" "docs/08-testing/TC-performance.md" '| TC-068, TC-069 |' '| TC-068 |' \
+      "ожидался TC-069" tools/docs-checks/check_testcases.py
     mutate_repo "check_traceability находит клетку «Тест-кейс», не равную расчёту по тест-кейсам" "docs/08-testing/traceability.md" '| TC-070 | `tools/stand-checks` |' '| TC-071 | `tools/stand-checks` |' \
       "должна быть" tools/docs-checks/check_traceability.py
     # 7а. Стек наблюдения: цель сбора, срок хранения, источник панели, оповещение без теста и сокет Docker с записью ловятся check_obs.py и check_compose.py.
