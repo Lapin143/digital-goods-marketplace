@@ -236,10 +236,23 @@ jobs:
   # Серия из 50 запусков тестов гонок (шаг 15 Ф4). Не входит в обычный прогон: идёт ночью по расписанию, вручную (workflow_dispatch) и на
   # ветке ci/series, куда можно отправить коммит, чтобы получить серию без доступа к кнопке запуска. Нестабильный тест разбирается сначала
   # как возможная ошибка кода, карантин до 7 суток с записью причины (test-strategy.md, раздел «Конкуренция»).
+  # Серия идёт по модулю на отдельном исполнителе (matrix): все шесть модулей подряд на одном исполнителе занимали 58 – 60 минут из 60, и с 19 октября
+  # ночные серии упирались в лимит задания и снимались без результата (F4-21). Каждый модуль гоняет только свою задачу concurrencyTest, остальное то же.
   concurrency:
+    name: concurrency (${{ matrix.module }})
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/ci/series'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {module: service-kit, task: ':libs:service-kit:concurrencyTest'}
+          - {module: inventory-service, task: ':services:inventory-service:concurrencyTest'}
+          - {module: payment-service, task: ':services:payment-service:concurrencyTest'}
+          - {module: order-service, task: ':services:order-service:concurrencyTest'}
+          - {module: delivery-service, task: ':services:delivery-service:concurrencyTest'}
+          - {module: platform-service, task: ':services:platform-service:concurrencyTest'}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -263,13 +276,14 @@ jobs:
         env:
           DGM_SECRETS_DIR: ${{ github.workspace }}/secrets
           CONCURRENCY_REPEAT: ${{ github.event.inputs.repeat || '50' }}
-        run: tools/ci/diag.sh "Серия тестов гонок" tools/ci/concurrency_series.sh "$CONCURRENCY_REPEAT"
+          CONCURRENCY_TASK: ${{ matrix.task }}
+        run: tools/ci/diag.sh "Серия тестов гонок" tools/ci/concurrency_series.sh "$CONCURRENCY_REPEAT" "$CONCURRENCY_TASK"
 
       - name: Сводка серии
         if: always()
         run: |
           if [ -f build/concurrency-series.txt ]; then
-            { echo '### Серия тестов гонок'; echo '```'; tail -n 5 build/concurrency-series.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            { echo '### Серия тестов гонок: ${{ matrix.module }}'; echo '```'; tail -n 5 build/concurrency-series.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Журналы контейнеров при ошибке
