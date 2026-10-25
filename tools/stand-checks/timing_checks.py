@@ -41,6 +41,7 @@ DELIVER_SHARE = 0.95
 CONTROL = float(os.environ.get('TIMING_CONTROL_SECONDS', '180'))
 HANDLING = float(os.environ.get('TIMING_HANDLING_SECONDS', '300'))
 MIN_SAMPLE = 10              # меньше выдач в выборке: предыдущие проверки не прошли или не запускались, замер ничего не доказывает
+SEED_PREFIX = '0199e0a0-0000-'   # начало идентификаторов заказов тестовых данных (V1000__testdata_orders.sql)
 SCAN_DATABASES = ['catalog_db', 'inventory_db', 'order_db', 'payment_db', 'delivery_db', 'platform_db']
 SERVICES = ['api-gateway', 'catalog-service', 'inventory-service', 'order-service', 'payment-service', 'delivery-service', 'platform-service', 'external-stubs']
 
@@ -148,7 +149,9 @@ def support_handover():
            not late, '; '.join(late[:3]))
     handled = {r[0] for r in tickets}
     refunded = {r[0] for r in rows('order_db', "select id from orders.orders where status in ('refunded', 'cancelled', 'issued')")}
-    waiting = rows('order_db', "select id, extract(epoch from now() - paid_at) from orders.orders where status = 'paid' and paid_at is not null")
+    # Заказы тестовых данных (id с фиксированным началом SEED_PREFIX) записаны в базу миграцией, а не оплатой через стенд: события оплаты не было,
+    # выдача и контроль доставки о них не знают, их возраст («оплачен» 3 октября) ничего не говорит о работе системы.
+    waiting = rows('order_db', "select id, extract(epoch from now() - paid_at) from orders.orders where status = 'paid' and paid_at is not null and id::text not like '%s%%'" % SEED_PREFIX)
     stuck = [(oid, number(age)) for oid, age in waiting if oid not in handled and oid not in refunded and number(age) > HANDLING]
     oldest = max([number(age) for _, age in waiting] or [0.0])
     expect('TC-066. Оплаченных заказов без выдачи и без обращения старше %.0f с нет (оплаченных, ждущих выдачи, сейчас %d, самый старый %.0f с)' % (HANDLING, len(waiting), oldest),
