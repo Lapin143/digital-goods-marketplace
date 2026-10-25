@@ -46,7 +46,7 @@ GATEWAY = os.environ.get('GATEWAY_URL', 'https://127.0.0.1:8443')
 
 OBS = ['prometheus', 'alertmanager', 'grafana', 'loki', 'tempo', 'alloy']
 NO_DOCKER_HEALTH = {'loki', 'tempo'}
-RULES = {'ServiceDown', 'ObsComponentDown', 'HighServerErrorRate', 'GatewayRateLimiterFailOpen', 'EventSentToDlq', 'EventSentToDlqMinor', 'BackupTooOld'}
+RULES = {'ServiceDown', 'ObsComponentDown', 'HighServerErrorRate', 'GatewayRateLimiterFailOpen', 'EventSentToDlq', 'EventSentToDlqMinor', 'SupportTicketUnattended', 'BackupTooOld'}
 DASHBOARDS = {'dgm-services': 'Сервисы', 'dgm-gateway': 'Шлюз'}
 
 LIGHT = '--light' in sys.argv

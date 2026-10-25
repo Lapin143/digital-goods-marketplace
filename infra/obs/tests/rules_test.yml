@@ -171,3 +171,29 @@ tests:
       - eval_time: 25m
         alertname: EventSentToDlqMinor
         exp_alerts: []
+
+  # Обращение без оператора: самое старое ждёт 58 минут, затем больше часа; через минуту «для» оповещение горит, оператор берёт обращение
+  # (возраст самого старого в очереди падает) и оповещение гаснет
+  - interval: 1m
+    input_series:
+      - series: 'support_queue_oldest_age_seconds{service="platform-service"}'
+        values: '3500 3560 3620 3680 3740 3800 3860 100 160 220'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: SupportTicketUnattended
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: SupportTicketUnattended
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: SupportTicketUnattended
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: platform-service
+            exp_annotations:
+              summary: "Обращение в очереди поддержки без оператора больше часа"
+              description: "Самое старое обращение в статусе «создано» ждёт оператора больше часа. Откройте очередь поддержки: обращение берёт оператор (US-7.2), порядок действий в runbook, раздел «Обращение без оператора»."
+      - eval_time: 9m
+        alertname: SupportTicketUnattended
+        exp_alerts: []

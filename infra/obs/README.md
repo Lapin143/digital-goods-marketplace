@@ -32,7 +32,7 @@ flowchart LR
 | Путь | Что | Проверяется |
 | --- | --- | --- |
 | `prometheus/prometheus.yml` | Цели: семь процессов Java по `https://<имя>:8444/actuator/prometheus` с клиентским сертификатом `tls_prometheus`, шесть компонентов стека по HTTP внутри сети `obs` | `promtool check config`, `check_obs.py` |
-| `prometheus/rules/dgm.yml` | Правила: `ServiceDown`, `ObsComponentDown`, `HighServerErrorRate`, `GatewayRateLimiterFailOpen`, `EventSentToDlq` (critical: темы `payment`, `order`, `inventory`, `delivery`, ADR-011) и `EventSentToDlqMinor` (warning: остальные темы) по счётчику `events_dlq_total`, `BackupTooOld` (метрику отдаст `backup-job` в Ф6) | `promtool check rules` |
+| `prometheus/rules/dgm.yml` | Правила: `ServiceDown`, `ObsComponentDown`, `HighServerErrorRate`, `GatewayRateLimiterFailOpen`, `EventSentToDlq` (critical: темы `payment`, `order`, `inventory`, `delivery`, ADR-011) и `EventSentToDlqMinor` (warning: остальные темы) по счётчику `events_dlq_total`, `SupportTicketUnattended` (warning: самое старое обращение в статусе «создано» ждёт оператора больше часа, метрика `support_queue_oldest_age_seconds` платформы, SM-07, NFT-2.4), `BackupTooOld` (метрику отдаст `backup-job` в Ф6) | `promtool check rules` |
 | `tests/rules_test.yml` | Модульные тесты правил: каждое оповещение срабатывает при условии и молчит без него | `promtool test rules` (`make obs-validate`) |
 | `alertmanager/alertmanager.yml` | Приёмник: письмо `admin@dgm.local` через `external-stubs:1025`; быстрый маршрут для проверочных оповещений (`severity="test"`) | `amtool check-config` |
 | `loki/loki.yaml` | Один процесс, файлы на диске, хранение 168 часов, схема v13 | `loki -verify-config` |
