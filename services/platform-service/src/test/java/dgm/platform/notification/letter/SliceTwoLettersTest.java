@@ -34,13 +34,47 @@ class SliceTwoLettersTest {
     }
 
     @Test
-    void theSetHoldsTheLettersOfSlicesOneAndTwoAndTheLettersOfTheEmailChange() {
+    void theSetHoldsTheLettersOfSlicesOneAndTwoTheEmailChangeAndTheDecisionsOfSliceThree() {
         assertEquals(Set.of("seller-approved", "seller-rejected", "seller-returned", "user-sms-login", "order-created", "order-paid",
                 "order-refunded", "payment-refund-escalated", "delivery-failed", "delivery-overdue", "email-change-code", "email-changed-new",
-                "email-changed-previous"), letters.codes());
+                "email-changed-previous", "product-published", "product-rejected", "product-blocked", "user-deactivated"), letters.codes());
         assertEquals(Set.of("email-change-code"), letters.directOnly(), "из очереди не уходит только письмо с кодом");
         assertEquals(Set.of("email-changed-previous"), letters.toPreviousAddress(), "по прежнему адресу пишется только письмо старому ящику");
+        assertEquals(Set.of("user-deactivated"), letters.toDeactivatedAccount(), "по адресу деактивированной записи пишется только письмо о деактивации");
         assertTrue(letters.codes().containsAll(letters.toPreviousAddress()));
+        assertTrue(letters.codes().containsAll(letters.toDeactivatedAccount()));
+    }
+
+    @Tag("TC-719")
+    @Test
+    void theProductDecisionLettersTakeTheTitleAndTheReasonWhereThereIsOne() {
+        letters.validate("product-published", params("title", "Ключ Steam"));
+        letters.validate("product-rejected", params("title", "Ключ Steam", "reason", "Описание не соответствует товару"));
+        letters.validate("product-blocked", params("title", "Ключ Steam", "reason", "Жалобы на недействительные ключи"));
+        letters.validate("user-deactivated", params());
+
+        assertThrows(InvalidNotificationException.class, () -> letters.validate("product-published", params()), "нет названия");
+        assertThrows(InvalidNotificationException.class, () -> letters.validate("product-published", params("title", "Ключ", "reason", "Причина")),
+                "у публикации причины нет");
+        assertThrows(InvalidNotificationException.class, () -> letters.validate("product-rejected", params("title", "Ключ")), "у отказа нет причины");
+        assertThrows(InvalidNotificationException.class, () -> letters.validate("product-blocked", params("title", " ", "reason", "Причина")),
+                "пустое название");
+        assertThrows(InvalidNotificationException.class, () -> letters.validate("user-deactivated", params("reason", "Причина")),
+                "в письме о деактивации параметров нет, администратор и причина получателю не называются");
+    }
+
+    @Tag("TC-719")
+    @Test
+    void noProductDecisionLetterLeavesAnUnfilledFieldOrAKeyLikeValue() {
+        for (Letter letter : new Letter[] {
+                letters.render("product-published", "Анна", params("title", "Ключ Steam")),
+                letters.render("product-rejected", "Анна", params("title", "Ключ Steam", "reason", "Описание не соответствует товару")),
+                letters.render("product-blocked", "Анна", params("title", "Ключ Steam", "reason", "Жалобы на недействительные ключи")),
+                letters.render("user-deactivated", "Анна", params())}) {
+            assertFalse(LEFTOVER.matcher(letter.text()).find(), "поле не подставлено: " + letter.text());
+            assertFalse(letter.text().contains("null"), letter.text());
+            assertFalse(letter.text().matches("(?s).*[A-Z0-9]{4,}-[A-Z0-9]{4,}-[A-Z0-9]{4,}.*"), "в письме не должно быть похожего на ключ: " + letter.text());
+        }
     }
 
     @Tag("TC-717")
@@ -136,6 +170,7 @@ class SliceTwoLettersTest {
 
         assertEquals("Ключ не доставлен вовремя", letter.subject());
         assertTrue(letter.text().contains("оплачен 03.10.2026 15:03 (МСК), но ключ не доставлен покупателю за 30 мин"), letter.text());
+        assertTrue(letter.text().contains("уже автоматически открыто обращение системы в поддержку"), "F4-17: письмо говорит, что обращение уже открыто");
     }
 
     @Test

@@ -139,6 +139,11 @@ public final class JdbcUserAccountRepository implements UserAccountRepository {
     }
 
     @Override
+    public Optional<UserAccount> findBySellerId(UUID sellerId) {
+        return jdbc.query("select " + COLUMNS + " from identity.user_account where seller_id = ?", (rs, row) -> map(rs), sellerId).stream().findFirst();
+    }
+
+    @Override
     public Optional<UserAccount> findByPhone(String phone) {
         return jdbc.query("select " + COLUMNS + " from identity.user_account where phone = ?", (rs, row) -> map(rs), phone).stream().findFirst();
     }

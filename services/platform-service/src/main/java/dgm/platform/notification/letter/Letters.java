@@ -75,13 +75,22 @@ public final class Letters {
             Map.entry("email-change-code", Map.of("code", Kind.CODE)),
             // срез 3 (Р-169, FT-11.0): письма о смене e-mail на новый и на прежний адрес
             Map.entry("email-changed-new", Map.of("changedAt", Kind.TIME)),
-            Map.entry("email-changed-previous", Map.of("changedAt", Kind.TIME)));
+            Map.entry("email-changed-previous", Map.of("changedAt", Kind.TIME)),
+            // срез 3 (FT-11.4): продавцу о решении модератора по товару; название и причина из события, текст модератора как есть
+            Map.entry("product-published", Map.of("title", Kind.TEXT)),
+            Map.entry("product-rejected", Map.of("title", Kind.TEXT, "reason", Kind.TEXT)),
+            Map.entry("product-blocked", Map.of("title", Kind.TEXT, "reason", Kind.TEXT)),
+            // срез 3 (FT-11.0): владельцу о деактивации учётной записи; параметров нет, всё нужное известно получателю
+            Map.entry("user-deactivated", Map.<String, Kind>of()));
 
     /** Шаблоны с одноразовым кодом: код в базу не попадает (правило 17), поэтому такое письмо уходит напрямую, а в очередь не ставится. */
     private static final Set<String> DIRECT_ONLY = Set.of("email-change-code");
 
     /** Шаблоны, получатель которых определяется по прежнему адресу пользователя (хранится 7 суток после смены), а не по текущему. */
     private static final Set<String> TO_PREVIOUS_ADDRESS = Set.of("email-changed-previous");
+
+    /** Шаблоны, получатель которых уже деактивирован: письмо о самой деактивации пишут на адрес записи, которая для остальных писем недоступна. */
+    private static final Set<String> TO_DEACTIVATED_ACCOUNT = Set.of("user-deactivated");
 
     private static final Map<String, String> SELLER_TYPES = Map.of(
             "sole_proprietor", "индивидуальный предприниматель",
@@ -147,6 +156,14 @@ public final class Letters {
      */
     public Set<String> toPreviousAddress() {
         return TO_PREVIOUS_ADDRESS;
+    }
+
+    /**
+     * Шаблоны, которые пишут владельцу деактивированной учётной записи («Учётная запись деактивирована»): отправитель берёт адрес у identity
+     * как «адрес деактивированной записи». У обезличенной записи адреса нет, такое письмо не отправляется.
+     */
+    public Set<String> toDeactivatedAccount() {
+        return TO_DEACTIVATED_ACCOUNT;
     }
 
     /** Коды шаблонов этого набора. */

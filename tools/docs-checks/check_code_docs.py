@@ -66,13 +66,9 @@ UNPUBLISHED_SLICE3 = {
 
 # Потребители событий, которых код получит позже: событие -> {(сервис, обработчик)}. Пока обработчика нет, пара стоит здесь; появился обработчик,
 # запись надо убрать (проверка скажет). Так каталог (он описывает R1 целиком) и код среза расходятся только там, где это записано.
-# Пары среза 2 ушли на шагах 5, 9, 11, 13 и 15 руководства среза 2 (order-service на шаге 11, delivery-service на шаге 13, platform-service на шаге 15);
-# остаются только пары среза 3.
+# Пары среза 2 ушли на шагах 5, 9, 11, 13 и 15 руководства среза 2 (order-service на шаге 11, delivery-service на шаге 13, platform-service на шаге 15),
+# пары среза 3 (письма продавцу по решениям по товару и о деактивации) на шаге 16 руководства среза 3; словарь пуст.
 LATER_CONSUMERS = {
-    'product.published': {('platform-service', 'notification-handler')},  # письмо продавцу о решении по товару, FT-11.4, срез 3
-    'product.rejected': {('platform-service', 'notification-handler')},
-    'product.blocked': {('platform-service', 'notification-handler')},
-    'user.deactivated': {('platform-service', 'notification-handler')},  # письмо о деактивации, FT-11.0, срез 3
 }
 
 EVENTS_README = os.path.join(L.DOCS, '06-api', 'events', 'README.md')

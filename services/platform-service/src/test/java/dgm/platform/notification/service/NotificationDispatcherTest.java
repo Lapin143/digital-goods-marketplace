@@ -236,6 +236,54 @@ class NotificationDispatcherTest {
         assertEquals(1.0, count("dropped"));
     }
 
+    @Tag("TC-719")
+    @Test
+    void theDeactivationLetterGoesToTheAddressOfTheAccountThatIsNowDeactivated() {
+        service.enqueue(new NotificationRequest(USER, "user-deactivated", Map.of(), UUID.randomUUID()));
+        contacts.deactivate(USER);
+
+        dispatcher.dispatchDue();
+
+        assertEquals(1, email.accepted().size());
+        OutgoingEmail mail = email.accepted().get(0);
+        assertEquals(ADDRESS, mail.to());
+        assertEquals("Учётная запись деактивирована", mail.subject());
+        assertTrue(mail.text().startsWith("Здравствуйте, Анна Смирнова!"), mail.text());
+        assertEquals("sent", queue.all().get(0).status);
+        assertFalse(queue.all().get(0).source.params().toString().contains("@"), "адреса в очереди нет");
+        assertEquals(1.0, count("sent"));
+    }
+
+    @Tag("TC-719")
+    @Test
+    void theDeactivationLetterIsDroppedWhenTheAccountIsAnonymizedBeforeTheSendAndNobodyIsTold() {
+        service.enqueue(new NotificationRequest(USER, "user-deactivated", Map.of(), UUID.randomUUID()));
+        contacts.deactivate(USER);
+        contacts.anonymize(USER);
+
+        dispatcher.dispatchDue();
+
+        InMemoryNotifications.Row row = queue.all().get(0);
+        assertEquals("failed", row.status);
+        assertEquals("recipient_unavailable", row.lastErrorCode);
+        assertFalse(row.inDeadQueue);
+        assertTrue(email.attempts().isEmpty());
+        assertTrue(tx.events().isEmpty());
+        assertEquals(1.0, count("dropped"));
+    }
+
+    @Tag("TC-719")
+    @Test
+    void theDeactivationLetterIsDroppedWhenTheAccountIsActiveAgainByTheTimeOfTheSend() {
+        service.enqueue(new NotificationRequest(USER, "user-deactivated", Map.of(), UUID.randomUUID()));
+
+        dispatcher.dispatchDue();
+
+        assertEquals("failed", queue.all().get(0).status);
+        assertTrue(email.attempts().isEmpty());
+        assertEquals(1.0, count("dropped"));
+    }
+
     @Tag("TC-717")
     @Test
     void theEmailChangedLettersGoToTheNewAndThePreviousAddressAndTheQueueHoldsNeither() {

@@ -51,6 +51,9 @@ public interface UserAccountRepository {
     /** До {@code limit + 1} записей: лишняя говорит, что есть следующая страница. */
     List<UserAccount> list(UserFilter filter);
 
+    /** Запись, к которой привязан профиль продавца; пусто, если профиль не привязан ни к одной записи (уникальный индекс {@code uq_user_account_seller_id}). */
+    Optional<UserAccount> findBySellerId(UUID sellerId);
+
     /** Запись, к которой привязан номер (E.164); пусто, если номер не привязан. Номера есть только у подтверждённых записей. */
     Optional<UserAccount> findByPhone(String phone);
 

@@ -136,4 +136,56 @@ class AccountContactsTest {
         assertFalse(printed.contains("Анна"), printed);
         assertTrue(printed.contains(ID.toString()), printed);
     }
+
+    @Tag("TC-719")
+    @Test
+    void theAddressOfADeactivatedAccountIsGivenOnlyToTheLetterAboutTheDeactivation() {
+        accounts.add(ID, "anna@mail.example", "buyer", REGISTERED);
+        assertTrue(contacts.findDeactivated(ID).isEmpty(), "пока запись активна, это не её письмо");
+
+        accounts.deactivate(ID, REGISTERED.plusSeconds(60));
+
+        Contact contact = contacts.findDeactivated(ID).orElseThrow();
+        assertEquals(ID, contact.userId());
+        assertEquals("anna@mail.example", contact.email());
+        assertTrue(contacts.findActive(ID).isEmpty(), "обычным письмам деактивированная запись по-прежнему недоступна");
+        assertTrue(contacts.findPrevious(ID).isEmpty());
+    }
+
+    @Tag("TC-719")
+    @Test
+    void anAnonymizedOrUnknownAccountHasNoAddressForTheDeactivationLetter() {
+        accounts.add(ID, "anna@mail.example", "buyer", REGISTERED);
+        accounts.deactivate(ID, REGISTERED.plusSeconds(60));
+        accounts.anonymize(ID);
+
+        assertTrue(contacts.findDeactivated(ID).isEmpty());
+        assertTrue(contacts.findDeactivated(UUID.randomUUID()).isEmpty());
+    }
+
+    @Tag("TC-719")
+    @Test
+    void theOwnerOfASellerProfileIsTheAccountItIsBoundToAndNotTheProfileIdItself() {
+        UUID profile = UUID.fromString("0199e0a0-0000-4000-8000-0000000000c1");
+        accounts.add(ID, "anna@mail.example", "buyer", REGISTERED);
+        assertTrue(contacts.ownerOf(profile).isEmpty(), "профиль ещё не привязан");
+
+        accounts.assignSeller(ID, profile);
+
+        assertEquals(ID, contacts.ownerOf(profile).orElseThrow());
+        assertTrue(contacts.ownerOf(ID).isEmpty(), "идентификатор пользователя не идентификатор профиля");
+        assertTrue(contacts.ownerOf(UUID.randomUUID()).isEmpty());
+    }
+
+    @Tag("TC-719")
+    @Test
+    void anAnonymizedAccountOwnsNoProfileForLetters() {
+        UUID profile = UUID.fromString("0199e0a0-0000-4000-8000-0000000000c1");
+        accounts.add(ID, "anna@mail.example", "buyer", REGISTERED);
+        accounts.assignSeller(ID, profile);
+        accounts.deactivate(ID, REGISTERED.plusSeconds(60));
+        accounts.anonymize(ID);
+
+        assertTrue(contacts.ownerOf(profile).isEmpty());
+    }
 }

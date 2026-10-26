@@ -185,6 +185,11 @@ public final class InMemoryAccounts implements UserAccountRepository {
     }
 
     @Override
+    public Optional<UserAccount> findBySellerId(UUID sellerId) {
+        return rows.values().stream().filter(a -> a.sellerId().filter(sellerId::equals).isPresent()).findFirst();
+    }
+
+    @Override
     public Optional<UserAccount> findByPhone(String phone) {
         return phones.entrySet().stream().filter(e -> e.getValue().equals(phone)).map(e -> rows.get(e.getKey())).findFirst();
     }

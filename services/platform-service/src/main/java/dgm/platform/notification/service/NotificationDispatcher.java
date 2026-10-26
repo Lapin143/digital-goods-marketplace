@@ -34,7 +34,8 @@ import org.springframework.scheduling.annotation.Scheduled;
  * или при отказе провайдера статус {@code failed}, признак очереди недоставленных и событие {@code notification.failed} в одной транзакции
  * с записью статуса; получателя нет (запись деактивирована или анонимизирована) или шаблон не собирается: статус {@code failed} без события,
  * повтор ничего не изменит и сообщать об этом некому. Письмо о смене e-mail «на прежний адрес» адресуется по прежнему адресу, который identity хранит
- * 7 суток: по истечении срока получателя нет, и письмо получает тот же исход без события ({@code dropped}).
+ * 7 суток: по истечении срока получателя нет, и письмо получает тот же исход без события ({@code dropped}). Письмо о деактивации идёт
+ * на адрес деактивированной записи; если запись обезличена (или деактивацию отменили до отправки), оно получает тот же исход ({@code dropped}).
  */
 public final class NotificationDispatcher {
 
@@ -104,9 +105,7 @@ public final class NotificationDispatcher {
     }
 
     private void process(Notification notification) {
-        Optional<Contact> recipient = letters.toPreviousAddress().contains(notification.template())
-                ? contacts.findPrevious(notification.userId())
-                : contacts.findActive(notification.userId());
+        Optional<Contact> recipient = recipientOf(notification);
         if (recipient.isEmpty()) {
             fail(notification, notification.attempts(), RECIPIENT_UNAVAILABLE, null);
             return;
@@ -132,6 +131,20 @@ public final class NotificationDispatcher {
         } else {
             LOG.warn("Уведомление {} отправлено, но уже не в очереди", notification.id());
         }
+    }
+
+    /**
+     * Адрес получателя по виду письма: обычное письмо идёт на адрес активной записи, письмо о смене e-mail ещё и на прежний адрес, а письмо о
+     * деактивации на адрес записи, которая уже деактивирована.
+     */
+    private Optional<Contact> recipientOf(Notification notification) {
+        if (letters.toPreviousAddress().contains(notification.template())) {
+            return contacts.findPrevious(notification.userId());
+        }
+        if (letters.toDeactivatedAccount().contains(notification.template())) {
+            return contacts.findDeactivated(notification.userId());
+        }
+        return contacts.findActive(notification.userId());
     }
 
     private void failed(Notification notification, int attempt, EmailSendException error) {
