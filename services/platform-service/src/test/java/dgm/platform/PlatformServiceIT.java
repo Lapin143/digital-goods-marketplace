@@ -3363,7 +3363,7 @@ class PlatformServiceIT {
         assertEquals("user", record.get("object_type"));
         String changes = String.valueOf(record.get("changes"));
         assertFalse(changes.contains(oldEmail) || changes.contains(c.newEmail()), "адресов в журнале аудита нет (INV-44)");
-        byte[] salt = jdbc().queryForObject("select audit_salt from identity.user_account where id = ?", (rs, row) -> rs.getBytes(1), UUID.fromString(userId));
+        byte[] salt = jdbc().queryForObject("select audit_salt from identity.user_account where id = ?", (rs, index) -> rs.getBytes(1), UUID.fromString(userId));
         Map<?, ?> emailChange = ((List<?>) Json.parse(changes)).stream().map(item -> (Map<?, ?>) item).filter(item -> "email".equals(item.get("field")))
                 .findFirst().orElseThrow(() -> new AssertionError("в записи нет изменения поля email: " + changes));
         assertEquals(Boolean.TRUE, emailChange.get("personal"));
