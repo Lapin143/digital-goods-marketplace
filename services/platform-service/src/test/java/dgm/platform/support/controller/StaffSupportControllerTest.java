@@ -29,11 +29,13 @@ import org.springframework.mock.web.MockHttpServletRequest;
 
 /**
  * Разбор запросов и формат ответов {@code listSupportTicketQueue}, {@code getStaffSupportTicket}, {@code takeSupportTicket} и
- * {@code releaseSupportTicket} по схеме StaffSupportTicket (Р-163). В ответе нет ни значений ключей, ни адресов, ни кодов (INV-23).
+ * {@code releaseSupportTicket} по схеме StaffSupportTicket (Р-163), ответ {@code resendKeyForTicket} (202 с {@code Location}). В ответах нет ни значений
+ * ключей, ни адресов, ни кодов (INV-23).
  */
 @Tag("TC-704")
 @Tag("TC-705")
 @Tag("TC-707")
+@Tag("TC-708")
 class StaffSupportControllerTest {
 
     private static final String BASE = "/api/v1/staff/support-tickets";
@@ -48,7 +50,7 @@ class StaffSupportControllerTest {
     @BeforeEach
     void setUp() {
         world = new SupportWorld();
-        controller = new StaffSupportController(world.queue);
+        controller = new StaffSupportController(world.queue, world.resend);
         order = world.issuedOrder(BUYER, T0.minus(Duration.ofHours(1)));
         ticket = world.tickets.create(BUYER, order).id();
     }
@@ -159,6 +161,36 @@ class StaffSupportControllerTest {
         assertNull(back.get("operatorId"));
         assertNull(back.get("takenAt"));
         assertEquals(2, world.outbox.events("audit.recorded").size(), "взятие и возврат по одной записи аудита");
+    }
+
+    @Test
+    void resendAnswersAcceptedWithTheLocationAndNothingPersonal() {
+        world.queue.take(new Operator(OPERATOR, "198.51.100.9"), ticket);
+
+        ResponseEntity<String> response = controller.resend(ticket.toString(), request("POST", BASE + "/" + ticket + "/resend", OPERATOR));
+
+        assertEquals(202, response.getStatusCode().value());
+        assertEquals("no-store", response.getHeaders().getCacheControl());
+        assertEquals(BASE + "/" + ticket, response.getHeaders().getFirst("Location"));
+        Map<String, Object> body = Json.parseObject(response.getBody());
+        assertEquals(Set.of("ticketId", "orderId", "status"), body.keySet());
+        assertEquals(ticket.toString(), body.get("ticketId"));
+        assertEquals(order.toString(), body.get("orderId"));
+        assertEquals("accepted", body.get("status"));
+        assertFalse(response.getBody().contains("@"), "адреса в ответе нет");
+        assertEquals("203.0.113.7", world.outbox.events("audit.recorded").get(1).data().get("actorIp"), "адрес оператора берётся из запроса");
+    }
+
+    @Test
+    void resendTurnsAMalformedIdAndRefusalsIntoProblems() {
+        assertEquals(ProblemType.NOT_FOUND,
+                assertThrows(ProblemException.class, () -> controller.resend("42", request("POST", BASE + "/42/resend", OPERATOR))).type());
+        assertEquals(ProblemType.NOT_FOUND, assertThrows(ProblemException.class,
+                () -> controller.resend(UUID.randomUUID().toString(), request("POST", BASE + "/x/resend", OPERATOR))).type());
+        ProblemException notTaken = assertThrows(ProblemException.class,
+                () -> controller.resend(ticket.toString(), request("POST", BASE + "/" + ticket + "/resend", OPERATOR)));
+        assertEquals(ProblemType.TICKET_NOT_IN_PROGRESS, notTaken.type(), "обращение не взято в работу");
+        assertEquals(0, world.orders.calls().size());
     }
 
     @Test

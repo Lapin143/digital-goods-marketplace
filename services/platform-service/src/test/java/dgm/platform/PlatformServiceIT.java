@@ -2,6 +2,7 @@ package dgm.platform;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -114,6 +115,8 @@ class PlatformServiceIT {
     private static final int MANAGEMENT = StandHttp.freePort();
     private static final TestTokens TOKENS = TestTokens.create(Clock.systemUTC());
     private static final KeycloakStub KEYCLOAK = startStub();
+    /** order-service на локальном HTTP: повторная отправка ключа обновляет в нём адрес доставки (шаг 13, OP-72). */
+    private static final OrderStub ORDERS = startOrders();
     /** Адрес сайта в ссылках писем среза 2: свой, чтобы тест видел, что ссылка собрана из настройки, а не из значения по умолчанию. */
     private static final String SITE = "https://shop.it.example";
 
@@ -131,6 +134,9 @@ class PlatformServiceIT {
     static void properties(DynamicPropertyRegistry registry) {
         StandHttp.register(registry, PORT, MANAGEMENT);
         registry.add("dgm.keycloak.base-url", KEYCLOAK::baseUrl);
+        registry.add("dgm.peers.order-service.base-url", ORDERS::baseUrl);
+        // Окно предохранителя не заполняется за прогон: проверки сбоя соседа не должны открыть его для следующих тестов
+        registry.add("dgm.peers.order-service.breaker-window", () -> "1000");
         registry.add("dgm.redis.host", () -> env("DGM_REDIS_HOST", "localhost"));
         registry.add("dgm.redis.port", () -> env("DGM_REDIS_PORT", "16379"));
         registry.add("dgm.sms.base-url", () -> "https://localhost:" + env("DGM_STUBS_PORT", "18443"));
@@ -151,6 +157,14 @@ class PlatformServiceIT {
     private static KeycloakStub startStub() {
         try {
             return new KeycloakStub();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static OrderStub startOrders() {
+        try {
+            return new OrderStub();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -194,6 +208,7 @@ class PlatformServiceIT {
     @AfterAll
     static void stopStub() {
         KEYCLOAK.close();
+        ORDERS.close();
         PRODUCERS.values().forEach(producer -> producer.close(Duration.ofSeconds(5)));
     }
 
@@ -2720,6 +2735,170 @@ class PlatformServiceIT {
         assertEquals(1, ((List<?>) queueGet(operator.id, "?orderNumber=" + number).json().get("items")).size(), "без status: любой статус");
         assertTrue(queueIds(operator.id, "?status=created").stream().noneMatch(id -> id.equals(ticket.toString())));
         assertEquals("resolved", ((Map<?, ?>) ((List<?>) queueGet(operator.id, "?orderNumber=" + number).json().get("items")).get(0)).get("status"));
+    }
+
+    // ---- повторная отправка ключа (шаг 13 среза 3) ----
+
+    /** Обращение покупателя в работе у оператора: покупатель, заказ «выдан», взятие оператором. */
+    private record ResendCase(KeycloakStub.User buyer, KeycloakStub.User operator, UUID order, UUID ticket) {
+    }
+
+    private ResendCase takenBuyerTicket() throws Exception {
+        KeycloakStub.User buyer = KEYCLOAK.add("buyer", "Мила", "Миронова");
+        KeycloakStub.User operator = KEYCLOAK.add("support-operator", "Ольга", "Лисина");
+        UUID order = issuedOrder(buyer.id, Instant.now().minus(Duration.ofHours(1)));
+        Response created = createTicket(buyer.id, order, UUID.randomUUID().toString());
+        assertEquals(201, created.status(), created.body());
+        UUID ticket = UUID.fromString(String.valueOf(created.json().get("ticketId")));
+        assertEquals(200, queueAction(operator.id, ticket, "take", UUID.randomUUID().toString()).status());
+        return new ResendCase(buyer, operator, order, ticket);
+    }
+
+    private String ticketColumn(UUID ticket, String column) {
+        return supportDb().queryForObject("select " + column + " from support.ticket where id = ?", String.class, ticket);
+    }
+
+    @Tag("TC-708")
+    @Test
+    @Order(57)
+    void resendUpdatesTheOrderAddressOnceQueuesTheDeliveryAndRecordsTheDecisionWithoutTheAddress() throws Exception {
+        ResendCase c = takenBuyerTicket();
+        String key = UUID.randomUUID().toString();
+
+        Response accepted = queueAction(c.operator().id, c.ticket(), "resend", key);
+
+        assertEquals(202, accepted.status(), accepted.body());
+        assertTrue(accepted.header("Cache-Control").contains("no-store"));
+        assertTrue(accepted.header("Location").endsWith(QUEUE + "/" + c.ticket()), "Location ведёт на карточку обращения");
+        assertEquals(Set.of("ticketId", "orderId", "status"), accepted.json().keySet());
+        assertEquals("accepted", accepted.json().get("status"));
+        assertFalse(accepted.body().contains(c.buyer().email), "адреса в ответе оператору нет");
+
+        List<OrderStub.Seen> calls = ORDERS.seenFor(c.order().toString());
+        assertEquals(1, calls.size(), "order-service вызван один раз");
+        assertEquals("/internal/v1/orders/" + c.order() + "/update-delivery-address", calls.get(0).path());
+        Map<String, Object> sent = Json.parseObject(calls.get(0).body());
+        assertEquals(c.ticket().toString(), sent.get("ticketId"));
+        assertEquals(c.buyer().email, sent.get("email"), "адрес берётся из учётной записи покупателя");
+        assertEquals(1, ORDERS.effectsFor(c.order().toString()));
+        assertEquals("resend", ticketColumn(c.ticket(), "action"));
+        assertEquals("in_progress", ticketColumn(c.ticket(), "status"), "обращение остаётся в работе до результата выдачи");
+        assertTrue(deliveryStatusIs(c.order(), "queued"), "в модели чтения выдача «в очереди»");
+        assertEquals(List.of("ticket.created", "audit.recorded", "audit.recorded"), ticketEvents(c.ticket()), "взятие и решение по одной записи аудита");
+
+        assertTrue(await(Duration.ofSeconds(90), () -> auditRowsOf(c.ticket(), "support.resend_requested") == 1), "запись о решении дошла до журнала аудита");
+        Map<String, Object> record = auditDb().queryForMap("select actor_role, object_type, changes::text as changes from audit_admin.audit_log "
+                + "where object_id = ? and action = 'support.resend_requested'", c.ticket().toString());
+        String changes = String.valueOf(record.get("changes"));
+        assertEquals("support-operator", record.get("actor_role"));
+        assertEquals("ticket", record.get("object_type"));
+        assertTrue(changes.contains(c.order().toString()) && changes.contains("resend"));
+        assertFalse(changes.contains(c.buyer().email), "адреса покупателя в аудите нет (INV-44)");
+        assertFalse(changes.contains(calls.get(0).key()), "ключа идемпотентности вызова в аудите нет");
+
+        Response replay = queueAction(c.operator().id, c.ticket(), "resend", key);
+        assertEquals(202, replay.status(), replay.body());
+        assertEquals("true", replay.header("Idempotency-Replayed"), "тот же ключ запроса: прежний ответ без нового вызова");
+        Response second = queueAction(c.operator().id, c.ticket(), "resend", UUID.randomUUID().toString());
+        assertEquals(409, second.status(), second.body());
+        assertEquals("delivery-in-progress", second.json().get("code"), "пока первая отправка не дала результата, вторая отказ");
+        assertEquals(1, ORDERS.seenFor(c.order().toString()).size(), "новых вызовов нет");
+        assertEquals(2, ticketEvents(c.ticket()).stream().filter("audit.recorded"::equals).count(), "отказ записи в аудите не даёт: только взятие и первое решение");
+        assertEquals(1, tickets(c.order()), "нового обращения нет");
+    }
+
+    @Tag("TC-708")
+    @Test
+    @Order(58)
+    void resendIsForTheOperatorWhoTookTheTicketAndNeedsAnIdempotencyKey() throws Exception {
+        ResendCase c = takenBuyerTicket();
+        KeycloakStub.User other = KEYCLOAK.add("support-operator", "Игорь", "Ершов");
+
+        Response foreign = queueAction(other.id, c.ticket(), "resend", UUID.randomUUID().toString());
+        assertEquals(409, foreign.status(), foreign.body());
+        assertEquals("ticket-not-in-progress", foreign.json().get("code"));
+        assertEquals(404, queueAction(c.operator().id, UUID.randomUUID(), "resend", UUID.randomUUID().toString()).status());
+        assertEquals(403, gateway.post(QUEUE + "/" + c.ticket() + "/resend", null, "Authorization", "Bearer " + buyerToken(c.buyer().id),
+                "Idempotency-Key", UUID.randomUUID().toString()).status(), "покупатель действие не вызывает");
+        assertEquals(400, gateway.post(QUEUE + "/" + c.ticket() + "/resend", null, "Authorization", "Bearer " + operatorToken(c.operator().id)).status(),
+                "без Idempotency-Key");
+
+        assertEquals(0, ORDERS.seenFor(c.order().toString()).size(), "при отказе order-service не вызывается");
+        assertEquals(1, ticketEvents(c.ticket()).stream().filter("audit.recorded"::equals).count(), "кроме взятия записей аудита нет");
+        assertFalse(deliveryStatusIs(c.order(), "queued"));
+    }
+
+    @Tag("TC-708")
+    @Test
+    @Order(59)
+    void twoResendClicksAtOnceChangeTheOrderAddressOnce() throws Exception {
+        ResendCase c = takenBuyerTicket();
+
+        List<Response> answers = Concurrent.race(2, index -> queueAction(c.operator().id, c.ticket(), "resend", UUID.randomUUID().toString()));
+
+        List<Integer> statuses = answers.stream().map(Response::status).sorted().toList();
+        assertTrue(statuses.contains(202), "хотя бы одно нажатие принято: " + answers.stream().map(Response::body).toList());
+        assertTrue(answers.stream().allMatch(a -> a.status() == 202 || (a.status() == 409 && Set.of("delivery-in-progress", "request-in-progress").contains(a.json().get("code")))),
+                "второе нажатие принято с тем же результатом либо отказано: " + answers.stream().map(Response::body).toList());
+        List<OrderStub.Seen> calls = ORDERS.seenFor(c.order().toString());
+        assertEquals(1, calls.stream().map(OrderStub.Seen::key).distinct().count(), "оба вызова с одним ключом, выведенным из обращения и состояния выдачи");
+        assertEquals(1, ORDERS.effectsFor(c.order().toString()), "адрес в заказе обновлён и событие опубликовано один раз");
+        assertTrue(deliveryStatusIs(c.order(), "queued"));
+    }
+
+    @Tag("TC-709")
+    @Test
+    @Order(60)
+    void afterAFailedDeliveryTheTicketStaysInProgressAndAResendWithANewKeyIsPossible() throws Exception {
+        ResendCase c = takenBuyerTicket();
+        assertEquals(202, queueAction(c.operator().id, c.ticket(), "resend", UUID.randomUUID().toString()).status());
+        assertTrue(deliveryStatusIs(c.order(), "queued"));
+
+        publishDelivery(c.order(), "delivery.failed", Map.of("deliveryType", "repeat", "reason", "attempts_exhausted", "attempts", 6));
+
+        assertTrue(await(Duration.ofSeconds(90), () -> deliveryStatusIs(c.order(), "failed")), "событие выдачи заменило статус «в очереди»");
+        assertEquals("in_progress", ticketColumn(c.ticket(), "status"), "обращение осталось в работе");
+        assertEquals(1, tickets(c.order()), "нового обращения по неудаче повторной отправки нет");
+
+        Response again = queueAction(c.operator().id, c.ticket(), "resend", UUID.randomUUID().toString());
+        assertEquals(202, again.status(), again.body());
+        List<OrderStub.Seen> calls = ORDERS.seenFor(c.order().toString());
+        assertEquals(2, calls.size());
+        assertNotEquals(calls.get(0).key(), calls.get(1).key(), "новое событие выдачи даёт новый ключ вызова");
+        assertEquals(2, ORDERS.effectsFor(c.order().toString()));
+        assertTrue(deliveryStatusIs(c.order(), "queued"));
+    }
+
+    @Tag("TC-709")
+    @Test
+    @Order(61)
+    void anUnavailableOrderServiceGivesA503AndARetryWithTheSameKeyChangesTheOrderOnce() throws Exception {
+        ResendCase c = takenBuyerTicket();
+        String key = UUID.randomUUID().toString();
+
+        ORDERS.failWith(503);
+        Response down;
+        try {
+            down = queueAction(c.operator().id, c.ticket(), "resend", key);
+        } finally {
+            ORDERS.failWith(0);
+        }
+
+        assertEquals(503, down.status(), down.body());
+        assertEquals("dependency-unavailable", down.json().get("code"));
+        assertTrue(Integer.parseInt(down.header("Retry-After")) > 0);
+        assertEquals("resend", ticketColumn(c.ticket(), "action"), "решение оператора записано до вызова и остаётся");
+        assertFalse(deliveryStatusIs(c.order(), "queued"), "статус «в очереди» ставится только после принятого вызова");
+        assertEquals(0, ORDERS.effectsFor(c.order().toString()));
+        assertTrue(await(Duration.ofSeconds(90), () -> auditRowsOf(c.ticket(), "support.resend_requested") == 1), "запись о решении есть, записи «не удалось» нет");
+
+        Response retry = queueAction(c.operator().id, c.ticket(), "resend", key);
+
+        assertEquals(202, retry.status(), "ключ запроса после неудачи освобождён: " + retry.body());
+        List<OrderStub.Seen> calls = ORDERS.seenFor(c.order().toString());
+        assertEquals(1, calls.stream().map(OrderStub.Seen::key).distinct().count(), "и неудачные попытки, и повтор идут с одним ключом вызова");
+        assertEquals(1, ORDERS.effectsFor(c.order().toString()));
+        assertTrue(deliveryStatusIs(c.order(), "queued"));
     }
 
     @Tag("TC-114")

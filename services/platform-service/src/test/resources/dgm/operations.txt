@@ -29,7 +29,7 @@ listSupportTickets       done
 receiveMailStatus        slice3
 releaseSupportTicket     done
 requestEmailChangeCode   slice3
-resendKeyForTicket       slice3
+resendKeyForTicket       done
 startEmailChange         slice3
 takeSupportTicket        done
 verifyEmailChangeCode    slice3

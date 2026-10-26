@@ -2,8 +2,10 @@ package dgm.platform.support.testing;
 
 import dgm.kit.time.ManualClock;
 import dgm.platform.identity.otp.testing.FakeParameters;
+import dgm.platform.notification.testing.FakeContacts;
 import dgm.platform.support.service.QueueMetrics;
 import dgm.platform.support.service.QueueService;
+import dgm.platform.support.service.ResendService;
 import dgm.platform.support.service.SupportService;
 import dgm.platform.support.service.TicketService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -29,8 +31,17 @@ public final class SupportWorld {
     public final TicketService tickets = new TicketService(repository, new FakeSupportTransaction(repository), outbox, limiter, parameters, clock, metrics);
     public final QueueService queue = new QueueService(repository, new FakeSupportTransaction(repository), outbox, clock, metrics);
     public final QueueMetrics queueMetrics = new QueueMetrics(repository, clock, metrics);
+    public final FakeContacts contacts = new FakeContacts();
+    public final FakeOrders orders = new FakeOrders();
+    public final ResendService resend = new ResendService(repository, new FakeSupportTransaction(repository), outbox, contacts, orders, clock, metrics);
+
+    public static final String BUYER_EMAIL = "buyer@example.test";
 
     private long nextNumber = 1000;
+
+    public SupportWorld() {
+        contacts.put(BUYER, BUYER_EMAIL, "Покупатель");
+    }
 
     /** Выданный заказ покупателя: события {@code order.paid} и {@code order.issued} применяет служба поддержки, как потребитель. */
     public UUID issuedOrder(UUID buyer, Instant issuedAt) {

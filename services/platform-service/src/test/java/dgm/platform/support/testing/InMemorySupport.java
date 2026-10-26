@@ -194,6 +194,18 @@ public final class InMemorySupport implements SupportRepository {
         return false;
     }
 
+    /** Условное обновление, как {@code UPDATE ... WHERE status = 'in_progress' AND operator_id = ?}. */
+    @Override
+    public boolean markResend(UUID ticketId, UUID operatorId) {
+        for (Ticket ticket : tickets) {
+            if (ticket.id.equals(ticketId) && "in_progress".equals(ticket.status) && operatorId.equals(ticket.operatorId)) {
+                ticket.action = "resend";
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public QueueDepth queueDepth() {
         long created = tickets.stream().filter(t -> "created".equals(t.status)).count();
