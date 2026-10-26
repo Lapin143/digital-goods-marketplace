@@ -26,7 +26,7 @@ getStaffSupportTicket    done
 getSupportTicket         done
 listSupportTicketQueue   done
 listSupportTickets       done
-receiveMailStatus        slice3
+receiveMailStatus        done
 releaseSupportTicket     done
 requestEmailChangeCode   done
 resendKeyForTicket       done

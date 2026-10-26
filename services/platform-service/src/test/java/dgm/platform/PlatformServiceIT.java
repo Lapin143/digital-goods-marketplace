@@ -1100,10 +1100,14 @@ class PlatformServiceIT {
         return notificationDb().queryForMap(ROW + "where user_id = ? and template = ?", UUID.fromString(userId), template);
     }
 
+    /**
+     * У пользователя одно уведомление по шаблону, и оно в этом статусе. «Отправлено» считается и «доставлено»: на стенде почтовая заглушка присылает
+     * статус доставки вебхуком сама, и письмо может уйти дальше, пока тест его проверяет.
+     */
     private boolean notificationIs(String userId, String template, String status) {
         List<String> found = notificationDb().queryForList("select status from notification.notification where user_id = ? and template = ?",
                 String.class, UUID.fromString(userId), template);
-        return found.size() == 1 && status.equals(found.get(0));
+        return found.size() == 1 && (status.equals(found.get(0)) || ("sent".equals(status) && "delivered".equals(found.get(0))));
     }
 
     private String wholeRow(Object id) {
@@ -3490,6 +3494,246 @@ class PlatformServiceIT {
         assertEquals("completed", done.json().get("status"));
         assertEquals(another, row(userId).get("email"));
         assertEquals(1, eventsOfType(userId, "user.email-changed"));
+    }
+
+    // ---- шаг 16: статусы писем платформы, письма продавцу по решениям и о деактивации ----
+
+    private static final String MAIL_WEBHOOK = "/api/v1/webhooks/email-provider";
+
+    private static String mailStatusBody(String messageId, String status, String reason) {
+        return "{\"messageId\":\"" + messageId + "\",\"status\":\"" + status + "\",\"occurredAt\":\"" + Timestamps.format(Instant.now()) + "\""
+                + (reason == null ? "" : ",\"reason\":\"" + reason + "\"") + "}";
+    }
+
+    /** Вебхук почтового провайдера платформы от имени заглушки с подписью секретом {@code platform_webhook_secret}. */
+    private static Response mailWebhook(String body) throws IOException {
+        String timestamp = Timestamps.format(Instant.now());
+        return mailWebhook(body, timestamp, WebhookSignature.sign(SecretFiles.read("platform_webhook_secret").revealBytes(), timestamp,
+                body.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private static Response mailWebhook(String body, String timestamp, String signature) throws IOException {
+        return StandHttp.asService("external-stubs", PORT).post(MAIL_WEBHOOK, body, WebhookSignature.TIMESTAMP_HEADER, timestamp,
+                WebhookSignature.SIGNATURE_HEADER, signature);
+    }
+
+    private int providerStatuses(Object notificationId, String status) {
+        Integer value = notificationDb().queryForObject("select count(*) from notification.provider_status_event where notification_id = ?::uuid "
+                + "and provider_status = ?", Integer.class, String.valueOf(notificationId), status);
+        return value == null ? 0 : value;
+    }
+
+    private int providerStatusRows() {
+        Integer value = notificationDb().queryForObject("select count(*) from notification.provider_status_event", Integer.class);
+        return value == null ? 0 : value;
+    }
+
+    private boolean handledByNotification(UUID eventId) {
+        return 1 == notificationDb().queryForObject("select count(*) from public.processed_event where consumer = 'notification-handler' and event_id = ?",
+                Integer.class, eventId);
+    }
+
+    @Tag("TC-718")
+    @Test
+    @Order(70)
+    void mailStatusWebhookMakesTheLetterDeliveredAndAFailureGivesNotificationFailedExactlyOnce() throws Exception {
+        KeycloakStub.User first = provisioned("buyer");
+        KeycloakStub.User second = provisioned("buyer");
+        // Заглушка сама статусов не присылает: вебхук вызывает тест, чтобы порядок статусов был известен
+        emailMode("{\"sender\":\"platform\",\"status\":\"none\"}");
+        try {
+            publishSellerEvent(UUID.fromString(first.id), "seller.returned", Map.of("comment", "Исправьте данные " + UUID.randomUUID()));
+            publishSellerEvent(UUID.fromString(second.id), "seller.returned", Map.of("comment", "Исправьте данные " + UUID.randomUUID()));
+            assertTrue(await(Duration.ofSeconds(90), () -> notificationIs(first.id, "seller-returned", "sent") && notificationIs(second.id, "seller-returned", "sent")),
+                    "оба письма приняты провайдером");
+        } finally {
+            emailMode("{\"behavior\":\"accept\"}");
+        }
+        String deliveredId = String.valueOf(notification(first.id, "seller-returned").get("id"));
+        String failedId = String.valueOf(notification(second.id, "seller-returned").get("id"));
+        assertEquals("sent", notification(first.id, "seller-returned").get("status"), "без статуса провайдера письмо остаётся «отправлено»");
+
+        // Доставка: письмо становится «доставлено», повтор безвреден, события о недоставке нет
+        Response delivered = mailWebhook(mailStatusBody(deliveredId, "delivered", null));
+        assertEquals(200, delivered.status(), delivered.body());
+        assertEquals("delivered", notification(first.id, "seller-returned").get("status"));
+        assertEquals(1, providerStatuses(deliveredId, "delivered"));
+        assertEquals(200, mailWebhook(mailStatusBody(deliveredId, "delivered", null)).status());
+        assertEquals(1, providerStatuses(deliveredId, "delivered"), "повтор не дал второй записи");
+        assertEquals("delivered", notification(first.id, "seller-returned").get("status"));
+        assertTrue(failedEvents(deliveredId).isEmpty());
+        assertEquals(200, mailWebhook(mailStatusBody(deliveredId, "failed", "other")).status());
+        assertEquals("delivered", notification(first.id, "seller-returned").get("status"), "подтверждённую доставку отказ не отзывает");
+        assertTrue(failedEvents(deliveredId).isEmpty());
+
+        // Отказ провайдера: «недоставлено», очередь недоставленных и ровно одно событие
+        assertEquals(200, mailWebhook(mailStatusBody(failedId, "accepted", null)).status());
+        assertEquals("sent", notification(second.id, "seller-returned").get("status"), "«принято» только записывается");
+        Response refused = mailWebhook(mailStatusBody(failedId, "failed", "address_rejected"));
+        assertEquals(200, refused.status(), refused.body());
+        Map<String, Object> row = notification(second.id, "seller-returned");
+        assertEquals("failed", row.get("status"));
+        assertEquals(Boolean.TRUE, row.get("in_dead_queue"));
+        assertEquals("provider_address_rejected", row.get("last_error_code"));
+        assertEquals(1, row.get("attempts"));
+        assertEquals(Boolean.TRUE, row.get("no_next"));
+        List<Map<String, Object>> events = failedEvents(failedId);
+        assertEquals(1, events.size());
+        assertEquals(Map.of("notificationId", failedId, "channel", "email", "template", "seller-returned", "recipientUserId", second.id,
+                "attempts", 1, "reason", "address_rejected"), events.get(0));
+        assertFalse(events.get(0).toString().contains(second.email), "адреса в событии нет");
+        assertFalse(wholeRow(failedId).contains(second.email), "адреса в таблице уведомлений нет (INV-44)");
+
+        assertEquals(200, mailWebhook(mailStatusBody(failedId, "failed", "address_rejected")).status(), "тот же вебхук ещё раз");
+        assertEquals(200, mailWebhook(mailStatusBody(failedId, "failed", "other")).status(), "тот же статус с другой причиной");
+        assertEquals(200, mailWebhook(mailStatusBody(failedId, "delivered", null)).status(), "доставка после отказа");
+        assertEquals(1, failedEvents(failedId).size(), "событие о недоставке одно");
+        assertEquals("failed", notification(second.id, "seller-returned").get("status"));
+        assertEquals(1, providerStatuses(failedId, "failed"));
+        assertTrue(await(Duration.ofSeconds(30), () -> 1 == jdbc().queryForObject("select count(*) from public.outbox where event_type = 'notification.failed' "
+                + "and aggregate_id = ? and published_at is not null and topic = 'notification.events'", Integer.class, failedId)),
+                "публикатор отправил событие в notification.events");
+    }
+
+    @Tag("TC-718")
+    @Test
+    @Order(71)
+    void mailStatusWebhookAnswersTheSameToAnUnknownMessageAndRefusesForgedStaleAndBrokenRequests() throws Exception {
+        int before = providerStatusRows();
+
+        assertEquals(200, mailWebhook(mailStatusBody("msg_44a1b9", "failed", "other")).status(), "чужой идентификатор письма");
+        assertEquals(200, mailWebhook(mailStatusBody(UUID.randomUUID().toString(), "delivered", null)).status(), "письма с таким идентификатором нет");
+        assertEquals(before, providerStatusRows(), "неизвестное письмо ничего не записало");
+
+        KeycloakStub.User user = provisioned("buyer");
+        publishSellerEvent(UUID.fromString(user.id), "seller.returned", Map.of("comment", "Исправьте данные"));
+        assertTrue(await(Duration.ofSeconds(90), () -> notificationIs(user.id, "seller-returned", "sent")));
+        String id = String.valueOf(notification(user.id, "seller-returned").get("id"));
+        int known = providerStatusRows();
+        assertEquals(200, mailWebhook(mailStatusBody(id, "opened_by_recipient", null)).status(), "перечисление статусов открытое");
+        assertEquals(known, providerStatusRows(), "незнакомый статус не записывается");
+
+        String body = mailStatusBody(id, "failed", "address_rejected");
+        String timestamp = Timestamps.format(Instant.now());
+        Response forged = mailWebhook(body, timestamp, "0".repeat(64));
+        assertEquals(401, forged.status());
+        assertEquals("signature-invalid", forged.json().get("code"));
+        String oldTimestamp = Timestamps.format(Instant.now().minus(Duration.ofMinutes(30)));
+        Response stale = mailWebhook(body, oldTimestamp, WebhookSignature.sign(SecretFiles.read("platform_webhook_secret").revealBytes(), oldTimestamp,
+                body.getBytes(StandardCharsets.UTF_8)));
+        assertEquals(401, stale.status());
+        assertEquals("webhook-expired", stale.json().get("code"));
+        String extra = "{\"messageId\":\"" + id + "\",\"status\":\"failed\",\"occurredAt\":\"" + Timestamps.format(Instant.now()) + "\",\"extra\":1}";
+        Response invalid = mailWebhook(extra);
+        assertEquals(400, invalid.status());
+        assertEquals("bad-request", invalid.json().get("code"));
+
+        assertEquals("sent", notification(user.id, "seller-returned").get("status"), "отвергнутые запросы письмо не тронули");
+        assertTrue(failedEvents(id).isEmpty());
+        assertEquals(known, providerStatusRows());
+    }
+
+    private static UUID publishProduct(UUID sellerId, UUID productId, String type, Map<String, Object> extra) throws Exception {
+        UUID eventId = UUID.randomUUID();
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("productId", productId.toString());
+        data.put("sellerId", sellerId.toString());
+        data.put("title", "Ключ Steam " + productId.toString().substring(0, 8));
+        data.putAll(extra);
+        publish("catalog-service", "catalog.events", "Product", productId.toString(), type, eventId, data);
+        return eventId;
+    }
+
+    @Tag("TC-719")
+    @Test
+    @Order(72)
+    void productDecisionsGiveTheOwnerOfTheSellerProfileThreeLettersAndABlockOfTheSellerNone() throws Exception {
+        KeycloakStub.User seller = provisioned("buyer");
+        UUID user = UUID.fromString(seller.id);
+        UUID profile = UUID.randomUUID();
+        UUID approval = publishSellerEvent(user, profile, "seller.approved", Map.of("sellerType", "legal_entity"));
+        assertTrue(await(Duration.ofSeconds(90), () -> sellerRoleHandled(approval)), "профиль привязан к учётной записи");
+        assertNotEquals(user, profile, "идентификатор профиля и идентификатор пользователя различны");
+        UUID published = UUID.randomUUID();
+        UUID rejected = UUID.randomUUID();
+        UUID blocked = UUID.randomUUID();
+        String reason = "Описание не соответствует товару " + UUID.randomUUID();
+        String blockReason = "Жалобы на недействительные ключи " + UUID.randomUUID();
+
+        UUID publishedEvent = publishProduct(profile, published, "product.published", Map.of());
+        UUID rejectedEvent = publishProduct(profile, rejected, "product.rejected", Map.of("reason", reason));
+        UUID blockedEvent = publishProduct(profile, blocked, "product.blocked", Map.of("reason", blockReason, "cause", "moderator_decision"));
+
+        assertTrue(await(Duration.ofSeconds(90), () -> mails(seller.email).size() == 4), "письмо об одобрении заявки и три письма по товарам");
+        String publishedText = String.valueOf(mailWithSubject(seller.email, "Товар опубликован").get("text"));
+        assertTrue(publishedText.contains("Ключ Steam " + published.toString().substring(0, 8)), publishedText);
+        assertFalse(publishedText.contains("Причина"), "у публикации причины нет: " + publishedText);
+        String rejectedText = String.valueOf(mailWithSubject(seller.email, "Товар отклонён модератором").get("text"));
+        assertTrue(rejectedText.contains(reason), rejectedText);
+        assertTrue(rejectedText.contains("Ключ Steam " + rejected.toString().substring(0, 8)), rejectedText);
+        String blockedText = String.valueOf(mailWithSubject(seller.email, "Товар снят с витрины").get("text"));
+        assertTrue(blockedText.contains(blockReason), blockedText);
+        for (String text : List.of(publishedText, rejectedText, blockedText)) {
+            assertTrue(text.startsWith("Здравствуйте, "), text);
+            assertFalse(text.contains(seller.email), "адреса получателя в тексте письма нет");
+            assertFalse(text.contains(profile.toString()), "идентификатора профиля в письме нет");
+        }
+        for (UUID event : List.of(publishedEvent, rejectedEvent, blockedEvent)) {
+            Map<String, Object> row = notificationDb().queryForMap(ROW + "where source_event_id = ?", event);
+            assertEquals(user.toString(), notificationDb().queryForObject("select user_id::text from notification.notification where id = ?::uuid", String.class,
+                    row.get("id")), "письмо адресовано владельцу профиля, а не профилю");
+            assertFalse(wholeRow(row.get("id")).contains(seller.email), "адреса в таблице уведомлений нет (INV-44)");
+            assertTrue(await(Duration.ofSeconds(20), () -> 1 == notificationDb().queryForObject("select count(*) from notification.notification "
+                    + "where source_event_id = ? and status in ('sent', 'delivered')", Integer.class, event)));
+        }
+        assertEquals("{\"title\": \"Ключ Steam " + published.toString().substring(0, 8) + "\"}",
+                notificationDb().queryForObject("select params::text from notification.notification where source_event_id = ?", String.class, publishedEvent),
+                "у публикации в параметрах только название");
+
+        // Блокировка вместе с продавцом и профиль без владельца писем не дают, события разобраны и в очередь недоставленных не уходят
+        UUID sellerBlocked = publishProduct(profile, UUID.randomUUID(), "product.blocked", Map.of("reason", "Блокировка продавца", "cause", "seller_blocked"));
+        UUID orphan = publishProduct(UUID.randomUUID(), UUID.randomUUID(), "product.published", Map.of());
+        assertTrue(await(Duration.ofSeconds(90), () -> handledByNotification(sellerBlocked) && handledByNotification(orphan)), "оба события разобраны");
+        assertEquals(0, notificationDb().queryForObject("select count(*) from notification.notification where source_event_id in (?, ?)", Integer.class,
+                sellerBlocked, orphan));
+        assertEquals(4, mails(seller.email).size(), "новых писем нет");
+    }
+
+    @Tag("TC-719")
+    @Test
+    @Order(73)
+    void deactivationGivesTheOwnerOneLetterWithoutParametersAndAReplayedEventGivesNone() throws Exception {
+        KeycloakStub.User admin = newAdmin();
+        KeycloakStub.User target = provisioned("buyer");
+
+        assertEquals(200, post(admin.id, users(target.id) + "/deactivate", null).status());
+
+        assertTrue(await(Duration.ofSeconds(90), () -> mails(target.email).size() == 1), "письмо о деактивации дошло до почтовой заглушки");
+        Map<?, ?> mail = mails(target.email).get(0);
+        assertEquals("platform", mail.get("sender"));
+        assertEquals("Учётная запись деактивирована", mail.get("subject"));
+        String text = String.valueOf(mail.get("text"));
+        assertTrue(text.startsWith("Здравствуйте, "), text);
+        assertTrue(text.contains("деактивирована администратором"), text);
+        assertFalse(text.contains(admin.id), "кто деактивировал, получателю не сообщается");
+        assertFalse(text.contains(target.email), text);
+        assertTrue(await(Duration.ofSeconds(20), () -> notificationIs(target.id, "user-deactivated", "sent")));
+        Map<String, Object> row = notification(target.id, "user-deactivated");
+        assertEquals("{}", row.get("params"), "параметров у письма нет");
+        assertEquals(String.valueOf(mail.get("messageId")), row.get("id"));
+        assertFalse(wholeRow(row.get("id")).contains(target.email), "адреса в таблице уведомлений нет (INV-44)");
+
+        // Повторная деактивация события не даёт, а тот же конверт во второй раз письма не создаёт
+        assertEquals(200, post(admin.id, users(target.id) + "/deactivate", null).status());
+        UUID eventId = UUID.fromString(jdbc().queryForObject("select event_id::text from public.outbox where aggregate_id = ? and event_type = 'user.deactivated'",
+                String.class, target.id));
+        publish("platform-service", "identity.events", "User", target.id, "user.deactivated", eventId, Map.of("userId", target.id, "deactivatedBy", admin.id));
+        UUID marker = UUID.randomUUID();
+        publish("platform-service", "identity.events", "User", target.id, "user.sms-login", marker, Map.of("userId", target.id));
+        assertTrue(await(Duration.ofSeconds(90), () -> handledByNotification(marker)), "следом за дублем разобрано другое событие того же пользователя");
+        assertEquals(1, notificationDb().queryForObject("select count(*) from notification.notification where user_id = ? and template = 'user-deactivated'",
+                Integer.class, UUID.fromString(target.id)));
+        assertEquals(1, mails(target.email).stream().filter(m -> "Учётная запись деактивирована".equals(m.get("subject"))).count());
     }
 
     @Tag("TC-114")

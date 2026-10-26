@@ -14,6 +14,7 @@ import dgm.platform.notification.service.NotificationDispatcher;
 import dgm.platform.notification.service.NotificationProperties;
 import dgm.platform.notification.service.NotificationService;
 import dgm.platform.notification.service.NotificationTransaction;
+import dgm.platform.notification.service.ReceiveMailStatusService;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
@@ -26,9 +27,9 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * Подключение модуля {@code notification}: шаблоны писем, клиент провайдера почты (ключ {@code platform_email_key} из секретов), постановка
- * в очередь и отправитель по расписанию. Обработчики событий это компоненты пакета {@code handler}, потребителя Kafka запускает каркас,
- * когда в сервисе есть хотя бы один обработчик. Адрес провайдера на стенде заглушка {@code external-stubs}, в проде адрес настоящего
- * провайдера (ключ {@code dgm.email.base-url}).
+ * в очередь, отправитель по расписанию и приём статусов писем от провайдера. Обработчики событий это компоненты пакета {@code handler},
+ * потребителя Kafka запускает каркас, когда в сервисе есть хотя бы один обработчик. Адрес провайдера на стенде заглушка
+ * {@code external-stubs}, в проде адрес настоящего провайдера (ключ {@code dgm.email.base-url}).
  */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(NotificationProperties.class)
@@ -61,5 +62,12 @@ public class NotificationConfiguration {
                                                   ObjectProvider<MeterRegistry> metrics) {
         return new NotificationDispatcher(repository, contacts, letters, sender, transaction, new RetryPolicy(properties.retryDelays()),
                 properties.lease(), properties.batch(), clock, metrics.getIfAvailable(SimpleMeterRegistry::new));
+    }
+
+    /** Статусы писем платформы от провайдера: вебхук {@code receiveMailStatus} (Р-171). */
+    @Bean
+    ReceiveMailStatusService receiveMailStatusService(NotificationRepository repository, NotificationTransaction transaction, Clock clock,
+                                                      ObjectProvider<MeterRegistry> metrics) {
+        return new ReceiveMailStatusService(repository, transaction, clock, metrics.getIfAvailable(SimpleMeterRegistry::new));
     }
 }

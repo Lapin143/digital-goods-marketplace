@@ -7,9 +7,11 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /** Очередь уведомлений в памяти с теми же правилами, что у таблицы: уникальная пара «событие, шаблон», выбор по сроку, аренда, переходы статусов. */
@@ -32,6 +34,8 @@ public final class InMemoryNotifications implements NotificationRepository {
     }
 
     private final Map<UUID, Row> rows = new LinkedHashMap<>();
+    /** Принятые статусы провайдера: пара «уведомление, статус» уникальна, как в таблице. */
+    private final Set<String> providerStatuses = new LinkedHashSet<>();
 
     @Override
     public boolean insert(NewNotification notification) {
@@ -67,6 +71,9 @@ public final class InMemoryNotifications implements NotificationRepository {
         row.sentAt = at;
         row.nextAttemptAt = null;
         row.lastErrorCode = null;
+        if (providerStatuses.contains(id + ":delivered")) {
+            row.status = "delivered";
+        }
         return true;
     }
 
@@ -94,6 +101,43 @@ public final class InMemoryNotifications implements NotificationRepository {
         row.inDeadQueue = deadQueue;
         row.nextAttemptAt = null;
         return true;
+    }
+
+    @Override
+    public boolean recordProviderStatus(UUID id, String providerStatus, Instant occurredAt, Instant at) {
+        return rows.containsKey(id) && providerStatuses.add(id + ":" + providerStatus);
+    }
+
+    @Override
+    public boolean markDelivered(UUID id, Instant at) {
+        Row row = rows.get(id);
+        if (row == null || !"sent".equals(row.status)) {
+            return false;
+        }
+        row.status = "delivered";
+        return true;
+    }
+
+    @Override
+    public Optional<Notification> markFailedByProvider(UUID id, String errorCode, Instant at) {
+        Row row = rows.get(id);
+        if (row == null || !("queued".equals(row.status) || "sent".equals(row.status))) {
+            return Optional.empty();
+        }
+        row.status = "failed";
+        row.attempts = Math.max(row.attempts, 1);
+        row.lastErrorCode = errorCode;
+        row.inDeadQueue = true;
+        row.nextAttemptAt = null;
+        return Optional.of(view(row));
+    }
+
+    /** Принятые статусы провайдера по уведомлению, например {@code accepted}, {@code delivered}. */
+    public Set<String> providerStatuses(UUID id) {
+        Set<String> statuses = new LinkedHashSet<>();
+        String prefix = id + ":";
+        providerStatuses.stream().filter(s -> s.startsWith(prefix)).forEach(s -> statuses.add(s.substring(prefix.length())));
+        return statuses;
     }
 
     public Row row(UUID id) {

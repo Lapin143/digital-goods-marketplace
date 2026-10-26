@@ -56,8 +56,14 @@ public final class JdbcNotificationRepository implements NotificationRepository 
 
     @Override
     public boolean markSent(UUID id, int attempts, Instant at) {
-        return jdbc.update("update notification.notification set status = 'sent', attempts = ?, sent_at = ?, next_attempt_at = null, "
+        boolean sent = jdbc.update("update notification.notification set status = 'sent', attempts = ?, sent_at = ?, next_attempt_at = null, "
                 + "last_error_code = null, updated_at = ? where id = ? and status = 'queued'", attempts, utc(at), utc(at), id) == 1;
+        if (sent) {
+            // вебхук «доставлено» мог прийти раньше записи исхода отправки: тогда статус только записан, и перевод делается здесь
+            jdbc.update("update notification.notification set status = 'delivered', updated_at = ? where id = ? and status = 'sent' and exists ("
+                    + "select 1 from notification.provider_status_event where notification_id = ? and provider_status = 'delivered')", utc(at), id, id);
+        }
+        return sent;
     }
 
     @Override
@@ -70,6 +76,25 @@ public final class JdbcNotificationRepository implements NotificationRepository 
     public boolean markFailed(UUID id, int attempts, String errorCode, boolean deadQueue, Instant at) {
         return jdbc.update("update notification.notification set status = 'failed', attempts = ?, last_error_code = ?, in_dead_queue = ?, "
                 + "next_attempt_at = null, updated_at = ? where id = ? and status = 'queued'", attempts, errorCode, deadQueue, utc(at), id) == 1;
+    }
+
+    @Override
+    public boolean recordProviderStatus(UUID id, String providerStatus, Instant occurredAt, Instant at) {
+        return jdbc.update("insert into notification.provider_status_event (notification_id, provider_status, occurred_at, received_at) "
+                + "values (?, ?, ?, ?) on conflict (notification_id, provider_status) do nothing", id, providerStatus, utc(occurredAt), utc(at)) == 1;
+    }
+
+    @Override
+    public boolean markDelivered(UUID id, Instant at) {
+        return jdbc.update("update notification.notification set status = 'delivered', updated_at = ? where id = ? and status = 'sent'",
+                utc(at), id) == 1;
+    }
+
+    @Override
+    public Optional<Notification> markFailedByProvider(UUID id, String errorCode, Instant at) {
+        return jdbc.query("update notification.notification set status = 'failed', attempts = greatest(attempts, 1), last_error_code = ?, "
+                + "in_dead_queue = true, next_attempt_at = null, updated_at = ? where id = ? and status in ('queued', 'sent') returning " + COLUMNS,
+                (rs, row) -> map(rs), errorCode, utc(at), id).stream().findFirst();
     }
 
     private static Notification map(ResultSet rs) throws SQLException {
