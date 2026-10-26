@@ -147,7 +147,7 @@ class OrderAddressIT extends OrderStandIT {
         Response replay = update(orderId, ticket, address, key);
         assertEquals(200, replay.status(), replay.body());
         assertEquals("true", replay.header("Idempotency-Replayed"));
-        assertEquals(first.body(), replay.body());
+        assertEquals(first.json(), replay.json(), "тот же ответ по смыслу: хранилище ключей держит тело в jsonb, пробелы и порядок полей в строке другие");
         assertEquals(1, addressEvents(orderId).size(), "повтор с тем же ключом второго события не пишет");
         assertEquals(after.get("version"), order(orderId).get("version"), "и строку заказа не трогает");
 
@@ -293,6 +293,9 @@ class OrderAddressIT extends OrderStandIT {
         assertFalse(events.isEmpty(), "контроль: перехват журнала работает, события есть");
         assertTrue(events.stream().anyMatch(e -> e.getFormattedMessage().contains(issued)), "контроль: журнал знает заказ, но не адрес");
         for (ILoggingEvent event : events) {
+            if (springWritesTheAnswerBody(event)) {
+                continue;
+            }
             String text = render(event);
             assertFalse(text.contains("canary-"), "в журнале нашёлся адрес: " + text);
         }
@@ -301,6 +304,15 @@ class OrderAddressIT extends OrderStandIT {
         assertTrue(metrics.contains("orders_address_updated_total"), "контроль: метрика обновления есть");
         assertFalse(metrics.contains("canary-"), "в метриках нашёлся адрес");
         assertNotEquals(0, addressEvents(issued).size());
+    }
+
+    /**
+     * Spring MVC на уровне DEBUG пишет тело ответа строкой «Writing [...]». Ответ самой операции по контракту несёт адрес (его просит вызвавшая
+     * платформа), поэтому при включённом DEBUG у {@code org.springframework.web} адрес попал бы в журнал. Тест включает этот уровень нарочно, чтобы поймать
+     * записи кода сервиса; на INFO (уровень стенда и прода) строки нет, а включать DEBUG для web на стенде нельзя (находка F4-48 руководства среза 3).
+     */
+    private static boolean springWritesTheAnswerBody(ILoggingEvent event) {
+        return event.getLoggerName().startsWith("org.springframework.web.") && event.getFormattedMessage().startsWith("Writing [");
     }
 
     private static String render(ILoggingEvent event) {
