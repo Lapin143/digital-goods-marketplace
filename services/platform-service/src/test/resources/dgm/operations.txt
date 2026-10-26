@@ -21,15 +21,15 @@ verifyOtpCode            done
 verifyPhoneConfirmation  done
 
 createSupportTicket      done
-getEmailChangeState      slice3
+getEmailChangeState      done
 getStaffSupportTicket    done
 getSupportTicket         done
 listSupportTicketQueue   done
 listSupportTickets       done
 receiveMailStatus        slice3
 releaseSupportTicket     done
-requestEmailChangeCode   slice3
+requestEmailChangeCode   done
 resendKeyForTicket       done
-startEmailChange         slice3
+startEmailChange         done
 takeSupportTicket        done
-verifyEmailChangeCode    slice3
+verifyEmailChangeCode    done

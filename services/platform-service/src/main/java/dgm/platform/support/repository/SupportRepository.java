@@ -88,6 +88,14 @@ public interface SupportRepository {
      */
     boolean markResend(UUID ticketId, UUID operatorId);
 
+    /**
+     * Запоминает решение оператора о смене e-mail: {@code action = 'email_change'} у обращения, которое в работе у этого оператора (Р-169). Условие
+     * проверяется ещё раз тем же оператором: пока шла проверка, обращение могли вернуть в очередь.
+     *
+     * @return {@code false}: обращения нет, оно не в работе или в работе у другого оператора
+     */
+    boolean markEmailChange(UUID ticketId, UUID operatorId);
+
     /** Число открытых обращений по статусам и время самого старого из «созданных» (метрики очереди). */
     QueueDepth queueDepth();
 }

@@ -146,6 +146,111 @@ public final class OtpService {
         };
     }
 
+    // ---- смена e-mail по обращению (Р-169, SEQ-04) ----
+
+    /** Доставка кода получателю: SMS на телефон или письмо на новый адрес. Исключение доставки гасит выпущенный код. */
+    @FunctionalInterface
+    public interface Delivery {
+
+        /** @throws SmsSendException или {@link EmailCodeSendException}, если провайдер не принял сообщение */
+        void send(String code);
+    }
+
+    /**
+     * Допускает запрос кода в SMS при смене e-mail: лимиты учётной записи (отдельные от подтверждения телефона, чтобы смена не съедала
+     * попытки покупателя и наоборот), номера, IP и общий потолок SMS расходуются вместе, если ни один не исчерпан.
+     *
+     * @throws ProblemException 429 {@code otp-request-limited}; 503, если Redis недоступен
+     */
+    public OtpStore.Admission admitEmailChangePhone(UUID userId, PhoneNumber phone, Optional<String> ip) {
+        OtpLimits limits = limits();
+        List<OtpStore.Window> windows = new ArrayList<>();
+        addAccountWindows(windows, userId, "ecp", limits);
+        addCommonWindows(windows, phone, ip, limits);
+        return admit(OtpPurpose.EMAIL_CHANGE_PHONE, windows);
+    }
+
+    /**
+     * Допускает запрос кода в письме на новый адрес: те же пределы на учётную запись, свои окна на адрес (чужому ящику письма не
+     * сыплются) и на IP. Потолок SMS письма не считает.
+     *
+     * @throws ProblemException 429 {@code otp-request-limited}; 503, если Redis недоступен
+     */
+    public OtpStore.Admission admitEmailChangeNewEmail(UUID userId, String newEmail, Optional<String> ip) {
+        OtpLimits limits = limits();
+        List<OtpStore.Window> windows = new ArrayList<>();
+        addAccountWindows(windows, userId, "ece", limits);
+        String emailTarget = crypto.target("email", newEmail);
+        windows.add(OtpStore.Window.sliding(PREFIX + "rl:email:" + emailTarget + ":10m", OtpLimits.TEN_MINUTES, limits.perTenMinutes()));
+        windows.add(OtpStore.Window.sliding(PREFIX + "rl:email:" + emailTarget + ":day", OtpLimits.DAY, limits.perDay()));
+        ip.ifPresent(address -> windows.add(OtpStore.Window.sliding(PREFIX + "rl:ip:" + crypto.target("ip", address) + ":hour",
+                OtpLimits.HOUR, limits.perIpHour())));
+        return admit(OtpPurpose.EMAIL_CHANGE_NEW_EMAIL, windows);
+    }
+
+    /**
+     * Выпускает код смены e-mail, привязанный к обращению, и передаёт его на доставку. Запись кода ключуется обращением: новый запрос по
+     * тому же обращению гасит прежний код, код одного обращения к другому не подходит. Если доставка не удалась, запись удаляется.
+     *
+     * @param purpose {@link OtpPurpose#EMAIL_CHANGE_PHONE} или {@link OtpPurpose#EMAIL_CHANGE_NEW_EMAIL}
+     * @throws ProblemException 503, если провайдер не принял сообщение (повторить можно, запрос в лимитах уже учтён)
+     */
+    public Issued issueEmailChange(OtpPurpose purpose, UUID userId, UUID ticketId, OtpStore.Admission admission, Delivery delivery) {
+        requireEmailChange(purpose);
+        Instant now = clock.instant();
+        String target = ticketId.toString();
+        String code = codes.next();
+        Instant expiresAt = now.plus(properties.ttl());
+        String key = codeKey(purpose, target);
+        store.put(key, new OtpStore.Code(crypto.codeHash(purpose, target, code), expiresAt, properties.attempts(), userId.toString(), target, ""),
+                properties.ttl());
+        try {
+            delivery.send(code);
+            count(purpose, "sent");
+        } catch (SmsSendException | EmailCodeSendException e) {
+            store.remove(key);
+            count(purpose, "send_failed");
+            LOG.warn("Код смены e-mail ({}) не отправлен, учётная запись {}: {}", purpose.code(), userId, e.getMessage());
+            throw ProblemException.dependencyUnavailable("Не удалось отправить код, повторите запрос позже.", SMS_RETRY_AFTER_SECONDS);
+        }
+        Optional<Instant> resendAt = admission.remaining() > 0 ? Optional.empty() : Optional.of(now.plus(admission.resendAfter()));
+        return new Issued(ticketId, expiresAt, properties.attempts(), resendAt);
+    }
+
+    /**
+     * Проверяет код смены e-mail и гасит его.
+     *
+     * @throws ProblemException 422 {@code otp-invalid} (с {@code attemptsLeft}) или {@code otp-expired}; 429 {@code otp-locked} после пятой
+     *                          неудачи (код погашен); 503, если Redis недоступен
+     */
+    public void verifyEmailChange(OtpPurpose purpose, UUID ticketId, String code) {
+        requireEmailChange(purpose);
+        String target = ticketId.toString();
+        OtpStore.Redemption redemption = store.redeem(new OtpStore.Redeem(codeKey(purpose, target), crypto.codeHash(purpose, target, code),
+                target, Optional.empty()), clock.instant());
+        count(purpose, "verify_" + redemption.result().name().toLowerCase(java.util.Locale.ROOT));
+        switch (redemption.result()) {
+            case VALID -> {
+            }
+            case INVALID -> throw new ProblemException(ProblemType.OTP_INVALID, "Код неверен.",
+                    Map.of("attemptsLeft", redemption.attemptsLeft()), Map.of());
+            case EXHAUSTED, LOCKED -> throw locked(properties.exhaustedRetryAfter());
+            case EXPIRED, ABSENT -> throw expired();
+            case OTHER -> throw new ProblemException(ProblemType.NOT_FOUND, "Запрос подтверждения не найден.");
+        }
+    }
+
+    private void addAccountWindows(List<OtpStore.Window> windows, UUID userId, String tag, OtpLimits limits) {
+        windows.add(OtpStore.Window.sliding(PREFIX + "rl:acct:" + userId + ":" + tag + ":10m", OtpLimits.TEN_MINUTES, limits.perTenMinutes()));
+        windows.add(OtpStore.Window.sliding(PREFIX + "rl:acct:" + userId + ":" + tag + ":day", OtpLimits.DAY, limits.perDay()));
+    }
+
+    private static void requireEmailChange(OtpPurpose purpose) {
+        if (purpose != OtpPurpose.EMAIL_CHANGE_PHONE && purpose != OtpPurpose.EMAIL_CHANGE_NEW_EMAIL) {
+            throw new IllegalArgumentException("Назначение не относится к смене e-mail");
+        }
+    }
+
     // ---- вход по коду из SMS ----
 
     /**

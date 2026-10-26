@@ -120,7 +120,9 @@
       ],
       "callers": [],
       "smsSession": "denied",
-      "idempotent": true
+      "idempotent": true,
+      "externalSteps": true,
+      "module": "support"
     },
     {
       "method": "POST",
@@ -275,7 +277,9 @@
         "buyer"
       ],
       "callers": [],
-      "idempotent": true
+      "idempotent": true,
+      "externalSteps": true,
+      "module": "support"
     },
     {
       "method": "POST",
@@ -288,7 +292,9 @@
         "buyer"
       ],
       "callers": [],
-      "idempotent": true
+      "idempotent": true,
+      "externalSteps": true,
+      "module": "support"
     },
     {
       "method": "POST",

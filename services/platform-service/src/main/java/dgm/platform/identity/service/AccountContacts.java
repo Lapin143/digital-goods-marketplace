@@ -1,5 +1,6 @@
 package dgm.platform.identity.service;
 
+import dgm.platform.identity.api.AccountEmails;
 import dgm.platform.identity.api.AdminRecipients;
 import dgm.platform.identity.api.Contact;
 import dgm.platform.identity.api.UserContacts;
@@ -13,11 +14,11 @@ import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 /**
- * {@link UserContacts} и {@link AdminRecipients} поверх учётных записей: одна короткая выборка без блокировок, соединение роли
+ * {@link UserContacts}, {@link AdminRecipients} и {@link AccountEmails} поверх учётных записей: одна короткая выборка без блокировок, соединение роли
  * {@code app_identity} не удерживается.
  */
 @Component
-public final class AccountContacts implements UserContacts, AdminRecipients {
+public final class AccountContacts implements UserContacts, AdminRecipients, AccountEmails {
 
     private final UserAccountRepository accounts;
 
@@ -36,5 +37,10 @@ public final class AccountContacts implements UserContacts, AdminRecipients {
         UserFilter filter = new UserFilter(Optional.of(Roles.ADMIN), Optional.of(UserAccount.ACTIVE), Optional.empty(), MAX, Optional.empty());
         return accounts.list(filter).stream().limit(MAX).filter(UserAccount::active).filter(account -> !account.anonymized())
                 .map(UserAccount::id).toList();
+    }
+
+    @Override
+    public boolean isUnavailable(String email) {
+        return accounts.emailExists(email);
     }
 }

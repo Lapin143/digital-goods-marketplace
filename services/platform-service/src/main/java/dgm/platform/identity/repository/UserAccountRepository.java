@@ -63,6 +63,12 @@ public interface UserAccountRepository {
      */
     boolean confirmPhone(UUID id, String phone);
 
+    /** Подтверждённый номер активной записи (E.164); пусто, если телефон не подтверждён, запись деактивирована или анонимизирована. */
+    Optional<String> confirmedPhone(UUID id);
+
+    /** Есть ли запись с этим адресом (уникальный индекс {@code uq_user_account_email}); адрес в нормализованном виде. */
+    boolean emailExists(String email);
+
     /** Соль пользователя для хешей аудита (ADR-014); пусто у анонимизированной записи. */
     Optional<byte[]> auditSalt(UUID id);
 

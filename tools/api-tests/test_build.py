@@ -9,6 +9,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build  # noqa: E402
@@ -18,6 +19,21 @@ import st02_matrix  # noqa: E402
 
 OPS = oas.load()
 MATRIX = st02_matrix.load_matrix()
+
+
+def one_operation_without_handler():
+    """Реестры сервисов с одной недоступной пока операцией: после среза 3 у всех операций шлюза есть обработчики, а проверки должны уметь отличать
+    неготовую. Возвращает идентификатор операции и подмену реестра (контекстный менеджер)."""
+    victim = next(i for i, op in OPS.items() if op.reachable and any(c.isdigit() for c in op.responses))
+    real = oas.ledger
+
+    def fake(service):
+        table = dict(real(service))
+        if OPS[victim].service == service:
+            table[victim] = 'later'
+        return table
+
+    return victim, mock.patch.object(oas, 'ledger', side_effect=fake)
 
 
 def run(scenarios, **kwargs):
@@ -49,8 +65,10 @@ class BuildTest(unittest.TestCase):
         self.assertEqual(len(done) * len(st02_matrix.ROLES), len(cases))
 
     def test_all_operations_option_adds_operations_without_handlers(self):
-        done, _ = st02_matrix.cases(OPS, MATRIX)
-        everything, _ = st02_matrix.cases(OPS, MATRIX, done_only=False)
+        _, patched = one_operation_without_handler()
+        with patched:
+            done, _ = st02_matrix.cases(OPS, MATRIX)
+            everything, _ = st02_matrix.cases(OPS, MATRIX, done_only=False)
         self.assertGreater(len(everything), len(done))
 
     def test_guest_is_refused_with_401_and_other_roles_with_403(self):
@@ -129,10 +147,11 @@ class BuildTest(unittest.TestCase):
         self.bad(lambda s: s['steps'][0].update(op='noSuchOperation'), 'нет в OpenAPI')
 
     def test_operation_without_handler_is_rejected(self):
-        later = next(i for i, op in OPS.items() if op.reachable and not oas.is_done(OPS, i) and any(c.isdigit() for c in op.responses))
+        later, patched = one_operation_without_handler()
         code = int(sorted(c for c in OPS[later].responses if c.isdigit())[0])
-        self.bad(lambda s: s['steps'][0].update(op=later, expect=code, path=dict((p, 'x') for p in OPS[later].path_params), query={}),
-                 'ещё не готова')
+        with patched:
+            self.bad(lambda s: s['steps'][0].update(op=later, expect=code, path=dict((p, 'x') for p in OPS[later].path_params), query={}),
+                     'ещё не готова')
 
     def test_undocumented_status_is_rejected(self):
         self.bad(lambda s: s['steps'][0].update(expect=418), 'не описан в OpenAPI')

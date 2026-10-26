@@ -48,7 +48,9 @@ public final class Letters {
         /** Причина неудачи выдачи из события {@code delivery.failed}, в письме словами. */
         FAILURE_REASON,
         /** Число секунд, в письме минуты: порог контроля доставки из события {@code delivery.overdue}. */
-        SECONDS_AS_MINUTES
+        SECONDS_AS_MINUTES,
+        /** Одноразовый код из шести цифр: только письма, которые уходят напрямую (SEQ-04, шаг 13); в очередь такой шаблон не ставится. */
+        CODE
     }
 
     /** Предел текста модератора, как в схеме события (AsyncAPI: maxLength 1000). */
@@ -57,18 +59,23 @@ public final class Letters {
     /** Адрес сайта на стенде (Compose: {@code DGM_PUBLIC_ORIGIN}). */
     public static final String DEFAULT_SITE_URL = "https://localhost:8443";
 
-    private static final Map<String, Map<String, Kind>> FIELDS = Map.of(
-            "seller-approved", Map.of("sellerType", Kind.SELLER_TYPE),
-            "seller-rejected", Map.of("reason", Kind.TEXT, "nextApplicationAt", Kind.TIME),
-            "seller-returned", Map.of("comment", Kind.TEXT),
-            "user-sms-login", Map.of("loggedInAt", Kind.TIME),
+    private static final Map<String, Map<String, Kind>> FIELDS = Map.ofEntries(
+            Map.entry("seller-approved", Map.of("sellerType", Kind.SELLER_TYPE)),
+            Map.entry("seller-rejected", Map.of("reason", Kind.TEXT, "nextApplicationAt", Kind.TIME)),
+            Map.entry("seller-returned", Map.of("comment", Kind.TEXT)),
+            Map.entry("user-sms-login", Map.of("loggedInAt", Kind.TIME)),
             // срез 2 (Р-138, Р-153): три письма покупателю и три администратору
-            "order-created", Map.of("orderNumber", Kind.NUMBER, "total", Kind.MONEY, "orderId", Kind.ID, "payUntil", Kind.TIME),
-            "order-paid", Map.of("orderNumber", Kind.NUMBER, "productTitle", Kind.TEXT, "total", Kind.MONEY),
-            "order-refunded", Map.of("orderNumber", Kind.NUMBER, "total", Kind.MONEY, "refundReason", Kind.REFUND_REASON),
-            "payment-refund-escalated", Map.of("orderId", Kind.ID, "amount", Kind.MONEY, "attempts", Kind.NUMBER),
-            "delivery-failed", Map.of("orderId", Kind.ID, "reason", Kind.FAILURE_REASON, "attempts", Kind.NUMBER),
-            "delivery-overdue", Map.of("orderId", Kind.ID, "paidAt", Kind.TIME, "threshold", Kind.SECONDS_AS_MINUTES));
+            Map.entry("order-created", Map.of("orderNumber", Kind.NUMBER, "total", Kind.MONEY, "orderId", Kind.ID, "payUntil", Kind.TIME)),
+            Map.entry("order-paid", Map.of("orderNumber", Kind.NUMBER, "productTitle", Kind.TEXT, "total", Kind.MONEY)),
+            Map.entry("order-refunded", Map.of("orderNumber", Kind.NUMBER, "total", Kind.MONEY, "refundReason", Kind.REFUND_REASON)),
+            Map.entry("payment-refund-escalated", Map.of("orderId", Kind.ID, "amount", Kind.MONEY, "attempts", Kind.NUMBER)),
+            Map.entry("delivery-failed", Map.of("orderId", Kind.ID, "reason", Kind.FAILURE_REASON, "attempts", Kind.NUMBER)),
+            Map.entry("delivery-overdue", Map.of("orderId", Kind.ID, "paidAt", Kind.TIME, "threshold", Kind.SECONDS_AS_MINUTES)),
+            // срез 3 (Р-169): код смены e-mail на новый адрес, уходит напрямую, минуя очередь
+            Map.entry("email-change-code", Map.of("code", Kind.CODE)));
+
+    /** Шаблоны с одноразовым кодом: код в базу не попадает (правило 17), поэтому такое письмо уходит напрямую, а в очередь не ставится. */
+    private static final Set<String> DIRECT_ONLY = Set.of("email-change-code");
 
     private static final Map<String, String> SELLER_TYPES = Map.of(
             "sole_proprietor", "индивидуальный предприниматель",
@@ -85,6 +92,7 @@ public final class Letters {
             "address_rejected", "адрес покупателя отклонён почтовым провайдером");
 
     private static final Pattern NUMBER = Pattern.compile("^[0-9]{1,12}$");
+    private static final Pattern SIX_DIGITS = Pattern.compile("^[0-9]{6}$");
     private static final Pattern MONEY = Pattern.compile("^([0-9]{1,15}) ([A-Z]{3})$");
     private static final char NBSP = '\u00A0';
 
@@ -120,6 +128,11 @@ public final class Letters {
         for (Map.Entry<String, Map<String, Kind>> entry : FIELDS.entrySet()) {
             templates.put(entry.getKey(), load(entry.getKey(), entry.getValue().keySet()));
         }
+    }
+
+    /** Шаблоны, которые уходят только напрямую (в письме одноразовый код): в очередь их ставить нельзя. */
+    public Set<String> directOnly() {
+        return DIRECT_ONLY;
     }
 
     /** Коды шаблонов этого набора. */
@@ -191,6 +204,7 @@ public final class Letters {
             case REFUND_REASON -> fromList(where, text, REFUND_REASONS);
             case FAILURE_REASON -> fromList(where, text, FAILURE_REASONS);
             case SECONDS_AS_MINUTES -> minutes(where, text);
+            case CODE -> code(where, text);
         };
     }
 
@@ -242,6 +256,13 @@ public final class Letters {
         }
         String currency = "RUB".equals(matcher.group(2)) ? "₽" : matcher.group(2);
         return grouped + "," + padded.substring(padded.length() - 2) + NBSP + currency;
+    }
+
+    private static String code(String where, String value) {
+        if (!SIX_DIGITS.matcher(value).matches()) {
+            throw new InvalidNotificationException(where + " должен состоять из шести цифр");
+        }
+        return value;
     }
 
     private static String uuid(String where, String value) {

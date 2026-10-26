@@ -1,6 +1,7 @@
 package dgm.platform.support.repository;
 
 import dgm.kit.boot.ModuleDatabases;
+import dgm.platform.support.domain.EmailChangeView;
 import dgm.platform.support.domain.OrderView;
 import dgm.platform.support.domain.QueueDepth;
 import dgm.platform.support.domain.QueueFilter;
@@ -29,10 +30,15 @@ import org.springframework.stereotype.Component;
 public final class JdbcSupportRepository implements SupportRepository {
 
     static final String MODULE = "support";
-    private static final String TICKET_COLUMNS = "id, order_id, buyer_id, source, reason, status, created_at, resolved_at, resolved_by, action";
+    /** Состояние смены e-mail (без адреса: в карточки идёт только маска) присоединяется к обращению левым соединением по первичному ключу. */
+    private static final String CHANGE_COLUMNS = "e.status as ec_status, e.phone_check as ec_phone_check, e.new_email_check as ec_new_email_check, "
+            + "e.new_email_masked as ec_masked, e.started_at as ec_started_at, e.updated_at as ec_updated_at";
+    private static final String CHANGE_JOIN = " left join support.email_change e on e.ticket_id = t.id";
+    private static final String TICKET_SELECT = "select t.id, t.order_id, t.buyer_id, t.source, t.reason, t.status, t.created_at, t.resolved_at, "
+            + "t.resolved_by, t.action, " + CHANGE_COLUMNS + " from support.ticket t" + CHANGE_JOIN;
     private static final String STAFF_SELECT = "select t.id, t.order_id, v.order_number, t.buyer_id, t.source, t.reason, t.status, t.operator_id, "
-            + "v.order_status, v.issued_at, v.delivery_status, t.created_at, t.taken_at, t.resolved_at "
-            + "from support.ticket t join support.order_view v on v.order_id = t.order_id";
+            + "v.order_status, v.issued_at, v.delivery_status, t.created_at, t.taken_at, t.resolved_at, " + CHANGE_COLUMNS
+            + " from support.ticket t join support.order_view v on v.order_id = t.order_id" + CHANGE_JOIN;
 
     private final JdbcTemplate jdbc;
 
@@ -76,9 +82,19 @@ public final class JdbcSupportRepository implements SupportRepository {
 
     @Override
     public List<ResolvedTicket> resolveOpenTickets(UUID orderId, Instant at) {
-        return jdbc.query("update support.ticket set status = 'resolved', resolved_by = 'system', resolved_at = ? "
+        List<ResolvedTicket> resolved = jdbc.query("update support.ticket set status = 'resolved', resolved_by = 'system', resolved_at = ? "
                 + "where order_id = ? and status in ('created', 'in_progress') returning id, buyer_id",
                 (rs, row) -> new ResolvedTicket(rs.getObject("id", UUID.class), rs.getObject("buyer_id", UUID.class)), utc(at), orderId);
+        // Смена e-mail, которая ещё ждёт кода, по закрытому обращению не нужна, а новый адрес в таблице после этого оставаться не должен (INV-44).
+        // Смена с обоими подтверждениями ждёт завершения и остаётся: её доделает платформа (шаг 15)
+        if (!resolved.isEmpty()) {
+            jdbc.update("update support.email_change set status = 'failed', new_email = null, updated_at = ?, "
+                    + "phone_check = case when phone_check = 'pending' then 'failed' else phone_check end, "
+                    + "new_email_check = case when new_email_check = 'pending' then 'failed' else new_email_check end "
+                    + "where ticket_id in (select id from support.ticket where order_id = ? and resolved_at = ? and resolved_by = 'system') "
+                    + "and status in ('awaiting_phone_code', 'awaiting_email_code') and new_email_check <> 'passed'", utc(at), orderId, utc(at));
+        }
+        return resolved;
     }
 
     @Override
@@ -90,28 +106,28 @@ public final class JdbcSupportRepository implements SupportRepository {
 
     @Override
     public Optional<SupportTicket> findTicket(UUID ticketId) {
-        return jdbc.query("select " + TICKET_COLUMNS + " from support.ticket where id = ?", (rs, row) -> mapTicket(rs), ticketId).stream().findFirst();
+        return jdbc.query(TICKET_SELECT + " where t.id = ?", (rs, row) -> mapTicket(rs), ticketId).stream().findFirst();
     }
 
     @Override
     public List<SupportTicket> findTickets(TicketFilter filter) {
-        StringBuilder sql = new StringBuilder("select " + TICKET_COLUMNS + " from support.ticket where buyer_id = ?");
+        StringBuilder sql = new StringBuilder(TICKET_SELECT).append(" where t.buyer_id = ?");
         List<Object> args = new ArrayList<>();
         args.add(filter.buyerId());
         filter.orderId().ifPresent(orderId -> {
-            sql.append(" and order_id = ?");
+            sql.append(" and t.order_id = ?");
             args.add(orderId);
         });
         if (!filter.statuses().isEmpty()) {
-            sql.append(" and status in (").append("?, ".repeat(filter.statuses().size() - 1)).append("?)");
+            sql.append(" and t.status in (").append("?, ".repeat(filter.statuses().size() - 1)).append("?)");
             args.addAll(filter.statuses());
         }
         filter.after().ifPresent(after -> {
-            sql.append(" and (created_at, id) < (?, ?)");
+            sql.append(" and (t.created_at, t.id) < (?, ?)");
             args.add(utc(after.createdAt()));
             args.add(after.id());
         });
-        sql.append(" order by created_at desc, id desc limit ?");
+        sql.append(" order by t.created_at desc, t.id desc limit ?");
         args.add(filter.limit() + 1);
         return jdbc.query(sql.toString(), (rs, row) -> mapTicket(rs), args.toArray());
     }
@@ -165,6 +181,11 @@ public final class JdbcSupportRepository implements SupportRepository {
     }
 
     @Override
+    public boolean markEmailChange(UUID ticketId, UUID operatorId) {
+        return jdbc.update("update support.ticket set action = 'email_change' where id = ? and status = 'in_progress' and operator_id = ?", ticketId, operatorId) == 1;
+    }
+
+    @Override
     public QueueDepth queueDepth() {
         return jdbc.query("select count(*) filter (where status = 'created') as created, count(*) filter (where status = 'in_progress') as in_progress, "
                 + "min(created_at) filter (where status = 'created') as oldest from support.ticket where status in ('created', 'in_progress')",
@@ -176,13 +197,23 @@ public final class JdbcSupportRepository implements SupportRepository {
                 rs.getObject("buyer_id", UUID.class), rs.getString("source"), rs.getString("reason"), rs.getString("status"),
                 Optional.ofNullable(rs.getObject("operator_id", UUID.class)), rs.getString("order_status"), instant(rs, "issued_at"),
                 Optional.ofNullable(rs.getString("delivery_status")), instant(rs, "created_at").orElseThrow(), instant(rs, "taken_at"),
-                instant(rs, "resolved_at"));
+                instant(rs, "resolved_at"), changeView(rs));
+    }
+
+    /** Состояние смены e-mail из соединённых столбцов; пусто, если смена по обращению не начата. */
+    private static Optional<EmailChangeView> changeView(ResultSet rs) throws SQLException {
+        String status = rs.getString("ec_status");
+        if (status == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new EmailChangeView(status, rs.getString("ec_phone_check"), rs.getString("ec_new_email_check"), rs.getString("ec_masked"),
+                instant(rs, "ec_started_at").orElseThrow(), instant(rs, "ec_updated_at").orElseThrow()));
     }
 
     private static SupportTicket mapTicket(ResultSet rs) throws SQLException {
         return new SupportTicket(rs.getObject("id", UUID.class), rs.getObject("order_id", UUID.class), rs.getObject("buyer_id", UUID.class),
                 rs.getString("source"), rs.getString("reason"), rs.getString("status"), instant(rs, "created_at").orElseThrow(),
-                instant(rs, "resolved_at"), Optional.ofNullable(rs.getString("resolved_by")), Optional.ofNullable(rs.getString("action")));
+                instant(rs, "resolved_at"), Optional.ofNullable(rs.getString("resolved_by")), Optional.ofNullable(rs.getString("action")), changeView(rs));
     }
 
     private static OrderView map(ResultSet rs) throws SQLException {

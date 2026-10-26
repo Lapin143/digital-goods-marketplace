@@ -22,8 +22,9 @@ import java.util.UUID;
  * @param createdAt      когда создано (по нему считается очередь, при возврате в очередь не меняется)
  * @param takenAt        когда взято в работу; пусто у {@code created}
  * @param resolvedAt     когда решено
+ * @param emailChange    состояние смены e-mail; пусто, пока смена по обращению не начата (шаг 14, Р-169)
  */
 public record StaffTicket(UUID id, UUID orderId, long orderNumber, UUID buyerId, String source, String reason, String status,
                           Optional<UUID> operatorId, String orderStatus, Optional<Instant> issuedAt, Optional<String> deliveryStatus,
-                          Instant createdAt, Optional<Instant> takenAt, Optional<Instant> resolvedAt) {
+                          Instant createdAt, Optional<Instant> takenAt, Optional<Instant> resolvedAt, Optional<EmailChangeView> emailChange) {
 }

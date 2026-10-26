@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.join(REPO, 'tools', 'docs-checks'))
 import check_stub_contract as S  # noqa: E402  (load/resolve по файлам OpenAPI)
 
 # Операции и коды, образцы которых обязательны: ходячий скелет (шаг 12 Ф3), товары продавца (шаг 12 Ф4, SellerProductIT), модерация товаров и карточка витрины (шаг 13 Ф4, ProductModerationIT), пул ключей (шаг 4 Ф4, образцы появятся в шаге 14), учётные записи
-# сотрудников (шаг 5 Ф4) и подтверждение телефона с внутренними операциями входа по SMS (шаг 6 Ф4), смена адреса доставки заказа (шаг 11 среза 3, OrderAddressIT) и повторная отправка ключа по обращению (шаг 13 среза 3, PlatformServiceIT). Ответ 200 вебхука статуса SMS тела не имеет,
+# сотрудников (шаг 5 Ф4) и подтверждение телефона с внутренними операциями входа по SMS (шаг 6 Ф4), смена адреса доставки заказа (шаг 11 среза 3, OrderAddressIT) повторная отправка ключа по обращению (шаг 13 среза 3, PlatformServiceIT) и смена e-mail по обращению (шаг 14 среза 3, PlatformServiceIT). Ответ 200 вебхука статуса SMS тела не имеет,
 # поэтому у receiveSmsStatus и receivePaymentGatewayNotification обязательны только отказы
 REQUIRED = {
     'catalog-service': [('listStorefrontProducts', 200), ('listStorefrontProducts', 422), ('getProductCard', 200), ('getProductCard', 404),
@@ -72,7 +72,11 @@ REQUIRED = {
                          ('issueOtpCode', 202), ('issueOtpCode', 400), ('issueOtpCode', 403), ('issueOtpCode', 422),
                          ('verifyOtpCode', 200), ('verifyOtpCode', 422),
                          ('receiveSmsStatus', 400), ('receiveSmsStatus', 401),
-                         ('resendKeyForTicket', 202), ('resendKeyForTicket', 409)],
+                         ('resendKeyForTicket', 202), ('resendKeyForTicket', 409),
+                         ('startEmailChange', 201), ('startEmailChange', 409), ('startEmailChange', 422), ('startEmailChange', 429),
+                         ('startEmailChange', 503), ('getEmailChangeState', 200), ('getEmailChangeState', 404),
+                         ('requestEmailChangeCode', 200), ('requestEmailChangeCode', 409), ('verifyEmailChangeCode', 200),
+                         ('verifyEmailChangeCode', 422), ('verifyEmailChangeCode', 429)],
 }
 PROBLEM = ('components.yaml', 'Problem')
 RFC3339 = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$')

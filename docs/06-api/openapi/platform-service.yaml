@@ -407,7 +407,7 @@ paths:
       operationId: requestEmailChangeCode
       summary: Запросить новый код смены e-mail
       description: |-
-        Покупатель просит повторно отправить код на этапе смены e-mail: `phone` повторяет SMS на подтверждённый телефон, `new_email` повторяет письмо на новый адрес. Лимиты 3 за 10 минут и 10 за сутки, иначе 429 `otp-request-limited` (US-7.4, сценарий 3). Новый код гасит прежний.
+        Покупатель просит повторно отправить код на этапе смены e-mail: `phone` повторяет SMS на подтверждённый телефон, `new_email` повторяет письмо на новый адрес. Лимиты 3 за 10 минут и 10 за сутки, иначе 429 `otp-request-limited` (US-7.4, сценарий 3). Новый код гасит прежний. Этап должен ждать этот код (иначе 409 `state-conflict`); если новый адрес за это время заняли, 409 `email-not-allowed`, смена отклоняется.
 
         Матрица прав: OP-74. Истории: US-7.4.
       tags:
@@ -420,6 +420,8 @@ paths:
       x-conditions:
       - U1
       x-sms-session: allowed
+      x-module: support
+      x-idempotency-external-steps: true
       security:
       - bearerJwt:
         - support.write
@@ -488,7 +490,7 @@ paths:
       operationId: verifyEmailChangeCode
       summary: Ввести код смены e-mail
       description: |-
-        Покупатель сам вводит коды: сначала из SMS (`phone`), затем из письма на новый адрес (`new_email`). После второго успеха e-mail учётной записи меняется в Keycloak (Admin REST), публикуется `user.email-changed`, письма о смене уходят на новый и на прежний адрес, ключ отправляется повторно (US-7.4). Неверный код: 422 `otp-invalid` с `attemptsLeft`, устаревший 422 `otp-expired`, после пятой неудачи 429 `otp-locked`: e-mail не меняется, обращение остаётся в работе. Порядок этапов нарушен или смена не начата: 409. Нужен только `support.write`, поэтому доступно из сессии по SMS.
+        Покупатель сам вводит коды: сначала из SMS (`phone`), затем из письма на новый адрес (`new_email`). После второго успеха e-mail учётной записи меняется в Keycloak (Admin REST), публикуется `user.email-changed`, письма о смене уходят на новый и на прежний адрес, ключ отправляется повторно (US-7.4). Неверный код: 422 `otp-invalid` с `attemptsLeft`, устаревший 422 `otp-expired`, после пятой неудачи 429 `otp-locked`: e-mail не меняется, обращение остаётся в работе. Порядок этапов нарушен или смена не начата: 409 `state-conflict`; адрес успели занять к моменту отправки письма: 409 `email-not-allowed`, смена отклоняется. Верный код из письма подтверждает адрес: до завершения смены состояние остаётся `awaiting_email_code`, а `newEmailCheck` равен `passed`. Нужен только `support.write`, поэтому доступно из сессии по SMS.
 
         Матрица прав: OP-74. Истории: US-7.4.
       tags:
@@ -501,6 +503,8 @@ paths:
       x-conditions:
       - U1
       x-sms-session: allowed
+      x-module: support
+      x-idempotency-external-steps: true
       security:
       - bearerJwt:
         - support.write
@@ -957,7 +961,7 @@ paths:
       operationId: startEmailChange
       summary: Начать смену e-mail покупателя
       description: |-
-        Оператор вводит новый адрес, который назвал покупатель. Сервис проверяет уникальность адреса и, если адрес нельзя использовать, отвечает нейтральным 409 `email-not-allowed` без причины и не отправляет код (US-7.4, сценарий 5). Иначе на подтверждённый телефон учётной записи уходит SMS с кодом, коды вводит сам покупатель в форме обращения. Обращение должно быть `in_progress` у этого оператора (U4, U10). Лимиты запросов кода 3 за 10 минут и 10 за сутки.
+        Оператор вводит новый адрес, который назвал покупатель. Сервис проверяет уникальность адреса и, если адрес нельзя использовать, отвечает нейтральным 409 `email-not-allowed` без причины и не отправляет код (US-7.4, сценарий 5). Иначе на подтверждённый телефон учётной записи уходит SMS с кодом, коды вводит сам покупатель в форме обращения. Обращение должно быть `in_progress` у этого оператора (U4, U10), иначе 409 `ticket-not-in-progress`. Лимиты запросов кода 3 за 10 минут и 10 за сутки. Повторный вызов начинает смену заново (запись одна на обращение); завершённую смену и смену, у которой оба кода уже подтверждены, заменить нельзя (409 `state-conflict`). Нет подтверждённого телефона или активной учётной записи: 409 `state-conflict`. Redis недоступен или провайдер SMS не принял сообщение: 503.
 
         Матрица прав: OP-73. Истории: US-7.4.
       tags:
@@ -971,6 +975,8 @@ paths:
       - U4
       - U10
       x-sms-session: denied
+      x-module: support
+      x-idempotency-external-steps: true
       security:
       - bearerJwt:
         - staff.support
@@ -1023,7 +1029,7 @@ paths:
         '404':
           $ref: components.yaml#/components/responses/E404NotFound
         '409':
-          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressEmailNotAllowed
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressTicketNotInProgressEmailNotAllowed
         '415':
           $ref: components.yaml#/components/responses/E415UnsupportedMediaType
         '422':
@@ -1040,7 +1046,7 @@ paths:
       operationId: getEmailChangeState
       summary: Результат проверок смены e-mail
       description: |-
-        Оператор видит только «пройдена» или «не пройдена» по каждой проверке, коды не видны (FT-7.5).
+        Оператор видит только результат каждой проверки (`pending`, `passed`, `failed`), коды и полный адрес не видны, у нового адреса только маска (FT-7.5). Состояние читается у обращения в работе у этого оператора (U10); если смена не начата или обращение не его, 404.
 
         Матрица прав: OP-73. Истории: US-7.4.
       tags:

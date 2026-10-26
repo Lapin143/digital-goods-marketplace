@@ -8,7 +8,7 @@ import java.util.UUID;
  * Запрос на уведомление.
  *
  * @param userId        получатель; адрес берётся у identity в момент отправки
- * @param template      код шаблона письма: {@code seller-approved}, {@code seller-rejected}, {@code seller-returned}, {@code user-sms-login}
+ * @param template      код шаблона письма: {@code seller-approved}, {@code seller-rejected}, {@code seller-returned}, {@code user-sms-login}; письма с кодом ({@code email-change-code}) ставятся не в очередь, а через {@code DirectMail}
  * @param params        параметры шаблона без адресов, телефонов и имён получателя (INV-44)
  * @param sourceEventId событие, из которого создано уведомление; вместе с шаблоном даёт ключ дедупликации, {@code null} для уведомлений не из события
  */

@@ -2,10 +2,14 @@ package dgm.platform.support.web;
 
 import dgm.kit.boot.PeerClients;
 import dgm.platform.auditadmin.api.PlatformParameters;
+import dgm.platform.identity.api.AccountEmails;
+import dgm.platform.identity.api.EmailChangeCodes;
 import dgm.platform.identity.api.UserContacts;
 import dgm.platform.support.client.OrderClient;
 import dgm.platform.support.client.PeerOrderClient;
+import dgm.platform.support.repository.EmailChangeRepository;
 import dgm.platform.support.repository.SupportRepository;
+import dgm.platform.support.service.EmailChangeService;
 import dgm.platform.support.service.QueueMetrics;
 import dgm.platform.support.service.QueueService;
 import dgm.platform.support.service.ResendService;
@@ -22,7 +26,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Подключение модуля {@code support}: ядро поддержки среза 2 (Р-137), обращения покупателя, очередь оператора и повторная отправка ключа среза 3 (Р-177, Р-163, Р-170). Обработчики событий это
+ * Подключение модуля {@code support}: ядро поддержки среза 2 (Р-137), обращения покупателя, очередь оператора, повторная отправка ключа и смена e-mail по обращению среза 3 (Р-177, Р-163, Р-170, Р-169). Обработчики событий это
  * компоненты пакета {@code handler}, потребителя Kafka создаёт каркас, когда в сервисе есть хотя бы один обработчик.
  */
 @Configuration(proxyBeanMethods = false)
@@ -55,6 +59,14 @@ public class SupportConfiguration {
     ResendService resendService(SupportRepository repository, SupportTransaction transaction, SupportOutbox outbox, UserContacts contacts, OrderClient orders,
                                 Clock clock, ObjectProvider<MeterRegistry> metrics) {
         return new ResendService(repository, transaction, outbox, contacts, orders, clock, metrics.getIfAvailable(SimpleMeterRegistry::new));
+    }
+
+    @Bean
+    EmailChangeService emailChangeService(SupportRepository tickets, EmailChangeRepository changes, SupportTransaction transaction, SupportOutbox outbox,
+                                          EmailChangeCodes codes, AccountEmails emails, UserContacts contacts, Clock clock,
+                                          ObjectProvider<MeterRegistry> metrics) {
+        return new EmailChangeService(tickets, changes, transaction, outbox, codes, emails, contacts, clock,
+                metrics.getIfAvailable(SimpleMeterRegistry::new));
     }
 
     @Bean

@@ -19,9 +19,11 @@ import java.util.UUID;
  * @param resolvedAt когда решено (у решённого обращения)
  * @param resolvedBy {@code operator} или {@code system} (у решённого обращения)
  * @param action     {@code resend} или {@code email_change}; пусто, если решено системой по факту доставки
+ * @param emailChange состояние смены e-mail (адрес только с маской); пусто, пока смена по обращению не начата (шаг 14, Р-169)
  */
 public record SupportTicket(UUID id, UUID orderId, UUID buyerId, String source, String reason, String status, Instant createdAt,
-                            Optional<Instant> resolvedAt, Optional<String> resolvedBy, Optional<String> action) {
+                            Optional<Instant> resolvedAt, Optional<String> resolvedBy, Optional<String> action,
+                            Optional<EmailChangeView> emailChange) {
 
     public static final String CREATED = "created";
     public static final String IN_PROGRESS = "in_progress";

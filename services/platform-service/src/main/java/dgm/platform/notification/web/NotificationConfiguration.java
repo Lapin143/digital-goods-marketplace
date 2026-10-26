@@ -4,9 +4,11 @@ import dgm.kit.boot.SecretsDirectory;
 import dgm.kit.tls.TlsMaterial;
 import dgm.platform.identity.api.UserContacts;
 import dgm.platform.notification.client.HttpEmailClient;
+import dgm.platform.notification.api.DirectMail;
 import dgm.platform.notification.domain.RetryPolicy;
 import dgm.platform.notification.letter.Letters;
 import dgm.platform.notification.repository.NotificationRepository;
+import dgm.platform.notification.service.DirectMailService;
 import dgm.platform.notification.service.EmailSender;
 import dgm.platform.notification.service.NotificationDispatcher;
 import dgm.platform.notification.service.NotificationProperties;
@@ -40,6 +42,12 @@ public class NotificationConfiguration {
     @Bean
     EmailSender emailSender(SecretsDirectory secrets, TlsMaterial tls, @Value("${dgm.email.base-url:https://external-stubs:8443}") String baseUrl) {
         return new HttpEmailClient(baseUrl, () -> secrets.read("platform_email_key"), tls.trustOnlyContext());
+    }
+
+    /** Прямая отправка писем с кодом (Р-169): минуя очередь, код в базу не попадает. */
+    @Bean
+    DirectMail directMail(Letters letters, EmailSender sender, Clock clock, ObjectProvider<MeterRegistry> metrics) {
+        return new DirectMailService(letters, sender, clock, metrics.getIfAvailable(SimpleMeterRegistry::new));
     }
 
     @Bean

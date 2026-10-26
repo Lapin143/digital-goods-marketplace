@@ -169,8 +169,8 @@ public class SupportTicketController {
     }
 
     /**
-     * Ответ по схеме SupportTicket. Состояние смены e-mail ({@code emailChange}) появляется с шагом 14, до него поле всегда {@code null}.
-     * Ни значений ключей, ни адресов, ни кодов в ответе нет.
+     * Ответ по схеме SupportTicket. Состояние смены e-mail ({@code emailChange}) заполнено, когда оператор начал смену по обращению (шаг 14, Р-169),
+     * иначе {@code null}: по нему форма обращения знает, какой код просить у покупателя. Ни значений ключей, кодов и полного адреса в ответе нет.
      */
     static Map<String, Object> toJson(SupportTicket t) {
         Map<String, Object> row = new LinkedHashMap<>();
@@ -188,7 +188,7 @@ public class SupportTicketController {
             resolution.put("action", t.action().orElse(null));
         }
         row.put("resolution", resolution);
-        row.put("emailChange", null);
+        row.put("emailChange", t.emailChange().map(EmailChangeController::toJson).orElse(null));
         return row;
     }
 }

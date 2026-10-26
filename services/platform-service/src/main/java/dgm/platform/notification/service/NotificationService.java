@@ -41,6 +41,9 @@ public final class NotificationService implements Notifications {
         if (!TEMPLATE.matcher(request.template()).matches()) {
             throw new InvalidNotificationException("Код шаблона не подходит формату");
         }
+        if (letters.directOnly().contains(request.template())) {
+            throw new InvalidNotificationException("Шаблон " + request.template() + " уходит только напрямую: код в очередь и в базу не попадает");
+        }
         for (Map.Entry<String, Object> param : request.params().entrySet()) {
             if (PERSONAL_KEYS.contains(param.getKey())) {
                 throw new InvalidNotificationException("Параметр " + param.getKey() + " зарезервирован: персональных данных в очереди нет (INV-44)");

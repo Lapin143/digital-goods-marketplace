@@ -1468,6 +1468,55 @@ components:
                 detail: Этот адрес использовать нельзя.
                 code: email-not-allowed
                 correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E409StateConflictRequestInProgressTicketNotInProgressEmailNotAllowed:
+      description: Действие недоступно в этом статусе; Запрос уже выполняется; Обращение не в работе; Адрес использовать нельзя
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            state-conflict:
+              summary: Действие недоступно в этом статусе
+              value:
+                type: https://api.marketplace.example/problems/state-conflict
+                title: Действие недоступно в этом статусе
+                status: 409
+                detail: Действие недоступно в текущем статусе объекта.
+                code: state-conflict
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                currentStatus: created
+            request-in-progress:
+              summary: Запрос уже выполняется
+              value:
+                type: https://api.marketplace.example/problems/request-in-progress
+                title: Запрос уже выполняется
+                status: 409
+                detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
+                code: request-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            ticket-not-in-progress:
+              summary: Обращение не в работе
+              value:
+                type: https://api.marketplace.example/problems/ticket-not-in-progress
+                title: Обращение не в работе
+                status: 409
+                detail: Действие доступно только по обращению, которое вы взяли в работу.
+                code: ticket-not-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            email-not-allowed:
+              summary: Адрес использовать нельзя
+              value:
+                type: https://api.marketplace.example/problems/email-not-allowed
+                title: Адрес использовать нельзя
+                status: 409
+                detail: Этот адрес использовать нельзя.
+                code: email-not-allowed
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
     E409StateConflictRequestInProgressLastAdminRequiredRoleManagedBySystem:
       description: Действие недоступно в этом статусе; Запрос уже выполняется; Нужен хотя бы один администратор;
         Роль управляется системой

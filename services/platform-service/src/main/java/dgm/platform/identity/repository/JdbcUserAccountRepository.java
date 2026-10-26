@@ -153,6 +153,17 @@ public final class JdbcUserAccountRepository implements UserAccountRepository {
     }
 
     @Override
+    public Optional<String> confirmedPhone(UUID id) {
+        return jdbc.query("select phone from identity.user_account where id = ? and status = 'active' and not anonymized and phone_confirmed "
+                + "and phone is not null", (rs, row) -> rs.getString("phone"), id).stream().findFirst();
+    }
+
+    @Override
+    public boolean emailExists(String email) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("select exists (select 1 from identity.user_account where email = ?)", Boolean.class, email));
+    }
+
+    @Override
     public Optional<byte[]> auditSalt(UUID id) {
         return jdbc.query("select audit_salt from identity.user_account where id = ? and audit_salt is not null",
                 (rs, row) -> rs.getBytes("audit_salt"), id).stream().findFirst();

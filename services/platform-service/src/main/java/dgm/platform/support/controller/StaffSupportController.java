@@ -153,8 +153,8 @@ public class StaffSupportController {
     }
 
     /**
-     * Ответ по схеме StaffSupportTicket. Состояние смены e-mail ({@code emailChange}) появляется с шагом 14, до него поле всегда {@code null}.
-     * Ни значений ключей, ни адресов, ни кодов в ответе нет (INV-23).
+     * Ответ по схеме StaffSupportTicket. Состояние смены e-mail ({@code emailChange}) заполнено, когда оператор начал смену по обращению
+     * (шаг 14, Р-169), иначе {@code null}. Ни значений ключей, ни кодов, ни полного адреса в ответе нет, у нового адреса только маска (INV-23).
      */
     static Map<String, Object> toJson(StaffTicket t) {
         Map<String, Object> row = new LinkedHashMap<>();
@@ -172,7 +172,7 @@ public class StaffSupportController {
         row.put("createdAt", Timestamps.format(t.createdAt()));
         row.put("takenAt", t.takenAt().map(Timestamps::format).orElse(null));
         row.put("resolvedAt", t.resolvedAt().map(Timestamps::format).orElse(null));
-        row.put("emailChange", null);
+        row.put("emailChange", t.emailChange().map(EmailChangeController::toJson).orElse(null));
         return row;
     }
 }
