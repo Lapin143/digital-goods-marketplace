@@ -8,6 +8,7 @@ import dgm.platform.identity.domain.Roles;
 import dgm.platform.identity.domain.UserAccount;
 import dgm.platform.identity.domain.UserFilter;
 import dgm.platform.identity.repository.UserAccountRepository;
+import java.time.Clock;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -21,15 +22,23 @@ import org.springframework.stereotype.Component;
 public final class AccountContacts implements UserContacts, AdminRecipients, AccountEmails {
 
     private final UserAccountRepository accounts;
+    private final Clock clock;
 
-    public AccountContacts(UserAccountRepository accounts) {
+    public AccountContacts(UserAccountRepository accounts, Clock clock) {
         this.accounts = accounts;
+        this.clock = clock;
     }
 
     @Override
     public Optional<Contact> findActive(UUID userId) {
         return accounts.find(userId).filter(UserAccount::active).filter(account -> !account.anonymized())
                 .map(account -> new Contact(account.id(), account.email(), account.name()));
+    }
+
+    @Override
+    public Optional<Contact> findPrevious(UUID userId) {
+        return accounts.find(userId).filter(UserAccount::active).filter(account -> !account.anonymized())
+                .flatMap(account -> accounts.previousEmail(userId, clock.instant()).map(email -> new Contact(account.id(), email, account.name())));
     }
 
     @Override

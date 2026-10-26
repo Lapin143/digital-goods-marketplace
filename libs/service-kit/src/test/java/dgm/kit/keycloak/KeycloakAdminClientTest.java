@@ -240,6 +240,93 @@ class KeycloakAdminClientTest {
     }
 
     @Test
+    void emailIsChangedTogetherWithTheLoginNameWhenTheNameWasTheOldAddressAndMarkedVerified() throws Exception {
+        router = req -> {
+            if (req.path().endsWith("/token")) {
+                return token(req, 300);
+            }
+            return req.method().equals("GET")
+                    ? new Resp(200, "{\"id\":\"" + USER_ID + "\",\"username\":\"old@mail.example\",\"email\":\"old@mail.example\",\"emailVerified\":false,"
+                    + "\"firstName\":\"Ann\",\"attributes\":{\"phone_verified\":[\"true\"]}}")
+                    : new Resp(204, null);
+        };
+        client().setEmail(USER_ID, "new@mail.example");
+        Req put = requests.stream().filter(r -> r.method().equals("PUT")).findFirst().orElseThrow();
+        Map<String, Object> sent = Json.parseObject(put.body());
+        assertEquals("new@mail.example", sent.get("email"));
+        assertEquals("new@mail.example", sent.get("username"));
+        assertEquals(Boolean.TRUE, sent.get("emailVerified"));
+        assertEquals("Ann", sent.get("firstName"), "остальные поля профиля отправляются обратно как были");
+        assertTrue(sent.get("attributes") instanceof Map<?, ?> attributes && attributes.containsKey("phone_verified"));
+    }
+
+    @Test
+    void anUnrelatedLoginNameStaysAsItWas() throws Exception {
+        router = req -> {
+            if (req.path().endsWith("/token")) {
+                return token(req, 300);
+            }
+            return req.method().equals("GET")
+                    ? new Resp(200, "{\"id\":\"" + USER_ID + "\",\"username\":\"vk-12345\",\"email\":\"old@mail.example\",\"emailVerified\":true}")
+                    : new Resp(204, null);
+        };
+        client().setEmail(USER_ID, "new@mail.example");
+        Req put = requests.stream().filter(r -> r.method().equals("PUT")).findFirst().orElseThrow();
+        assertEquals("vk-12345", Json.parseObject(put.body()).get("username"));
+        assertEquals("new@mail.example", Json.parseObject(put.body()).get("email"));
+    }
+
+    @Test
+    void settingTheSameVerifiedEmailAgainDoesNotCallUpdateAndAnUnverifiedOneIsMarked() throws Exception {
+        router = req -> {
+            if (req.path().endsWith("/token")) {
+                return token(req, 300);
+            }
+            return req.method().equals("GET")
+                    ? new Resp(200, "{\"id\":\"" + USER_ID + "\",\"username\":\"new@mail.example\",\"email\":\"New@Mail.example\",\"emailVerified\":true}")
+                    : new Resp(204, null);
+        };
+        KeycloakAdminClient client = client();
+        client.setEmail(USER_ID, "new@mail.example");
+        assertEquals(0, requests.stream().filter(r -> r.method().equals("PUT")).count());
+
+        router = req -> {
+            if (req.path().endsWith("/token")) {
+                return token(req, 300);
+            }
+            return req.method().equals("GET")
+                    ? new Resp(200, "{\"id\":\"" + USER_ID + "\",\"username\":\"new@mail.example\",\"email\":\"new@mail.example\",\"emailVerified\":false}")
+                    : new Resp(204, null);
+        };
+        client.setEmail(USER_ID, "new@mail.example");
+        assertEquals(1, requests.stream().filter(r -> r.method().equals("PUT")).count());
+    }
+
+    @Test
+    void anAddressOfAnotherUserIsRefusedWithoutRetryAndWithoutTheAddressInTheMessage() throws Exception {
+        router = req -> {
+            if (req.path().endsWith("/token")) {
+                return token(req, 300);
+            }
+            return req.method().equals("GET")
+                    ? new Resp(200, "{\"id\":\"" + USER_ID + "\",\"username\":\"old@mail.example\",\"email\":\"old@mail.example\"}")
+                    : new Resp(409, "{\"errorMessage\":\"User exists with same email\"}");
+        };
+        KeycloakException e = assertThrows(KeycloakException.class, () -> client().setEmail(USER_ID, "taken@mail.example"));
+        assertEquals(409, e.status());
+        assertFalse(e.retryable());
+        assertFalse(e.getMessage().contains("taken@mail.example"), e.getMessage());
+        assertFalse(e.getMessage().contains("User exists"), e.getMessage());
+    }
+
+    @Test
+    void aBlankEmailIsRejectedBeforeAnyCall() throws Exception {
+        KeycloakAdminClient client = client();
+        assertThrows(IllegalArgumentException.class, () -> client.setEmail(USER_ID, " "));
+        assertTrue(requests.isEmpty());
+    }
+
+    @Test
     void realmRolesAreAddedAndRemovedByRepresentation() throws Exception {
         router = req -> {
             if (req.path().endsWith("/token")) {

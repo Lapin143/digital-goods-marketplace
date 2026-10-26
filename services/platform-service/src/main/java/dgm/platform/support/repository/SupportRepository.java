@@ -96,6 +96,14 @@ public interface SupportRepository {
      */
     boolean markEmailChange(UUID ticketId, UUID operatorId);
 
+    /**
+     * Запоминает результат проверки кода покупателя при завершении смены e-mail: {@code code_check_result = 'passed'} (FT-7.5, оператор видит только
+     * результат). Не зависит от статуса обращения: подтверждённая смена завершается и по обращению, которое успели решить.
+     *
+     * @return {@code false}: обращения нет
+     */
+    boolean markCodeCheckPassed(UUID ticketId);
+
     /** Число открытых обращений по статусам и время самого старого из «созданных» (метрики очереди). */
     QueueDepth queueDepth();
 }

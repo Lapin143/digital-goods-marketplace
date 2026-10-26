@@ -125,4 +125,9 @@ public final class KeycloakIdentityProvider implements IdentityProvider {
     public void markPhoneVerified(UUID id) {
         keycloak.setAttributes(id.toString(), Map.of(PHONE_ATTRIBUTE, "true"));
     }
+
+    @Override
+    public void setEmail(UUID id, String email) {
+        keycloak.setEmail(id.toString(), email);
+    }
 }

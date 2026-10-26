@@ -5,6 +5,7 @@ import dgm.kit.problem.ProblemException;
 import dgm.kit.problem.ProblemType;
 import dgm.platform.identity.api.AccountEmails;
 import dgm.platform.identity.api.EmailChangeCodes;
+import dgm.platform.identity.api.EmailChanger;
 import dgm.platform.identity.api.UserContacts;
 import dgm.platform.support.domain.EmailChange;
 import dgm.platform.support.domain.EmailChangeView;
@@ -25,10 +26,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Смена e-mail по обращению, часть 1: этапы, коды, лимиты ({@code startEmailChange}, {@code getEmailChangeState}, {@code requestEmailChangeCode},
- * {@code verifyEmailChangeCode}; OP-73, OP-74, US-7.4, SEQ-04, Р-169). Оператор называет новый адрес и видит только результат проверок; коды вводит сам
- * покупатель. Завершение смены (Keycloak, учётная запись, события) это шаг 15: после верного кода из письма смена остаётся в состоянии «адрес
- * подтверждён, не завершён» ({@link EmailChange#confirmedNotCompleted()}).
+ * Смена e-mail по обращению ({@code startEmailChange}, {@code getEmailChangeState}, {@code requestEmailChangeCode}, {@code verifyEmailChangeCode};
+ * OP-73, OP-74, US-7.4, SEQ-04, Р-169). Оператор называет новый адрес и видит только результат проверок; коды вводит сам покупатель. После верного кода из
+ * письма смена в состоянии «адрес подтверждён, не завершён» ({@link EmailChange#confirmedNotCompleted()}) и сразу завершается ({@link #complete}): адрес
+ * меняет identity ({@link EmailChanger}: Keycloak, запись, событие {@code user.email-changed}, аудит с хешами), затем в транзакции {@code support} смена
+ * получает статус «выполнена», а повторная отправка ключа на новый адрес запускается сама (BPMN-04, решение 3). Две базы под разными ролями одной транзакцией
+ * не охватить, поэтому шаги идемпотентны, а то, что не завершилось сразу, доводит сверка ({@link EmailChangeReconciler}): коды при этом заново не
+ * запрашиваются (SEQ-04, раздел 7).
  *
  * <p>Этапы: {@code awaiting_phone_code} (SMS на подтверждённый телефон) → {@code awaiting_email_code} (письмо на новый адрес) → {@code completed};
  * любая исчерпанная проверка и занятый адрес дают {@code failed}, адрес обнуляется, обращение остаётся в работе, оператор может начать смену заново.
@@ -83,11 +87,14 @@ public final class EmailChangeService {
     private final EmailChangeCodes codes;
     private final AccountEmails emails;
     private final UserContacts contacts;
+    private final EmailChanger changer;
+    private final ResendService resend;
     private final Clock clock;
     private final MeterRegistry metrics;
 
     public EmailChangeService(SupportRepository tickets, EmailChangeRepository changes, SupportTransaction transaction, SupportOutbox outbox,
-                              EmailChangeCodes codes, AccountEmails emails, UserContacts contacts, Clock clock, MeterRegistry metrics) {
+                              EmailChangeCodes codes, AccountEmails emails, UserContacts contacts, EmailChanger changer, ResendService resend, Clock clock,
+                              MeterRegistry metrics) {
         this.tickets = tickets;
         this.changes = changes;
         this.transaction = transaction;
@@ -95,6 +102,8 @@ public final class EmailChangeService {
         this.codes = codes;
         this.emails = emails;
         this.contacts = contacts;
+        this.changer = changer;
+        this.resend = resend;
         this.clock = clock;
         this.metrics = metrics;
     }
@@ -142,11 +151,12 @@ public final class EmailChangeService {
 
     /**
      * {@code verifyEmailChangeCode}: проверка кода покупателя. Верный код из SMS переводит смену к письму и отправляет его; верный код из письма
-     * подтверждает адрес (завершение смены это шаг 15).
+     * подтверждает адрес и завершает смену. Если завершение не удалось из-за недоступности Keycloak (503 внутри), ответ остаётся успешным: код уже принят
+     * и погашен, смена в состоянии «адрес подтверждён, не завершён», её доведёт сверка.
      *
-     * @throws ProblemException 404; 409 ({@code state-conflict}, {@code email-not-allowed}); 422 {@code otp-invalid} (с {@code attemptsLeft}) или
-     *                          {@code otp-expired}; 429 {@code otp-locked} после пятой неудачи (смена отклонена) или {@code otp-request-limited}
-     *                          (письмо после телефона); 503
+     * @throws ProblemException 404; 409 ({@code state-conflict}, {@code email-not-allowed}: адрес успели занять, смена отклонена); 422
+     *                          {@code otp-invalid} (с {@code attemptsLeft}) или {@code otp-expired}; 429 {@code otp-locked} после пятой неудачи (смена
+     *                          отклонена) или {@code otp-request-limited} (письмо после телефона); 503
      */
     public EmailChangeView verify(UUID buyerId, Optional<String> ip, UUID ticketId, Step step, String code) {
         return counted("verify_" + step.code(), () -> doVerify(buyerId, ip, ticketId, step, code));
@@ -259,6 +269,100 @@ public final class EmailChangeService {
             return null;
         });
         LOG.info("Новый адрес по обращению {} подтверждён кодом из письма, смена ждёт завершения", ticketId);
+        try {
+            complete(ticketId);
+        } catch (ProblemException e) {
+            if (e.type() != ProblemType.DEPENDENCY_UNAVAILABLE) {
+                throw e;
+            }
+            LOG.warn("Смена e-mail по обращению {} подтверждена, но не завершена: сервис идентификации недоступен, завершит сверка", ticketId);
+        }
+    }
+
+    // ---- завершение ----
+
+    /**
+     * Завершает подтверждённую смену (SEQ-04, шаги 18 – 23): identity меняет адрес (Keycloak, запись, событие, аудит), затем транзакция {@code support}
+     * переводит смену в «выполнена», записывает результат проверки кода у обращения и обнуляет новый адрес, после чего сама запускается повторная отправка
+     * ключа. Метод идемпотентен: у завершённой смены возвращает её состояние, а повтор после падения между шагами доделывает недоделанное, не запрашивая коды.
+     * Сбой автоповтора смену не откатывает: адрес уже изменён, оператор видит обращение в работе и повторяет отправку сам.
+     *
+     * @throws ProblemException 409 {@code email-not-allowed} (адрес успели занять) или {@code state-conflict} (учётная запись больше не активна): смена
+     *                          отклонена, обращение остаётся в работе; 503: identity недоступна, смена остаётся подтверждённой и не завершённой
+     */
+    public EmailChangeView complete(UUID ticketId) {
+        EmailChange change = changes.find(ticketId).orElseThrow(() -> new ProblemException(ProblemType.STATE_CONFLICT, "Смена e-mail по обращению не начата."));
+        if (EmailChange.COMPLETED.equals(change.status())) {
+            return change.view();
+        }
+        if (!change.confirmedNotCompleted()) {
+            throw new ProblemException(ProblemType.STATE_CONFLICT, "Оба подтверждения смены e-mail ещё не получены.");
+        }
+        Optional<UUID> operatorId = tickets.findStaffTicket(ticketId).flatMap(StaffTicket::operatorId);
+        try {
+            changer.apply(change.userId(), newEmailOf(change), ticketId, operatorId);
+        } catch (ProblemException e) {
+            if (e.type() != ProblemType.DEPENDENCY_UNAVAILABLE) {
+                Instant failedAt = clock.instant();
+                transaction.execute(() -> changes.failConfirmed(ticketId, failedAt));
+                LOG.info("Подтверждённая смена e-mail по обращению {} отклонена: {}", ticketId, e.type().code());
+            }
+            count("complete", e.type().code());
+            throw e;
+        } catch (RuntimeException e) {
+            count("complete", "error");
+            throw e;
+        }
+        Instant now = clock.instant();
+        boolean finished = transaction.execute(() -> {
+            boolean done = changes.completed(ticketId, now);
+            tickets.markCodeCheckPassed(ticketId);
+            return done;
+        });
+        count("complete", "accepted");
+        LOG.info("Смена e-mail по обращению {} завершена", ticketId);
+        if (finished) {
+            autoResend(ticketId);
+        }
+        return current(ticketId);
+    }
+
+    /**
+     * Сверка (SEQ-04, раздел 7): доводит до конца подтверждённые смены, которые не менялись с момента {@code before}. Падение платформы между Keycloak и
+     * завершением, недоступность identity при подтверждении кода и сбой базы между шагами выглядят одинаково: этап подтверждён, не завершён.
+     *
+     * @return сколько смен завершено; ошибка по одной смене проход не останавливает
+     */
+    public int finishStuck(Instant before, int limit) {
+        int finished = 0;
+        for (UUID ticketId : changes.confirmedNotCompletedSince(before, limit)) {
+            try {
+                complete(ticketId);
+                finished++;
+            } catch (ProblemException e) {
+                LOG.warn("Сверка не завершила смену e-mail по обращению {}: {}", ticketId, e.type().code());
+            } catch (RuntimeException e) {
+                LOG.warn("Сверка не завершила смену e-mail по обращению {}: {}", ticketId, e.getClass().getSimpleName());
+            }
+        }
+        return finished;
+    }
+
+    /** Повторная отправка ключа на новый адрес после смены: отдельный шаг, чей сбой смену не откатывает. */
+    private void autoResend(UUID ticketId) {
+        try {
+            if (resend.resendAfterEmailChange(ticketId)) {
+                count("resend", "accepted");
+            } else {
+                count("resend", "skipped");
+            }
+        } catch (ProblemException e) {
+            count("resend", e.type().code());
+            LOG.warn("Автоповтор выдачи после смены e-mail по обращению {} не запущен: {}; оператор повторит отправку сам", ticketId, e.type().code());
+        } catch (RuntimeException e) {
+            count("resend", "error");
+            LOG.warn("Автоповтор выдачи после смены e-mail по обращению {} не запущен: {}", ticketId, e.getClass().getSimpleName());
+        }
     }
 
     // ---- вспомогательное ----

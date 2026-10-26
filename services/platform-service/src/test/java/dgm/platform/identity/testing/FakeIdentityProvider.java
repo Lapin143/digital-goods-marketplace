@@ -21,6 +21,7 @@ public final class FakeIdentityProvider implements IdentityProvider {
     private final Set<UUID> federated = new HashSet<>();
     private final Set<UUID> failing = new HashSet<>();
     private final Set<UUID> phoneVerified = new HashSet<>();
+    private final Set<String> takenEmails = new HashSet<>();
     private final List<String> calls = new ArrayList<>();
     private final FakeTransaction transaction;
     private boolean down;
@@ -86,6 +87,20 @@ public final class FakeIdentityProvider implements IdentityProvider {
     public Optional<String> sellerIdOf(UUID id) {
         KeycloakUser u = users.get(id);
         return u == null ? Optional.empty() : Optional.ofNullable(u.attribute("seller_id"));
+    }
+
+    /** Адрес в Keycloak уже у другого пользователя: {@code setEmail} с ним отвечает 409. */
+    public void takeEmail(String email) {
+        takenEmails.add(email);
+    }
+
+    /** E-mail пользователя в Keycloak. */
+    public String emailOf(UUID id) {
+        return users.get(id).email();
+    }
+
+    public boolean emailVerified(UUID id) {
+        return users.get(id).emailVerified();
     }
 
     public boolean phoneVerified(UUID id) {
@@ -168,6 +183,19 @@ public final class FakeIdentityProvider implements IdentityProvider {
     public void delete(UUID id) {
         enter("delete", id);
         users.remove(id);
+    }
+
+    @Override
+    public void setEmail(UUID id, String email) {
+        enter("setEmail", id);
+        KeycloakUser u = users.get(id);
+        if (u == null) {
+            throw new KeycloakException(404, "Пользователя нет в Keycloak", false);
+        }
+        if (takenEmails.contains(email) && !email.equals(u.email())) {
+            throw new KeycloakException(409, "Keycloak ответил 409 на PUT /users/{id}", false);
+        }
+        users.put(id, new KeycloakUser(u.id(), email, email, u.firstName(), u.lastName(), u.enabled(), true, u.createdTimestamp(), u.attributes()));
     }
 
     @Override

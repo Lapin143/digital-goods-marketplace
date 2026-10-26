@@ -1,14 +1,17 @@
 package dgm.platform.support.web;
 
 import dgm.kit.boot.PeerClients;
+import dgm.kit.outbox.OutboxRelay;
 import dgm.platform.auditadmin.api.PlatformParameters;
 import dgm.platform.identity.api.AccountEmails;
 import dgm.platform.identity.api.EmailChangeCodes;
+import dgm.platform.identity.api.EmailChanger;
 import dgm.platform.identity.api.UserContacts;
 import dgm.platform.support.client.OrderClient;
 import dgm.platform.support.client.PeerOrderClient;
 import dgm.platform.support.repository.EmailChangeRepository;
 import dgm.platform.support.repository.SupportRepository;
+import dgm.platform.support.service.EmailChangeReconciler;
 import dgm.platform.support.service.EmailChangeService;
 import dgm.platform.support.service.QueueMetrics;
 import dgm.platform.support.service.QueueService;
@@ -21,7 +24,9 @@ import dgm.platform.support.service.TicketService;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
+import java.time.Duration;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -63,10 +68,17 @@ public class SupportConfiguration {
 
     @Bean
     EmailChangeService emailChangeService(SupportRepository tickets, EmailChangeRepository changes, SupportTransaction transaction, SupportOutbox outbox,
-                                          EmailChangeCodes codes, AccountEmails emails, UserContacts contacts, Clock clock,
-                                          ObjectProvider<MeterRegistry> metrics) {
-        return new EmailChangeService(tickets, changes, transaction, outbox, codes, emails, contacts, clock,
+                                          EmailChangeCodes codes, AccountEmails emails, UserContacts contacts, EmailChanger changer, ResendService resend,
+                                          Clock clock, ObjectProvider<MeterRegistry> metrics) {
+        return new EmailChangeService(tickets, changes, transaction, outbox, codes, emails, contacts, changer, resend, clock,
                 metrics.getIfAvailable(SimpleMeterRegistry::new));
+    }
+
+    /** Сверка зависших смен e-mail (ключи {@code dgm.support.email-change-*}): раз в полминуты, смена должна простоять неизменной минуту. */
+    @Bean
+    EmailChangeReconciler emailChangeReconciler(EmailChangeService service, ObjectProvider<OutboxRelay> relay, Clock clock,
+                                                @Value("${dgm.support.email-change-stuck-after:PT60S}") Duration stuckAfter) {
+        return new EmailChangeReconciler(service, relay, stuckAfter, clock);
     }
 
     @Bean

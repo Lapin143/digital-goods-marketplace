@@ -11,9 +11,20 @@ import java.util.UUID;
 public final class FakeContacts implements UserContacts {
 
     private final Map<UUID, Contact> active = new LinkedHashMap<>();
+    private final Map<UUID, Contact> previous = new LinkedHashMap<>();
 
     public void put(UUID userId, String email, String name) {
         active.put(userId, new Contact(userId, email, name));
+    }
+
+    /** Прежний адрес пользователя после смены e-mail: пока он хранится, письмо старому ящику получатель находит. */
+    public void putPrevious(UUID userId, String email, String name) {
+        previous.put(userId, new Contact(userId, email, name));
+    }
+
+    /** Срок хранения прежнего адреса вышел: адрес очищен. */
+    public void expirePrevious(UUID userId) {
+        previous.remove(userId);
     }
 
     public void deactivate(UUID userId) {
@@ -23,5 +34,10 @@ public final class FakeContacts implements UserContacts {
     @Override
     public Optional<Contact> findActive(UUID userId) {
         return Optional.ofNullable(active.get(userId));
+    }
+
+    @Override
+    public Optional<Contact> findPrevious(UUID userId) {
+        return active.containsKey(userId) ? Optional.ofNullable(previous.get(userId)) : Optional.empty();
     }
 }

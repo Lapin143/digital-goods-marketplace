@@ -67,6 +67,14 @@ class EmailChangeServiceTest {
         return assertThrows(ProblemException.class, action);
     }
 
+    /** Оба кода верны, но Keycloak не отвечает: смена остаётся в точке «адрес подтверждён, не завершён», пока её не доведёт сверка. */
+    private void confirmWhileKeycloakIsDown() {
+        world.emailChange.start(FIRST, ticket, NEW_EMAIL);
+        world.emailChange.verify(BUYER, NO_IP, ticket, Step.PHONE, "111111");
+        world.keycloak.down(true);
+        world.emailChange.verify(BUYER, NO_IP, ticket, Step.NEW_EMAIL, "222222");
+    }
+
     private List<RecordingOutbox.Event> startRecords() {
         return world.outbox.events("audit.recorded").stream().filter(e -> EmailChangeService.ACTION_STARTED.equals(e.data().get("action"))).toList();
     }
@@ -218,20 +226,20 @@ class EmailChangeServiceTest {
         assertEquals(NEW_EMAIL, world.mail.sent().get(0).to());
         assertEquals("222222", world.mail.sent().get(0).code(), "письмо с кодом ушло напрямую провайдеру");
 
+        world.keycloak.down(true);
         EmailChangeView afterEmail = world.emailChange.verify(BUYER, NO_IP, ticket, Step.NEW_EMAIL, "222222");
-        assertEquals("awaiting_email_code", afterEmail.status(), "завершение смены не здесь");
+        assertEquals("awaiting_email_code", afterEmail.status(), "Keycloak не отвечает: код принят, а завершение отложено, ответ успешный");
         assertEquals("passed", afterEmail.phoneCheck());
         assertEquals("passed", afterEmail.newEmailCheck());
         assertTrue(change().confirmedNotCompleted(), "точка продолжения: адрес подтверждён, смена не завершена");
+        assertEquals(BUYER_EMAIL, world.accounts.find(BUYER).orElseThrow().email(), "адрес учётной записи ещё прежний");
         assertEquals(1, world.sms.sent().size(), "новые коды не запрашивались");
         assertEquals(1, world.mail.sent().size());
     }
 
     @Test
     void aConfirmedChangeIsNotReplacedByARestartAndNeedsNoNewCodes() {
-        world.emailChange.start(FIRST, ticket, NEW_EMAIL);
-        world.emailChange.verify(BUYER, NO_IP, ticket, Step.PHONE, "111111");
-        world.emailChange.verify(BUYER, NO_IP, ticket, Step.NEW_EMAIL, "222222");
+        confirmWhileKeycloakIsDown();
 
         assertEquals(ProblemType.STATE_CONFLICT, refused(() -> world.emailChange.start(FIRST, ticket, "another@mail.example")).type());
         assertEquals(ProblemType.STATE_CONFLICT, refused(() -> world.emailChange.requestCode(BUYER, NO_IP, ticket, Step.NEW_EMAIL)).type());
@@ -586,9 +594,7 @@ class EmailChangeServiceTest {
     @Test
     void aTicketClosedByTheDeliveryKeepsAConfirmedChangeForTheCompletion() {
         UUID order = world.repository.tickets().get(0).orderId;
-        world.emailChange.start(FIRST, ticket, NEW_EMAIL);
-        world.emailChange.verify(BUYER, NO_IP, ticket, Step.PHONE, "111111");
-        world.emailChange.verify(BUYER, NO_IP, ticket, Step.NEW_EMAIL, "222222");
+        confirmWhileKeycloakIsDown();
 
         world.events.onDeliveryDelivered(order, world.clock.instant());
 

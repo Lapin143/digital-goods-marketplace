@@ -11,7 +11,7 @@ import java.util.UUID;
 
 /**
  * Данные событий модуля по схемам AsyncAPI ({@code UserRegisteredData}, {@code UserRoleAssignedData}, {@code UserDeactivatedData},
- * {@code UserAnonymizedData}, {@code AuditRecordedData}). Лишних полей нет: схемы закрыты ({@code additionalProperties: false}), а
+ * {@code UserAnonymizedData}, {@code UserEmailChangedData}, {@code AuditRecordedData}). Лишних полей нет: схемы закрыты ({@code additionalProperties: false}), а
  * персональных данных в событиях нет вовсе, только идентификаторы.
  */
 public final class IdentityEvents {
@@ -28,11 +28,14 @@ public final class IdentityEvents {
     public static final String ANONYMIZED = "user.anonymized";
     public static final String PHONE_CONFIRMED = "user.phone-confirmed";
     public static final String SMS_LOGIN = "user.sms-login";
+    public static final String EMAIL_CHANGED = "user.email-changed";
 
     public static final String AUDIT_ROLE_ASSIGNED = "user.role_assigned";
     public static final String AUDIT_DEACTIVATED = "user.deactivated";
     public static final String AUDIT_ANONYMIZED = "user.anonymized";
     public static final String AUDIT_PHONE_CONFIRMED = "user.phone_confirmed";
+    /** Смена e-mail по обращению завершена (решение оператора записано раньше кодом {@code support.email_change_started}). */
+    public static final String AUDIT_EMAIL_CHANGED = "support.email_change_completed";
 
     private IdentityEvents() {
     }
@@ -81,6 +84,15 @@ public final class IdentityEvents {
     public static Map<String, Object> phoneConfirmed(UUID userId) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("userId", userId.toString());
+        return data;
+    }
+
+    /** {@code UserEmailChangedData}: идентификаторы без адресов, письма берут адрес у identity в момент отправки (INV-44). */
+    public static Map<String, Object> emailChanged(UUID userId, UUID ticketId, UUID operatorId) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("userId", userId.toString());
+        data.put("ticketId", ticketId.toString());
+        data.put("operatorId", operatorId.toString());
         return data;
     }
 

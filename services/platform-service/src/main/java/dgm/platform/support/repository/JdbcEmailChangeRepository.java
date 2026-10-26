@@ -7,6 +7,7 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -55,6 +56,27 @@ public final class JdbcEmailChangeRepository implements EmailChangeRepository {
     public boolean newEmailPassed(UUID ticketId, Instant at) {
         return jdbc.update("update support.email_change set new_email_check = 'passed', updated_at = ? "
                 + "where ticket_id = ? and status = 'awaiting_email_code' and new_email_check = 'pending'", utc(at), ticketId) == 1;
+    }
+
+    @Override
+    public boolean completed(UUID ticketId, Instant at) {
+        return jdbc.update("update support.email_change set status = 'completed', new_email = null, updated_at = ? "
+                + "where ticket_id = ? and status = 'awaiting_email_code' and phone_check = 'passed' and new_email_check = 'passed'",
+                utc(at), ticketId) == 1;
+    }
+
+    @Override
+    public boolean failConfirmed(UUID ticketId, Instant at) {
+        return jdbc.update("update support.email_change set status = 'failed', new_email_check = 'failed', new_email = null, updated_at = ? "
+                + "where ticket_id = ? and status = 'awaiting_email_code' and phone_check = 'passed' and new_email_check = 'passed'",
+                utc(at), ticketId) == 1;
+    }
+
+    @Override
+    public List<UUID> confirmedNotCompletedSince(Instant before, int limit) {
+        return jdbc.query("select ticket_id from support.email_change where status = 'awaiting_email_code' and phone_check = 'passed' "
+                + "and new_email_check = 'passed' and updated_at <= ? order by updated_at, ticket_id limit ?",
+                (rs, row) -> rs.getObject("ticket_id", UUID.class), utc(before), limit);
     }
 
     @Override

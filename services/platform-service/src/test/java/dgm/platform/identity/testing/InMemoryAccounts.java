@@ -1,5 +1,6 @@
 package dgm.platform.identity.testing;
 
+import dgm.platform.identity.domain.EmailTakenException;
 import dgm.platform.identity.domain.LastAdminException;
 import dgm.platform.identity.domain.NewAccount;
 import dgm.platform.identity.domain.PhoneTakenException;
@@ -21,6 +22,9 @@ public final class InMemoryAccounts implements UserAccountRepository {
 
     private final Map<UUID, UserAccount> rows = new LinkedHashMap<>();
     private final Map<UUID, String> phones = new LinkedHashMap<>();
+    private final Map<UUID, String> previousEmails = new LinkedHashMap<>();
+    private final Map<UUID, Instant> previousUntil = new LinkedHashMap<>();
+    private boolean racingEmail;
     private boolean racingPhone;
     private Runnable beforeInsert = () -> { };
 
@@ -59,6 +63,11 @@ public final class InMemoryAccounts implements UserAccountRepository {
     /** Следующее подтверждение номера проиграет гонку: уникальный индекс отклонит запись, как если бы соперник успел раньше. */
     public void loseNextPhoneRace() {
         this.racingPhone = true;
+    }
+
+    /** Следующая смена адреса проиграет гонку: уникальный индекс отклонит запись, как если бы соперник успел зарегистрировать адрес раньше. */
+    public void loseNextEmailRace() {
+        this.racingEmail = true;
     }
 
     public int size() {
@@ -137,6 +146,8 @@ public final class InMemoryAccounts implements UserAccountRepository {
     public void anonymize(UUID id) {
         UserAccount a = rows.get(id);
         phones.remove(id);
+        previousEmails.remove(id);
+        previousUntil.remove(id);
         put(new UserAccount(a.id(), "anonymized-" + id + "@invalid", "Удалён", a.role(), a.has2fa(), a.status(), false, false, true,
                 a.registeredAt(), a.deactivatedAt(), a.version() + 1, a.sellerId()));
     }
@@ -195,6 +206,50 @@ public final class InMemoryAccounts implements UserAccountRepository {
         put(new UserAccount(a.id(), a.email(), a.name(), a.role(), a.has2fa(), a.status(), true, false, a.anonymized(), a.registeredAt(),
                 a.deactivatedAt(), a.version() + 1, a.sellerId()));
         return true;
+    }
+
+    @Override
+    public boolean replaceEmail(UUID id, String newEmail, Instant until) {
+        if (racingEmail) {
+            racingEmail = false;
+            throw new EmailTakenException(null);
+        }
+        UserAccount a = rows.get(id);
+        if (a == null || !a.active() || a.anonymized() || a.email().equals(newEmail)) {
+            return false;
+        }
+        if (rows.values().stream().anyMatch(o -> o.email().equals(newEmail))) {
+            throw new EmailTakenException(null);
+        }
+        previousEmails.put(id, a.email());
+        previousUntil.put(id, until);
+        put(new UserAccount(a.id(), newEmail, a.name(), a.role(), a.has2fa(), a.status(), a.phoneConfirmed(), a.phoneSynced(), a.anonymized(),
+                a.registeredAt(), a.deactivatedAt(), a.version() + 1, a.sellerId()));
+        return true;
+    }
+
+    @Override
+    public Optional<String> previousEmail(UUID id, Instant now) {
+        UserAccount a = rows.get(id);
+        if (a == null || !a.active() || a.anonymized() || !previousEmails.containsKey(id) || !previousUntil.get(id).isAfter(now)) {
+            return Optional.empty();
+        }
+        return Optional.of(previousEmails.get(id));
+    }
+
+    /** Прежний адрес как он хранится (для проверок), даже если срок вышел; пусто, если смены не было или адрес очищен. */
+    public Optional<String> storedPreviousEmail(UUID id) {
+        return Optional.ofNullable(previousEmails.get(id));
+    }
+
+    @Override
+    public int clearExpiredPreviousEmails(Instant now, int limit) {
+        List<UUID> expired = previousUntil.entrySet().stream().filter(e -> !e.getValue().isAfter(now)).map(Map.Entry::getKey).limit(limit).toList();
+        for (UUID id : expired) {
+            previousEmails.remove(id);
+            previousUntil.remove(id);
+        }
+        return expired.size();
     }
 
     @Override

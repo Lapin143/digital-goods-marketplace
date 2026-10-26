@@ -162,6 +162,32 @@ public final class KeycloakAdminClient {
     }
 
     /**
+     * Меняет e-mail пользователя и отмечает его подтверждённым (адрес проверен кодом из письма). Если realm использует e-mail как имя входа
+     * (имя совпадает с прежним адресом), имя меняется вместе с адресом: иначе вход по новому адресу не сработал бы. Повтор с тем же адресом у
+     * уже подтверждённого пользователя Keycloak не вызывает. Адрес другого пользователя Keycloak отвергает ответом 409: это
+     * {@link KeycloakException} со статусом 409, повторять такой вызов нельзя.
+     *
+     * @param email адрес в нормализованном виде (нижний регистр: так его хранит Keycloak)
+     */
+    public void setEmail(String userId, String email) {
+        if (email == null || email.isBlank()) {
+            throw new IllegalArgumentException("Адрес e-mail не задан");
+        }
+        Map<String, Object> user = rawUser(userId);
+        String current = text(user.get("email"));
+        if (email.equalsIgnoreCase(current) && Boolean.TRUE.equals(user.get("emailVerified"))) {
+            return;
+        }
+        String username = text(user.get("username"));
+        if (username != null && current != null && username.equalsIgnoreCase(current)) {
+            user.put("username", email);
+        }
+        user.put("email", email);
+        user.put("emailVerified", Boolean.TRUE);
+        call("PUT", "/users/" + segment(userId), Json.write(user), 204);
+    }
+
+    /**
      * Добавляет пользователю обязательное действие входа, например {@code CONFIGURE_TOTP}: при следующем входе Keycloak потребует его
      * выполнить. Если действие уже назначено, Keycloak не вызывается.
      */

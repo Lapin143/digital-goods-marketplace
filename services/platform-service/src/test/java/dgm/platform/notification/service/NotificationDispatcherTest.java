@@ -18,6 +18,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -233,6 +234,57 @@ class NotificationDispatcherTest {
         assertTrue(email.attempts().isEmpty());
         assertTrue(tx.events().isEmpty());
         assertEquals(1.0, count("dropped"));
+    }
+
+    @Tag("TC-717")
+    @Test
+    void theEmailChangedLettersGoToTheNewAndThePreviousAddressAndTheQueueHoldsNeither() {
+        contacts.put(USER, "new-anna@mail.example", "Анна Смирнова");
+        contacts.putPrevious(USER, ADDRESS, "Анна Смирнова");
+        UUID event = UUID.randomUUID();
+        Map<String, Object> params = Map.of("changedAt", "2026-10-26T12:48:16.100Z");
+        service.enqueue(new NotificationRequest(USER, "email-changed-new", params, event));
+        service.enqueue(new NotificationRequest(USER, "email-changed-previous", params, event));
+
+        assertEquals(2, dispatcher.dispatchDue());
+
+        List<String> recipients = email.accepted().stream().map(OutgoingEmail::to).toList();
+        assertEquals(2, recipients.size());
+        assertTrue(recipients.contains("new-anna@mail.example"), recipients.toString());
+        assertTrue(recipients.contains(ADDRESS), recipients.toString());
+        for (InMemoryNotifications.Row row : queue.all()) {
+            assertEquals("sent", row.status);
+            String stored = row.source.params().toString() + row.source.template();
+            assertFalse(stored.contains("@"), stored);
+        }
+        OutgoingEmail toOld = email.accepted().stream().filter(mail -> mail.to().equals(ADDRESS)).findFirst().orElseThrow();
+        assertEquals("E-mail вашей учётной записи заменён", toOld.subject());
+        OutgoingEmail toNew = email.accepted().stream().filter(mail -> mail.to().equals("new-anna@mail.example")).findFirst().orElseThrow();
+        assertEquals("E-mail вашей учётной записи изменён", toNew.subject());
+    }
+
+    @Tag("TC-717")
+    @Test
+    void whenThePreviousAddressIsGoneTheLetterToItIsDroppedWithoutAnEventAndTheOtherOneStillGoes() {
+        contacts.put(USER, "new-anna@mail.example", "Анна Смирнова");
+        contacts.putPrevious(USER, ADDRESS, "Анна Смирнова");
+        contacts.expirePrevious(USER);
+        UUID event = UUID.randomUUID();
+        Map<String, Object> params = Map.of("changedAt", "2026-10-26T12:48:16.100Z");
+        service.enqueue(new NotificationRequest(USER, "email-changed-new", params, event));
+        service.enqueue(new NotificationRequest(USER, "email-changed-previous", params, event));
+
+        dispatcher.dispatchDue();
+
+        assertEquals(List.of("new-anna@mail.example"), email.accepted().stream().map(OutgoingEmail::to).toList());
+        InMemoryNotifications.Row previous = queue.all().stream().filter(row -> row.source.template().equals("email-changed-previous")).findFirst()
+                .orElseThrow();
+        assertEquals("failed", previous.status);
+        assertEquals("recipient_unavailable", previous.lastErrorCode);
+        assertFalse(previous.inDeadQueue);
+        assertTrue(tx.events().isEmpty(), "получателя нет, сообщать некому");
+        assertEquals(1.0, count("dropped"));
+        assertEquals(1.0, count("sent"));
     }
 
     @Test

@@ -6,6 +6,7 @@ import dgm.kit.outbox.OutboxRelay;
 import dgm.platform.identity.domain.Roles;
 import dgm.platform.identity.domain.UserAccount;
 import dgm.platform.identity.repository.UserAccountRepository;
+import java.time.Clock;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -32,7 +33,8 @@ import org.springframework.stereotype.Component;
  *       приводится к записи (образец платформа, пункт 6 ADR-025); так сверка закрывает сбой Keycloak в момент одобрения заявки;</li>
  *   <li>признак второго фактора отличается от наличия учётных данных {@code otp}: обновляется запись платформы (образец Keycloak).</li>
  * </ul>
- * Затем повторяется передача {@code phone_verified} для подтверждённых телефонов, не переданных в Keycloak. Ошибка по одному пользователю проход
+ * Затем повторяется передача {@code phone_verified} для подтверждённых телефонов, не переданных в Keycloak, и очищаются прежние адреса e-mail,
+ * срок хранения которых (7 суток после смены по обращению) истёк (INV-44). Ошибка по одному пользователю проход
  * не прерывает; недоступность Keycloak прерывает, и следующий проход повторит всё. Проход может идти одновременно у двух экземпляров только в
  * миг смены лидера: все действия идемпотентны.
  *
@@ -46,26 +48,29 @@ public final class IdentityReconciler {
     /** Атрибут профиля Keycloak, который маппер кладёт в токен утверждением {@code seller_id} (Р-18). */
     static final String SELLER_ATTRIBUTE = KeycloakIdentityProvider.SELLER_ATTRIBUTE;
     private static final int PHONE_BATCH = 100;
+    private static final int PREVIOUS_EMAIL_BATCH = 500;
     /** Предохранитель от бесконечного чтения, если Keycloak вернёт одну и ту же страницу: 100 000 пользователей. */
     private static final int MAX_PAGES = 1000;
     private static final Logger LOG = LoggerFactory.getLogger(IdentityReconciler.class);
 
     /** Итог одного прохода. */
     public record Summary(int checked, int created, int rolesFixed, int disabled, int deleted, int secondFactorUpdated, int phonesSynced,
-                          int failed) {
+                          int failed, int previousEmailsCleared) {
     }
 
     private final UserAccountRepository accounts;
     private final IdentityProvider provider;
     private final AccountService accountService;
     private final ObjectProvider<OutboxRelay> relay;
+    private final Clock clock;
 
     public IdentityReconciler(UserAccountRepository accounts, IdentityProvider provider, AccountService accountService,
-                              ObjectProvider<OutboxRelay> relay) {
+                              ObjectProvider<OutboxRelay> relay, Clock clock) {
         this.accounts = accounts;
         this.provider = provider;
         this.accountService = accountService;
         this.relay = relay;
+        this.clock = clock;
     }
 
     /** Вход по расписанию: проход делает только лидер. Интервал и первая пауза задаются ключами {@code dgm.identity.*} (application.yml). */
@@ -78,10 +83,11 @@ public final class IdentityReconciler {
         try {
             Summary summary = runPass();
             if (summary.created() + summary.rolesFixed() + summary.disabled() + summary.deleted() + summary.secondFactorUpdated()
-                    + summary.phonesSynced() + summary.failed() > 0) {
+                    + summary.phonesSynced() + summary.failed() + summary.previousEmailsCleared() > 0) {
                 LOG.info("Сверка с Keycloak: проверено {}, создано {}, ролей исправлено {}, отключено {}, удалено {}, обновлено признаков 2FA {}, "
-                                + "телефонов передано {}, ошибок {}", summary.checked(), summary.created(), summary.rolesFixed(), summary.disabled(),
-                        summary.deleted(), summary.secondFactorUpdated(), summary.phonesSynced(), summary.failed());
+                                + "телефонов передано {}, прежних адресов очищено {}, ошибок {}", summary.checked(), summary.created(),
+                        summary.rolesFixed(), summary.disabled(), summary.deleted(), summary.secondFactorUpdated(), summary.phonesSynced(),
+                        summary.previousEmailsCleared(), summary.failed());
             }
         } catch (KeycloakException e) {
             LOG.warn("Сверка с Keycloak прервана, повторится в следующий раз: {}", e.getMessage());
@@ -128,6 +134,7 @@ public final class IdentityReconciler {
             first += users.size();
         }
         syncPhones(counters);
+        clearPreviousEmails(counters);
         return counters.summary();
     }
 
@@ -180,6 +187,11 @@ public final class IdentityReconciler {
         }
     }
 
+    /** Прежние адреса после смены e-mail хранятся 7 суток ради письма на старый ящик, потом очищаются (INV-44); Keycloak для этого не нужен. */
+    private void clearPreviousEmails(Counters counters) {
+        counters.previousEmailsCleared += accounts.clearExpiredPreviousEmails(clock.instant(), PREVIOUS_EMAIL_BATCH);
+    }
+
     /** Счётчики одного прохода; проход идёт в одном потоке. */
     private static final class Counters {
         private int checked;
@@ -190,9 +202,10 @@ public final class IdentityReconciler {
         private int secondFactorUpdated;
         private int phonesSynced;
         private int failed;
+        private int previousEmailsCleared;
 
         Summary summary() {
-            return new Summary(checked, created, rolesFixed, disabled, deleted, secondFactorUpdated, phonesSynced, failed);
+            return new Summary(checked, created, rolesFixed, disabled, deleted, secondFactorUpdated, phonesSynced, failed, previousEmailsCleared);
         }
     }
 }

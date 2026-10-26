@@ -34,10 +34,40 @@ class SliceTwoLettersTest {
     }
 
     @Test
-    void theSetHoldsTheLettersOfSlicesOneAndTwoAndTheDirectCodeLetter() {
+    void theSetHoldsTheLettersOfSlicesOneAndTwoAndTheLettersOfTheEmailChange() {
         assertEquals(Set.of("seller-approved", "seller-rejected", "seller-returned", "user-sms-login", "order-created", "order-paid",
-                "order-refunded", "payment-refund-escalated", "delivery-failed", "delivery-overdue", "email-change-code"), letters.codes());
+                "order-refunded", "payment-refund-escalated", "delivery-failed", "delivery-overdue", "email-change-code", "email-changed-new",
+                "email-changed-previous"), letters.codes());
         assertEquals(Set.of("email-change-code"), letters.directOnly(), "из очереди не уходит только письмо с кодом");
+        assertEquals(Set.of("email-changed-previous"), letters.toPreviousAddress(), "по прежнему адресу пишется только письмо старому ящику");
+        assertTrue(letters.codes().containsAll(letters.toPreviousAddress()));
+    }
+
+    @Tag("TC-717")
+    @Test
+    void theEmailChangedLettersTellTheTimeInMoscowAndNameNeitherAnAddressNorACode() {
+        Letter fresh = letters.render("email-changed-new", "Анна", params("changedAt", "2026-10-26T12:48:16.100Z"));
+        Letter old = letters.render("email-changed-previous", "Анна", params("changedAt", "2026-10-26T12:48:16.100Z"));
+
+        assertEquals("E-mail вашей учётной записи изменён", fresh.subject());
+        assertEquals("E-mail вашей учётной записи заменён", old.subject());
+        for (Letter letter : new Letter[] {fresh, old}) {
+            assertTrue(letter.text().startsWith("Здравствуйте, Анна!"), letter.text());
+            assertTrue(letter.text().contains("26.10.2026 15:48"), "время смены в часовом поясе платформы: " + letter.text());
+            assertTrue(letter.text().contains("обратитесь в поддержку"), letter.text());
+            assertFalse(letter.text().contains("@"), "адреса в письме нет: " + letter.text());
+        }
+        assertTrue(old.text().contains("На этот адрес письма больше приходить не будут"), old.text());
+    }
+
+    @Tag("TC-717")
+    @Test
+    void theEmailChangedLettersTakeOnlyTheChangeTime() {
+        assertThrows(InvalidNotificationException.class, () -> letters.validate("email-changed-new", params()));
+        assertThrows(InvalidNotificationException.class, () -> letters.validate("email-changed-previous", params("changedAt", "вчера")));
+        assertThrows(InvalidNotificationException.class, () -> letters.validate("email-changed-new",
+                params("changedAt", "2026-10-26T12:48:16Z", "email", "a@b.example")));
+        letters.validate("email-changed-previous", params("changedAt", "2026-10-26T12:48:16Z"));
     }
 
     @Test

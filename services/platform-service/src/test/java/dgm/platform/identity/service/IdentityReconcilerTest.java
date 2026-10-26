@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 
@@ -39,7 +40,8 @@ class IdentityReconcilerTest {
         tx = new FakeTransaction();
         keycloak = new FakeIdentityProvider(tx);
         AccountService created = new AccountService(accounts, keycloak, tx, new ManualClock(NOW));
-        reconciler = new IdentityReconciler(accounts, keycloak, created, new StaticListableBeanFactory().getBeanProvider(OutboxRelay.class));
+        reconciler = new IdentityReconciler(accounts, keycloak, created, new StaticListableBeanFactory().getBeanProvider(OutboxRelay.class),
+                new ManualClock(NOW));
     }
 
     private void keycloakUser(int n, String role, boolean enabled) {
@@ -63,6 +65,23 @@ class IdentityReconcilerTest {
         assertEquals(List.of("user.registered", "user.registered"), tx.events().stream().map(FakeTransaction.Event::type).toList());
     }
 
+    @Tag("TC-717")
+    @Test
+    void previousEmailsAreClearedOnlyWhenTheirTermHasPassedAndWithoutAnyKeycloakUser() {
+        accounts.add(id(1), "anna@mail.example", "buyer", NOW.minusSeconds(86_400));
+        accounts.add(id(2), "boris@mail.example", "buyer", NOW.minusSeconds(86_400));
+        accounts.replaceEmail(id(1), "new-anna@mail.example", NOW.plusSeconds(1));
+        accounts.replaceEmail(id(2), "new-boris@mail.example", NOW);
+
+        IdentityReconciler.Summary first = reconciler.runPass();
+
+        assertEquals(1, first.previousEmailsCleared(), "очищен только адрес, срок которого вышел");
+        assertEquals("anna@mail.example", accounts.storedPreviousEmail(id(1)).orElseThrow(), "срок ещё не вышел: адрес хранится");
+        assertTrue(accounts.storedPreviousEmail(id(2)).isEmpty());
+        assertEquals("new-boris@mail.example", accounts.find(id(2)).orElseThrow().email(), "действующий адрес очистка не трогает");
+        assertEquals(0, reconciler.runPass().previousEmailsCleared(), "повторный проход ничего не очищает");
+    }
+
     @Test
     void secondPassOnTheSameStateChangesNothing() {
         keycloakUser(1, "moderator", true);
@@ -71,7 +90,7 @@ class IdentityReconcilerTest {
 
         IdentityReconciler.Summary summary = reconciler.runPass();
 
-        assertEquals(new IdentityReconciler.Summary(1, 0, 0, 0, 0, 0, 0, 0), summary);
+        assertEquals(new IdentityReconciler.Summary(1, 0, 0, 0, 0, 0, 0, 0, 0), summary);
         assertEquals(events, tx.events().size());
     }
 

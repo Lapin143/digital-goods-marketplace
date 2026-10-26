@@ -69,6 +69,25 @@ public interface UserAccountRepository {
     /** Есть ли запись с этим адресом (уникальный индекс {@code uq_user_account_email}); адрес в нормализованном виде. */
     boolean emailExists(String email);
 
+    /**
+     * Меняет адрес активной записи: прежний уходит в {@code previous_email} до {@code previousUntil}, новый встаёт на его место (смена e-mail
+     * по обращению, Р-169). Запись должна быть заблокирована в этой же транзакции.
+     *
+     * @return {@code false}: запись не активна, анонимизирована или адрес уже тот же, ничего не изменено
+     * @throws dgm.platform.identity.domain.EmailTakenException адрес уже у другой записи (гонка с регистрацией, INV-34)
+     */
+    boolean replaceEmail(UUID id, String newEmail, Instant previousUntil);
+
+    /** Прежний адрес активной записи, если срок его хранения ещё не истёк на момент {@code now}; пусто, если смены не было или срок вышел. */
+    Optional<String> previousEmail(UUID id, Instant now);
+
+    /**
+     * Очищает прежние адреса, срок хранения которых истёк к {@code now} (INV-44): не больше {@code limit} за раз.
+     *
+     * @return сколько записей очищено
+     */
+    int clearExpiredPreviousEmails(Instant now, int limit);
+
     /** Соль пользователя для хешей аудита (ADR-014); пусто у анонимизированной записи. */
     Optional<byte[]> auditSalt(UUID id);
 

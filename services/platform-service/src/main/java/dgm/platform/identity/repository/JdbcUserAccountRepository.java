@@ -1,6 +1,7 @@
 package dgm.platform.identity.repository;
 
 import dgm.kit.boot.ModuleDatabases;
+import dgm.platform.identity.domain.EmailTakenException;
 import dgm.platform.identity.domain.LastAdminException;
 import dgm.platform.identity.domain.NewAccount;
 import dgm.platform.identity.domain.PhoneTakenException;
@@ -161,6 +162,30 @@ public final class JdbcUserAccountRepository implements UserAccountRepository {
     @Override
     public boolean emailExists(String email) {
         return Boolean.TRUE.equals(jdbc.queryForObject("select exists (select 1 from identity.user_account where email = ?)", Boolean.class, email));
+    }
+
+    @Override
+    public boolean replaceEmail(UUID id, String newEmail, Instant previousUntil) {
+        try {
+            return jdbc.update("update identity.user_account set previous_email = email, previous_email_until = ?, email = ? "
+                    + "where id = ? and status = 'active' and not anonymized and email <> ?", utc(previousUntil), newEmail, id, newEmail) == 1;
+        } catch (DuplicateKeyException e) {
+            throw new EmailTakenException(e);
+        }
+    }
+
+    @Override
+    public Optional<String> previousEmail(UUID id, Instant now) {
+        return jdbc.query("select previous_email from identity.user_account where id = ? and status = 'active' and not anonymized "
+                + "and previous_email is not null and previous_email_until > ?", (rs, row) -> rs.getString("previous_email"), id, utc(now))
+                .stream().findFirst();
+    }
+
+    @Override
+    public int clearExpiredPreviousEmails(Instant now, int limit) {
+        return jdbc.update("update identity.user_account set previous_email = null, previous_email_until = null where id in ("
+                + "select id from identity.user_account where previous_email is not null and previous_email_until <= ? "
+                + "order by previous_email_until limit ?)", utc(now), limit);
     }
 
     @Override

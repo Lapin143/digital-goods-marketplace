@@ -186,6 +186,11 @@ public final class JdbcSupportRepository implements SupportRepository {
     }
 
     @Override
+    public boolean markCodeCheckPassed(UUID ticketId) {
+        return jdbc.update("update support.ticket set code_check_result = 'passed' where id = ?", ticketId) == 1;
+    }
+
+    @Override
     public QueueDepth queueDepth() {
         return jdbc.query("select count(*) filter (where status = 'created') as created, count(*) filter (where status = 'in_progress') as in_progress, "
                 + "min(created_at) filter (where status = 'created') as oldest from support.ticket where status in ('created', 'in_progress')",

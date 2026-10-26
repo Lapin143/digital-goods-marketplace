@@ -20,7 +20,9 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,8 +57,10 @@ public final class ResendService {
     /** Имя шага для ключа идемпотентности вызова соседа (Р-170). */
     static final String STEP = "resend";
     static final String AUDIT_OBJECT = "ticket";
-    /** Источник решения в записи аудита: оператор нажал кнопку (после смены e-mail решение примет сама платформа, шаг 15). */
+    /** Источник решения в записи аудита: оператор нажал кнопку. */
     static final String SOURCE_OPERATOR = "operator";
+    /** Источник решения в записи аудита: платформа сама запустила отправку после смены e-mail по решению того же оператора (BPMN-04, решение 3). */
+    static final String SOURCE_EMAIL_CHANGE = "email_change";
     private static final String ISSUED = "issued";
     private static final int RETRY_AFTER_SECONDS = 5;
 
@@ -84,8 +88,31 @@ public final class ResendService {
      *                          {@code request-in-progress}), 503 {@code dependency-unavailable} (сосед недоступен, повтор с тем же ключом без дублей)
      */
     public ResendAccepted resend(Operator operator, UUID ticketId) {
+        return counted(() -> run(operator, ticketId, SOURCE_OPERATOR));
+    }
+
+    /**
+     * Повторная отправка ключа на новый адрес сразу после смены e-mail (SEQ-04, шаг 23, Р-169): те же проверки, решение записывается тем же способом до
+     * вызова, но от имени оператора, который вёл смену (адреса запроса у такой записи нет), и с источником {@code email_change}. Ключ идемпотентности
+     * вызова соседа выводится так же, поэтому ручная отправка оператором сразу следом объединится с этой, а не создаст вторую выдачу.
+     *
+     * @return {@code true}: отправка принята; {@code false}: обращение уже не в работе у оператора, повторять некому
+     * @throws ProblemException те же коды, что у {@link #resend}
+     */
+    public boolean resendAfterEmailChange(UUID ticketId) {
+        Optional<UUID> operatorId = repository.findStaffTicket(ticketId).filter(t -> SupportTicket.IN_PROGRESS.equals(t.status()))
+                .flatMap(StaffTicket::operatorId);
+        if (operatorId.isEmpty()) {
+            LOG.info("Автоповтор по обращению {} не запущен: оно уже не в работе у оператора", ticketId);
+            return false;
+        }
+        counted(() -> run(new Operator(operatorId.get(), ""), ticketId, SOURCE_EMAIL_CHANGE));
+        return true;
+    }
+
+    private ResendAccepted counted(Supplier<ResendAccepted> action) {
         try {
-            ResendAccepted accepted = run(operator, ticketId);
+            ResendAccepted accepted = action.get();
             count("accepted");
             return accepted;
         } catch (ProblemException e) {
@@ -97,7 +124,7 @@ public final class ResendService {
         }
     }
 
-    private ResendAccepted run(Operator operator, UUID ticketId) {
+    private ResendAccepted run(Operator operator, UUID ticketId, String source) {
         StaffTicket ticket = repository.findStaffTicket(ticketId).orElseThrow(() -> new ProblemException(ProblemType.NOT_FOUND, "Обращение не найдено."));
         if (!SupportTicket.IN_PROGRESS.equals(ticket.status()) || ticket.operatorId().filter(operator.id()::equals).isEmpty()) {
             throw new ProblemException(ProblemType.TICKET_NOT_IN_PROGRESS, "Повторно отправить ключ можно только по обращению, которое вы взяли в работу.");
@@ -116,7 +143,7 @@ public final class ResendService {
                 "У покупателя нет активной учётной записи, адрес для отправки неизвестен."));
 
         Instant decidedAt = clock.instant();
-        recordDecision(operator, ticketId, orderId, decidedAt);
+        recordDecision(operator, ticketId, orderId, decidedAt, source);
 
         UUID key = IdempotencyKeys.derived(STEP + "-" + view.deliveryUpdatedAt().map(at -> Long.toString(at.toEpochMilli())).orElse("first"), ticketId);
         try {
@@ -134,7 +161,7 @@ public final class ResendService {
     }
 
     /** Решение оператора: действие обращения и запись аудита одной короткой транзакцией, до вызова соседа (Р-165). */
-    private void recordDecision(Operator operator, UUID ticketId, UUID orderId, Instant decidedAt) {
+    private void recordDecision(Operator operator, UUID ticketId, UUID orderId, Instant decidedAt, String source) {
         transaction.execute(() -> {
             if (!repository.markResend(ticketId, operator.id())) {
                 throw new ProblemException(ProblemType.TICKET_NOT_IN_PROGRESS, "Обращение вернули в очередь или передали другому оператору.");
@@ -143,7 +170,7 @@ public final class ResendService {
                     AuditRecords.staffAction(decidedAt, operator.id(), Operator.ROLE, operator.ip(), ACTION, AUDIT_OBJECT, ticketId.toString(),
                             List.of(AuditRecords.change("action", null, "resend"),
                                     AuditRecords.change("orderId", null, orderId.toString()),
-                                    AuditRecords.change("source", null, SOURCE_OPERATOR))));
+                                    AuditRecords.change("source", null, source))));
             return null;
         });
     }

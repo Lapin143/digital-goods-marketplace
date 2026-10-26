@@ -10,7 +10,11 @@ import dgm.platform.identity.otp.testing.InMemoryOtpStore;
 import dgm.platform.identity.otp.testing.RecordingMail;
 import dgm.platform.identity.otp.testing.RecordingSms;
 import dgm.platform.identity.otp.testing.ScriptedCodes;
+import dgm.platform.identity.otp.crypto.AuditHasher;
 import dgm.platform.identity.service.AccountContacts;
+import dgm.platform.identity.service.AccountEmailChanger;
+import dgm.platform.identity.testing.FakeIdentityProvider;
+import dgm.platform.identity.testing.FakeTransaction;
 import dgm.platform.identity.testing.InMemoryAccounts;
 import dgm.platform.notification.testing.FakeContacts;
 import dgm.platform.support.service.EmailChangeService;
@@ -59,8 +63,16 @@ public final class SupportWorld {
     public final OtpService otp = new OtpService(otpStore, OtpCrypto.ofBytes("test-pepper-0123456789abcdef-0123".getBytes(StandardCharsets.UTF_8)),
             scriptedCodes, sms, parameters, OtpProperties.defaults(), clock, metrics);
     public final EmailChangeCodeService codes = new EmailChangeCodeService(accounts, otp, sms, mail);
+    // Завершение смены (шаг 15): настоящий AccountEmailChanger на Keycloak и транзакции identity в памяти; повторная отправка ключа берёт адрес из
+    // той же учётной записи, которую меняет смена
+    public final FakeTransaction identityTransaction = new FakeTransaction();
+    public final FakeIdentityProvider keycloak = new FakeIdentityProvider(identityTransaction);
+    public final AccountContacts accountContacts = new AccountContacts(accounts, clock);
+    public final AccountEmailChanger emailChanger = new AccountEmailChanger(accounts, keycloak, identityTransaction, AuditHasher.ofBytes(new byte[32]), clock);
+    public final ResendService accountResend = new ResendService(repository, new FakeSupportTransaction(repository), outbox, accountContacts, orders, clock,
+            metrics);
     public final EmailChangeService emailChange = new EmailChangeService(repository, repository, new FakeSupportTransaction(repository), outbox, codes,
-            new AccountContacts(accounts), contacts, clock, metrics);
+            accountContacts, contacts, emailChanger, accountResend, clock, metrics);
 
     private long nextNumber = 1000;
 
@@ -68,6 +80,15 @@ public final class SupportWorld {
         contacts.put(BUYER, BUYER_EMAIL, "Покупатель");
         accounts.add(BUYER, BUYER_EMAIL, "buyer", T0);
         accounts.givePhone(BUYER, BUYER_PHONE);
+        keycloak.add(FakeIdentityProvider.user(BUYER, BUYER_EMAIL, "Покупатель", "Тестовый", true), "buyer");
+    }
+
+    /** Ещё один покупатель с подтверждённым телефоном: учётная запись платформы, пользователь Keycloak и контакт для писем. */
+    public void addBuyer(UUID id, String email, String phone) {
+        accounts.add(id, email, "buyer", T0);
+        accounts.givePhone(id, phone);
+        contacts.put(id, email, "Покупатель");
+        keycloak.add(FakeIdentityProvider.user(id, email, "Покупатель", "Тестовый", true), "buyer");
     }
 
     /** Выданный заказ покупателя: события {@code order.paid} и {@code order.issued} применяет служба поддержки, как потребитель. */

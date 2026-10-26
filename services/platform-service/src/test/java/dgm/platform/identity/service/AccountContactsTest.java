@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dgm.kit.time.ManualClock;
 import dgm.platform.identity.api.AdminRecipients;
 import dgm.platform.identity.api.Contact;
 import dgm.platform.identity.testing.InMemoryAccounts;
@@ -22,11 +23,13 @@ class AccountContactsTest {
 
     private InMemoryAccounts accounts;
     private AccountContacts contacts;
+    private ManualClock clock;
 
     @BeforeEach
     void setUp() {
         accounts = new InMemoryAccounts();
-        contacts = new AccountContacts(accounts);
+        clock = new ManualClock(REGISTERED.plusSeconds(3600));
+        contacts = new AccountContacts(accounts, clock);
     }
 
     @Test
@@ -94,6 +97,35 @@ class AccountContactsTest {
         }
 
         assertEquals(AdminRecipients.MAX, contacts.activeAdminIds().size());
+    }
+
+    @Tag("TC-717")
+    @Test
+    void thePreviousAddressIsGivenToTheLetterForSevenDaysAndThenNotAnymore() {
+        accounts.add(ID, "anna@mail.example", "buyer", REGISTERED);
+        accounts.replaceEmail(ID, "new-anna@mail.example", clock.instant().plus(AccountEmailChanger.PREVIOUS_KEPT));
+
+        assertEquals("new-anna@mail.example", contacts.findActive(ID).orElseThrow().email());
+        Contact previous = contacts.findPrevious(ID).orElseThrow();
+        assertEquals("anna@mail.example", previous.email());
+        assertEquals("Имя 0199", previous.name());
+
+        clock.advance(AccountEmailChanger.PREVIOUS_KEPT.minusSeconds(1));
+        assertTrue(contacts.findPrevious(ID).isPresent(), "за секунду до конца срока адрес ещё отдаётся");
+        clock.advance(java.time.Duration.ofSeconds(1));
+        assertTrue(contacts.findPrevious(ID).isEmpty(), "в момент окончания срока адреса нет");
+    }
+
+    @Tag("TC-717")
+    @Test
+    void thereIsNoPreviousAddressWithoutAChangeOrForAnInactiveAccount() {
+        accounts.add(ID, "anna@mail.example", "buyer", REGISTERED);
+        assertTrue(contacts.findPrevious(ID).isEmpty());
+        assertTrue(contacts.findPrevious(UUID.randomUUID()).isEmpty());
+
+        accounts.replaceEmail(ID, "new-anna@mail.example", clock.instant().plus(AccountEmailChanger.PREVIOUS_KEPT));
+        accounts.deactivate(ID, REGISTERED.plusSeconds(60));
+        assertTrue(contacts.findPrevious(ID).isEmpty(), "деактивированной записи не пишут");
     }
 
     @Test

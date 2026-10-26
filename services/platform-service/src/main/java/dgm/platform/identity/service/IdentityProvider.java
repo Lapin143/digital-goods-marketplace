@@ -45,4 +45,11 @@ public interface IdentityProvider {
 
     /** Выставляет атрибут {@code phone_verified} для токена (ADR-010). */
     void markPhoneVerified(UUID id);
+
+    /**
+     * Меняет e-mail пользователя и отмечает его подтверждённым (смена по обращению, Р-169). Повтор с тем же адресом ничего не меняет.
+     *
+     * @throws KeycloakException со статусом 409, если адрес уже у другого пользователя Keycloak
+     */
+    void setEmail(UUID id, String email);
 }

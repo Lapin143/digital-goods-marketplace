@@ -72,10 +72,16 @@ public final class Letters {
             Map.entry("delivery-failed", Map.of("orderId", Kind.ID, "reason", Kind.FAILURE_REASON, "attempts", Kind.NUMBER)),
             Map.entry("delivery-overdue", Map.of("orderId", Kind.ID, "paidAt", Kind.TIME, "threshold", Kind.SECONDS_AS_MINUTES)),
             // срез 3 (Р-169): код смены e-mail на новый адрес, уходит напрямую, минуя очередь
-            Map.entry("email-change-code", Map.of("code", Kind.CODE)));
+            Map.entry("email-change-code", Map.of("code", Kind.CODE)),
+            // срез 3 (Р-169, FT-11.0): письма о смене e-mail на новый и на прежний адрес
+            Map.entry("email-changed-new", Map.of("changedAt", Kind.TIME)),
+            Map.entry("email-changed-previous", Map.of("changedAt", Kind.TIME)));
 
     /** Шаблоны с одноразовым кодом: код в базу не попадает (правило 17), поэтому такое письмо уходит напрямую, а в очередь не ставится. */
     private static final Set<String> DIRECT_ONLY = Set.of("email-change-code");
+
+    /** Шаблоны, получатель которых определяется по прежнему адресу пользователя (хранится 7 суток после смены), а не по текущему. */
+    private static final Set<String> TO_PREVIOUS_ADDRESS = Set.of("email-changed-previous");
 
     private static final Map<String, String> SELLER_TYPES = Map.of(
             "sole_proprietor", "индивидуальный предприниматель",
@@ -133,6 +139,14 @@ public final class Letters {
     /** Шаблоны, которые уходят только напрямую (в письме одноразовый код): в очередь их ставить нельзя. */
     public Set<String> directOnly() {
         return DIRECT_ONLY;
+    }
+
+    /**
+     * Шаблоны, которые пишут на прежний адрес e-mail (письмо о смене владельцу старого ящика, UC-04, 6a.6): отправитель берёт адрес у identity как
+     * «прежний», и после истечения срока его хранения такое письмо не отправляется.
+     */
+    public Set<String> toPreviousAddress() {
+        return TO_PREVIOUS_ADDRESS;
     }
 
     /** Коды шаблонов этого набора. */

@@ -26,7 +26,8 @@ final class SellerRoleTestKit {
     final FakeIdentityProvider keycloak = new FakeIdentityProvider(tx);
     final SellerRoleHandler handler = new SellerRoleHandler(new SellerRoleService(accounts, keycloak, tx, new ManualClock(NOW)));
     final IdentityReconciler reconciler = new IdentityReconciler(accounts, keycloak,
-            new AccountService(accounts, keycloak, tx, new ManualClock(NOW)), new StaticListableBeanFactory().getBeanProvider(dgm.kit.outbox.OutboxRelay.class));
+            new AccountService(accounts, keycloak, tx, new ManualClock(NOW)), new StaticListableBeanFactory().getBeanProvider(dgm.kit.outbox.OutboxRelay.class),
+            new ManualClock(NOW));
 
     static UUID id(int n) {
         return UUID.fromString(String.format("0199e0a0-0000-4000-8000-%012d", n));

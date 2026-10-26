@@ -251,6 +251,8 @@ class EmailChangeControllerTest {
         ResponseEntity<String> done = controller.verify(ticket.toString(),
                 buyer(ticket, "verifications", "{\"step\":\"new_email\",\"code\":\"" + world.mail.last().orElseThrow().code() + "\"}"));
         assertEquals("passed", Json.parseObject(done.getBody()).get("newEmailCheck"));
+        assertEquals("completed", Json.parseObject(done.getBody()).get("status"), "верный код из письма завершает смену в том же ответе");
+        assertFalse(done.getBody().contains("new.address"), done.getBody());
     }
 
     @Test

@@ -36,6 +36,7 @@ public final class InMemorySupport implements SupportRepository, EmailChangeRepo
         public String status = "created";
         public String resolvedBy;
         public String action;
+        public String codeCheckResult;
         public Instant createdAt;
         public Instant resolvedAt;
         public UUID operatorId;
@@ -286,6 +287,51 @@ public final class InMemorySupport implements SupportRepository, EmailChangeRepo
         changes.put(ticketId, new EmailChange(ticketId, old.userId(), old.newEmail(), old.newEmailMasked(), old.phoneCheck(), EmailChange.PASSED,
                 old.status(), old.startedAt(), at));
         return true;
+    }
+
+    @Override
+    public boolean completed(UUID ticketId, Instant at) {
+        EmailChange old = changes.get(ticketId);
+        if (old == null || !old.confirmedNotCompleted() || !EmailChange.PASSED.equals(old.phoneCheck())) {
+            return false;
+        }
+        changes.put(ticketId, new EmailChange(ticketId, old.userId(), Optional.empty(), old.newEmailMasked(), old.phoneCheck(), old.newEmailCheck(),
+                EmailChange.COMPLETED, old.startedAt(), at));
+        return true;
+    }
+
+    @Override
+    public boolean failConfirmed(UUID ticketId, Instant at) {
+        EmailChange old = changes.get(ticketId);
+        if (old == null || !old.confirmedNotCompleted() || !EmailChange.PASSED.equals(old.phoneCheck())) {
+            return false;
+        }
+        changes.put(ticketId, new EmailChange(ticketId, old.userId(), Optional.empty(), old.newEmailMasked(), old.phoneCheck(), EmailChange.FAILED,
+                EmailChange.FAILED, old.startedAt(), at));
+        return true;
+    }
+
+    @Override
+    public List<UUID> confirmedNotCompletedSince(Instant before, int limit) {
+        return changes.values().stream().filter(c -> c.confirmedNotCompleted() && EmailChange.PASSED.equals(c.phoneCheck()) && !c.updatedAt().isAfter(before))
+                .sorted(java.util.Comparator.comparing(EmailChange::updatedAt).thenComparing(EmailChange::ticketId)).map(EmailChange::ticketId).limit(limit)
+                .toList();
+    }
+
+    @Override
+    public boolean markCodeCheckPassed(UUID ticketId) {
+        for (Ticket ticket : tickets) {
+            if (ticket.id.equals(ticketId)) {
+                ticket.codeCheckResult = "passed";
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Результат проверки кода у обращения; пусто, если его ещё не записывали. */
+    public Optional<String> codeCheckOf(UUID ticketId) {
+        return tickets.stream().filter(t -> t.id.equals(ticketId)).map(t -> t.codeCheckResult).filter(java.util.Objects::nonNull).findFirst();
     }
 
     @Override
