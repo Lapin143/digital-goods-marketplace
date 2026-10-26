@@ -697,7 +697,7 @@ services:
 
   grafana:
     <<: *common
-    image: grafana/grafana:13.2.3
+    image: grafana/grafana:13.2.4
     profiles: [obs]
     user: "472:0"
     mem_limit: 384m
