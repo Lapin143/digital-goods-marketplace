@@ -779,7 +779,7 @@ services:
 
   alloy:
     <<: *common
-    image: grafana/alloy:v1.20.1
+    image: grafana/alloy:v1.21.2
     profiles: [obs]
     user: "473:473"
     # Сокет Docker принадлежит группе docker хоста: её номер подставляет make up (DOCKER_GID). В Docker Desktop сокет принадлежит root:
