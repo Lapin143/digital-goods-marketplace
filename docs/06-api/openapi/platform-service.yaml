@@ -898,6 +898,8 @@ paths:
       - U4
       - U10
       x-sms-session: denied
+      x-module: support
+      x-idempotency-external-steps: true
       security:
       - bearerJwt:
         - staff.support

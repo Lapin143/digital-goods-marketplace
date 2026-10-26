@@ -149,7 +149,9 @@
       ],
       "callers": [],
       "smsSession": "denied",
-      "idempotent": true
+      "idempotent": true,
+      "externalSteps": true,
+      "module": "support"
     },
     {
       "method": "POST",

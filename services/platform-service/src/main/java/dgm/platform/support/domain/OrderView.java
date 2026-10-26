@@ -14,12 +14,14 @@ import java.util.UUID;
  * @param buyerId           покупатель
  * @param orderStatus       статус заказа по SM-01 из последнего применённого события
  * @param issuedAt          время первичной выдачи из {@code order.issued}
- * @param deliveryStatus    статус выдачи: {@code sent}, {@code delivered} или {@code failed}
+ * @param deliveryStatus    статус выдачи: {@code queued} (повторная отправка запрошена), {@code sent}, {@code delivered} или {@code failed}
  * @param deliveryUpdatedAt время последнего применённого события выдачи
  */
 public record OrderView(UUID orderId, long orderNumber, UUID buyerId, String orderStatus, Optional<Instant> issuedAt,
                         Optional<String> deliveryStatus, Optional<Instant> deliveryUpdatedAt) {
 
+    /** Повторная выдача запрошена платформой и ещё не принята провайдером: статус ставит {@code ResendService}, событий выдачи для него нет. */
+    public static final String QUEUED = "queued";
     public static final String SENT = "sent";
     public static final String DELIVERED = "delivered";
     public static final String FAILED = "failed";

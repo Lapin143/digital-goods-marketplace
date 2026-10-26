@@ -49,6 +49,14 @@ dgm:
     host: ${DGM_REDIS_HOST:redis}
     port: ${DGM_REDIS_PORT:6379}
     user: platform
+  # Соседи по mTLS (Р-140). order-service: обновление адреса доставки при повторной отправке ключа (OP-72, Р-170). Вызов с ключом идемпотентности,
+  # поэтому после сбоя клиент повторяет его сам; полный срок 2 секунды из контракта операции, дальше оператору 503 и повтор с тем же ключом
+  peers:
+    order-service:
+      base-url: ${DGM_ORDER_URL:https://order-service:8443}
+      attempt-timeout: 1s
+      retry: 200ms
+      total-deadline: 2s
   # SMS-провайдер: на стенде заглушка external-stubs (ключ API в секрете platform_sms_key), в проде адрес настоящего провайдера
   sms:
     base-url: ${DGM_SMS_BASE_URL:https://external-stubs:8443}

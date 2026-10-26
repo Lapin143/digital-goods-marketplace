@@ -160,6 +160,11 @@ public final class JdbcSupportRepository implements SupportRepository {
     }
 
     @Override
+    public boolean markResend(UUID ticketId, UUID operatorId) {
+        return jdbc.update("update support.ticket set action = 'resend' where id = ? and status = 'in_progress' and operator_id = ?", ticketId, operatorId) == 1;
+    }
+
+    @Override
     public QueueDepth queueDepth() {
         return jdbc.query("select count(*) filter (where status = 'created') as created, count(*) filter (where status = 'in_progress') as in_progress, "
                 + "min(created_at) filter (where status = 'created') as oldest from support.ticket where status in ('created', 'in_progress')",

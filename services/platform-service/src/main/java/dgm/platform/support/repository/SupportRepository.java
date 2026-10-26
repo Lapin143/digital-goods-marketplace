@@ -80,6 +80,14 @@ public interface SupportRepository {
      */
     boolean releaseTicket(UUID ticketId, UUID operatorId);
 
+    /**
+     * Запоминает решение оператора о повторной отправке: {@code action = 'resend'} у обращения, которое в работе у этого оператора. Условие
+     * проверяется тем же оператором ещё раз: пока шла проверка, обращение могли вернуть в очередь.
+     *
+     * @return {@code false}: обращения нет, оно не в работе или в работе у другого оператора
+     */
+    boolean markResend(UUID ticketId, UUID operatorId);
+
     /** Число открытых обращений по статусам и время самого старого из «созданных» (метрики очереди). */
     QueueDepth queueDepth();
 }

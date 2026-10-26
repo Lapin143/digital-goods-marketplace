@@ -10,10 +10,12 @@ import dgm.kit.web.PageCursor;
 import dgm.kit.web.QueryParams;
 import dgm.platform.support.domain.Operator;
 import dgm.platform.support.domain.QueueFilter;
+import dgm.platform.support.domain.ResendAccepted;
 import dgm.platform.support.domain.StaffTicket;
 import dgm.platform.support.domain.StaffTicketPage;
 import dgm.platform.support.domain.SupportTicket;
 import dgm.platform.support.service.QueueService;
+import dgm.platform.support.service.ResendService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -36,7 +38,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Очередь оператора поддержки: {@code listSupportTicketQueue}, {@code getStaffSupportTicket}, {@code takeSupportTicket},
- * {@code releaseSupportTicket} (OP-71, US-7.2). Роль {@code support-operator} и область {@code staff.support} проверяет фильтр каркаса по
+ * {@code releaseSupportTicket} (OP-71, US-7.2) и {@code resendKeyForTicket} (OP-72, US-7.3). Роль {@code support-operator} и область {@code staff.support} проверяет фильтр каркаса по
  * матрице прав; покупатель и сессия по SMS получают 403 там же (U4). Ключ идемпотентности у взятия и возврата ведёт охранник каркаса в
  * транзакции модуля {@code support} ({@code x-module}).
  *
@@ -52,9 +54,11 @@ public class StaffSupportController {
     private static final Pattern ID = Pattern.compile("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
 
     private final QueueService service;
+    private final ResendService resend;
 
-    public StaffSupportController(QueueService service) {
+    public StaffSupportController(QueueService service, ResendService resend) {
         this.service = service;
+        this.resend = resend;
     }
 
     @GetMapping(BASE)
@@ -86,6 +90,22 @@ public class StaffSupportController {
     public ResponseEntity<String> release(@PathVariable("ticketId") String ticketId, HttpServletRequest request) {
         UUID id = ticketId(ticketId);
         return ok(Json.write(toJson(service.release(operator(request), id))));
+    }
+
+    /**
+     * {@code resendKeyForTicket} (OP-72, US-7.3): ответ 202 без ключа и адреса, статус выдачи оператор видит в карточке обращения ({@code Location}).
+     * Ключ идемпотентности ведёт охранник каркаса без общей транзакции, потому что действие вызывает {@code order-service} ({@code x-idempotency-external-steps}).
+     */
+    @PostMapping(BASE + "/{ticketId}/resend")
+    public ResponseEntity<String> resend(@PathVariable("ticketId") String ticketId, HttpServletRequest request) {
+        UUID id = ticketId(ticketId);
+        ResendAccepted accepted = resend.resend(operator(request), id);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("ticketId", accepted.ticketId().toString());
+        body.put("orderId", accepted.orderId().toString());
+        body.put("status", ResendAccepted.STATUS);
+        return ResponseEntity.accepted().contentType(JSON).header(HttpHeaders.CACHE_CONTROL, "no-store").header(HttpHeaders.LOCATION, BASE + "/" + accepted.ticketId())
+                .body(Json.write(body));
     }
 
     private static Operator operator(HttpServletRequest request) {
