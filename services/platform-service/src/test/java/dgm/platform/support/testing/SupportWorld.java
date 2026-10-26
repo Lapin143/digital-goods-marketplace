@@ -1,14 +1,26 @@
 package dgm.platform.support.testing;
 
 import dgm.kit.time.ManualClock;
+import dgm.platform.identity.otp.crypto.OtpCrypto;
+import dgm.platform.identity.otp.service.EmailChangeCodeService;
+import dgm.platform.identity.otp.service.OtpProperties;
+import dgm.platform.identity.otp.service.OtpService;
 import dgm.platform.identity.otp.testing.FakeParameters;
+import dgm.platform.identity.otp.testing.InMemoryOtpStore;
+import dgm.platform.identity.otp.testing.RecordingMail;
+import dgm.platform.identity.otp.testing.RecordingSms;
+import dgm.platform.identity.otp.testing.ScriptedCodes;
+import dgm.platform.identity.service.AccountContacts;
+import dgm.platform.identity.testing.InMemoryAccounts;
 import dgm.platform.notification.testing.FakeContacts;
+import dgm.platform.support.service.EmailChangeService;
 import dgm.platform.support.service.QueueMetrics;
 import dgm.platform.support.service.QueueService;
 import dgm.platform.support.service.ResendService;
 import dgm.platform.support.service.SupportService;
 import dgm.platform.support.service.TicketService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -36,11 +48,26 @@ public final class SupportWorld {
     public final ResendService resend = new ResendService(repository, new FakeSupportTransaction(repository), outbox, contacts, orders, clock, metrics);
 
     public static final String BUYER_EMAIL = "buyer@example.test";
+    public static final String BUYER_PHONE = "+79001234567";
+
+    // Смена e-mail (шаг 14): настоящие службы кодов и лимитов на хранилище в памяти и общих часах, SMS и письма записываются в фейках
+    public final InMemoryAccounts accounts = new InMemoryAccounts();
+    public final InMemoryOtpStore otpStore = new InMemoryOtpStore(clock);
+    public final RecordingSms sms = new RecordingSms();
+    public final RecordingMail mail = new RecordingMail();
+    public final ScriptedCodes scriptedCodes = new ScriptedCodes();
+    public final OtpService otp = new OtpService(otpStore, OtpCrypto.ofBytes("test-pepper-0123456789abcdef-0123".getBytes(StandardCharsets.UTF_8)),
+            scriptedCodes, sms, parameters, OtpProperties.defaults(), clock, metrics);
+    public final EmailChangeCodeService codes = new EmailChangeCodeService(accounts, otp, sms, mail);
+    public final EmailChangeService emailChange = new EmailChangeService(repository, repository, new FakeSupportTransaction(repository), outbox, codes,
+            new AccountContacts(accounts), contacts, clock, metrics);
 
     private long nextNumber = 1000;
 
     public SupportWorld() {
         contacts.put(BUYER, BUYER_EMAIL, "Покупатель");
+        accounts.add(BUYER, BUYER_EMAIL, "buyer", T0);
+        accounts.givePhone(BUYER, BUYER_PHONE);
     }
 
     /** Выданный заказ покупателя: события {@code order.paid} и {@code order.issued} применяет служба поддержки, как потребитель. */

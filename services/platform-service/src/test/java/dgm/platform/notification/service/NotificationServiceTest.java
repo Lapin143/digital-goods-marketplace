@@ -109,4 +109,13 @@ class NotificationServiceTest {
         assertFalse(text.contains("Исправьте"), text);
         assertTrue(text.contains("seller-returned"), text);
     }
+
+    @Test
+    void theLetterWithACodeNeverGoesToTheQueue() {
+        InvalidNotificationException e = assertThrows(InvalidNotificationException.class,
+                () -> service.enqueue(new NotificationRequest(USER, "email-change-code", Map.of("code", "123456"), EVENT)));
+
+        assertFalse(e.getMessage().contains("123456"), e.getMessage());
+        assertEquals(0, queue.all().size(), "код не попадает в базу");
+    }
 }

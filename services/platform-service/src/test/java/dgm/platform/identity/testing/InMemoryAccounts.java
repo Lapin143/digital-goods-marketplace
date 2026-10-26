@@ -45,6 +45,12 @@ public final class InMemoryAccounts implements UserAccountRepository {
                 a.deactivatedAt(), a.version(), a.sellerId()));
     }
 
+    /** Подтверждённый номер у записи, как после успешного подтверждения (для тестов смены e-mail). */
+    public UserAccount givePhone(UUID id, String phone) {
+        phones.put(id, phone);
+        return confirmPhone(id);
+    }
+
     /** Номер у записи (для проверок); пусто, если не привязан. */
     public Optional<String> phoneOf(UUID id) {
         return Optional.ofNullable(phones.get(id));
@@ -154,6 +160,17 @@ public final class InMemoryAccounts implements UserAccountRepository {
                 .sorted(newestFirst)
                 .limit(f.limit() + 1L)
                 .toList();
+    }
+
+    @Override
+    public Optional<String> confirmedPhone(UUID id) {
+        UserAccount a = rows.get(id);
+        return a == null || !a.active() || a.anonymized() || !a.phoneConfirmed() ? Optional.empty() : Optional.ofNullable(phones.get(id));
+    }
+
+    @Override
+    public boolean emailExists(String email) {
+        return rows.values().stream().anyMatch(a -> a.email().equals(email));
     }
 
     @Override

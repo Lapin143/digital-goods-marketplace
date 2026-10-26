@@ -1,5 +1,7 @@
 package dgm.platform.support.testing;
 
+import dgm.platform.support.domain.EmailChange;
+import dgm.platform.support.domain.EmailChangeView;
 import dgm.platform.support.domain.OrderView;
 import dgm.platform.support.domain.QueueDepth;
 import dgm.platform.support.domain.QueueFilter;
@@ -7,6 +9,7 @@ import dgm.platform.support.domain.ResolvedTicket;
 import dgm.platform.support.domain.StaffTicket;
 import dgm.platform.support.domain.SupportTicket;
 import dgm.platform.support.domain.TicketFilter;
+import dgm.platform.support.repository.EmailChangeRepository;
 import dgm.platform.support.repository.SupportRepository;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -21,7 +24,7 @@ import java.util.UUID;
  * Обращения и модель чтения в памяти с теми же правилами, что у таблиц: строка модели чтения одна на заказ, открытое обращение одно на
  * заказ (INV-21), «решено» не открывается заново, более раннее событие выдачи статус не меняет.
  */
-public final class InMemorySupport implements SupportRepository {
+public final class InMemorySupport implements SupportRepository, EmailChangeRepository {
 
     /** Строка {@code support.ticket}. */
     public static final class Ticket {
@@ -54,6 +57,8 @@ public final class InMemorySupport implements SupportRepository {
 
     private final Map<UUID, OrderView> views = new LinkedHashMap<>();
     private final List<Ticket> tickets = new ArrayList<>();
+    /** Строки {@code support.email_change}: записи неизменяемые, поэтому снимок для отката это копия отображения. */
+    private final Map<UUID, EmailChange> changes = new LinkedHashMap<>();
 
     @Override
     public void insertPaid(UUID orderId, long orderNumber, UUID buyerId, Instant at) {
@@ -115,6 +120,7 @@ public final class InMemorySupport implements SupportRepository {
                 ticket.resolvedBy = "system";
                 ticket.resolvedAt = at;
                 resolved.add(new ResolvedTicket(ticket.id, ticket.buyerId));
+                abandon(ticket.id, at);
             }
         }
         return resolved;
@@ -131,7 +137,7 @@ public final class InMemorySupport implements SupportRepository {
 
     @Override
     public Optional<SupportTicket> findTicket(UUID ticketId) {
-        return tickets.stream().filter(t -> t.id.equals(ticketId)).findFirst().map(InMemorySupport::domain);
+        return tickets.stream().filter(t -> t.id.equals(ticketId)).findFirst().map(this::domain);
     }
 
     @Override
@@ -144,7 +150,7 @@ public final class InMemorySupport implements SupportRepository {
                         || (t.createdAt.equals(a.createdAt()) && t.id.compareTo(a.id()) < 0)).orElse(true))
                 .sorted(Comparator.comparing((Ticket t) -> t.createdAt).thenComparing(t -> t.id).reversed())
                 .limit(filter.limit() + 1L)
-                .map(InMemorySupport::domain)
+                .map(this::domain)
                 .toList();
     }
 
@@ -217,22 +223,113 @@ public final class InMemorySupport implements SupportRepository {
     private StaffTicket staff(Ticket t) {
         OrderView view = views.get(t.orderId);
         return new StaffTicket(t.id, t.orderId, view.orderNumber(), t.buyerId, t.source, t.reason, t.status, Optional.ofNullable(t.operatorId),
-                view.orderStatus(), view.issuedAt(), view.deliveryStatus(), t.createdAt, Optional.ofNullable(t.takenAt), Optional.ofNullable(t.resolvedAt));
+                view.orderStatus(), view.issuedAt(), view.deliveryStatus(), t.createdAt, Optional.ofNullable(t.takenAt), Optional.ofNullable(t.resolvedAt),
+                Optional.ofNullable(changes.get(t.id)).map(EmailChange::view));
     }
 
-    private static SupportTicket domain(Ticket t) {
+    private SupportTicket domain(Ticket t) {
         return new SupportTicket(t.id, t.orderId, t.buyerId, t.source, t.reason, t.status, t.createdAt, Optional.ofNullable(t.resolvedAt),
-                Optional.ofNullable(t.resolvedBy), Optional.ofNullable(t.action));
+                Optional.ofNullable(t.resolvedBy), Optional.ofNullable(t.action), Optional.ofNullable(changes.get(t.id)).map(EmailChange::view));
     }
 
-    /** Снимок обращений для отката транзакции в {@link FakeSupportTransaction}. */
-    List<Ticket> snapshot() {
-        return List.copyOf(tickets);
+    /** Снимок обращений и этапов смены e-mail для отката транзакции в {@link FakeSupportTransaction}. */
+    Snapshot snapshot() {
+        return new Snapshot(List.copyOf(tickets), new LinkedHashMap<>(changes));
     }
 
-    void restore(List<Ticket> snapshot) {
+    void restore(Snapshot snapshot) {
         tickets.clear();
-        tickets.addAll(snapshot);
+        tickets.addAll(snapshot.tickets());
+        changes.clear();
+        changes.putAll(snapshot.changes());
+    }
+
+    /** Снимок состояния. */
+    record Snapshot(List<Ticket> tickets, Map<UUID, EmailChange> changes) {
+    }
+
+    // ---- смена e-mail по обращению: те же условные переходы, что у UPDATE в базе ----
+
+    @Override
+    public Optional<EmailChange> find(UUID ticketId) {
+        return Optional.ofNullable(changes.get(ticketId));
+    }
+
+    @Override
+    public boolean start(UUID ticketId, UUID userId, String newEmail, String newEmailMasked, Instant at) {
+        EmailChange old = changes.get(ticketId);
+        if (old != null && (EmailChange.COMPLETED.equals(old.status()) || old.confirmedNotCompleted())) {
+            return false;
+        }
+        changes.put(ticketId, new EmailChange(ticketId, userId, Optional.of(newEmail), newEmailMasked, EmailChange.PENDING, EmailChange.NOT_STARTED,
+                EmailChange.AWAITING_PHONE_CODE, at, at));
+        return true;
+    }
+
+    @Override
+    public boolean phonePassed(UUID ticketId, Instant at) {
+        EmailChange old = changes.get(ticketId);
+        if (old == null || !EmailChange.AWAITING_PHONE_CODE.equals(old.status())) {
+            return false;
+        }
+        changes.put(ticketId, new EmailChange(ticketId, old.userId(), old.newEmail(), old.newEmailMasked(), EmailChange.PASSED, EmailChange.PENDING,
+                EmailChange.AWAITING_EMAIL_CODE, old.startedAt(), at));
+        return true;
+    }
+
+    @Override
+    public boolean newEmailPassed(UUID ticketId, Instant at) {
+        EmailChange old = changes.get(ticketId);
+        if (old == null || !EmailChange.AWAITING_EMAIL_CODE.equals(old.status()) || !EmailChange.PENDING.equals(old.newEmailCheck())) {
+            return false;
+        }
+        changes.put(ticketId, new EmailChange(ticketId, old.userId(), old.newEmail(), old.newEmailMasked(), old.phoneCheck(), EmailChange.PASSED,
+                old.status(), old.startedAt(), at));
+        return true;
+    }
+
+    @Override
+    public boolean fail(UUID ticketId, String phoneCheck, String newEmailCheck, Instant at) {
+        EmailChange old = changes.get(ticketId);
+        boolean waiting = old != null && (EmailChange.AWAITING_PHONE_CODE.equals(old.status()) || EmailChange.AWAITING_EMAIL_CODE.equals(old.status()));
+        if (!waiting || EmailChange.PASSED.equals(old.newEmailCheck())) {
+            return false;
+        }
+        changes.put(ticketId, new EmailChange(ticketId, old.userId(), Optional.empty(), old.newEmailMasked(), phoneCheck, newEmailCheck, EmailChange.FAILED,
+                old.startedAt(), at));
+        return true;
+    }
+
+    /** Как вторая часть {@code resolveOpenTickets} в базе: смена, ждущая кода, обрывается, новый адрес обнуляется. */
+    private void abandon(UUID ticketId, Instant at) {
+        EmailChange old = changes.get(ticketId);
+        boolean waiting = old != null && (EmailChange.AWAITING_PHONE_CODE.equals(old.status()) || EmailChange.AWAITING_EMAIL_CODE.equals(old.status()));
+        if (waiting && !EmailChange.PASSED.equals(old.newEmailCheck())) {
+            changes.put(ticketId, new EmailChange(ticketId, old.userId(), Optional.empty(), old.newEmailMasked(),
+                    EmailChange.PENDING.equals(old.phoneCheck()) ? EmailChange.FAILED : old.phoneCheck(),
+                    EmailChange.PENDING.equals(old.newEmailCheck()) ? EmailChange.FAILED : old.newEmailCheck(), EmailChange.FAILED, old.startedAt(), at));
+        }
+    }
+
+    @Override
+    public boolean markEmailChange(UUID ticketId, UUID operatorId) {
+        for (Ticket ticket : tickets) {
+            if (ticket.id.equals(ticketId) && "in_progress".equals(ticket.status) && operatorId.equals(ticket.operatorId)) {
+                ticket.action = "email_change";
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Состояние смены обращения как в таблице (для проверок в тестах). */
+    public Optional<EmailChange> changeOf(UUID ticketId) {
+        return find(ticketId);
+    }
+
+    /** Состояние для ответа (без адреса). */
+    public Optional<EmailChangeView> viewOf(UUID ticketId) {
+        return find(ticketId).map(EmailChange::view);
     }
 
     /** Закрывает обращение как решённое оператором: так в тестах появляется «решено», после которого новое обращение возможно. */

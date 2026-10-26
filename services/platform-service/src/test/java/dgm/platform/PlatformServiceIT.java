@@ -2901,6 +2901,371 @@ class PlatformServiceIT {
         assertTrue(deliveryStatusIs(c.order(), "queued"));
     }
 
+    // ---- смена e-mail по обращению (шаг 14 среза 3) ----
+
+    private static final Set<String> EMAIL_CHANGE_FIELDS = Set.of("status", "phoneCheck", "newEmailCheck", "newEmailMasked", "startedAt", "updatedAt");
+    private static final String CODE_LETTER = "Код подтверждения нового адреса e-mail";
+
+    /** Обращение покупателя с подтверждённым телефоном, взятое оператором; новый адрес свой для каждого прогона (счётчики Redis остаются между прогонами). */
+    private record ChangeCase(KeycloakStub.User buyer, KeycloakStub.User operator, UUID ticket, String phone, String newEmail) {
+    }
+
+    private ChangeCase takenTicketOfConfirmedBuyer() throws Exception {
+        String phone = newPhone();
+        KeycloakStub.User buyer = confirmedBuyer(phone);
+        KeycloakStub.User operator = KEYCLOAK.add("support-operator", "Ольга", "Лисина");
+        UUID ticket = takenTicket(buyer, operator);
+        return new ChangeCase(buyer, operator, ticket, phone, "new-" + UUID.randomUUID() + "@it.example");
+    }
+
+    /** Новый заказ покупателя, обращение по нему и взятие в работу оператором. */
+    private UUID takenTicket(KeycloakStub.User buyer, KeycloakStub.User operator) throws Exception {
+        UUID order = issuedOrder(buyer.id, Instant.now().minus(Duration.ofHours(1)));
+        Response created = createTicket(buyer.id, order, UUID.randomUUID().toString());
+        assertEquals(201, created.status(), created.body());
+        UUID ticket = UUID.fromString(String.valueOf(created.json().get("ticketId")));
+        assertEquals(200, queueAction(operator.id, ticket, "take", UUID.randomUUID().toString()).status());
+        return ticket;
+    }
+
+    private static Response startChange(String operator, UUID ticket, String newEmail, String key, String ip) throws IOException {
+        return gateway.post(QUEUE + "/" + ticket + "/email-change", "{\"newEmail\":\"" + newEmail + "\"}", "Authorization", "Bearer " + operatorToken(operator),
+                "Idempotency-Key", key, "X-Forwarded-For", ip);
+    }
+
+    private static Response changeState(String operator, UUID ticket) throws IOException {
+        return gateway.get(QUEUE + "/" + ticket + "/email-change", StandHttp.bearer(operatorToken(operator)));
+    }
+
+    private static Response buyerChange(String buyer, UUID ticket, String path, String body, String key, String ip) throws IOException {
+        return gateway.post(TICKETS + "/" + ticket + "/email-change/" + path, body, "Authorization", "Bearer " + buyerToken(buyer),
+                "Idempotency-Key", key, "X-Forwarded-For", ip);
+    }
+
+    private static String stepBody(String step) {
+        return "{\"step\":\"" + step + "\"}";
+    }
+
+    private static String verifyBody(String step, String code) {
+        return "{\"step\":\"" + step + "\",\"code\":\"" + code + "\"}";
+    }
+
+    private static String maskedEmail(String email) {
+        return email.charAt(0) + "***" + email.substring(email.indexOf('@'));
+    }
+
+    private Map<String, Object> emailChangeRow(UUID ticket) {
+        return supportDb().queryForMap("select status, phone_check, new_email_check, new_email, new_email_masked from support.email_change where ticket_id = ?", ticket);
+    }
+
+    /** Код из последнего письма на адрес: то, что увидел бы человек в почте. */
+    private static String codeFromLetter(String address) {
+        List<Map<?, ?>> letters = mails(address);
+        assertFalse(letters.isEmpty(), "заглушка не получила письма на " + address);
+        String text = String.valueOf(letters.get(letters.size() - 1).get("text"));
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(?<![0-9])([0-9]{6})(?![0-9])").matcher(text);
+        assertTrue(matcher.find(), "в письме нет кода из шести цифр");
+        return matcher.group(1);
+    }
+
+    @Tag("TC-711")
+    @Tag("TC-712")
+    @Tag("TC-713")
+    @Test
+    @Order(62)
+    void bothCodesAreConfirmedByTheBuyerAndTheOperatorSeesOnlyTheResults() throws Exception {
+        ChangeCase c = takenTicketOfConfirmedBuyer();
+        String ip = newIp();
+        int smsBefore = sms(c.phone()).size();
+
+        Response started = startChange(c.operator().id, c.ticket(), c.newEmail(), UUID.randomUUID().toString(), ip);
+
+        assertEquals(201, started.status(), started.body());
+        assertTrue(started.header("Cache-Control").contains("no-store"));
+        assertTrue(started.header("Location").endsWith(QUEUE + "/" + c.ticket() + "/email-change"));
+        assertEquals(EMAIL_CHANGE_FIELDS, started.json().keySet());
+        assertEquals("awaiting_phone_code", started.json().get("status"));
+        assertEquals("pending", started.json().get("phoneCheck"));
+        assertEquals("not_started", started.json().get("newEmailCheck"));
+        assertEquals(maskedEmail(c.newEmail()), started.json().get("newEmailMasked"));
+        assertEquals(smsBefore + 1, sms(c.phone()).size(), "SMS ушло на подтверждённый телефон покупателя");
+        String phoneCode = smsCode(c.phone());
+        assertTrue(phoneCode.matches("[0-9]{6}"), "код из шести цифр");
+        assertFalse(started.body().contains(c.newEmail()), "полного адреса оператору в ответе нет");
+        assertFalse(started.body().contains(phoneCode), "кода в ответе оператору нет");
+        assertFalse(started.body().contains(c.phone()), "номера в ответе оператору нет");
+        Map<String, Object> row = emailChangeRow(c.ticket());
+        assertEquals("awaiting_phone_code", row.get("status"));
+        assertEquals(c.newEmail(), row.get("new_email"), "до завершения адрес лежит в записи этапа");
+        assertEquals(maskedEmail(c.newEmail()), row.get("new_email_masked"));
+        assertEquals("email_change", ticketColumn(c.ticket(), "action"));
+        assertEquals("in_progress", ticketColumn(c.ticket(), "status"));
+        String storedPhoneCode = redis.get("platform:otp:code:email_change_phone:" + c.ticket()).orElseThrow();
+        assertFalse(storedPhoneCode.contains(phoneCode), "в Redis хеш кода, а не код (NFT-3.7)");
+        assertTrue(await(Duration.ofSeconds(90), () -> auditRowsOf(c.ticket(), "support.email_change_started") == 1), "запись о начале смены дошла до журнала аудита");
+        String audited = auditDb().queryForObject("select changes::text from audit_admin.audit_log where object_id = ? and action = 'support.email_change_started'",
+                String.class, c.ticket().toString());
+        assertNotNull(audited);
+        assertFalse(audited.contains(c.newEmail()), "адреса в аудите нет (INV-44)");
+        assertFalse(audited.contains(c.phone()), "номера в аудите нет");
+        assertFalse(audited.contains(phoneCode), "кода в аудите нет");
+
+        Response state = changeState(c.operator().id, c.ticket());
+        assertEquals(200, state.status(), state.body());
+        assertEquals(EMAIL_CHANGE_FIELDS, state.json().keySet());
+        assertEquals("pending", state.json().get("phoneCheck"));
+        Response card = gateway.get(QUEUE + "/" + c.ticket(), StandHttp.bearer(operatorToken(c.operator().id)));
+        assertEquals(200, card.status(), card.body());
+        assertEquals("awaiting_phone_code", ((Map<?, ?>) card.json().get("emailChange")).get("status"), "карточка обращения показывает смену");
+        assertFalse(card.body().contains(c.newEmail()));
+        Response own = gateway.get(TICKETS + "/" + c.ticket(), StandHttp.bearer(buyerToken(c.buyer().id)));
+        assertEquals(200, own.status(), own.body());
+        assertEquals(maskedEmail(c.newEmail()), ((Map<?, ?>) own.json().get("emailChange")).get("newEmailMasked"));
+
+        Response invalid = buyerChange(c.buyer().id, c.ticket(), "verifications", verifyBody("phone", wrongCodeFor(phoneCode)), UUID.randomUUID().toString(), ip);
+        assertEquals(422, invalid.status(), invalid.body());
+        assertEquals("otp-invalid", invalid.json().get("code"));
+        assertEquals(4, ((Number) invalid.json().get("attemptsLeft")).intValue());
+        assertEquals("awaiting_phone_code", emailChangeRow(c.ticket()).get("status"), "пока попытки есть, этап не меняется");
+
+        Response phoneOk = buyerChange(c.buyer().id, c.ticket(), "verifications", verifyBody("phone", phoneCode), UUID.randomUUID().toString(), ip);
+        assertEquals(200, phoneOk.status(), phoneOk.body());
+        assertTrue(phoneOk.header("Cache-Control").contains("no-store"));
+        assertEquals("awaiting_email_code", phoneOk.json().get("status"));
+        assertEquals("passed", phoneOk.json().get("phoneCheck"));
+        assertEquals("pending", phoneOk.json().get("newEmailCheck"));
+        assertFalse(phoneOk.body().contains(c.newEmail()), "полного адреса и покупателю в ответе нет");
+
+        assertEquals(1, mails(c.newEmail()).size(), "письмо с кодом ушло на новый адрес");
+        assertEquals(CODE_LETTER, mailWithSubject(c.newEmail(), CODE_LETTER).get("subject"));
+        String mailCode = codeFromLetter(c.newEmail());
+        assertEquals(0, notificationDb().queryForList("select id from notification.notification where template = 'email-change-code'").size(),
+                "письмо с кодом не ставится в очередь: кода нет ни в базе, ни в очереди");
+        String storedMailCode = redis.get("platform:otp:code:email_change_new_email:" + c.ticket()).orElseThrow();
+        assertFalse(storedMailCode.contains(mailCode), "в Redis хеш кода, а не код");
+        Map<String, Object> afterPhone = emailChangeRow(c.ticket());
+        assertEquals("awaiting_email_code", afterPhone.get("status"));
+        assertEquals("passed", afterPhone.get("phone_check"));
+        assertEquals("pending", afterPhone.get("new_email_check"));
+
+        Response mailInvalid = buyerChange(c.buyer().id, c.ticket(), "verifications", verifyBody("new_email", wrongCodeFor(mailCode)), UUID.randomUUID().toString(), ip);
+        assertEquals(422, mailInvalid.status(), mailInvalid.body());
+        assertEquals(4, ((Number) mailInvalid.json().get("attemptsLeft")).intValue());
+        String finalKey = UUID.randomUUID().toString();
+        Response mailOk = buyerChange(c.buyer().id, c.ticket(), "verifications", verifyBody("new_email", mailCode), finalKey, ip);
+        assertEquals(200, mailOk.status(), mailOk.body());
+        assertEquals("passed", mailOk.json().get("newEmailCheck"));
+        assertEquals("awaiting_email_code", mailOk.json().get("status"), "завершение смены в этой части не выполняется");
+        Response replay = buyerChange(c.buyer().id, c.ticket(), "verifications", verifyBody("new_email", mailCode), finalKey, ip);
+        assertEquals(200, replay.status(), replay.body());
+        assertEquals("true", replay.header("Idempotency-Replayed"), "тот же ключ: прежний ответ, код не проверяется второй раз");
+
+        Map<String, Object> confirmed = emailChangeRow(c.ticket());
+        assertEquals("awaiting_email_code", confirmed.get("status"));
+        assertEquals("passed", confirmed.get("phone_check"));
+        assertEquals("passed", confirmed.get("new_email_check"));
+        assertEquals(c.newEmail(), confirmed.get("new_email"), "до завершения адрес остаётся в записи этапа");
+        assertEquals("passed", changeState(c.operator().id, c.ticket()).json().get("newEmailCheck"));
+        Response again = startChange(c.operator().id, c.ticket(), "other-" + c.newEmail(), UUID.randomUUID().toString(), ip);
+        assertEquals(409, again.status(), "подтверждённую смену повторным запуском не заменить: " + again.body());
+        assertEquals("state-conflict", again.json().get("code"));
+        assertEquals(c.newEmail(), emailChangeRow(c.ticket()).get("new_email"));
+
+        // Метки метрик: только операция и результат, ни адреса, ни кода (NFT-3.7, INV-44)
+        assertNotNull(meters.find("support_email_change_total").tag("operation", "verify_new_email").tag("result", "accepted").counter());
+        meters.getMeters().stream().filter(m -> m.getId().getName().startsWith("support_email_change") || m.getId().getName().startsWith("notification_direct"))
+                .forEach(m -> m.getId().getTags().forEach(tag -> {
+                    assertFalse(tag.getValue().contains("@"), tag.toString());
+                    assertFalse(tag.getValue().contains(mailCode), tag.toString());
+                    assertFalse(tag.getValue().contains(phoneCode), tag.toString());
+                }));
+    }
+
+    @Tag("TC-712")
+    @Tag("ST-05")
+    @Test
+    @Order(63)
+    void fiveWrongCodesRejectTheChangeAndTheOperatorStartsItAgainWithinTheRequestLimits() throws Exception {
+        ChangeCase c = takenTicketOfConfirmedBuyer();
+        String ip = newIp();
+        assertEquals(201, startChange(c.operator().id, c.ticket(), c.newEmail(), UUID.randomUUID().toString(), ip).status());
+        String code = smsCode(c.phone());
+        String wrong = wrongCodeFor(code);
+
+        for (int left = 4; left >= 1; left--) {
+            Response response = buyerChange(c.buyer().id, c.ticket(), "verifications", verifyBody("phone", wrong), UUID.randomUUID().toString(), ip);
+            assertEquals(422, response.status(), response.body());
+            assertEquals("otp-invalid", response.json().get("code"));
+            assertEquals(left, ((Number) response.json().get("attemptsLeft")).intValue());
+        }
+        Response fifth = buyerChange(c.buyer().id, c.ticket(), "verifications", verifyBody("phone", wrong), UUID.randomUUID().toString(), ip);
+        assertEquals(429, fifth.status(), fifth.body());
+        assertEquals("otp-locked", fifth.json().get("code"));
+        assertTrue(Long.parseLong(fifth.header("Retry-After")) > 0);
+        Map<String, Object> failed = emailChangeRow(c.ticket());
+        assertEquals("failed", failed.get("status"));
+        assertEquals("failed", failed.get("phone_check"));
+        assertEquals("not_started", failed.get("new_email_check"));
+        assertNull(failed.get("new_email"), "после отказа адрес в записи обнулён (INV-44)");
+        assertEquals(maskedEmail(c.newEmail()), failed.get("new_email_masked"));
+        assertEquals("in_progress", ticketColumn(c.ticket(), "status"), "обращение остаётся в работе");
+        assertEquals("failed", changeState(c.operator().id, c.ticket()).json().get("status"));
+        Response sixth = buyerChange(c.buyer().id, c.ticket(), "verifications", verifyBody("phone", code), UUID.randomUUID().toString(), ip);
+        assertEquals(409, sixth.status(), "этап закрыт, верный код после пятой неудачи не принимается: " + sixth.body());
+        assertEquals("state-conflict", sixth.json().get("code"));
+        assertEquals(0, mails(c.newEmail()).size(), "письмо на новый адрес не уходило");
+
+        // В окне номера уже есть SMS подтверждения телефона: после начала заново (третье SMS за десять минут) следующее начало получает 429
+        Response again = startChange(c.operator().id, c.ticket(), c.newEmail(), UUID.randomUUID().toString(), ip);
+        assertEquals(201, again.status(), again.body());
+        assertEquals("pending", again.json().get("phoneCheck"));
+        Response limited = startChange(c.operator().id, c.ticket(), c.newEmail(), UUID.randomUUID().toString(), ip);
+        assertEquals(429, limited.status(), limited.body());
+        assertEquals("otp-request-limited", limited.json().get("code"));
+        assertTrue(Long.parseLong(limited.header("Retry-After")) > 0);
+        assertEquals(3, sms(c.phone()).size(), "SMS подтверждения, первое и второе начало смены; четвёртое SMS не отправлено");
+    }
+
+    @Tag("TC-714")
+    @Test
+    @Order(64)
+    void aTakenAddressAndTheBuyersOwnAddressGetTheSameNeutralRefusalAndNothingIsSent() throws Exception {
+        ChangeCase c = takenTicketOfConfirmedBuyer();
+        KeycloakStub.User other = provisioned("buyer");
+        String ip = newIp();
+        int smsBefore = sms(c.phone()).size();
+        List<String> eventsBefore = ticketEvents(c.ticket());
+
+        Response taken = startChange(c.operator().id, c.ticket(), other.email, UUID.randomUUID().toString(), ip);
+        Response own = startChange(c.operator().id, c.ticket(), c.buyer().email, UUID.randomUUID().toString(), ip);
+
+        assertEquals(409, taken.status(), taken.body());
+        assertEquals("email-not-allowed", taken.json().get("code"));
+        assertEquals(409, own.status(), own.body());
+        assertEquals("email-not-allowed", own.json().get("code"));
+        assertEquals(taken.json().get("detail"), own.json().get("detail"), "ответ не показывает причину");
+        assertFalse(taken.body().contains(other.email), "чужого адреса в ответе нет");
+        assertFalse(own.body().contains(c.buyer().email));
+        assertEquals(smsBefore, sms(c.phone()).size(), "код не отправлен");
+        assertEquals(0, supportDb().queryForList("select 1 from support.email_change where ticket_id = ?", c.ticket()).size(), "этап не записан");
+        assertEquals(eventsBefore, ticketEvents(c.ticket()), "записи аудита о начале смены нет");
+        assertNull(ticketColumn(c.ticket(), "action"));
+
+        Response invalid = startChange(c.operator().id, c.ticket(), "not-an-address", UUID.randomUUID().toString(), ip);
+        assertEquals(422, invalid.status(), invalid.body());
+        assertEquals("validation-failed", invalid.json().get("code"));
+        assertFalse(invalid.body().contains("not-an-address"), "значения поля в ошибке нет");
+        assertEquals(smsBefore, sms(c.phone()).size());
+    }
+
+    @Tag("TC-715")
+    @Test
+    @Order(65)
+    void theChangeIsOnlyForTheOperatorWhoTookTheTicketAndForItsBuyer() throws Exception {
+        ChangeCase c = takenTicketOfConfirmedBuyer();
+        KeycloakStub.User otherOperator = KEYCLOAK.add("support-operator", "Игорь", "Ершов");
+        KeycloakStub.User stranger = KEYCLOAK.add("buyer", "Чужой", "Покупатель");
+        String ip = newIp();
+        int smsBefore = sms(c.phone()).size();
+        UUID queued = UUID.fromString(String.valueOf(createTicket(c.buyer().id, issuedOrder(c.buyer().id, Instant.now().minus(Duration.ofHours(2))),
+                UUID.randomUUID().toString()).json().get("ticketId")));
+
+        Response foreign = startChange(otherOperator.id, c.ticket(), c.newEmail(), UUID.randomUUID().toString(), ip);
+        assertEquals(409, foreign.status(), foreign.body());
+        assertEquals("ticket-not-in-progress", foreign.json().get("code"));
+        Response notTaken = startChange(c.operator().id, queued, c.newEmail(), UUID.randomUUID().toString(), ip);
+        assertEquals(409, notTaken.status(), notTaken.body());
+        assertEquals("ticket-not-in-progress", notTaken.json().get("code"));
+        assertEquals(404, startChange(c.operator().id, UUID.randomUUID(), c.newEmail(), UUID.randomUUID().toString(), ip).status());
+        assertEquals(403, gateway.post(QUEUE + "/" + c.ticket() + "/email-change", "{\"newEmail\":\"" + c.newEmail() + "\"}", "Authorization",
+                "Bearer " + buyerToken(c.buyer().id), "Idempotency-Key", UUID.randomUUID().toString()).status(), "покупатель смену не начинает");
+        assertEquals(403, gateway.post(QUEUE + "/" + c.ticket() + "/email-change", "{\"newEmail\":\"" + c.newEmail() + "\"}", "Authorization",
+                "Bearer " + token(c.operator().id, "support-operator", "staff.support", "pwd"), "Idempotency-Key", UUID.randomUUID().toString()).status(),
+                "оператору без второго фактора смена закрыта");
+        assertEquals(400, gateway.post(QUEUE + "/" + c.ticket() + "/email-change", "{\"newEmail\":\"" + c.newEmail() + "\"}", "Authorization",
+                "Bearer " + operatorToken(c.operator().id)).status(), "без Idempotency-Key");
+        assertEquals(smsBefore, sms(c.phone()).size(), "при отказах код не отправляется");
+        assertEquals(0, supportDb().queryForList("select 1 from support.email_change where ticket_id in (?, ?)", c.ticket(), queued).size());
+
+        Response noChange = changeState(c.operator().id, c.ticket());
+        assertEquals(404, noChange.status(), "смена не начата: " + noChange.body());
+        Response early = buyerChange(c.buyer().id, c.ticket(), "codes", stepBody("phone"), UUID.randomUUID().toString(), ip);
+        assertEquals(409, early.status(), "смена не начата: " + early.body());
+        assertEquals("state-conflict", early.json().get("code"));
+
+        assertEquals(201, startChange(c.operator().id, c.ticket(), c.newEmail(), UUID.randomUUID().toString(), ip).status());
+        assertEquals(404, changeState(otherOperator.id, c.ticket()).status(), "чужое обращение оператор не читает");
+        assertEquals(404, buyerChange(stranger.id, c.ticket(), "codes", stepBody("phone"), UUID.randomUUID().toString(), ip).status(),
+                "чужое обращение неотличимо от отсутствующего");
+        assertEquals(404, buyerChange(stranger.id, c.ticket(), "verifications", verifyBody("phone", smsCode(c.phone())), UUID.randomUUID().toString(), ip).status());
+        assertEquals(403, gateway.post(TICKETS + "/" + c.ticket() + "/email-change/codes", stepBody("phone"), "Authorization",
+                "Bearer " + operatorToken(c.operator().id), "Idempotency-Key", UUID.randomUUID().toString()).status(), "оператор коды не запрашивает");
+        Response orderBroken = buyerChange(c.buyer().id, c.ticket(), "verifications", verifyBody("new_email", smsCode(c.phone())), UUID.randomUUID().toString(), ip);
+        assertEquals(409, orderBroken.status(), "письмо раньше телефона: " + orderBroken.body());
+
+        // Покупатель без подтверждённого телефона: смена по обращению недоступна
+        KeycloakStub.User noPhone = provisioned("buyer");
+        UUID noPhoneTicket = takenTicket(noPhone, c.operator());
+        Response refused = startChange(c.operator().id, noPhoneTicket, "new-" + UUID.randomUUID() + "@it.example", UUID.randomUUID().toString(), ip);
+        assertEquals(409, refused.status(), refused.body());
+        assertEquals("state-conflict", refused.json().get("code"));
+        assertEquals(0, supportDb().queryForList("select 1 from support.email_change where ticket_id = ?", noPhoneTicket).size());
+    }
+
+    @Tag("TC-712")
+    @Tag("TC-713")
+    @Test
+    @Order(66)
+    void providerFailuresLeaveNoCodesAndTheBuyerOrTheKeyRetryWorks() throws Exception {
+        ChangeCase c = takenTicketOfConfirmedBuyer();
+        String ip = newIp();
+        String key = UUID.randomUUID().toString();
+        int smsBefore = sms(c.phone()).size();
+
+        assertEquals(200, stubs("PUT", "/admin/modes/sms", "{\"behavior\":\"error\"}").statusCode());
+        Response failed;
+        try {
+            failed = startChange(c.operator().id, c.ticket(), c.newEmail(), key, ip);
+        } finally {
+            assertEquals(200, stubs("PUT", "/admin/modes/sms", "{\"behavior\":\"deliver\"}").statusCode());
+        }
+        assertEquals(503, failed.status(), failed.body());
+        assertEquals("dependency-unavailable", failed.json().get("code"));
+        assertEquals("30", failed.header("Retry-After"));
+        assertEquals(Optional.empty(), redis.get("platform:otp:code:email_change_phone:" + c.ticket()), "запись кода убрана вместе с отказом");
+        assertEquals(smsBefore, sms(c.phone()).size());
+        assertEquals("awaiting_phone_code", emailChangeRow(c.ticket()).get("status"), "решение оператора записано до отправки и остаётся");
+
+        Response retry = startChange(c.operator().id, c.ticket(), c.newEmail(), key, ip);
+        assertEquals(201, retry.status(), "ключ после отказа свободен, тот же ключ работает: " + retry.body());
+        assertEquals(smsBefore + 1, sms(c.phone()).size());
+        String phoneCode = smsCode(c.phone());
+
+        emailMode("{\"sender\":\"platform\",\"behavior\":\"temp_error\",\"failFirst\":-1,\"tempKind\":\"http_503\"}");
+        Response mailFailed;
+        try {
+            mailFailed = buyerChange(c.buyer().id, c.ticket(), "verifications", verifyBody("phone", phoneCode), UUID.randomUUID().toString(), ip);
+        } finally {
+            emailMode("{\"behavior\":\"accept\"}");
+        }
+        assertEquals(503, mailFailed.status(), mailFailed.body());
+        assertEquals("dependency-unavailable", mailFailed.json().get("code"));
+        assertEquals(Optional.empty(), redis.get("platform:otp:code:email_change_new_email:" + c.ticket()), "записи кода из письма нет");
+        assertEquals(0, mails(c.newEmail()).size());
+        Map<String, Object> afterPhone = emailChangeRow(c.ticket());
+        assertEquals("awaiting_email_code", afterPhone.get("status"), "телефон подтверждён, письмо не ушло");
+        assertEquals("passed", afterPhone.get("phone_check"));
+        assertEquals("pending", afterPhone.get("new_email_check"));
+
+        Response requested = buyerChange(c.buyer().id, c.ticket(), "codes", stepBody("new_email"), UUID.randomUUID().toString(), ip);
+        assertEquals(200, requested.status(), requested.body());
+        assertEquals(1, mails(c.newEmail()).size(), "новое письмо с кодом ушло на новый адрес");
+        Response confirmed = buyerChange(c.buyer().id, c.ticket(), "verifications", verifyBody("new_email", codeFromLetter(c.newEmail())),
+                UUID.randomUUID().toString(), ip);
+        assertEquals(200, confirmed.status(), confirmed.body());
+        assertEquals("passed", confirmed.json().get("newEmailCheck"));
+    }
+
     @Tag("TC-114")
     @Test
     @Order(99)

@@ -34,9 +34,10 @@ class SliceTwoLettersTest {
     }
 
     @Test
-    void theSetHoldsTheFourLettersOfSliceOneAndTheSixOfSliceTwo() {
+    void theSetHoldsTheLettersOfSlicesOneAndTwoAndTheDirectCodeLetter() {
         assertEquals(Set.of("seller-approved", "seller-rejected", "seller-returned", "user-sms-login", "order-created", "order-paid",
-                "order-refunded", "payment-refund-escalated", "delivery-failed", "delivery-overdue"), letters.codes());
+                "order-refunded", "payment-refund-escalated", "delivery-failed", "delivery-overdue", "email-change-code"), letters.codes());
+        assertEquals(Set.of("email-change-code"), letters.directOnly(), "из очереди не уходит только письмо с кодом");
     }
 
     @Test
