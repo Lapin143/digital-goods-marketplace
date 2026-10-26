@@ -126,7 +126,7 @@ class InternalOrderControllerTest {
     void aBadBodyIs422WithTheListOfErrorsAndWithoutTheAddress() throws Exception {
         String body = "{\"ticketId\":\"x\",\"email\":\"canary-not-an-address\",\"extra\":1}";
         mvc.perform(post("/internal/v1/orders/" + ISSUED + "/update-delivery-address").contentType(MediaType.APPLICATION_JSON).content(body))
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("validation-failed"))
                 .andExpect(jsonPath("$.errors.length()").value(3))
                 .andExpect(jsonPath("$.errors[0].pointer").value("/extra"))
