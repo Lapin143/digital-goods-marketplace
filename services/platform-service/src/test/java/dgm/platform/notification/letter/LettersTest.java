@@ -148,7 +148,7 @@ class LettersTest {
         Letter letter = letters.render("email-change-code", null, params("code", "042917"));
 
         assertEquals("Код подтверждения нового адреса e-mail", letter.subject());
-        assertTrue(letter.text().startsWith("Здравствуйте!"), letter.text());
+        assertTrue(letter.text().startsWith("Здравствуйте, пользователь!"), "у нового адреса имени нет, подставляется обращение по умолчанию: " + letter.text());
         assertTrue(letter.text().contains(": 042917\n"), "код с ведущим нулём не теряется: " + letter.text());
         assertTrue(letter.text().contains("Код действует 5 минут."), letter.text());
         assertFalse(letter.text().contains("@"), letter.text());
