@@ -28,7 +28,7 @@ final class KeycloakStub implements AutoCloseable {
     /** Пользователь в заглушке. */
     static final class User {
         final String id;
-        final String email;
+        volatile String email;
         final String firstName;
         final String lastName;
         volatile boolean enabled = true;
@@ -153,6 +153,15 @@ final class KeycloakStub implements AutoCloseable {
             case " GET" -> reply(exchange, 200, Json.write(representation(user)));
             case " PUT" -> {
                 Map<String, Object> rep = Json.parseObject(body);
+                // Как настоящий Keycloak при duplicateEmailsAllowed = false: адрес другого пользователя занят, 409
+                if (rep.get("email") instanceof String email && !email.equalsIgnoreCase(user.email)) {
+                    boolean taken = users.values().stream().anyMatch(other -> other != user && email.equalsIgnoreCase(other.email));
+                    if (taken) {
+                        reply(exchange, 409, "{\"errorMessage\":\"User exists with same email\"}");
+                        return;
+                    }
+                    user.email = email;
+                }
                 user.enabled = !Boolean.FALSE.equals(rep.get("enabled"));
                 user.requiredActions.clear();
                 if (rep.get("requiredActions") instanceof List<?> actions) {

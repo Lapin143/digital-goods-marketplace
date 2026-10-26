@@ -213,7 +213,7 @@ PY
       "нет права READ на тему inventory.events" tools/docs-checks/check_code_docs.py
     mutate_repo "check_code_docs находит событие среза 3, которого нет в каталоге" "tools/docs-checks/check_code_docs.py" "'user.registered', 'user.email-changed'" "'user.registered', 'user.email-changedx'" \
       "событие user.email-changedx среза 3 не найдено в каталоге" tools/docs-checks/check_code_docs.py
-    mutate_repo "check_code_docs находит событие среза 3, которое уже издаётся, но числится неизданным" "tools/docs-checks/check_code_docs.py" "    'user.email-changed': 15," "    'user.email-changed': 15, 'user.registered': 3," \
+    mutate_repo "check_code_docs находит событие среза 3, которое уже издаётся, но числится неизданным" "tools/docs-checks/check_code_docs.py" $'UNPUBLISHED_SLICE3 = {\n}' $'UNPUBLISHED_SLICE3 = {\n    \'user.registered\': 3,\n}' \
       "событие user.registered уже издаётся в коде" tools/docs-checks/check_code_docs.py
     mutate_repo "check_code_docs находит слушатель параметров, который читает не ту тему" "libs/service-kit-boot/src/main/java/dgm/kit/boot/KitMessagingAutoConfiguration.java" 'CONFIG_TOPIC = "platform.config"' 'CONFIG_TOPIC = "platform.configs"' \
       "config-listener описан в каталоге, а обработчика с таким именем в коде нет" tools/docs-checks/check_code_docs.py

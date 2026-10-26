@@ -31,9 +31,11 @@ import dgm.kit.trace.TraceContext;
 import dgm.platform.auditadmin.service.AuditPartitionService;
 import dgm.platform.auditadmin.service.AuditRecordService;
 import dgm.platform.auditadmin.service.ParameterService;
+import dgm.platform.identity.otp.crypto.AuditHasher;
 import dgm.platform.identity.service.IdentityReconciler;
 import dgm.platform.identity.service.IdentityTransaction;
 import dgm.platform.support.domain.QueueDepth;
+import dgm.platform.support.service.EmailChangeReconciler;
 import dgm.platform.support.service.QueueMetrics;
 import dgm.platform.support.service.SupportService;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -147,6 +149,10 @@ class PlatformServiceIT {
         // Сверку в тестах запускает сам тест: расписание уходит за пределы прогона
         registry.add("dgm.identity.reconcile-interval", () -> "PT1H");
         registry.add("dgm.identity.reconcile-initial-delay", () -> "PT1H");
+        // Сверку смен e-mail тоже запускает тест; «зависшей» смена считается через секунду, а не через минуту
+        registry.add("dgm.support.email-change-reconcile-interval", () -> "PT1H");
+        registry.add("dgm.support.email-change-reconcile-initial-delay", () -> "PT1H");
+        registry.add("dgm.support.email-change-stuck-after", () -> "PT1S");
     }
 
     private static String env(String name, String fallback) {
@@ -232,6 +238,10 @@ class PlatformServiceIT {
     private AuditPartitionService auditPartitions;
     @Autowired
     private IdentityTransaction identityTransaction;
+    @Autowired
+    private EmailChangeReconciler emailChangeReconciler;
+    @Autowired
+    private AuditHasher auditHasher;
 
     // ---- помощники ----
 
@@ -3055,21 +3065,24 @@ class PlatformServiceIT {
         Response mailOk = buyerChange(c.buyer().id, c.ticket(), "verifications", verifyBody("new_email", mailCode), finalKey, ip);
         assertEquals(200, mailOk.status(), mailOk.body());
         assertEquals("passed", mailOk.json().get("newEmailCheck"));
-        assertEquals("awaiting_email_code", mailOk.json().get("status"), "завершение смены в этой части не выполняется");
+        assertEquals("completed", mailOk.json().get("status"), "верный код из письма сразу завершает смену (шаг 15)");
         Response replay = buyerChange(c.buyer().id, c.ticket(), "verifications", verifyBody("new_email", mailCode), finalKey, ip);
         assertEquals(200, replay.status(), replay.body());
         assertEquals("true", replay.header("Idempotency-Replayed"), "тот же ключ: прежний ответ, код не проверяется второй раз");
 
         Map<String, Object> confirmed = emailChangeRow(c.ticket());
-        assertEquals("awaiting_email_code", confirmed.get("status"));
+        assertEquals("completed", confirmed.get("status"));
         assertEquals("passed", confirmed.get("phone_check"));
         assertEquals("passed", confirmed.get("new_email_check"));
-        assertEquals(c.newEmail(), confirmed.get("new_email"), "до завершения адрес остаётся в записи этапа");
+        assertNull(confirmed.get("new_email"), "после завершения нового адреса в записи этапа нет (INV-44)");
+        assertEquals("passed", ticketColumn(c.ticket(), "code_check_result"), "оператор видит только результат проверки кода");
         assertEquals("passed", changeState(c.operator().id, c.ticket()).json().get("newEmailCheck"));
         Response again = startChange(c.operator().id, c.ticket(), "other-" + c.newEmail(), UUID.randomUUID().toString(), ip);
-        assertEquals(409, again.status(), "подтверждённую смену повторным запуском не заменить: " + again.body());
+        assertEquals(409, again.status(), "завершённую смену повторным запуском не заменить: " + again.body());
         assertEquals("state-conflict", again.json().get("code"));
-        assertEquals(c.newEmail(), emailChangeRow(c.ticket()).get("new_email"));
+        assertNull(emailChangeRow(c.ticket()).get("new_email"));
+        assertEquals(c.newEmail(), KEYCLOAK.get(c.buyer().id).email, "адрес в Keycloak сменён тем же завершением");
+        assertEquals(c.newEmail(), row(c.buyer().id).get("email"), "и в учётной записи платформы");
 
         // Метки метрик: только операция и результат, ни адреса, ни кода (NFT-3.7, INV-44)
         assertNotNull(meters.find("support_email_change_total").tag("operation", "verify_new_email").tag("result", "accepted").counter());
@@ -3264,6 +3277,219 @@ class PlatformServiceIT {
                 UUID.randomUUID().toString(), ip);
         assertEquals(200, confirmed.status(), confirmed.body());
         assertEquals("passed", confirmed.json().get("newEmailCheck"));
+        assertEquals("completed", confirmed.json().get("status"), "после отказов провайдера смена доведена до конца тем же путём");
+    }
+
+    // ---- завершение смены e-mail (шаг 15 среза 3) ----
+
+    private static final String LETTER_NEW = "E-mail вашей учётной записи изменён";
+    private static final String LETTER_PREVIOUS = "E-mail вашей учётной записи заменён";
+
+    private UUID orderOf(UUID ticket) {
+        return supportDb().queryForObject("select order_id from support.ticket where id = ?", UUID.class, ticket);
+    }
+
+    /** Начало смены оператором и верный код из SMS: письмо с кодом ушло на новый адрес, возвращается этот код. */
+    private String changeUpToTheMailCode(ChangeCase c, String ip) throws Exception {
+        assertEquals(201, startChange(c.operator().id, c.ticket(), c.newEmail(), UUID.randomUUID().toString(), ip).status());
+        Response phone = buyerChange(c.buyer().id, c.ticket(), "verifications", verifyBody("phone", smsCode(c.phone())), UUID.randomUUID().toString(), ip);
+        assertEquals(200, phone.status(), phone.body());
+        return codeFromLetter(c.newEmail());
+    }
+
+    private static boolean hasLetter(String address, String subject) {
+        return mails(address).stream().anyMatch(m -> subject.equals(m.get("subject")));
+    }
+
+    private int eventsOfType(String aggregateId, String type) {
+        return (int) events(aggregateId).stream().filter(type::equals).count();
+    }
+
+    @Tag("TC-710")
+    @Tag("TC-717")
+    @Tag("ST-05")
+    @Test
+    @Order(67)
+    void theConfirmedChangeIsDoneInKeycloakAndTheAccountOnceAndBothAddressesGetALetter() throws Exception {
+        ChangeCase c = takenTicketOfConfirmedBuyer();
+        String ip = newIp();
+        String oldEmail = c.buyer().email;
+        UUID order = orderOf(c.ticket());
+        String userId = c.buyer().id;
+        String mailCode = changeUpToTheMailCode(c, ip);
+
+        Response done = buyerChange(userId, c.ticket(), "verifications", verifyBody("new_email", mailCode), UUID.randomUUID().toString(), ip);
+
+        assertEquals(200, done.status(), done.body());
+        assertEquals("completed", done.json().get("status"));
+        assertEquals("passed", done.json().get("phoneCheck"));
+        assertEquals("passed", done.json().get("newEmailCheck"));
+        assertFalse(done.body().contains(c.newEmail()), "полного адреса в ответе нет");
+        assertEquals(c.newEmail(), KEYCLOAK.get(userId).email, "Keycloak: адрес сменён");
+        Map<String, Object> account = jdbc().queryForMap("select email, previous_email from identity.user_account where id = ?", UUID.fromString(userId));
+        assertEquals(c.newEmail(), account.get("email"));
+        assertEquals(oldEmail, account.get("previous_email"), "прежний адрес хранится для письма о смене");
+        assertEquals(Boolean.TRUE, jdbc().queryForObject("select previous_email_until > now() + interval '6 days 23 hours' "
+                + "and previous_email_until < now() + interval '7 days 1 hour' from identity.user_account where id = ?", Boolean.class, UUID.fromString(userId)),
+                "прежний адрес хранится 7 суток");
+        Map<String, Object> row = emailChangeRow(c.ticket());
+        assertEquals("completed", row.get("status"));
+        assertNull(row.get("new_email"), "в записи этапа адреса не осталось (INV-44)");
+        assertEquals("passed", ticketColumn(c.ticket(), "code_check_result"));
+        assertEquals("in_progress", ticketColumn(c.ticket(), "status"), "обращение остаётся в работе до результата выдачи");
+
+        // Событие одно, без адресов; повтор подтверждения не рождает второго
+        assertEquals(1, eventsOfType(userId, "user.email-changed"));
+        Map<String, Object> payload = Json.parseObject(jdbc().queryForObject("select payload::text from public.outbox where aggregate_id = ? and event_type = 'user.email-changed'",
+                String.class, userId));
+        assertEquals(Set.of("userId", "ticketId", "operatorId"), payload.keySet());
+        assertEquals(userId, payload.get("userId"));
+        assertEquals(c.ticket().toString(), payload.get("ticketId"));
+        assertEquals(c.operator().id, payload.get("operatorId"));
+        Response repeat = buyerChange(userId, c.ticket(), "verifications", verifyBody("new_email", mailCode), UUID.randomUUID().toString(), ip);
+        assertEquals(409, repeat.status(), "завершённая смена кодов больше не принимает: " + repeat.body());
+        assertEquals(1, eventsOfType(userId, "user.email-changed"));
+
+        // Запись аудита: только хеши до и после, адресов нет
+        assertTrue(await(Duration.ofSeconds(90), () -> auditDb().queryForObject("select count(*) from audit_admin.audit_log where object_id = ? "
+                + "and action = 'support.email_change_completed'", Integer.class, userId) == 1), "запись о завершении смены дошла до журнала аудита");
+        Map<String, Object> record = auditDb().queryForMap("select actor_role, object_type, changes::text as changes from audit_admin.audit_log "
+                + "where object_id = ? and action = 'support.email_change_completed'", userId);
+        assertEquals("support-operator", record.get("actor_role"));
+        assertEquals("user", record.get("object_type"));
+        String changes = String.valueOf(record.get("changes"));
+        assertFalse(changes.contains(oldEmail) || changes.contains(c.newEmail()), "адресов в журнале аудита нет (INV-44)");
+        byte[] salt = jdbc().queryForObject("select audit_salt from identity.user_account where id = ?", (rs, row) -> rs.getBytes(1), UUID.fromString(userId));
+        Map<?, ?> emailChange = ((List<?>) Json.parse(changes)).stream().map(item -> (Map<?, ?>) item).filter(item -> "email".equals(item.get("field")))
+                .findFirst().orElseThrow(() -> new AssertionError("в записи нет изменения поля email: " + changes));
+        assertEquals(Boolean.TRUE, emailChange.get("personal"));
+        assertEquals(auditHasher.hash(salt, "email", oldEmail), emailChange.get("before"));
+        assertEquals(auditHasher.hash(salt, "email", c.newEmail()), emailChange.get("after"), "хеш нового адреса совпадает с повторным вычислением");
+        assertNotEquals(emailChange.get("before"), emailChange.get("after"));
+        assertEquals(0, count("select count(*) from public.outbox where aggregate_id in (?, ?) and (payload::text like ? or payload::text like ?)",
+                userId, c.ticket().toString(), "%" + oldEmail + "%", "%" + c.newEmail() + "%"), "адресов нет ни в событиях Outbox, ни в их содержимом");
+
+        // Письма: новому и прежнему адресу, по одному, без ключей и кодов
+        assertTrue(await(Duration.ofSeconds(90), () -> hasLetter(c.newEmail(), LETTER_NEW) && hasLetter(oldEmail, LETTER_PREVIOUS)),
+                "письмо о смене дошло и на новый, и на прежний адрес");
+        assertEquals(1, mails(c.newEmail()).stream().filter(m -> LETTER_NEW.equals(m.get("subject"))).count());
+        assertEquals(1, mails(oldEmail).stream().filter(m -> LETTER_PREVIOUS.equals(m.get("subject"))).count());
+        assertFalse(hasLetter(oldEmail, LETTER_NEW), "на прежний адрес письмо для нового не уходит");
+        assertFalse(hasLetter(c.newEmail(), LETTER_PREVIOUS));
+        assertFalse(String.valueOf(mailWithSubject(c.newEmail(), LETTER_NEW).get("text")).contains(mailCode), "кода в письме о смене нет");
+        List<Map<String, Object>> queued = notificationDb().queryForList("select template, status, params::text as params from notification.notification "
+                + "where user_id = ? and template like 'email-changed-%' order by template", UUID.fromString(userId));
+        assertEquals(List.of("email-changed-new", "email-changed-previous"), queued.stream().map(q -> String.valueOf(q.get("template"))).toList());
+        queued.forEach(q -> assertFalse(String.valueOf(q.get("params")).contains("@"), "в очереди писем адресов нет (INV-44)"));
+
+        // Автоповтор выдачи: адрес в заказе обновлён новым адресом, решение записано с источником
+        List<OrderStub.Seen> calls = ORDERS.seenFor(order.toString());
+        assertEquals(1, calls.size(), "после смены повторная отправка запущена сама, один раз");
+        Map<String, Object> sent = Json.parseObject(calls.get(0).body());
+        assertEquals(c.ticket().toString(), sent.get("ticketId"));
+        assertEquals(c.newEmail(), sent.get("email"), "ключ уходит на новый адрес");
+        assertEquals(1, ORDERS.effectsFor(order.toString()));
+        assertEquals("resend", ticketColumn(c.ticket(), "action"));
+        assertTrue(deliveryStatusIs(order, "queued"));
+        assertTrue(await(Duration.ofSeconds(90), () -> auditRowsOf(c.ticket(), "support.resend_requested") == 1), "решение об отправке записано");
+        String resendChanges = auditDb().queryForObject("select changes::text from audit_admin.audit_log where object_id = ? and action = 'support.resend_requested'",
+                String.class, c.ticket().toString());
+        assertTrue(resendChanges.contains("email_change"), "источник решения: смена e-mail");
+        assertFalse(resendChanges.contains(c.newEmail()));
+
+        // Прежний адрес очищается сверкой по сроку
+        assertEquals(1, jdbc().update("update identity.user_account set previous_email_until = now() - interval '1 minute' where id = ?", UUID.fromString(userId)));
+        assertTrue(reconciler.runPass().previousEmailsCleared() >= 1);
+        assertNull(jdbc().queryForObject("select previous_email from identity.user_account where id = ?", String.class, UUID.fromString(userId)),
+                "по истечении срока прежнего адреса в базе нет");
+    }
+
+    @Tag("TC-710")
+    @Tag("ST-05")
+    @Test
+    @Order(68)
+    void aChangeConfirmedWhileKeycloakIsDownIsFinishedByTheReconcilerWithoutNewCodes() throws Exception {
+        ChangeCase c = takenTicketOfConfirmedBuyer();
+        String ip = newIp();
+        String oldEmail = c.buyer().email;
+        UUID order = orderOf(c.ticket());
+        String userId = c.buyer().id;
+        String mailCode = changeUpToTheMailCode(c, ip);
+        int smsBefore = sms(c.phone()).size();
+
+        KEYCLOAK.down(true);
+        Response confirmed;
+        try {
+            confirmed = buyerChange(userId, c.ticket(), "verifications", verifyBody("new_email", mailCode), UUID.randomUUID().toString(), ip);
+        } finally {
+            KEYCLOAK.down(false);
+        }
+
+        assertEquals(200, confirmed.status(), "код принят, ответ успешный: " + confirmed.body());
+        assertEquals("passed", confirmed.json().get("newEmailCheck"));
+        assertEquals("awaiting_email_code", confirmed.json().get("status"), "смена в точке «адрес подтверждён, не завершён»");
+        Map<String, Object> stuck = emailChangeRow(c.ticket());
+        assertEquals("passed", stuck.get("new_email_check"));
+        assertEquals(c.newEmail(), stuck.get("new_email"), "адрес до завершения лежит в записи этапа");
+        assertEquals(oldEmail, row(userId).get("email"), "учётная запись ещё со старым адресом");
+        assertEquals(0, eventsOfType(userId, "user.email-changed"));
+        assertEquals(0, ORDERS.seenFor(order.toString()).size(), "повторная отправка до завершения не запускается");
+
+        assertTrue(await(Duration.ofSeconds(30), () -> {
+            emailChangeReconciler.runPass();
+            return "completed".equals(emailChangeRow(c.ticket()).get("status"));
+        }), "сверка завершила подтверждённую смену, как только та простояла дольше срока");
+
+        assertEquals("completed", emailChangeRow(c.ticket()).get("status"));
+        assertEquals(c.newEmail(), row(userId).get("email"));
+        assertEquals(c.newEmail(), KEYCLOAK.get(userId).email);
+        assertEquals(1, eventsOfType(userId, "user.email-changed"));
+        assertEquals(smsBefore, sms(c.phone()).size(), "коды заново не запрашивались");
+        assertEquals(1, mails(c.newEmail()).stream().filter(m -> CODE_LETTER.equals(m.get("subject"))).count(), "письмо с кодом одно");
+        assertEquals("completed", changeState(c.operator().id, c.ticket()).json().get("status"));
+        assertEquals(1, ORDERS.seenFor(order.toString()).size(), "автоповтор запущен сверкой вместе с завершением");
+        assertEquals(c.newEmail(), Json.parseObject(ORDERS.seenFor(order.toString()).get(0).body()).get("email"));
+        assertEquals(0, emailChangeReconciler.runPass(), "завершённая смена сверкой повторно не берётся");
+        assertEquals(1, eventsOfType(userId, "user.email-changed"));
+        assertTrue(await(Duration.ofSeconds(90), () -> hasLetter(c.newEmail(), LETTER_NEW) && hasLetter(oldEmail, LETTER_PREVIOUS)), "письма о смене ушли");
+    }
+
+    @Tag("TC-710")
+    @Test
+    @Order(69)
+    void anAddressTakenInKeycloakAfterTheCodesRejectsTheChangeAndTheOperatorStartsItAgain() throws Exception {
+        ChangeCase c = takenTicketOfConfirmedBuyer();
+        String ip = newIp();
+        String oldEmail = c.buyer().email;
+        String userId = c.buyer().id;
+        String mailCode = changeUpToTheMailCode(c, ip);
+        KeycloakStub.User squatter = KEYCLOAK.add("buyer", "Захар", "Занятов");
+        squatter.email = c.newEmail();
+
+        Response refused = buyerChange(userId, c.ticket(), "verifications", verifyBody("new_email", mailCode), UUID.randomUUID().toString(), ip);
+
+        assertEquals(409, refused.status(), refused.body());
+        assertEquals("email-not-allowed", refused.json().get("code"));
+        assertFalse(refused.body().contains(c.newEmail()), "ответ нейтральный: причины и адреса нет");
+        Map<String, Object> failed = emailChangeRow(c.ticket());
+        assertEquals("failed", failed.get("status"));
+        assertNull(failed.get("new_email"));
+        assertEquals(oldEmail, KEYCLOAK.get(userId).email, "адрес в Keycloak прежний");
+        assertEquals(oldEmail, row(userId).get("email"));
+        assertEquals(0, eventsOfType(userId, "user.email-changed"));
+        assertEquals("in_progress", ticketColumn(c.ticket(), "status"), "обращение остаётся в работе");
+        assertEquals(0, ORDERS.seenFor(orderOf(c.ticket()).toString()).size());
+
+        // Оператор начинает смену заново с другим адресом, коды проходят заново, смена завершается
+        String another = "again-" + UUID.randomUUID() + "@it.example";
+        assertEquals(201, startChange(c.operator().id, c.ticket(), another, UUID.randomUUID().toString(), ip).status());
+        Response phone = buyerChange(userId, c.ticket(), "verifications", verifyBody("phone", smsCode(c.phone())), UUID.randomUUID().toString(), ip);
+        assertEquals(200, phone.status(), phone.body());
+        Response done = buyerChange(userId, c.ticket(), "verifications", verifyBody("new_email", codeFromLetter(another)), UUID.randomUUID().toString(), ip);
+        assertEquals(200, done.status(), done.body());
+        assertEquals("completed", done.json().get("status"));
+        assertEquals(another, row(userId).get("email"));
+        assertEquals(1, eventsOfType(userId, "user.email-changed"));
     }
 
     @Tag("TC-114")

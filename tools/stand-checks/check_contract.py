@@ -76,7 +76,7 @@ REQUIRED = {
                          ('startEmailChange', 201), ('startEmailChange', 409), ('startEmailChange', 422), ('startEmailChange', 429),
                          ('startEmailChange', 503), ('getEmailChangeState', 200), ('getEmailChangeState', 404),
                          ('requestEmailChangeCode', 200), ('requestEmailChangeCode', 409), ('verifyEmailChangeCode', 200),
-                         ('verifyEmailChangeCode', 422), ('verifyEmailChangeCode', 429)],
+                         ('verifyEmailChangeCode', 409), ('verifyEmailChangeCode', 422), ('verifyEmailChangeCode', 429)],
 }
 PROBLEM = ('components.yaml', 'Problem')
 RFC3339 = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$')
