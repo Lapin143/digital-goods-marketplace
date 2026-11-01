@@ -1,15 +1,17 @@
 import { useId } from 'react';
-import type { InputHTMLAttributes } from 'react';
+import type { InputHTMLAttributes, Ref } from 'react';
 import styles from './TextField.module.css';
 
 export interface TextFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'id'> {
   label: string;
   hint?: string;
   error?: string;
+  /** Ссылка на поле, чтобы экран мог вернуть в него фокус после ошибки. */
+  inputRef?: Ref<HTMLInputElement>;
 }
 
 /** Поле ввода с подписью, подсказкой и ошибкой, связанными с полем для чтения с экрана. */
-export function TextField({ label, hint, error, ...rest }: TextFieldProps) {
+export function TextField({ label, hint, error, inputRef, ...rest }: TextFieldProps) {
   const id = useId();
   const hintId = `${id}-hint`;
   const errorId = `${id}-error`;
@@ -19,7 +21,7 @@ export function TextField({ label, hint, error, ...rest }: TextFieldProps) {
       <label htmlFor={id} className={styles.label}>
         {label}
       </label>
-      <input {...rest} id={id} className={styles.input} aria-invalid={error ? true : undefined} aria-describedby={describedBy} />
+      <input {...rest} ref={inputRef} id={id} className={styles.input} aria-invalid={error ? true : undefined} aria-describedby={describedBy} />
       {hint ? (
         <p id={hintId} className={styles.hint}>
           {hint}

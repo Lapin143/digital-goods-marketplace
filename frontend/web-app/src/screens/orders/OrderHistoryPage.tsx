@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { problemMessage } from '../../api/problem';
+import { useBuyerScope } from '../../app/SessionScope';
 import { t } from '../../i18n';
 import { Badge } from '../../ui/Badge';
 import { Button } from '../../ui/Button';
@@ -13,28 +14,32 @@ import type { Order } from './types';
 import { useOrderList } from './useOrders';
 import styles from './Orders.module.css';
 
-const COLUMNS: Array<Column<Order>> = [
-  {
-    key: 'number',
-    header: t('orders.col.number'),
-    render: (order) => <Link to={`/account/orders/${encodeURIComponent(order.orderId)}`}>{order.orderNumber}</Link>,
-  },
-  {
-    key: 'product',
-    header: t('orders.col.product'),
-    render: (order) => `${order.productTitle}, ${t('orders.quantity', { count: order.quantity })}`,
-  },
-  { key: 'total', header: t('orders.col.total'), render: (order) => formatMoney(order.total) },
-  { key: 'created', header: t('orders.col.created'), render: (order) => formatMoment(order.createdAt) },
-  {
-    key: 'status',
-    header: t('orders.col.status'),
-    render: (order) => <Badge tone={orderStatusTone(order.status)}>{orderStatusLabel(order.status)}</Badge>,
-  },
-];
+/** Колонки истории; `base` это начало адресов сессии (`/account` или `/sms`), чтобы ссылка вела на экран той же сессии. */
+function columnsFor(base: string): Array<Column<Order>> {
+  return [
+    {
+      key: 'number',
+      header: t('orders.col.number'),
+      render: (order) => <Link to={`${base}/orders/${encodeURIComponent(order.orderId)}`}>{order.orderNumber}</Link>,
+    },
+    {
+      key: 'product',
+      header: t('orders.col.product'),
+      render: (order) => `${order.productTitle}, ${t('orders.quantity', { count: order.quantity })}`,
+    },
+    { key: 'total', header: t('orders.col.total'), render: (order) => formatMoney(order.total) },
+    { key: 'created', header: t('orders.col.created'), render: (order) => formatMoment(order.createdAt) },
+    {
+      key: 'status',
+      header: t('orders.col.status'),
+      render: (order) => <Badge tone={orderStatusTone(order.status)}>{orderStatusLabel(order.status)}</Badge>,
+    },
+  ];
+}
 
 /** История заказов покупателя (US-5.9): новые выше, подгрузка по курсору, переход к заказу, пустое состояние. Значений ключей в списке нет. */
 export function OrderHistoryPage() {
+  const { base } = useBuyerScope();
   const list = useOrderList();
   const orders = list.data?.pages.flatMap((page) => page.items) ?? [];
 
@@ -53,7 +58,7 @@ export function OrderHistoryPage() {
       ) : null}
       {orders.length > 0 ? (
         <>
-          <Table caption={t('orders.caption')} columns={COLUMNS} rows={orders} rowKey={(order) => order.orderId} />
+          <Table caption={t('orders.caption')} columns={columnsFor(base)} rows={orders} rowKey={(order) => order.orderId} />
           {list.isFetchNextPageError ? <StatePanel kind="error" message={problemMessage(list.error)} onRetry={() => void list.fetchNextPage()} /> : null}
           {list.hasNextPage && !list.isFetchNextPageError ? (
             <div className={styles.more}>

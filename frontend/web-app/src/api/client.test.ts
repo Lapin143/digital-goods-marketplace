@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildUrl, createApiClient } from './client';
+import { buildUrl, createApiClient, withDefaultAuth } from './client';
 import { ApiError } from './problem';
 
 function respond(status: number, body: unknown, headers: Record<string, string> = {}): Response {
@@ -116,5 +116,27 @@ describe('ошибки', () => {
   it('отмена запроса остаётся отменой', async () => {
     const { client } = setup({ fail: new DOMException('aborted', 'AbortError') });
     await expect(client.get('/api/v1/x', { auth: 'none' })).rejects.toMatchObject({ name: 'AbortError' });
+  });
+});
+
+describe('клиент с токеном другого входа по умолчанию', () => {
+  it('подписывает запросы токеном этого входа, а явный выбор клиента сохраняет', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(() => Promise.resolve(respond(200, { ok: true })));
+    const client = createApiClient({ token: (kind) => `${kind}-token`, fetchImpl, newKey: () => 'generated-key' });
+    const scoped = withDefaultAuth(client, 'sms');
+
+    await scoped.get('/api/v1/orders');
+    await scoped.post('/api/v1/support-tickets', { orderId: 'o-1' }, { idempotent: true });
+    await scoped.get('/api/v1/products', { auth: 'none' });
+    await scoped.get('/api/v1/staff/support-tickets', { auth: 'staff' });
+
+    const sent = fetchImpl.mock.calls.map(([, init]) => (init?.headers ?? {}) as Record<string, string>);
+    expect(sent[0]?.Authorization).toBe('Bearer sms-token');
+    expect(sent[1]?.Authorization).toBe('Bearer sms-token');
+    expect(sent[1]?.['Idempotency-Key']).toBe('generated-key');
+    expect(sent[2]?.Authorization).toBeUndefined();
+    expect(sent[3]?.Authorization).toBe('Bearer staff-token');
+    expect(fetchImpl.mock.calls[1]?.[1]?.method).toBe('POST');
+    expect(scoped.newKey()).toBe('generated-key');
   });
 });

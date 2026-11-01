@@ -154,3 +154,19 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     newKey,
   };
 }
+
+/**
+ * Тот же клиент, но запросы без явного `auth` подписываются токеном другого входа. Так экраны покупателя (заказы, обращения)
+ * работают и в обычной сессии (`web`), и в ограниченной сессии по SMS (`sms`), не зная, какая из них открыта.
+ */
+export function withDefaultAuth(client: ApiClient, kind: ClientKind): ApiClient {
+  const request: ApiClient['request'] = (path, options = {}) => client.request(path, { ...options, auth: options.auth ?? kind });
+  return {
+    request,
+    get: (path, options) => request(path, { ...options, method: 'GET' }),
+    post: (path, body, options) => request(path, { ...options, method: 'POST', body }),
+    put: (path, body, options) => request(path, { ...options, method: 'PUT', body }),
+    del: (path, options) => request(path, { ...options, method: 'DELETE' }),
+    newKey: client.newKey,
+  };
+}

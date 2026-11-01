@@ -4,6 +4,7 @@ import { useApi } from '../../api/ApiContext';
 import { toLocalMoment } from '../../api/clock';
 import { ApiError, problemMessage } from '../../api/problem';
 import { redirectTo } from '../../api/redirect';
+import { useBuyerScope } from '../../app/SessionScope';
 import { t } from '../../i18n';
 import { Badge } from '../../ui/Badge';
 import { Button } from '../../ui/Button';
@@ -12,6 +13,7 @@ import { Notice } from '../../ui/Notice';
 import { StatePanel } from '../../ui/StatePanel';
 import { useRemainingSeconds } from '../../ui/useCountdown';
 import { formatMoney } from '../storefront/money';
+import { ReportMissingKey } from '../support/ReportMissingKey';
 import { orderStateText, orderStatusLabel, orderStatusTone } from './labels';
 import { isFinalStatus } from './polling';
 import { safePaymentUrl } from './purchase';
@@ -37,6 +39,7 @@ export function OrderReturnRedirect() {
  */
 export function OrderPage() {
   const { orderId = '' } = useParams();
+  const { base } = useBuyerScope();
   const query = useOrder(orderId);
 
   if (query.isPending) {
@@ -49,7 +52,7 @@ export function OrderPage() {
         <section>
           <h1>{t('order.notFound.title')}</h1>
           <p>{t('order.notFound.text')}</p>
-          <Link to="/account/orders">{t('order.back')}</Link>
+          <Link to={`${base}/orders`}>{t('order.back')}</Link>
         </section>
       );
     }
@@ -66,6 +69,7 @@ interface DetailsProps {
 
 function OrderDetails({ view, connectionLost, onRefresh }: DetailsProps) {
   const api = useApi();
+  const { kind, base } = useBuyerScope();
   const { order } = view;
   const awaiting = order.status === 'awaiting_payment';
   const reserveUntil = toLocalMoment(order.reserveExpiresAt, view.clockOffset);
@@ -73,7 +77,8 @@ function OrderDetails({ view, connectionLost, onRefresh }: DetailsProps) {
   const paidAt = toLocalMoment(order.paidAt, view.clockOffset);
   const reserveSeconds = awaiting && reserveUntil !== undefined ? remaining : undefined;
   const state = orderStateText(order, { reserveSeconds, paidAgoMs: paidAt === undefined ? undefined : Date.now() - paidAt });
-  const payable = awaiting && !(reserveSeconds !== undefined && reserveSeconds <= 0);
+  // Оплата открыта только в обычной сессии: сессия по SMS не создаёт платёжных сессий (FT-1.7), заказ она только читает
+  const payable = awaiting && kind === 'web' && !(reserveSeconds !== undefined && reserveSeconds <= 0);
 
   const [paying, setPaying] = useState(false);
   const [payError, setPayError] = useState<string | undefined>();
@@ -111,7 +116,7 @@ function OrderDetails({ view, connectionLost, onRefresh }: DetailsProps) {
   const stateKind = order.status === 'issued' ? 'success' : order.status === 'cancelled' ? 'error' : 'info';
   return (
     <article>
-      <Link to="/account/orders">{t('order.back')}</Link>
+      <Link to={`${base}/orders`}>{t('order.back')}</Link>
       <h1>{t('order.title', { number: order.orderNumber })}</h1>
       {connectionLost ? <Notice kind="error">{t('order.connectionLost')}</Notice> : null}
       <div className={styles.state}>
@@ -156,6 +161,7 @@ function OrderDetails({ view, connectionLost, onRefresh }: DetailsProps) {
         ) : null}
         {order.status === 'cancelled' ? <Link to={`/products/${encodeURIComponent(order.productId)}`}>{t('order.buyAgain')}</Link> : null}
       </div>
+      {order.status === 'issued' ? <ReportMissingKey orderId={order.orderId} issuedAtMs={toLocalMoment(order.issuedAt, view.clockOffset)} /> : null}
       {isFinalStatus(order.status) ? null : <p className={styles.muted}>{t('order.autoRefresh')}</p>}
     </article>
   );

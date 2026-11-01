@@ -215,3 +215,48 @@ describe('экран заказа: опрос статуса (ADR-015: возв�
     expect(screen.getByText(t('order.status.awaiting_payment'))).toBeInTheDocument();
   });
 });
+
+describe('TC-701. Экран заказа: кнопка «Не получил ключ»', () => {
+  const supportCalls = (calls: ReturnType<typeof renderScreen>['calls']) => calls.filter((call) => call.url.pathname === '/api/v1/support-tickets');
+
+  it('у выданного заказа есть кнопка, открытого обращения нет', async () => {
+    const { calls } = page(server({ status: 'issued', paidMinutesAgo: 3, issued: true, reserveInMinutes: null }));
+    expect(await screen.findByRole('button', { name: t('ticket.report') })).toBeEnabled();
+    expect(supportCalls(calls).length).toBeGreaterThan(0);
+  });
+
+  it('открытое обращение по заказу: вместо кнопки ссылка на него', async () => {
+    const open = {
+      ticketId: 't-7',
+      orderId: 'o-1',
+      source: 'buyer',
+      reason: 'key_not_received',
+      status: 'in_progress',
+      createdAt: '2026-10-17T12:00:00.000Z',
+      resolvedAt: null,
+      resolution: null,
+      emailChange: null,
+    };
+    const orders = server({ status: 'issued', paidMinutesAgo: 3, issued: true, reserveInMinutes: null });
+    page((url, init) => (url.pathname === '/api/v1/support-tickets' ? respond(200, { items: [open], page: { limit: 1, nextCursor: null } }) : orders(url, init)));
+    expect(await screen.findByRole('link', { name: t('ticket.report.open') })).toHaveAttribute('href', '/account/tickets/t-7');
+    expect(screen.queryByRole('button', { name: t('ticket.report') })).not.toBeInTheDocument();
+  });
+
+  it('выдан больше 72 часов назад: «Срок обращения истёк» вместо кнопки', async () => {
+    const issuedAt = new Date(Date.now() - 73 * 3_600_000).toISOString();
+    page(server({ status: 'issued', paidMinutesAgo: 3, issued: true, reserveInMinutes: null, issuedAt }));
+    expect(await screen.findByText(t('ticket.report.windowClosed', { hours: 72 }))).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: t('ticket.report') })).not.toBeInTheDocument();
+  });
+
+  it('заказ не «выдан»: кнопки нет и запросов к обращениям нет', async () => {
+    for (const status of ['created', 'awaiting_payment', 'paid', 'cancelled', 'refunded']) {
+      const { calls } = page(server({ status, paidMinutesAgo: status === 'awaiting_payment' ? null : 3, reserveInMinutes: status === 'awaiting_payment' ? 12 : null }));
+      await screen.findByRole('heading', { level: 1, name: t('order.title', { number: 1042 }) });
+      expect(screen.queryByRole('button', { name: t('ticket.report') }), status).not.toBeInTheDocument();
+      expect(supportCalls(calls), status).toHaveLength(0);
+      cleanup();
+    }
+  });
+});

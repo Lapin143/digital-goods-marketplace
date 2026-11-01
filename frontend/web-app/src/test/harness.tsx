@@ -33,6 +33,8 @@ export interface RenderOptions {
   route?: string;
   handler?: Handler;
   managers?: Partial<Record<ClientKind, FakeManager>>;
+  /** Токены запросов по виду входа (в тестах сессий: чьим токеном подписан запрос). По умолчанию токенов нет. */
+  tokens?: Partial<Record<ClientKind, string>>;
 }
 
 /**
@@ -54,7 +56,7 @@ export function renderScreen(ui: ReactElement, options: RenderOptions = {}): Ren
   });
   let counter = 0;
   const client = createApiClient({
-    token: () => undefined,
+    token: (kind) => options.tokens?.[kind],
     fetchImpl,
     newKey: () => {
       counter += 1;

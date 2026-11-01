@@ -3,6 +3,7 @@ import { MODERATOR_ROLES, SELLER_ROLES, STAFF_ROLES } from '../auth/claims';
 import { RequireAccess } from './Guards';
 import { Layout } from './Layout';
 import { CallbackPage, HomePage, NotFoundPage, SellerHome, StaffHome, WorkEntry } from './pages';
+import { SessionScope } from './SessionScope';
 import { EmailHelpPage } from '../screens/account/EmailHelpPage';
 import { PhonePage } from '../screens/account/PhonePage';
 import { SmsHome } from '../screens/account/SmsHome';
@@ -18,11 +19,14 @@ import { OrderHistoryPage } from '../screens/orders/OrderHistoryPage';
 import { OrderPage, OrderReturnRedirect } from '../screens/orders/OrderPage';
 import { ProductListPage } from '../screens/storefront/ProductListPage';
 import { ProductPage } from '../screens/storefront/ProductPage';
+import { TicketListPage } from '../screens/support/TicketListPage';
+import { TicketPage } from '../screens/support/TicketPage';
 
 /**
  * Маршруты. Разделы `/seller/*`, `/staff/*` и `/work` открываются входом через клиент `dgm-staff` со вторым фактором,
  * остальное через `dgm-web` (clientKindForPath); `/sms` это ограниченная сессия по коду из SMS. Экраны витрины и аккаунта добавил шаг 17,
- * кабинет продавца добавил шаг 18, рабочее место модератора шаг 19, заказы покупателя шаг 20 среза 2.
+ * кабинет продавца добавил шаг 18, рабочее место модератора шаг 19, заказы покупателя шаг 20 среза 2. Обращения покупателя и форму кодов
+ * смены e-mail добавил шаг 18 среза 3: заказы и обращения открываются и в обычной сессии (`/account/*`), и в сессии по SMS (`/sms/*`, FT-1.7).
  */
 export function App() {
   return (
@@ -55,16 +59,41 @@ export function App() {
             </RequireAccess>
           }
         />
-        <Route path="orders/:orderId" element={<OrderReturnRedirect />} />
-        <Route path="help/email" element={<EmailHelpPage />} />
         <Route
-          path="sms/*"
+          path="account/tickets"
           element={
-            <RequireAccess kind="sms" roles={['buyer']}>
-              <SmsHome />
+            <RequireAccess kind="web" roles={['buyer']}>
+              <TicketListPage />
             </RequireAccess>
           }
         />
+        <Route
+          path="account/tickets/:ticketId"
+          element={
+            <RequireAccess kind="web" roles={['buyer']}>
+              <TicketPage />
+            </RequireAccess>
+          }
+        />
+        <Route path="orders/:orderId" element={<OrderReturnRedirect />} />
+        <Route path="help/email" element={<EmailHelpPage />} />
+        <Route
+          path="sms"
+          element={
+            <RequireAccess kind="sms" roles={['buyer']}>
+              <SessionScope kind="sms">
+                <Outlet />
+              </SessionScope>
+            </RequireAccess>
+          }
+        >
+          <Route index element={<SmsHome />} />
+          <Route path="orders" element={<OrderHistoryPage />} />
+          <Route path="orders/:orderId" element={<OrderPage />} />
+          <Route path="tickets" element={<TicketListPage />} />
+          <Route path="tickets/:ticketId" element={<TicketPage />} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
         <Route path="oidc/callback/:kind" element={<CallbackPage />} />
         <Route
           path="work"
