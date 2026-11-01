@@ -5,7 +5,11 @@ title = "digital-goods-marketplace"
 useDefault = true
 
 [allowlist]
-description = "Файлы, где образцы секретов запрещены, но допустимы имена переменных и пути"
+description = "Файлы, где образцы секретов запрещены, но допустимы имена переменных и пути; два заведомо ненастоящих мастер-ключа в модульном тесте ротации (старый и новый, это «old-key» и «new-key» с повторами)"
 paths = [
   '''\.env\.example$''',
+]
+regexes = [
+  '''^b2xkLWtleS1vbGQta2V5LW9sZC1rZXktb2xkLWtleQ==$''',
+  '''^bmV3LWtleS1uZXcta2V5LW5ldy1rZXktbmV3LWtleQ==$''',
 ]
