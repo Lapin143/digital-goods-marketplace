@@ -1,0 +1,241 @@
+{
+  "id": "ADM-01",
+  "title": "Параметры платформы и журнал аудита: права, версия, проверка тела, чтение журнала (TC-806, TC-807, TC-810; ST-02)",
+  "steps": [
+    {
+      "name": "TC-806. Параметры платформы администратору: 200, список по схеме, ответ не кэшируется",
+      "op": "listPlatformParameters",
+      "as": "admin",
+      "expect": 200,
+      "save": {
+        "paramKey": "items.0.key"
+      },
+      "assert": [
+        {
+          "path": "items",
+          "notEmpty": true
+        },
+        {
+          "path": "items.0.key",
+          "exists": true
+        },
+        {
+          "path": "items.0.version",
+          "exists": true
+        },
+        {
+          "path": "items.0.defaultValue",
+          "exists": true
+        },
+        {
+          "header": "Cache-Control",
+          "contains": "no-store"
+        }
+      ]
+    },
+    {
+      "name": "TC-807. Правка неизвестного параметра: 404 not-found, тело не разбирается",
+      "op": "setPlatformParameter",
+      "as": "admin",
+      "path": {
+        "key": "no.such.parameter"
+      },
+      "headers": {
+        "If-Match": "\"1\""
+      },
+      "body": {
+        "value": 1
+      },
+      "expect": 404,
+      "assert": [
+        {
+          "path": "code",
+          "equals": "not-found"
+        },
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    },
+    {
+      "name": "TC-807. Правка без If-Match: 428 precondition-required",
+      "op": "setPlatformParameter",
+      "as": "admin",
+      "path": {
+        "key": "{{paramKey}}"
+      },
+      "body": {
+        "value": 1
+      },
+      "expect": 428,
+      "assert": [
+        {
+          "path": "code",
+          "equals": "precondition-required"
+        },
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    },
+    {
+      "name": "TC-807. Правка с чужой версией: 412 version-conflict, значение не меняется",
+      "op": "setPlatformParameter",
+      "as": "admin",
+      "path": {
+        "key": "{{paramKey}}"
+      },
+      "headers": {
+        "If-Match": "\"999999\""
+      },
+      "body": {
+        "value": 1
+      },
+      "expect": 412,
+      "assert": [
+        {
+          "path": "code",
+          "equals": "version-conflict"
+        },
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    },
+    {
+      "name": "TC-807. Лишнее поле и нет value: 422 validation-failed со списком ошибок",
+      "op": "setPlatformParameter",
+      "as": "admin",
+      "path": {
+        "key": "{{paramKey}}"
+      },
+      "headers": {
+        "If-Match": "\"999999\""
+      },
+      "body": {
+        "extra": 1
+      },
+      "expect": 422,
+      "assert": [
+        {
+          "path": "code",
+          "equals": "validation-failed"
+        },
+        {
+          "path": "errors",
+          "notEmpty": true
+        }
+      ]
+    },
+    {
+      "name": "TC-807. Правка параметров оператору поддержки: 403 forbidden",
+      "op": "setPlatformParameter",
+      "as": "support-operator",
+      "path": {
+        "key": "{{paramKey}}"
+      },
+      "headers": {
+        "If-Match": "\"1\""
+      },
+      "body": {
+        "value": 1
+      },
+      "expect": 403,
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    },
+    {
+      "name": "TC-810. Журнал аудита администратору: 200, страница по схеме, ответ не кэшируется",
+      "op": "listAuditRecords",
+      "as": "admin",
+      "query": {
+        "limit": "5"
+      },
+      "expect": 200,
+      "assert": [
+        {
+          "path": "items",
+          "exists": true
+        },
+        {
+          "path": "page.limit",
+          "equals": 5
+        },
+        {
+          "header": "Cache-Control",
+          "contains": "no-store"
+        }
+      ]
+    },
+    {
+      "name": "TC-810. Фильтр по действию audit.viewed: 200, страница по схеме (запись о просмотре доходит до журнала асинхронно, её наличие проверяет стенд)",
+      "op": "listAuditRecords",
+      "as": "admin",
+      "query": {
+        "action": "audit.viewed",
+        "limit": "2"
+      },
+      "expect": 200,
+      "assert": [
+        {
+          "path": "items",
+          "exists": true
+        },
+        {
+          "path": "page.limit",
+          "equals": 2
+        }
+      ]
+    },
+    {
+      "name": "TC-810. Идентификатор исполнителя не UUID: 422 validation-failed",
+      "op": "listAuditRecords",
+      "as": "admin",
+      "query": {
+        "actorId": "x"
+      },
+      "expect": 422,
+      "assert": [
+        {
+          "path": "code",
+          "equals": "validation-failed"
+        },
+        {
+          "path": "errors",
+          "notEmpty": true
+        }
+      ]
+    },
+    {
+      "name": "TC-810. Журнал оператору поддержки: 403 forbidden",
+      "op": "listAuditRecords",
+      "as": "support-operator",
+      "expect": 403,
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    },
+    {
+      "name": "TC-810. Журнал без токена: 401 unauthenticated",
+      "op": "listAuditRecords",
+      "as": "guest",
+      "expect": 401,
+      "assert": [
+        {
+          "path": "code",
+          "equals": "unauthenticated"
+        }
+      ]
+    }
+  ]
+}
