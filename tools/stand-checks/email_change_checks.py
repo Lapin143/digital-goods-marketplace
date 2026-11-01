@@ -291,6 +291,8 @@ def happy_path(ctx):
     keys = P.wait_letters(stubs, wait=90, to=new_email, sender='delivery')
     expect('TC-016. Ключ ушёл на новый адрес одним письмом и тот же, что в первом (новый ключ не выпускался)',
            len(keys) == 1 and P.KEY_LINE.findall(P.body_of(keys[0])) == who['keys'], str([m.get('subject') for m in keys]))
+    # письмо с ключом уже видно в заглушке, а статус «доставлено» платформа получает вебхуком чуть позже: ждём, а не читаем один раз (F4-71)
+    A.eventually(lambda: [(r['kind'], r['status']) for r in (P.deliveries_of(who['oid']) or [])] == [('primary', 'sent'), ('repeat', 'delivered')], wait=30, step=2.0)
     rows = P.deliveries_of(who['oid']) or []
     expect('TC-016. Выдач две: первичная sent на прежний адрес и повторная repeat на новый, повторная доставлена',
            [(r['kind'], r['status']) for r in rows] == [('primary', 'sent'), ('repeat', 'delivered')] and rows[0]['address'] == old_email and rows[1]['address'] == new_email,
