@@ -53,7 +53,7 @@ describe('единицы параметров (TC-806)', () => {
 });
 
 describe('проверка введённого значения (TC-807)', () => {
-  const seconds = { unit: 'seconds', minValue: 300, maxValue: 3600 };
+  const seconds = { unit: 'seconds', minValue: 300, maxValue: 3600 } as const;
 
   it.each([
     ['300', 300],
