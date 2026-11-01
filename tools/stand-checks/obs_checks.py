@@ -10,6 +10,10 @@
                проверяется здесь по /ready
   метрики      все цели Prometheus (семь сервисов по взаимному TLS и шесть компонентов стека) в состоянии UP, правила оповещений загружены без
                ошибок, у Alertmanager есть связь с Prometheus, хранение 15 суток
+  метрики среза 3  платформа отдаёт в Prometheus метрики очереди поддержки (support_queue_tickets по статусам,
+               support_queue_oldest_age_seconds) и журнала (audit_default_rows, страховочная секция пуста), сервис заказов версии
+               применённых параметров (config_version по ключам): NFT-6.1, US-8.9, TC-804. Счётчики с метками (audit_records_total, events_dlq_total и другие)
+               появляются при первом событии, их имена и метки проверяют модульные тесты сервисов и правила оповещений (promtool)
   панели       Grafana отвечает, вход только по паролю из секрета, три источника данных исправны, две панели подключены из файлов
   журналы      строка журнала веб-интерфейса с заданным идентификатором запроса находится в Loki, у потоков есть метки service и level,
                журналы сервиса Java тоже доходят (NFT-6.0)
@@ -314,6 +318,45 @@ def check_alert():
                'alerts@dgm.local' in str(m.get('from')) and 'admin@dgm.local' in str(m.get('to')) and name in m.get('subject', ''), m)
 
 
+def check_slice3_metrics():
+    print('== Метрики среза 3 через API Prometheus: очередь поддержки, журнал, версии параметров (NFT-6.1, US-8.9; TC-804)')
+
+    def series(query):
+        code, d = jget(PROM + '/api/v1/query?query=' + urllib.parse.quote(query))
+        return d['data']['result']
+
+    def labels(result, name):
+        return {x['metric'].get(name) for x in result}
+
+    def tickets():
+        got = series('support_queue_tickets{service="platform-service"}')
+        return {'created', 'in_progress'} <= labels(got, 'status'), 'статусы: %s' % sorted(x for x in labels(got, 'status') if x)
+    res, why = wait_for(tickets)
+    expect('TC-804. support_queue_tickets платформы читается по статусам created и in_progress', res, why)
+
+    def oldest():
+        got = series('support_queue_oldest_age_seconds{service="platform-service"}')
+        return len(got) == 1, 'рядов %d' % len(got)
+    res, why = wait_for(oldest)
+    expect('TC-804. support_queue_oldest_age_seconds платформы читается одним рядом (по нему срабатывает SupportTicketUnattended)', res, why)
+
+    def default_rows():
+        got = series('audit_default_rows{service="platform-service"}')
+        return len(got) == 1 and float(got[0]['value'][1]) == 0.0, 'ряды: %s' % [x['value'][1] for x in got]
+    res, why = wait_for(default_rows)
+    expect('TC-804. audit_default_rows платформы равна нулю: страховочная секция журнала пуста, месячные секции на месте', res, why)
+
+    # Параметры платформы читает из базы сама платформа (без метрики версии), а применяют слушатели конфигурации в других сервисах:
+    # версия применённого значения видна у сервиса заказов по каждому его ключу
+    wanted = {'orders.max-unpaid', 'reservation.ttl-seconds', 'payment-session.ttl-seconds', 'commission.default-rate-bp'}
+
+    def versions():
+        got = series('config_version{service="order-service"}')
+        return wanted <= labels(got, 'key') and all(float(x['value'][1]) >= 0 for x in got), 'ключи: %s' % sorted(x for x in labels(got, 'key') if x)
+    res, why = wait_for(versions)
+    expect('TC-804. config_version сервиса order-service читается по ключам %s' % ', '.join(sorted(wanted)), res, why)
+
+
 def guard(name, fn, *args):
     """Неожиданная ошибка одной группы проверок не отменяет остальные: записывается как ошибка и печатается."""
     try:
@@ -331,6 +374,8 @@ def main():
         print('ОШИБКА: нужен набор full-obs (нет контейнеров: %s)' % [s for s in services + OBS if s not in by])
     guard('готовность Loki и Tempo', check_ready)
     guard('Prometheus', check_prometheus, services)
+    if not LIGHT:
+        guard('метрики среза 3', check_slice3_metrics)
     guard('Grafana', check_grafana)
     guard('Loki', check_loki)
     guard('Tempo', check_tempo)

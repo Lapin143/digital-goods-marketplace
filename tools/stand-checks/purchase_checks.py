@@ -322,7 +322,7 @@ def timeline_and_trace(fx):
         return
     oid, correlation = fx['orders'][0], fx['correlations'][0]
     seen = services_seen(correlation, HTTP_CHAIN)
-    expect('Идентификатор запроса оформления виден в журналах %s (найден в %s)' % (', '.join(HTTP_CHAIN), ', '.join(sorted(seen)) or 'нигде'), set(HTTP_CHAIN) <= seen, str(sorted(seen)))
+    expect('TC-803. Идентификатор запроса оформления виден в журналах %s (найден в %s)' % (', '.join(HTTP_CHAIN), ', '.join(sorted(seen)) or 'нигде'), set(HTTP_CHAIN) <= seen, str(sorted(seen)))
     topics = read_topics(EVENT_TOPICS)
     fx['topics'] = topics
     events = events_of(topics, oid)
@@ -340,13 +340,13 @@ def timeline_and_trace(fx):
     traces = {t: trace_of(events[t]) for t in chain}
     valid = all(len(v) == 2 and re.fullmatch(r'[0-9a-f]{32}', v[0]) and re.fullmatch(r'[0-9a-f]{16}', v[1]) for v in traces.values())
     expect('У четырёх событий есть traceparent и correlationid', valid and all(events[t].get('correlationid') for t in chain), str(traces))
-    expect('payment.confirmed и order.paid в одной трассе и с одним correlationid, отрезки разные: потребитель продолжает трассу издателя',
+    expect('TC-803. payment.confirmed и order.paid в одной трассе и с одним correlationid, отрезки разные: потребитель продолжает трассу издателя',
            valid and traces['payment.confirmed'][0] == traces['order.paid'][0] and traces['payment.confirmed'][1] != traces['order.paid'][1]
            and events['payment.confirmed'].get('correlationid') == events['order.paid'].get('correlationid'), '%s %s' % (traces['payment.confirmed'], traces['order.paid']))
-    expect('delivery.accepted и order.issued в одной трассе и с одним correlationid: событие выдачи продолжается в order-service',
+    expect('TC-803. delivery.accepted и order.issued в одной трассе и с одним correlationid: событие выдачи продолжается в order-service',
            valid and traces['delivery.accepted'][0] == traces['order.issued'][0] and traces['delivery.accepted'][1] != traces['order.issued'][1]
            and events['delivery.accepted'].get('correlationid') == events['order.issued'].get('correlationid'), '%s %s' % (traces['delivery.accepted'], traces['order.issued']))
-    expect('Все события заказа лежат в Kafka под ключом заказа: по номеру заказа восстанавливается весь путь, даже где трасса начинается заново',
+    expect('TC-803. Все события заказа лежат в Kafka под ключом заказа: по номеру заказа восстанавливается весь путь, даже где трасса начинается заново',
            all(m.key == oid for topic in ('order.events', 'delivery.events') for m in topics[topic] if (m.envelope or {}).get('data', {}).get('orderId') == oid), oid)
 
 

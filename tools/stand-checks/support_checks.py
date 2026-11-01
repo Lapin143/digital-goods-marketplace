@@ -286,7 +286,7 @@ def audit_and_trace(fx):
     expect('TC-015. В записях аудита нет ни адреса покупателя, ни ключа', buyer.email not in text and P.KEY_PREFIX not in text, '')
 
     seen = P.services_seen(state['correlation'], ['api-gateway', 'platform-service'])
-    expect('Р-172. Идентификатор запроса «создать обращение» виден в журналах шлюза и платформы (найден в %s)' % (', '.join(sorted(seen)) or 'нигде'),
+    expect('TC-803, Р-172. Идентификатор запроса «создать обращение» виден в журналах шлюза и платформы (найден в %s)' % (', '.join(sorted(seen)) or 'нигде'),
            {'api-gateway', 'platform-service'} <= seen, str(sorted(seen)))
     try:
         topic = P.read_topics(['support.events'])['support.events']
@@ -294,7 +294,7 @@ def audit_and_trace(fx):
         G.bad('Р-172. Тема support.events не прочитана', str(e)[-300:])
         return
     events = [m.envelope for m in topic if (m.envelope or {}).get('type') == 'ticket.created' and ((m.envelope or {}).get('data') or {}).get('ticketId') == tid]
-    expect('Р-172. В теме support.events одно ticket.created по обращению, его correlationid равен идентификатору запроса создания (%d записей в теме)' % len(topic),
+    expect('TC-803, Р-172. В теме support.events одно ticket.created по обращению, его correlationid равен идентификатору запроса создания (%d записей в теме)' % len(topic),
            len(events) == 1 and events[0].get('correlationid') == state['correlation'], str([e.get('correlationid') for e in events]))
     wire = '\n'.join(m.value for m in topic if tid in m.value)
     expect('Контроль и канарейка: в событиях обращения (%d КБ) адреса покупателя и ключа нет' % (len(wire) // 1024 + 1), bool(wire) and buyer.email not in wire and P.KEY_PREFIX not in wire, '')

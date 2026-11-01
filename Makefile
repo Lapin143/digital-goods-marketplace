@@ -284,6 +284,10 @@ e2e-sabotage: ## Проверка проверки API-тестов: ожида�
 audit-check: ## Проверить журнал аудита сквозь стенд (К9, US-8.7, TC-802, TC-815): решения модератора и открытие документа доходят до журнала за 10 секунд, запись о просмотре журнала, права, операций записи в API нет, роли приложения не меняют записи, e-mail и телефон покупателя не найдены в таблице, теме audit.events и ответах API (набор full, DEBUG=1, make keycloak-users)
 	$(KC_ENV) python3 tools/stand-checks/audit_checks.py
 
+.PHONY: audit-actions-check
+audit-actions-check: ## Проверить, что каждое действие сотрудника есть в журнале аудита (шаг 23, NFT-3.6, TC-801): запись, исполнитель, роль, объект, адрес как есть; ничего не делает сама, читает журнал после остальных проверок (набор full, DEBUG=1, make keycloak-users, запускать в конце после проверок поддержки, аудита и параметров)
+	$(KC_ENV) python3 tools/stand-checks/audit_actions_checks.py
+
 .PHONY: parameters-check
 parameters-check: ## Проверить параметры платформы сквозь стенд (К9, US-8.3, US-8.4, TC-816): лимит неоплаченных заказов, комиссия 3 % у нового заказа и 2 % у прежнего, перезапуск order-service посреди сценария, срок ссылки на документ; в конце все параметры возвращены к умолчанию (набор full с make fast-up DEBUG=1, make keycloak-users)
 	$(KC_ENV) python3 tools/stand-checks/parameters_checks.py
