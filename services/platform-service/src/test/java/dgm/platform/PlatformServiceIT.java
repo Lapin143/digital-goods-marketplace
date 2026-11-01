@@ -2636,6 +2636,7 @@ class PlatformServiceIT {
     }
 
     @Tag("TC-705")
+    @Tag("concurrency")
     @Test
     @Order(54)
     void twentyTimesTwoOperatorsTakeTheSameTicketAndEveryTimeExactlyOneWins() throws Exception {
