@@ -24,6 +24,8 @@ support-1 (настоящий вход с TOTP), журнал читает admin
   письма      TC-718: письмо платформы, которое провайдер принял и отклонил (failed, address_rejected), даёт уведомление failed в очереди недоставленных с кодом
               provider_address_rejected и одно notification.failed без адреса; принятое без статуса остаётся sent, статус delivered вебхуком переводит его в delivered,
               запоздалый failed после доставки ничего не меняет; у письма в режиме по умолчанию статус delivered приходит сам
+  канарейка   ST-01 для кода повторной отправки: значения ключей и адреса покупателей запуска не найдены в журналах контейнеров, темах payment, order и delivery.events,
+              теме support.events и дампах баз (общий поиск purchase_checks.leak_scan с контролем: номера заказов видны в журналах, события заказов в темах)
 
 Окно обращения (E1) на стенде не проверяется: параметр support.window-seconds нельзя опустить ниже часа, закрытое окно проверяют TicketServiceTest и PlatformServiceIT. Только стандартная библиотека Python.
 """
@@ -405,10 +407,32 @@ def platform_letter_statuses(fx):
     O.modes_are_default(stubs, 'TC-718')
 
 
+# --------------------------------------------------------------------------------------------------- канарейка
+def canary(fx):
+    """ST-01 для кода среза 3: повторная отправка собирает письмо с ключом заново, поэтому после неё те же поиски, что после покупки.
+
+    Значения ключей и адреса покупателей этого запуска (первичные и повторные выдачи, обращения) не должны попасть в журналы контейнеров,
+    темы payment, order и delivery.events и дампы баз (общий поиск purchase_checks.leak_scan); тема support.events читается целиком отдельно.
+    """
+    try:
+        fx['topics'] = P.read_topics(P.EVENT_TOPICS)
+        support = P.read_topics(['support.events'])['support.events']
+    except Exception as e:   # noqa: BLE001 - темы не прочитаны: это ошибка проверки, а не повод её пропустить
+        G.bad('Канарейка: темы Kafka не прочитаны', str(e)[-300:])
+        return
+    P.leak_scan(fx, 'support_checks, после повторной отправки')
+    wire = '\n'.join(m.value for m in support)
+    ticket = (fx.get('ticket') or {}).get('id', '')
+    expect('Контроль: в теме support.events (%d записей, %d КБ) есть событие созданного обращения' % (len(support), len(wire) // 1024 + 1), bool(ticket) and ticket in wire, '')
+    seen = [e for e in fx['emails'] if e in wire]
+    expect('TC-015. В теме support.events нет ни значений ключей (%s…), ни адресов покупателей этого запуска (%d)' % (P.KEY_PREFIX, len(fx['emails'])),
+           P.KEY_PREFIX not in wire and not seen, str(seen[:2]))
+
+
 # --------------------------------------------------------------------------------------------------- запуск
 def run_scenarios(fx):
     fx['stubs'].reset()
-    for fn in (not_received, queue_and_take, resend_and_resolve, audit_and_trace, closed_by_delivery, platform_letter_statuses):
+    for fn in (not_received, queue_and_take, resend_and_resolve, audit_and_trace, closed_by_delivery, platform_letter_statuses, canary):
         O.guarded(fn.__name__, fn, fx)
 
 
