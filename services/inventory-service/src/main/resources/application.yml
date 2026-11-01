@@ -32,6 +32,12 @@ dgm:
     module: inventory
   consumer:
     module: inventory
+  inventory:
+    # Мастер-ключ (ADR-009, Р-174): версия текущего секрета inventory_kek записана в data_key.kek_version. Ротацию ведёт оператор
+    # (runbook.md, раздел «Ротация мастер-ключа»): положить рядом inventory_kek_next, включить rotate, затем сделать следующий ключ текущим
+    kek:
+      version: ${DGM_KEK_VERSION:1}
+      rotate: ${DGM_KEK_ROTATE:false}
   reservation:
     # Исполнители резервов (ADR-012): таймер раз в секунду берёт наступившие сроки из Redis, сверка раз в минуту ищет по базе резервы,
     # просроченные больше чем на 30 секунд (таймер потерян)

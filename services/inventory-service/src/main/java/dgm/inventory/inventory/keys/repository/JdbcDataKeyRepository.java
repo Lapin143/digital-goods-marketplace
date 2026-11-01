@@ -2,6 +2,7 @@ package dgm.inventory.inventory.keys.repository;
 
 import dgm.inventory.inventory.registry.JdbcProductCopyRepository;
 import dgm.kit.boot.ModuleDatabases;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -13,8 +14,10 @@ public final class JdbcDataKeyRepository implements DataKeyRepository {
 
     /** Произвольный постоянный номер блокировки создания первого DEK. */
     private static final long LOCK_ID = 0x44474D4B455931L;
+    /** Произвольный постоянный номер блокировки ротации мастер-ключа. */
+    private static final long ROTATION_LOCK_ID = 0x44474D4B455932L;
 
-    private static final RowMapper<Stored> STORED = (rs, row) -> new Stored(rs.getInt("id"), rs.getBytes("wrapped_key"));
+    private static final RowMapper<Stored> STORED = (rs, row) -> new Stored(rs.getInt("id"), rs.getBytes("wrapped_key"), rs.getInt("kek_version"));
 
     private final JdbcTemplate jdbc;
 
@@ -24,12 +27,12 @@ public final class JdbcDataKeyRepository implements DataKeyRepository {
 
     @Override
     public Optional<Stored> active() {
-        return jdbc.query("select id, wrapped_key from inventory.data_key where status = 'active'", STORED).stream().findFirst();
+        return jdbc.query("select id, wrapped_key, kek_version from inventory.data_key where status = 'active'", STORED).stream().findFirst();
     }
 
     @Override
     public Optional<Stored> byId(int id) {
-        return jdbc.query("select id, wrapped_key from inventory.data_key where id = ?", STORED, id).stream().findFirst();
+        return jdbc.query("select id, wrapped_key, kek_version from inventory.data_key where id = ?", STORED, id).stream().findFirst();
     }
 
     @Override
@@ -41,6 +44,26 @@ public final class JdbcDataKeyRepository implements DataKeyRepository {
     @Override
     public Stored insertActive(byte[] wrapped, int kekVersion) {
         return jdbc.queryForObject("insert into inventory.data_key (wrapped_key, kek_version, status) values (?, ?, 'active') "
-                + "returning id, wrapped_key", STORED, wrapped, kekVersion);
+                + "returning id, wrapped_key, kek_version", STORED, wrapped, kekVersion);
+    }
+
+    @Override
+    public List<Stored> all() {
+        return jdbc.query("select id, wrapped_key, kek_version from inventory.data_key order by id", STORED);
+    }
+
+    @Override
+    public boolean tryLockRotation() {
+        return Boolean.TRUE.equals(jdbc.queryForObject("select pg_try_advisory_xact_lock(?)", Boolean.class, ROTATION_LOCK_ID));
+    }
+
+    @Override
+    public List<Stored> lockByKekVersion(int kekVersion) {
+        return jdbc.query("select id, wrapped_key, kek_version from inventory.data_key where kek_version = ? order by id for update", STORED, kekVersion);
+    }
+
+    @Override
+    public void rewrap(int id, byte[] wrapped, int kekVersion) {
+        jdbc.update("update inventory.data_key set wrapped_key = ?, kek_version = ? where id = ?", wrapped, kekVersion, id);
     }
 }

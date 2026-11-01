@@ -51,7 +51,7 @@ make pki-test     # тесты самого скрипта
 | Ситуация | Что делать |
 | --- | --- |
 | Подходит срок сертификатов | `make certs`, затем перезапуск контейнеров (`make up` подхватывает файлы). Spring Boot перечитывает сертификаты без перезапуска |
-| Секрет скомпрометирован | `python3 infra/pki/dgm_pki.py secrets --force`, затем пересоздание ролей и перезапуск. Ключи шифрования (`inventory_kek`) меняются с перешифровкой DEK по [ADR-009](../../docs/05-architecture/adr/ADR-009-key-encryption-hmac.md), не простой заменой |
+| Секрет скомпрометирован | `python3 infra/pki/dgm_pki.py secrets --force`, затем пересоздание ролей и перезапуск. Ключи шифрования (`inventory_kek`) меняются с перешифровкой DEK по [runbook](../../docs/09-operations/runbook.md) (раздел 3.5, `tools/ops/kek_rotate.py`) и [ADR-009](../../docs/05-architecture/adr/ADR-009-key-encryption-hmac.md), не простой заменой |
 | Ключ центра сертификации скомпрометирован | Удалить `.pki/`, `make certs` с `--force` (`python3 infra/pki/dgm_pki.py certs --force`), перезапустить всё |
 | Потерян `.pki/ca.key` | Тот же порядок: новый центр и перевыпуск всех сертификатов |
 

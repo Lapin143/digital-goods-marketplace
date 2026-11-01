@@ -126,6 +126,11 @@ public final class FakePool {
     static final class DataKeys implements DataKeyRepository {
         final List<Stored> rows = new ArrayList<>();
         int locks;
+        /** Блокировку ротации держит другой экземпляр. */
+        boolean rotationLockedByAnother;
+        /** Номер вызова {@code rewrap}, на котором репозиторий падает (0: не падает). */
+        int failOnRewrap;
+        private int rewraps;
 
         @Override
         public Optional<Stored> active() {
@@ -144,9 +149,36 @@ public final class FakePool {
 
         @Override
         public Stored insertActive(byte[] wrapped, int kekVersion) {
-            Stored stored = new Stored(rows.size() + 1, wrapped);
+            Stored stored = new Stored(rows.size() + 1, wrapped, kekVersion);
             rows.add(stored);
             return stored;
+        }
+
+        @Override
+        public List<Stored> all() {
+            return List.copyOf(rows);
+        }
+
+        @Override
+        public boolean tryLockRotation() {
+            return !rotationLockedByAnother;
+        }
+
+        @Override
+        public List<Stored> lockByKekVersion(int kekVersion) {
+            return rows.stream().filter(s -> s.kekVersion() == kekVersion).toList();
+        }
+
+        @Override
+        public void rewrap(int id, byte[] wrapped, int kekVersion) {
+            if (failOnRewrap > 0 && ++rewraps == failOnRewrap) {
+                throw new IllegalStateException("сбой записи");
+            }
+            for (int i = 0; i < rows.size(); i++) {
+                if (rows.get(i).id() == id) {
+                    rows.set(i, new Stored(id, wrapped, kekVersion));
+                }
+            }
         }
     }
 

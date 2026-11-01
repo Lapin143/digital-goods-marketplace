@@ -1,0 +1,12 @@
+# Дополнение к compose.yaml только на время ротации мастер-ключа (ADR-009, runbook, раздел «Ротация мастер-ключа»):
+# подключает к inventory-service второй секрет, следующий мастер-ключ. Включает его tools/ops/kek_rotate.py (start),
+# убирает после завершения (finish); вручную: docker compose -f compose.yaml -f compose.kek-rotation.yaml up -d inventory-service.
+# Секрет inventory_kek_next не входит в infra/pki/inventory.json: он живёт только между start и finish и создаётся скриптом, а не make secrets.
+secrets:
+  inventory_kek_next:
+    file: ${DGM_SECRETS_DIR:-./secrets}/inventory_kek_next
+
+services:
+  inventory-service:
+    secrets:
+      - inventory_kek_next

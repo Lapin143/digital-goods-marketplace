@@ -59,6 +59,8 @@ run python3 -m unittest "$REPO/tools/stand-checks/test_timing_checks.py"
 run python3 -m unittest "$REPO/tools/stand-checks/test_audit_checks.py"
 run python3 -m unittest "$REPO/tools/ci/test_jacoco_summary.py"
 run python3 -m unittest "$REPO/tools/ops/test_dlq_replay.py"
+run python3 -m unittest "$REPO/tools/ops/test_kek_rotate.py"
+run python3 -m unittest "$REPO/tools/ops/test_restore_drill.py"
 if [ "$1" = "--db" ]; then
   run bash "$HERE/db/apply.sh"
   run python3 "$HERE/db/test_db.py"

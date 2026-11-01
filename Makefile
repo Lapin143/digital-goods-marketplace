@@ -328,6 +328,14 @@ e2e-check: ## Собрать коллекцию API-тестов без стен
 demo: ## Показать цель вехи M3: вход тестового пользователя (WHO=buyer-1) и запросы через шлюз с токеном и без (набор full, DEBUG=1, make keycloak-users)
 	$(KC_ENV) python3 tools/stand-checks/demo.py $(WHO)
 
+.PHONY: kek-rotation-check
+kek-rotation-check: ## Проверить ротацию мастер-ключа сквозь стенд (шаг 22 Ф4, TC-414, ADR-009): tools/ops/kek_rotate.py start и finish, DEK перезавёрнуты без перешифровки значений, покупка до письма проходит при двух мастер-ключах и при одном новом, прежний ключ в secrets/archive, мастер-ключей нет в журналах (набор full с make fast-up DEBUG=1, после purchase-check, около пяти минут)
+	$(KC_ENV) python3 tools/stand-checks/kek_rotation_checks.py
+
+.PHONY: restore-drill
+restore-drill: ## Учебное восстановление базы платформы (шаг 22 Ф4, TC-817): дамп platform_db, восстановление в platform_db_restore, сверка журнала аудита по секциям и схемы, UPDATE, DELETE и TRUNCATE журнала на копии отклонены (набор full, DEBUG=1, после audit-check; время ориентир, не зачёт RTO)
+	python3 tools/ops/restore_drill.py run --debug
+
 .PHONY: demo-r1
 demo-r1: ## Проверить исходное состояние стенда перед показом R1 (шаг 24 Ф4): витрина не пуста, вход шести тестовых пользователей, заглушки и параметры в исходном режиме, порядок показа (набор full, DEBUG=1, make keycloak-users)
 	$(KC_ENV) python3 tools/stand-checks/demo.py r1

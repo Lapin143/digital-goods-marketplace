@@ -406,6 +406,9 @@ services:
       <<: *service-env
       # Очередь сроков резервов (ADR-012, ADR-022): пользователь inventory задан в application.yml, секрет redis_inventory смонтирован ниже
       DGM_REDIS_HOST: redis
+      # Мастер-ключ (ADR-009): версия текущего inventory_kek и признак ротации ведёт tools/ops/kek_rotate.py через .env, на второй ключ указывает compose.kek-rotation.yaml
+      DGM_KEK_VERSION: ${DGM_KEK_VERSION:-1}
+      DGM_KEK_ROTATE: ${DGM_KEK_ROTATE:-false}
       # Ускоренные сроки (профиль fast-time, time-budgets.md, раздел 5) включает только DGM_FAST_TIME=1: make fast-up и задание e2e, на сервер не попадает (Р-147, check_compose.py)
       SPRING_PROFILES_ACTIVE: ${DGM_FAST_TIME:+fast-time}
     tmpfs:
