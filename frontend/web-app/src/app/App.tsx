@@ -1,5 +1,5 @@
 import { Outlet, Route, Routes } from 'react-router-dom';
-import { MODERATOR_ROLES, SELLER_ROLES, STAFF_ROLES } from '../auth/claims';
+import { MODERATOR_ROLES, OPERATOR_ROLES, SELLER_ROLES, STAFF_ROLES } from '../auth/claims';
 import { RequireAccess } from './Guards';
 import { Layout } from './Layout';
 import { CallbackPage, HomePage, NotFoundPage, SellerHome, StaffHome, WorkEntry } from './pages';
@@ -15,6 +15,8 @@ import { ApplicationCardPage } from '../screens/staff/moderation/ApplicationCard
 import { ApplicationQueuePage } from '../screens/staff/moderation/ApplicationQueuePage';
 import { ProductCardPage } from '../screens/staff/moderation/ProductCardPage';
 import { ProductQueuePage } from '../screens/staff/moderation/ProductQueuePage';
+import { SupportCardPage } from '../screens/staff/support/SupportCardPage';
+import { SupportQueuePage } from '../screens/staff/support/SupportQueuePage';
 import { OrderHistoryPage } from '../screens/orders/OrderHistoryPage';
 import { OrderPage, OrderReturnRedirect } from '../screens/orders/OrderPage';
 import { ProductListPage } from '../screens/storefront/ProductListPage';
@@ -146,6 +148,16 @@ export function App() {
             <Route path="applications/:sellerId" element={<ApplicationCardPage />} />
             <Route path="products" element={<ProductQueuePage />} />
             <Route path="products/:productId" element={<ProductCardPage />} />
+          </Route>
+          <Route
+            element={
+              <RequireAccess kind="staff" roles={OPERATOR_ROLES} secondFactor>
+                <Outlet />
+              </RequireAccess>
+            }
+          >
+            <Route path="support" element={<SupportQueuePage />} />
+            <Route path="support/:ticketId" element={<SupportCardPage />} />
           </Route>
           <Route path="*" element={<NotFoundPage />} />
         </Route>

@@ -57,6 +57,8 @@ export const SELLER_ROLES = ['seller'];
 export const STAFF_ROLES = ['moderator', 'support-operator', 'admin'];
 /** Очереди и решения модерации доступны только модератору (OP-11, OP-12, OP-22 – OP-24). */
 export const MODERATOR_ROLES = ['moderator'];
+/** Очередь обращений, повторная отправка ключа и смена e-mail доступны только оператору поддержки (OP-71 – OP-74). */
+export const OPERATOR_ROLES = ['support-operator'];
 
 export function hasAnyRole(claims: Claims, roles: readonly string[]): boolean {
   return roles.some((role) => claims.roles.includes(role));

@@ -14,3 +14,16 @@ export function emailChangeCodesPath(ticketId: string): string {
 export function emailChangeVerificationsPath(ticketId: string): string {
   return `${ticketPath(ticketId)}/email-change/verifications`;
 }
+
+/** Очередь и карточка обращения для оператора (роль `support-operator`, второй фактор обязателен). */
+export const STAFF_SUPPORT_TICKETS = '/api/v1/staff/support-tickets';
+
+export type StaffTicketAction = 'take' | 'release' | 'resend' | 'email-change';
+
+export function staffTicketPath(ticketId: string): string {
+  return `${STAFF_SUPPORT_TICKETS}/${encodeURIComponent(ticketId)}`;
+}
+
+export function staffTicketActionPath(ticketId: string, action: StaffTicketAction): string {
+  return `${staffTicketPath(ticketId)}/${action}`;
+}
