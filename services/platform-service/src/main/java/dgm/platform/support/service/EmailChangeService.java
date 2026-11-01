@@ -295,9 +295,6 @@ public final class EmailChangeService {
         if (EmailChange.COMPLETED.equals(change.status())) {
             return change.view();
         }
-        if (!change.confirmedNotCompleted()) {
-            throw new ProblemException(ProblemType.STATE_CONFLICT, "Оба подтверждения смены e-mail ещё не получены.");
-        }
         Optional<UUID> operatorId = tickets.findStaffTicket(ticketId).flatMap(StaffTicket::operatorId);
         try {
             changer.apply(change.userId(), newEmailOf(change), ticketId, operatorId);
