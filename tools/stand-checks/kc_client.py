@@ -16,6 +16,7 @@ import html
 import html.parser
 import http.client
 import json
+import os
 import re
 import secrets
 import socket
@@ -23,6 +24,15 @@ import ssl
 import struct
 import time
 import urllib.parse
+
+try:
+    import fcntl
+except ImportError:      # Windows без WSL: блокировка файла состояния недоступна, остаётся только память процесса
+    fcntl = None
+
+
+# Пауза перед повторным кодом после отказа: больше quickLoginCheckMilliSeconds (1000 мс в gen_realm.py)
+RETRY_PAUSE = 1.2
 
 
 class Route:
@@ -160,21 +170,59 @@ def secret_from_key(text):
 
 
 class TotpClock:
-    """Выдаёт код для следующего свободного шага: тот же код Keycloak во второй раз не принимает (codeReusable=false)."""
+    """Выдаёт код для следующего свободного шага: тот же код Keycloak во второй раз не принимает (codeReusable=false).
 
-    def __init__(self, period=30):
+    Шаги, которые уже заняли другие процессы проверок, берутся из файла состояния (state_file): проверки стенда идут отдельными процессами
+    одна за другой, и новый процесс без этого начинал бы с шага, который предыдущий только что истратил. Отказ в коде не безобиден: два отказа подряд
+    быстрее секунды Keycloak считает перебором и закрывает пользователю вход на минуту (quickLoginCheckMilliSeconds и minimumQuickLoginWaitSeconds
+    в gen_realm.py), так третья попытка демо R1 в CI уткнулась в блокировку admin-1. В файле лежат не секреты, а отпечатки (первые 16 знаков SHA-256)
+    и номер последнего занятого шага. Занятым шаг записывается до ожидания, поэтому два процесса не возьмут один и тот же.
+    """
+
+    def __init__(self, period=30, state_file=None):
         self.period = period
         self.used = {}
+        self.state_file = state_file
+
+    def _reserve(self, secret_text, step):
+        """Берёт первый шаг не раньше текущего и после всех занятых (этим процессом и по файлу состояния) и записывает его занятым."""
+        key = hashlib.sha256(secret_text.encode()).hexdigest()[:16]
+        lock = None
+        if self.state_file and fcntl:
+            os.makedirs(os.path.dirname(os.path.abspath(self.state_file)), exist_ok=True)
+            lock = open(self.state_file + '.lock', 'a')
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            saved = {}
+            if self.state_file:
+                try:
+                    with open(self.state_file, encoding='utf-8') as f:
+                        saved = json.load(f)
+                except (OSError, ValueError):
+                    saved = {}
+            counter = max(step, self.used.get(secret_text, -1) + 1, saved.get(key, -1) + 1)
+            self.used[secret_text] = counter
+            if self.state_file:
+                saved = {k: v for k, v in saved.items() if isinstance(v, int) and v >= step - 240}   # записи старше двух часов не нужны
+                saved[key] = counter
+                tmp = '%s.%d.tmp' % (self.state_file, os.getpid())
+                with open(tmp, 'w', encoding='utf-8') as f:
+                    json.dump(saved, f)
+                os.replace(tmp, self.state_file)
+            return counter
+        finally:
+            if lock:
+                lock.close()
 
     def next_code(self, secret_text, now=time.time):
         secret = secret_text.encode()
         step = int(now() // self.period)
-        counter = max(step, self.used.get(secret_text, -1) + 1)
+        counter = self._reserve(secret_text, step)
         if counter > step + 1:                      # окно просмотра вперёд один шаг: ждём начала следующего
             time.sleep((counter - step) * self.period - (now() % self.period) + 0.5)
             step = int(now() // self.period)
-            counter = max(step, counter)
-        self.used[secret_text] = counter
+            if step > counter:                      # ожидание затянулось дольше шага: код устарел, берётся свежий
+                counter = self._reserve(secret_text, step)
         return totp_code(secret, counter)
 
 
@@ -401,6 +449,8 @@ class Keycloak:
                 otp_left -= 1
                 if not otp_secret:
                     return LoginResult('otp_required', page=resp.text, response=resp)
+                if otp_left < otp_tries - 1:
+                    time.sleep(RETRY_PAUSE)             # повтор после отказа: две неудачи быстрее секунды Keycloak считает перебором
                 form = next(f for f in forms_of(resp.text) if 'otp' in f['inputs'])
                 data = dict(form['inputs'], otp=self.totp.next_code(otp_secret))
                 action = urllib.parse.urljoin(self.public + '/', form['action'])
@@ -478,7 +528,6 @@ def from_env(env=None):
     STUBS_ADMIN_TARGET  административный порт заглушек (https://127.0.0.1:18444): письма Keycloak смотрятся по адресу external-stubs:8444
     KC_CA         файл центра сертификации, по умолчанию secrets/tls_ca.crt
     """
-    import os
     env = env if env is not None else os.environ
     public = env.get('KC_PUBLIC', 'https://localhost:8443/auth')
     u = urllib.parse.urlsplit(public)
@@ -492,7 +541,11 @@ def from_env(env=None):
         routes.append(Route('external-stubs', 8444, '/', env['STUBS_ADMIN_TARGET']))
     ca = env.get('KC_CA') or os.path.join(os.environ.get('DGM_SECRETS_DIR', 'secrets'), 'tls_ca.crt')
     net = Net(routes, cafile=ca if os.path.exists(ca) else None)
-    kc = Keycloak(net, public=public, redirect_base='%s://%s' % (u.scheme, u.netloc))
+    # шаги TOTP, занятые предыдущими процессами проверок; DGM_TOTP_STATE пустая строка отключает файл
+    state = env.get('DGM_TOTP_STATE')
+    if state is None:
+        state = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'build', 'totp-state.json')
+    kc = Keycloak(net, public=public, redirect_base='%s://%s' % (u.scheme, u.netloc), totp=TotpClock(state_file=state or None))
     pw_file = env.get('KC_ADMIN_PASSWORD_FILE') or os.path.join(os.environ.get('DGM_SECRETS_DIR', 'secrets'), 'keycloak_admin')
     password = env.get('KC_ADMIN_PASSWORD') or (open(pw_file, encoding='utf-8').read().strip() if os.path.exists(pw_file) else '')
     admin = Admin(kc, env.get('KC_ADMIN_USER', 'dgm-admin'), password)

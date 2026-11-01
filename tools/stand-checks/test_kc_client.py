@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -68,6 +69,52 @@ class OtpTest(unittest.TestCase):
         self.assertEqual(sleep.call_count, 1)
         self.assertGreater(sleep.call_args[0][0], 20)       # до начала следующего шага (25 с) и немного сверх
         self.assertEqual(code, K.totp_code(b'secret', 1002))
+
+    def test_clocks_of_different_processes_share_used_steps_through_the_state_file(self):
+        """Проверки идут отдельными процессами: новый не должен начинать с шага, который предыдущий только что истратил (Keycloak отказал бы)."""
+        now = lambda: 1000 * 30 + 5.0
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, 'sub', 'totp.json')
+            with mock.patch.object(K.time, 'sleep') as sleep:
+                first = K.TotpClock(state_file=path).next_code('secret', now=now)
+                second = K.TotpClock(state_file=path).next_code('secret', now=now)    # другой процесс: шаг 1000 занят, берётся 1001, ждать не нужно
+                self.assertEqual(sleep.call_count, 0)
+                third = K.TotpClock(state_file=path).next_code('secret', now=now)     # оба шага заняты: ждать начала 1002
+                self.assertEqual(sleep.call_count, 1)
+                self.assertGreater(sleep.call_args[0][0], 20)
+            self.assertEqual([first, second, third], [K.totp_code(b'secret', c) for c in (1000, 1001, 1002)])
+            with open(path, encoding='utf-8') as f:
+                saved = f.read()
+            self.assertNotIn('secret', saved, 'в файле состояния нет самого секрета, только отпечаток')
+            self.assertEqual(list(json.loads(saved).values()), [1002])
+
+    def test_state_file_keeps_secrets_apart_and_survives_garbage(self):
+        now = lambda: 90000.0
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, 'totp.json')
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write('не JSON')
+            a = K.TotpClock(state_file=path).next_code('one', now=now)
+            b = K.TotpClock(state_file=path).next_code('two', now=now)
+            self.assertEqual((a, b), (K.totp_code(b'one', 3000), K.totp_code(b'two', 3000)))
+
+    def test_state_file_forgets_old_entries(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, 'totp.json')
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump({'0000000000000000': 10}, f)
+            K.TotpClock(state_file=path).next_code('one', now=lambda: 90000.0)
+            with open(path, encoding='utf-8') as f:
+                self.assertEqual(len(json.load(f)), 1)
+
+    def test_from_env_shares_state_unless_disabled(self):
+        env = {'KC_PUBLIC': 'https://localhost:8443/auth', 'KC_ADMIN_PASSWORD': 'x', 'KC_CA': '/нет/такого/файла'}
+        kc, _ = K.from_env(dict(env))
+        self.assertTrue(kc.totp.state_file.endswith(os.path.join('build', 'totp-state.json')))
+        kc, _ = K.from_env(dict(env, DGM_TOTP_STATE='/tmp/x/totp.json'))
+        self.assertEqual(kc.totp.state_file, '/tmp/x/totp.json')
+        kc, _ = K.from_env(dict(env, DGM_TOTP_STATE=''))
+        self.assertIsNone(kc.totp.state_file)
 
     def test_clock_secrets_are_independent(self):
         clock = K.TotpClock()
@@ -189,6 +236,33 @@ class DialogTest(unittest.TestCase):
         self.assertEqual(d.setup_totp('телефон'), 'S')
         self.assertEqual(net.requests[0][2], {'totpSecret': 'S', 'totp': '123456', 'userLabel': 'телефон'})
         kc.totp.next_code.assert_called_once_with('S')
+
+
+class LoginRetryTest(unittest.TestCase):
+    """Повтор кода после отказа идёт не раньше чем через секунду: две неудачи быстрее секунды Keycloak считает перебором и блокирует вход на минуту."""
+
+    def login_with(self, rejections):
+        kc = K.Keycloak(FakeNet(page(OTP)), public='https://h/auth', totp=mock.Mock(next_code=mock.Mock(return_value='123456')))
+        steps = [(page(OTP), None)] * rejections + [(page(OTP), 'https://h/callback?code=1')]
+        with mock.patch.object(kc, 'authorize', return_value=(page(LOGIN), None, 'v', 'https://h/callback')), \
+                mock.patch.object(kc, '_follow', side_effect=[(page(OTP), None)] + steps), \
+                mock.patch.object(kc, '_finish', return_value='tokens'), \
+                mock.patch.object(K.time, 'sleep') as sleep:
+            kc.net.responses = [page(OTP)] * 6
+            kc.net.cookies = {}
+            result = kc.login('dgm-staff', 'u@example.org', 'p', otp_secret='S')
+        return result, sleep
+
+    def test_no_pause_before_the_first_code(self):
+        result, sleep = self.login_with(0)
+        self.assertEqual(result, 'tokens')
+        sleep.assert_not_called()
+
+    def test_pause_before_each_repeated_code(self):
+        result, sleep = self.login_with(1)
+        self.assertEqual(result, 'tokens')
+        sleep.assert_called_once_with(K.RETRY_PAUSE)
+        self.assertGreater(K.RETRY_PAUSE, 1.0)           # quickLoginCheckMilliSeconds в gen_realm.py: 1000 мс
 
 
 class RoutesTest(unittest.TestCase):
