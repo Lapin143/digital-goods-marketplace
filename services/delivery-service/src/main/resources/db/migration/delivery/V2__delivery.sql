@@ -66,8 +66,6 @@ comment on column delivery.delivery.updated_at is 'Последнее измен
 create unique index uq_delivery_order_id_primary on delivery.delivery (order_id) where kind = 'primary';
 comment on index delivery.uq_delivery_order_id_primary is 'INV-18: вторая первичная выдача заказа невозможна, повторное order.paid её не создаст';
 -- одна выдача в очереди на заказ
-create unique index uq_delivery_order_id_queued on delivery.delivery (order_id) where status = 'queued';
-comment on index delivery.uq_delivery_order_id_queued is 'Не больше одной выдачи в очереди на заказ (ADR-011): повторная отправка не накладывается на ещё не отправленную';
 -- диспетчер
 create index ix_delivery_dispatch on delivery.delivery (next_attempt_at, id) where status = 'queued';
 comment on index delivery.ix_delivery_dispatch is 'Диспетчер раз в секунду: WHERE status = ''queued'' AND next_attempt_at <= now() ORDER BY next_attempt_at LIMIT 20 FOR UPDATE SKIP LOCKED';
