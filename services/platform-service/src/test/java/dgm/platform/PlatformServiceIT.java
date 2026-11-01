@@ -1434,12 +1434,13 @@ class PlatformServiceIT {
         return databases.jdbc("support");
     }
 
-    private static final AtomicLong ORDER_NUMBERS = new AtomicLong(Instant.now().getEpochSecond() * 1000L);
+    private static final AtomicLong ORDER_NUMBERS = new AtomicLong((Instant.now().getEpochSecond() - 1_700_000_000L) * 1000L);
 
     /**
      * Следующий номер заказа события. Номер уникален в модели чтения, а база стенда переживает запуски (серия из 50 идёт на одной базе), поэтому
      * случайный выбор из четырёх миллионов значений рано или поздно повторяется (так и случилось на 45-м запуске серии). Номер строится от секунды
-     * старта процесса: запуски не пересекаются, внутри запуска номера идут подряд, а реальные номера заказов (от 1001) далеко внизу.
+     * старта процесса: запуски не пересекаются, внутри запуска номера идут подряд (до тысячи), а реальные номера заказов (от 1001) далеко внизу.
+     * Номер остаётся в 11 цифрах: шаблоны писем принимают не больше 12 ({@code Letters}), с 13 цифрами письмо отвергается.
      */
     private static long freshOrderNumber() {
         return ORDER_NUMBERS.incrementAndGet();
