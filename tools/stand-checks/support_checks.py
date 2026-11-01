@@ -433,7 +433,7 @@ def canary(fx):
     except Exception as e:   # noqa: BLE001 - темы не прочитаны: это ошибка проверки, а не повод её пропустить
         G.bad('Канарейка: темы Kafka не прочитаны', str(e)[-300:])
         return
-    P.leak_scan(fx, 'support_checks, после повторной отправки')
+    P.leak_scan(fx, 'support_checks, после повторной отправки', address_events=('order.paid', 'order.address-updated'))
     wire = '\n'.join(m.value for m in support)
     ticket = (fx.get('ticket') or {}).get('id', '')
     expect('Контроль: в теме support.events (%d записей, %d КБ) есть событие созданного обращения' % (len(support), len(wire) // 1024 + 1), bool(ticket) and ticket in wire, '')

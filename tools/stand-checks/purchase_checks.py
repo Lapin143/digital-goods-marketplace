@@ -356,8 +356,9 @@ def dump(database):
     return r.stdout, r.returncode, (r.stderr or '')[-200:]
 
 
-def leak_scan(fx, label):
-    """Значения ключей и адреса покупателей там, где их быть не должно (INV-20): журналы, темы Kafka, дампы баз."""
+def leak_scan(fx, label, address_events=('order.paid',)):
+    """Значения ключей и адреса покупателей там, где их быть не должно (INV-20): журналы, темы Kafka, дампы баз. Адрес в темах заказа, платежей и выдачи
+    допустим только в событиях address_events: у покупки это order.paid, после повторной отправки по обращению ещё order.address-updated (F4-45)."""
     print('== Канарейка: значений ключей и адресов покупателей нет в журналах, темах Kafka и базах (%s; INV-20, NFT-3.2)' % label)
     needles = [KEY_PREFIX, KEY_PREFIX.encode().hex()]
     logs = C.compose_logs()
@@ -377,8 +378,8 @@ def leak_scan(fx, label):
         found = C.leaks(wire, needles)
         expect('Значений ключей в темах payment.events, order.events и delivery.events нет', not found, '; '.join(found)[:300])
         carrying = sorted({(m.envelope or {}).get('type') or '?' for messages in topics.values() for m in messages if any(e in m.value for e in fx['emails'])})
-        expect('Адрес покупателя в темах payment.events, order.events и delivery.events есть только в order.paid: «Выдаче» его передаёт одно событие (найден в %s)'
-               % (', '.join(carrying) or 'нигде'), set(carrying) <= {'order.paid'}, str(carrying))
+        expect('Адрес покупателя в темах payment.events, order.events и delivery.events есть только в %s: выдаче его передают эти события (найден в %s)'
+               % (', '.join(address_events), ', '.join(carrying) or 'нигде'), set(carrying) <= set(address_events), str(carrying))
     for database in DATABASES:
         text, code, error = dump(database)
         expect('Дамп %s снят (%d КБ)' % (database, len(text) // 1024), code == 0 and len(text) > 2000, error)
