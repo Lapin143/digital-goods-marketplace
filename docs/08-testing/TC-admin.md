@@ -18,11 +18,11 @@
 | TC | Название | История | Уровень | Чем проверяется |
 | --- | --- | --- | --- | --- |
 | TC-802 | Журнал, тема `audit.events` и ответы API не содержат открытых e-mail и телефона, в том числе после анонимизации (NFT-5.3, канарейка) | US-8.6, US-8.7 | L5 | `audit_checks.py` |
-| TC-806 | Правка параметра записывается в журнал и в сжатую тему `platform.config`, одновременные правки с одной версией дают одну | US-8.3, US-8.4 | L3 | JUnit, JUnit на стенде, Vitest |
+| TC-806 | Правка параметра записывается в журнал и в сжатую тему `platform.config`, одновременные правки с одной версией дают одну | US-8.3, US-8.4 | L3 | JUnit, JUnit на стенде, Vitest, `ui_smoke.py` |
 | TC-807 | Значение вне границ, нарушение INV-07, чужая версия и недостаток прав отклоняются, ничего не записав | US-8.3 | L3 | JUnit, JUnit на стенде, Vitest |
 | TC-808 | Слушатель применяет параметр только версией выше сохранённой, закреплённый ключ и значение вне границ не применяются, смена срока не требует перезапуска | US-8.3 | L3 | JUnit, JUnit на стенде |
 | TC-809 | Комиссия по умолчанию из параметра, округление до копейки, смена ставки меняет только новые заказы | US-8.4 | L3 | JUnit |
-| TC-810 | Просмотр журнала записывается до ответа, читает только администратор, при сбое записи данных нет | US-8.6, US-8.7 | L3 | JUnit, JUnit на стенде, Vitest |
+| TC-810 | Просмотр журнала записывается до ответа, читает только администратор, при сбое записи данных нет | US-8.6, US-8.7 | L3 | JUnit, JUnit на стенде, Vitest, `ui_smoke.py` |
 | TC-811 | Открытие документа заявки модератором записывается на каждую ссылку, при сбое записи ссылок нет | US-8.6 | L3 | JUnit, JUnit на стенде |
 | TC-812 | Журнал только добавляется, секции создаёт задание (ST-09, IT-8) | US-8.7 | L7 | JUnit, JUnit на стенде |
 | TC-813 | Запись аудита доходит до журнала без потерь и дублей, открытое персональное значение уходит в DLQ | US-8.6, US-8.7 | L3 | JUnit, JUnit на стенде |
@@ -69,9 +69,9 @@
 | Уровень | L3 |
 | Тип | интеграционный |
 | Приоритет | Высокий |
-| Автоматизация | JUnit; JUnit на стенде; Vitest |
+| Автоматизация | JUnit; JUnit на стенде; Vitest; Python на стенде |
 | Тег в коде | TC-806 |
-| Где в коде | `services/platform-service/src/test/java/dgm/platform/auditadmin/service/ParameterServiceTest.java`, `services/platform-service/src/test/java/dgm/platform/auditadmin/controller/ParameterControllerTest.java`, `services/platform-service/src/test/java/dgm/platform/PlatformServiceIT.java`, `frontend/web-app/src/screens/staff/admin/units.test.ts`, `frontend/web-app/src/screens/staff/admin/ParametersPage.test.tsx`, `frontend/web-app/src/app/AdminRoutes.test.tsx` |
+| Где в коде | `services/platform-service/src/test/java/dgm/platform/auditadmin/service/ParameterServiceTest.java`, `services/platform-service/src/test/java/dgm/platform/auditadmin/controller/ParameterControllerTest.java`, `services/platform-service/src/test/java/dgm/platform/PlatformServiceIT.java`, `frontend/web-app/src/screens/staff/admin/units.test.ts`, `frontend/web-app/src/screens/staff/admin/ParametersPage.test.tsx`, `frontend/web-app/src/app/AdminRoutes.test.tsx`, `tools/stand-checks/ui_smoke.py` |
 
 **Предусловия.** Стенд `dev-kit`; платформа запущена и при старте переиздала значения параметров; два администратора со вторым фактором и областью `staff.admin`; параметры засеяны миграцией (15 штук, версия 1).
 
@@ -179,9 +179,9 @@
 | Уровень | L3 |
 | Тип | безопасность |
 | Приоритет | Высокий |
-| Автоматизация | JUnit; JUnit на стенде; Vitest |
+| Автоматизация | JUnit; JUnit на стенде; Vitest; Python на стенде |
 | Тег в коде | TC-810 |
-| Где в коде | `services/platform-service/src/test/java/dgm/platform/auditadmin/service/AuditViewServiceTest.java`, `services/platform-service/src/test/java/dgm/platform/auditadmin/controller/AuditControllerTest.java`, `services/platform-service/src/test/java/dgm/platform/auditadmin/repository/JdbcAuditReadRepositoryTest.java`, `services/platform-service/src/test/java/dgm/platform/PlatformServiceIT.java`, `frontend/web-app/src/screens/staff/admin/audit.test.ts`, `frontend/web-app/src/screens/staff/admin/AuditPage.test.tsx`, `frontend/web-app/src/app/AdminRoutes.test.tsx` |
+| Где в коде | `services/platform-service/src/test/java/dgm/platform/auditadmin/service/AuditViewServiceTest.java`, `services/platform-service/src/test/java/dgm/platform/auditadmin/controller/AuditControllerTest.java`, `services/platform-service/src/test/java/dgm/platform/auditadmin/repository/JdbcAuditReadRepositoryTest.java`, `services/platform-service/src/test/java/dgm/platform/PlatformServiceIT.java`, `frontend/web-app/src/screens/staff/admin/audit.test.ts`, `frontend/web-app/src/screens/staff/admin/AuditPage.test.tsx`, `frontend/web-app/src/app/AdminRoutes.test.tsx`, `tools/stand-checks/ui_smoke.py` |
 
 **Предусловия.** Стенд `dev-kit`; администратор со вторым фактором и областью `staff.audit`; в журнале три записи одного исполнителя, времена действий разные; одна из записей содержит число в значении изменения.
 

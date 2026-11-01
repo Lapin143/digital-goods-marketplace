@@ -240,6 +240,10 @@ dlq-check: ## Проверить очередь недоставленных с�
 ui-smoke: ## Дымовой сценарий интерфейса в браузере (К4, К8): модератор входит с TOTP и решает заявку и товары щелчками, гость находит опубликованный товар, покупатель покупает и получает «Выдан», отказ в оплате, истёкший резерв (набор full с make fast-up, DEBUG=1, make keycloak-users, пакет playwright из tools/stand-checks/requirements-ui.txt и Chromium)
 	$(KC_ENV) python3 tools/stand-checks/ui_smoke.py
 
+.PHONY: ui-smoke-support
+ui-smoke-support: ## Дымовой сценарий поддержки и администрирования в браузере (К11): покупатель создаёт обращение, оператор с TOTP берёт его и повторно отправляет ключ, смена e-mail с кодами из заглушек, администратор правит параметр и находит запись в журнале (набор full с make fast-up, DEBUG=1, make keycloak-users, пакет playwright из tools/stand-checks/requirements-ui.txt и Chromium)
+	$(KC_ENV) UI_SCOPE=support python3 tools/stand-checks/ui_smoke.py
+
 .PHONY: gateway-check
 gateway-check: ## Проверить шлюз: маршруты, токены Keycloak, лимиты, отказ открытым (подняты dev-auth и dev-purchase с DEBUG=1, make keycloak-users)
 	$(KC_ENV) tools/stand-checks/gateway_checks.sh

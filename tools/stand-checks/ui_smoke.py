@@ -21,6 +21,12 @@
 её продавец заводит два товара). Для покупки берётся продавец и товар с запасом ключей из orders_checks.py (secrets/purchase_fixture.json), покупатели одноразовые с подтверждённым телефоном. Тексты кнопок и сообщений берутся из словаря интерфейса (ru.json), поэтому правка словаря не ломает сценарий. Если шаг упал, в журнал
 попадают адрес страницы, её текст, сообщения консоли браузера и ответы с кодом 400 и выше, а снимок экрана ложится в каталог UI_REPORT_DIR (по умолчанию build/ui-smoke).
 
+Поддержка и администрирование (срез 3, К11; make ui-smoke-support, переменная UI_SCOPE=support): покупатель с выданным заказом нажимает «Не получил ключ», оператор поддержки
+(вход с TOTP) находит обращение по номеру заказа, берёт его в работу и повторно отправляет ключ, обращение решает доставка, покупатель видит итог без перезагрузки;
+вторая цепочка: оператор начинает смену e-mail, покупатель вводит код из SMS и код из письма (оба берутся из заглушек), карточка оператора показывает только результат проверок;
+администратор меняет параметр orders.max-unpaid, видит 412 при чужой правке раньше, находит запись в журнале аудита и возвращает значение по умолчанию. Страницы и ответы API оператора
+проверяются на отсутствие ключа, кодов и адресов покупателя. Нужен тот же стенд (набор full с fast-up, DEBUG=1, make keycloak-users) и пользователи support-1 и admin-1.
+
 Переменные: UI_PURCHASE_REPEAT (сколько раз подряд проходит покупка до выдачи, по умолчанию 1, в CI 3: серия К8), UI_AUTH_GAP (пауза в секундах перед каждым сценарием покупателя, по умолчанию 30: лимит входа шлюза 30 запросов в минуту с адреса), UI_VIDEO=1 (запись экрана каждого сценария в UI_REPORT_DIR/video/moderator.webm, guest.webm, buyer-1.webm … buyer-N.webm, refusal.webm и expired.webm; запись не должна ронять проверку, при сбое печатается замечание; в CI включена, видео лежит в артефакте запуска), UI_BASE (адрес шлюза, по умолчанию https://localhost:8443), UI_REPORT_DIR, UI_TIMEOUT_MS (ожидание элемента, по умолчанию 20000), UI_NO_SANDBOX=1
 (запуск Chromium без песочницы, если среда её не разрешает), остальные те же, что у make seller-approval-check. Пакет playwright ставится из tools/stand-checks/requirements-ui.txt,
 браузер командой python3 -m playwright install --with-deps chromium. Остальные проверки стенда обходятся стандартной библиотекой Python, этой нужен Playwright.
@@ -34,12 +40,15 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import accounts_checks as A  # noqa: E402
+import audit_checks as AU  # noqa: E402
+import email_change_checks as EC  # noqa: E402
 import gateway_checks as G  # noqa: E402
 import kc_client as K  # noqa: E402
 import orders_checks as O  # noqa: E402
 import purchase_checks as P  # noqa: E402
 import seller_approval_checks as SAC  # noqa: E402
 import sellers_checks as SC  # noqa: E402
+import support_checks as SU  # noqa: E402
 
 try:
     from playwright.sync_api import expect as pw_expect, sync_playwright
@@ -516,11 +525,404 @@ def purchase_scenarios(browser, fx):
     O.modes_are_default(stubs, 'UI')
 
 
+# --------------------------------------------------------------------------------------------------- поддержка и администрирование (К11)
+class Recorder:
+    """Ответы API, которые получил браузер: по ним проверяется, что оператору не пришло ни ключей, ни кодов, ни адресов покупателя."""
+
+    def __init__(self, page):
+        self.texts = []
+        page.on('response', self._keep)
+
+    def _keep(self, response):
+        try:
+            if '/api/' in response.url and response.request.resource_type in ('fetch', 'xhr'):
+                self.texts.append(response.text())
+        except Exception:  # noqa: BLE001 ответ без тела (переход, обрыв) пропускается
+            pass
+
+
+def leaks(texts, needles):
+    """Какие из значений needles нашлись хоть в одном из texts."""
+    return [needle for needle in needles if needle and any(needle in text for text in texts)]
+
+
+def sign_in_buyer_at(page, admin, buyer, path):
+    """Вход покупателя на защищённой странице: раздел сам отправляет на Keycloak и после входа возвращает на тот же адрес."""
+    page.goto(BASE + path, wait_until='domcontentloaded')
+    page.wait_for_url(re.compile(r'/auth/realms/dgm/'), timeout=TIMEOUT * 2)
+    admin.clear_attacks(buyer.id)
+    page.locator('input[name=username]').fill(buyer.email)
+    page.locator('input[name=password]').fill(buyer.data['password'])
+    page.locator('#kc-login').click()
+    page.wait_for_url(re.compile(r'^' + re.escape(BASE + path) + r'$'), timeout=TIMEOUT * 2)
+
+
+def report_in_browser(page, watch, admin, buyer, oid, state):
+    """Покупатель в браузере: заказ «Выдан», «Не получил ключ», «Открыть обращение», карточка обращения «Принято». Адрес карточки кладёт в state."""
+    def open_order():
+        sign_in_buyer_at(page, admin, buyer, '/account/orders/' + oid)
+        visible(page.get_by_text(T('order.status.issued'), exact=True).first, 60000)
+        visible(page.get_by_role('button', name=T('ticket.report'), exact=True))
+    if not step(page, watch, 'покупатель входит и видит заказ «%s» с кнопкой «%s»' % (T('order.status.issued'), T('ticket.report')), open_order):
+        return False
+
+    def report():
+        page.get_by_role('button', name=T('ticket.report'), exact=True).click()
+        visible(page.get_by_text(T('ticket.report.created'), exact=True))
+        page.get_by_role('link', name=T('ticket.report.open'), exact=True).click()
+        visible(page.get_by_role('heading', name=T('ticket.title'), level=1, exact=True))
+        visible(page.get_by_text(T('ticket.state.created'), exact=True))
+        visible(page.get_by_text(T('ticket.status.created'), exact=True).first)
+        state['ticket_url'] = page.url
+    return step(page, watch, '«%s»: обращение принято, карточка обращения со статусом «%s»' % (T('ticket.report'), T('ticket.status.created')), report)
+
+
+def operator_takes(page, watch, number):
+    """Оператор в браузере: очередь, поиск по короткому номеру заказа, «Взять в работу», карточка обращения у оператора."""
+    def take():
+        page.get_by_role('link', name=T('supportQueue.home'), exact=True).click()
+        visible(page.get_by_role('heading', name=T('supportQueue.title'), level=1, exact=True))
+        page.get_by_label(T('supportQueue.search'), exact=True).fill(number)
+        page.get_by_role('button', name=T('supportQueue.search.submit'), exact=True).click()
+        row = page.get_by_role('row').filter(has=page.get_by_role('link', name=number, exact=True))
+        visible(row)
+        row.get_by_role('button', name=T('supportQueue.take'), exact=True).click()
+        visible(page.get_by_role('heading', name=T('supportCard.title', number=number), level=1, exact=True))
+        visible(page.get_by_text(T('supportCard.operator.me'), exact=True).first)
+        visible(page.get_by_text(T('supportCard.status.in_progress'), exact=True).first)
+    return step(page, watch, 'очередь оператора: поиск по номеру заказа %s, «%s», карточка обращения «%s»' % (number, T('supportQueue.take'), T('supportCard.status.in_progress')), take)
+
+
+def operator_act(page, action, done, field=None, value=None):
+    """Действие по обращению: кнопка, панель подтверждения (с полем, если оно есть), «Подтвердить», сообщение об успехе."""
+    page.get_by_role('button', name=action, exact=True).click()
+    group = page.get_by_role('group', name=action, exact=True)
+    visible(group)
+    if field is not None:
+        group.get_by_label(field, exact=True).fill(value)
+    group.get_by_role('button', name=T('supportCard.confirm'), exact=True).click()
+    visible(page.get_by_text(done, exact=True))
+
+
+def staff_context(browser):
+    """Контекст и страница сотрудника, наблюдатель за браузером и запись ответов API. Перед сценарием пауза: лимит входа на шлюзе (F4-22)."""
+    time.sleep(AUTH_GAP)
+    context = new_context(browser)
+    context.set_default_timeout(TIMEOUT)
+    page = context.new_page()
+    return context, page, Watch(page), Recorder(page)
+
+
+def support_resend_scenario(browser, ctx):
+    """Обращение «Не получил ключ» и повторная отправка глазами покупателя и оператора (US-7.1 – US-7.3, FT-7.2; TC-015)."""
+    fx, stubs, kc, admin = ctx.fx, ctx.stubs, ctx.kc, ctx.admin
+    print('== Поддержка в браузере: покупатель создаёт обращение, оператор берёт его и повторно отправляет ключ, обращение решено доставкой (К11; US-7.1 – US-7.3)')
+    stubs.reset()
+    buyer, order, letters = SU.silent_order(fx, 'ui-sp')
+    if not buyer:
+        return
+    oid, number = order['orderId'], str(order['orderNumber'])
+    keys = P.KEY_LINE.findall(P.body_of(letters[0]))
+    fx['emails'].append(buyer.email)
+    state = {}
+    time.sleep(AUTH_GAP)
+    buyer_context = new_context(browser)
+    buyer_context.set_default_timeout(TIMEOUT)
+    buyer_page = buyer_context.new_page()
+    buyer_watch = Watch(buyer_page)
+    operator = None
+    try:
+        if not report_in_browser(buyer_page, buyer_watch, admin, buyer, oid, state):
+            return
+        O.expect('по API создано одно обращение покупателя: источник buyer, причина key_not_received, статус created',
+                 P.tickets_of(oid) == [('buyer', 'key_not_received', 'created', '')], str(P.tickets_of(oid)))
+
+        operator = staff_context(browser)
+        _, page, watch, recorder = operator
+        if not step(page, watch, 'вход оператора через Keycloak с паролем и кодом TOTP открывает рабочее место с очередью обращений',
+                    lambda: (sign_in_staff(page, kc, admin, ctx.people[SU.OPERATOR]), visible(page.get_by_role('link', name=T('supportQueue.home'), exact=True)))):
+            return
+        if not operator_takes(page, watch, number):
+            return
+        card_text = []
+
+        def resend():
+            operator_act(page, T('supportCard.resend'), T('supportCard.resend.done'))
+            card_text.append(page.inner_text('body'))
+        if not step(page, watch, '«%s»: подтверждение и сообщение «%s»' % (T('supportCard.resend'), T('supportCard.resend.done')), resend):
+            return
+
+        def resolved():
+            visible(page.get_by_text(T('supportCard.resolved'), exact=True), 150000)
+            visible(page.get_by_text(T('supportCard.status.resolved'), exact=True).first)
+            visible(page.get_by_text(T('supportCard.delivery.delivered'), exact=True).first)
+            card_text.append(page.inner_text('body'))
+        step(page, watch, 'карточка сама показывает результат: статус «%s», выдача «%s», действий не осталось' % (T('supportCard.status.resolved'), T('supportCard.delivery.delivered')), resolved)
+        O.expect('по API обращение решено доставкой: resolved, решила система',
+                 A.eventually(lambda: [t[2:] for t in (P.tickets_of(oid) or [])] == [('resolved', 'system')], wait=SU.RESOLVE_SECONDS, step=2.0), str(P.tickets_of(oid)))
+        again = P.wait_letters(stubs, count=2, wait=60, to=buyer.email, sender='delivery')
+        O.expect('письмо с ключом пришло второй раз, ключи те же, новый ключ не выпускался',
+                 len(again) == 2 and P.KEY_LINE.findall(P.body_of(again[1])) == keys and bool(keys), str([m.get('subject') for m in again]))
+
+        found = leaks(card_text + recorder.texts, keys + [buyer.email])
+        O.expect('на страницах оператора и в ответах API нет ни ключа, ни адреса покупателя (INV-23); ответов браузера перехвачено: %d' % len(recorder.texts),
+                 not found and len(recorder.texts) > 0, str(found))
+
+        def buyer_sees():
+            visible(buyer_page.get_by_text(T('ticket.status.resolved'), exact=True).first, 120000)
+            visible(buyer_page.get_by_text(T('ticket.resolution.system.resend'), exact=True).first)
+        step(buyer_page, buyer_watch, 'покупатель без перезагрузки видит «%s» и итог «%s»' % (T('ticket.status.resolved'), T('ticket.resolution.system.resend')), buyer_sees)
+    finally:
+        if operator:
+            close_context(operator[0], operator[1], 'support-resend-operator')
+        close_context(buyer_context, buyer_page, 'support-resend-buyer')
+
+
+def support_email_change_scenario(browser, ctx):
+    """Смена e-mail с вводом обоих кодов из заглушек: оператор начинает, покупатель вводит коды сам, ключ уходит на новый адрес (US-1.7, US-7.4; TC-016)."""
+    fx, stubs, kc, admin = ctx.fx, ctx.stubs, ctx.kc, ctx.admin
+    print('== Поддержка в браузере: смена e-mail, покупатель вводит код из SMS и код из письма, оператор видит только результаты проверок (К11; US-7.4)')
+    stubs.reset()
+    who = EC.prepared_buyer(ctx, 'ui-ec')
+    if not who:
+        return
+    buyer, oid, number, old_email = who['buyer'], who['oid'], str(who['number']), who['email']
+    new_email = 'ui-new-%d@example.test' % ctx.stamp
+    ctx.addresses.append(new_email)
+    fx['emails'].append(new_email)
+    state = {}
+    secrets = [old_email, new_email] + who['keys']
+    time.sleep(AUTH_GAP)
+    buyer_context = new_context(browser)
+    buyer_context.set_default_timeout(TIMEOUT)
+    buyer_page = buyer_context.new_page()
+    buyer_watch = Watch(buyer_page)
+    operator = None
+    try:
+        if not report_in_browser(buyer_page, buyer_watch, admin, buyer, oid, state):
+            return
+        operator = staff_context(browser)
+        _, page, watch, recorder = operator
+        if not step(page, watch, 'вход оператора через Keycloak с паролем и кодом TOTP',
+                    lambda: (sign_in_staff(page, kc, admin, ctx.people[SU.OPERATOR]), visible(page.get_by_role('link', name=T('supportQueue.home'), exact=True)))):
+            return
+        if not operator_takes(page, watch, number):
+            return
+        before = EC.sms_count(ctx, who['phone'])
+        card_text = []
+
+        def start():
+            operator_act(page, T('supportCard.emailChange'), T('supportCard.emailChange.done'), T('supportCard.emailChange.field'), new_email)
+            visible(page.get_by_text(T('supportCard.change.awaiting_phone_code'), exact=True).first)
+            card_text.append(page.inner_text('body'))
+            if new_email in card_text[-1] or '***@' not in card_text[-1]:
+                raise AssertionError('в карточке оператора должна быть только маска нового адреса')
+        if not step(page, watch, '«%s»: адрес вводится в панели, сообщение «%s», этап «%s», в карточке только маска адреса' %
+                    (T('supportCard.emailChange'), T('supportCard.emailChange.done'), T('supportCard.change.awaiting_phone_code')), start):
+            return
+        phone_code = EC.new_codes(ctx, who['phone'], before)
+        if not O.expect('SMS с кодом пришло на подтверждённый номер покупателя (шесть цифр)', bool(phone_code) and EC.SIX_DIGITS.fullmatch(phone_code) is not None, str(phone_code)):
+            return
+        secrets.append(phone_code)
+
+        def phone_step():
+            field = buyer_page.get_by_label(T('emailChange.code.phone'), exact=True)
+            try:
+                visible(field, 30000)
+            except Exception:  # форма появляется после очередного опроса статуса; перечитываем страницу
+                buyer_page.goto(state['ticket_url'], wait_until='domcontentloaded')
+                visible(field, 60000)
+            field.fill(phone_code)
+            buyer_page.get_by_role('button', name=T('emailChange.verify'), exact=True).click()
+            visible(buyer_page.get_by_label(T('emailChange.code.email'), exact=True), 60000)
+        if not step(buyer_page, buyer_watch, 'покупатель вводит код из SMS и переходит ко второму шагу: «%s»' % T('emailChange.code.email'), phone_step):
+            return
+        try:
+            letters = stubs.wait_email(to=new_email, subject=EC.CODE_SUBJECT)
+        except Exception as failure:  # noqa: BLE001 письма нет: дальше код брать неоткуда
+            G.bad('письмо с кодом на новый адрес не пришло', str(failure)[-200:])
+            return
+        found = EC.SIX_DIGITS.search(P.body_of(letters[0]))
+        email_code = found.group(1) if found else None
+        if not O.expect('письмо с кодом на новый адрес одно, в нём шесть цифр', len(letters) == 1 and bool(email_code), str([m.get('subject') for m in letters])):
+            return
+        secrets.append(email_code)
+
+        def email_step():
+            buyer_page.get_by_label(T('emailChange.code.email'), exact=True).fill(email_code)
+            buyer_page.get_by_role('button', name=T('emailChange.verify'), exact=True).click()
+            visible(buyer_page.get_by_text(re.compile(r'^' + re.escape(T('emailChange.completed', address='\0').split('\0')[0]))).first, 120000)
+        step(buyer_page, buyer_watch, 'покупатель вводит код из письма: смена завершена, адрес в сообщении замаскирован', email_step)
+        O.expect('покупатель на экране не видит нового адреса целиком (INV-44)', new_email not in buyer_page.inner_text('body'), '')
+
+        def operator_sees():
+            pw_expect(page.get_by_text(T('supportCard.check.passed'), exact=True)).to_have_count(2, timeout=120000)
+            visible(page.get_by_text(T('supportCard.change.completed'), exact=True).first)
+            visible(page.get_by_text(T('supportCard.resolved'), exact=True), 150000)
+            card_text.append(page.inner_text('body'))
+        step(page, watch, 'карточка оператора сама показывает обе проверки «%s», этап «%s» и итог «%s»' %
+             (T('supportCard.check.passed'), T('supportCard.change.completed'), T('supportCard.resolved')), operator_sees)
+
+        moved = A.eventually(lambda: (A.keycloak_user(admin, new_email) or {}).get('id') == who['data']['id'], wait=30, step=2.0)
+        O.expect('в Keycloak у того же пользователя новый e-mail', bool(moved), '')
+        keys = P.wait_letters(stubs, wait=90, to=new_email, sender='delivery')
+        O.expect('ключ ушёл на новый адрес одним письмом, ключ тот же', len(keys) == 1 and P.KEY_LINE.findall(P.body_of(keys[0])) == who['keys'], str([m.get('subject') for m in keys]))
+        found = leaks(card_text + recorder.texts, secrets)
+        O.expect('на страницах оператора и в ответах API нет кодов, адресов покупателя и ключа (INV-23, US-7.4); ответов браузера перехвачено: %d' % len(recorder.texts),
+                 not found and len(recorder.texts) > 0, str(found))
+    finally:
+        if operator:
+            close_context(operator[0], operator[1], 'support-email-operator')
+        close_context(buyer_context, buyer_page, 'support-email-buyer')
+        P.email_is_default(stubs, 'UI поддержка')
+
+
+def admin_scenario(browser, ctx):
+    """Администратор в браузере: правка параметра, чужая правка раньше (412), запись в журнале, возврат к умолчанию (US-8.3, US-8.6; TC-806, TC-810)."""
+    kc, admin = ctx.kc, ctx.admin
+    key = 'orders.max-unpaid'
+    print('== Администратор в браузере: правка параметра %s, чужая правка раньше, журнал, возврат к умолчанию (К11; US-8.3, US-8.6)' % key)
+    before = EC.parameter(ctx, key)
+    if not O.expect('параметр %s читается через API, значение по умолчанию задано' % key, before is not None, ''):
+        return
+    first, other = before['value'] + 1, before['value'] + 3
+    if first > before['maxValue'] or other > before['maxValue']:
+        G.bad('для сценария нужно место в границах параметра', str(before))
+        return
+    time.sleep(AUTH_GAP)
+    context = new_context(browser)
+    context.set_default_timeout(TIMEOUT)
+    page = context.new_page()
+    watch = Watch(page)
+    unit = T('admin.unitName.count')
+    try:
+        def open_parameters():
+            sign_in_staff(page, kc, admin, ctx.people['admin-1'])
+            visible(page.get_by_role('link', name=T('admin.home.audit'), exact=True))
+            page.get_by_role('link', name=T('admin.home.parameters'), exact=True).click()
+            visible(page.get_by_role('heading', name=T('admin.params.title'), level=1, exact=True))
+            visible(page.get_by_role('button', name=T('admin.params.edit.aria', name=key), exact=True))
+        if not step(page, watch, 'вход администратора с TOTP: в рабочем месте параметры и журнал, таблица параметров открыта', open_parameters):
+            return
+
+        def edit():
+            page.get_by_role('button', name=T('admin.params.edit.aria', name=key), exact=True).click()
+            field = page.get_by_label(T('admin.params.edit.label', unit=unit), exact=True)
+            field.fill(str(first))
+            page.get_by_role('button', name=T('admin.params.save'), exact=True).click()
+            visible(page.get_by_text(T('admin.params.saved', name=key, value=str(first), version=before['version'] + 1), exact=True))
+        step(page, watch, 'правка %s: %d → %d, сообщение с версией %d' % (key, before['value'], first, before['version'] + 1), edit)
+        current = EC.parameter(ctx, key) or {}
+        O.expect('по API значение и версия из браузера: %d, версия %d' % (first, before['version'] + 1), current.get('value') == first and current.get('version') == before['version'] + 1, str(current))
+
+        def conflict():
+            page.get_by_role('button', name=T('admin.params.edit.aria', name=key), exact=True).click()
+            page.get_by_label(T('admin.params.edit.label', unit=unit), exact=True).fill(str(first + 1))
+            answer = EC.put_parameter(ctx, key, other)   # другой администратор успел раньше
+            O.expect('чужая правка прошла по API: 200', answer is not None and answer.status == 200, O.describe(answer) if answer else '')
+            page.get_by_role('button', name=T('admin.params.save'), exact=True).click()
+            visible(page.get_by_text(T('admin.params.conflict', name=key), exact=True))
+            visible(page.get_by_role('button', name=T('admin.params.edit.aria', name=key), exact=True))
+        step(page, watch, 'чужая правка успела раньше: сообщение «%s», правка закрыта' % T('admin.params.conflict', name=key), conflict)
+        current = EC.parameter(ctx, key) or {}
+        O.expect('чужое значение осталось, правка из браузера ничего не перезаписала', current.get('value') == other, str(current))
+
+        def journal():
+            page.get_by_role('link', name=T('moderation.back'), exact=True).click()
+            page.get_by_role('link', name=T('admin.home.audit'), exact=True).click()
+            visible(page.get_by_role('heading', name=T('audit.title'), level=1, exact=True))
+            page.get_by_label(T('audit.filter.objectId'), exact=True).fill(key)
+            page.get_by_label(T('audit.filter.action'), exact=True).fill('parameter.changed')
+            line = T('audit.change.line', field='value', before=str(before['value']), after=str(first))
+            for attempt in range(6):
+                page.get_by_role('button', name=T('audit.filter.apply'), exact=True).click()
+                try:
+                    visible(page.get_by_text(line, exact=True).first, 8000)
+                    return
+                except Exception:
+                    if attempt == 5:
+                        raise
+        step(page, watch, 'журнал: по объекту и действию видна запись «%s»' % T('audit.change.line', field='value', before=str(before['value']), after=str(first)), journal)
+        records = EC.journal_by(ctx, objectType='parameter', objectId=key)
+        pairs = [((AU.change_of(r, 'value') or {}).get('before'), (AU.change_of(r, 'value') or {}).get('after')) for r in records]
+        O.expect('в журнале по API обе правки: %s → %s и %s → %s' % (before['value'], first, first, other), (str(before['value']), str(first)) in pairs and (str(first), str(other)) in pairs, str(pairs[:6]))
+        viewed = EC.journal_by(ctx, action='audit.viewed')
+        O.expect('открытие журнала в браузере записано в журнал: audit.viewed с ролью admin', any(r.get('actorRole') == 'admin' for r in viewed), str(len(viewed)))
+
+        def reset():
+            page.get_by_role('link', name=T('moderation.back'), exact=True).click()
+            page.get_by_role('link', name=T('admin.home.parameters'), exact=True).click()
+            visible(page.get_by_role('heading', name=T('admin.params.title'), level=1, exact=True))
+            expected = (EC.parameter(ctx, key) or {}).get('version', 0) + 1
+            page.get_by_role('button', name=T('admin.params.reset.button', name=key), exact=True).click()
+            group = page.get_by_role('group', name=T('admin.params.reset.aria', name=key), exact=True)
+            visible(group)
+            group.get_by_role('button', name=T('admin.params.reset.confirmButton'), exact=True).click()
+            visible(page.get_by_text(T('admin.params.saved', name=key, value=str(before['defaultValue']), version=expected), exact=True))
+        step(page, watch, '«%s»: значение по умолчанию %d сохранено' % (T('admin.params.reset'), before['defaultValue']), reset)
+    finally:
+        close_context(context, page, 'admin')
+        current = EC.parameter(ctx, key)
+        if current and current['value'] != current['defaultValue']:
+            EC.put_parameter(ctx, key, current['defaultValue'])
+        current = EC.parameter(ctx, key) or {}
+        O.expect('параметр %s равен значению по умолчанию (иначе проверка красная)' % key, bool(current) and current.get('value') == current.get('defaultValue'), str(current))
+
+
+def support_scenarios(browser, ctx):
+    """Сценарии поддержки и администрирования идут по одному: входы с паузой UI_AUTH_GAP, лимит запросов кода с IP поднят на время сценариев."""
+    if not O.guarded('raise_ip_limit', EC.raise_ip_limit, ctx):
+        G.bad('Лимит с одного IP не поднят, сценарии поддержки в браузере не запускались')
+        return
+    try:
+        for scenario in (support_resend_scenario, support_email_change_scenario, admin_scenario):
+            O.guarded(scenario.__name__, scenario, browser, ctx)
+    finally:
+        O.guarded('restore_ip_limit', EC.restore_ip_limit, ctx)
+
+
+def support_main():
+    kc, admin = K.from_env(dict(os.environ))
+    people = G.users()
+    for name in ('admin-1', SU.OPERATOR):
+        if name not in people:
+            print('Нет тестового пользователя %s (make keycloak-users)' % name, file=sys.stderr)
+            return 2
+    stamp = int(time.time())
+    fx = O.context(kc, admin, people, stamp, scarce_needed=False)
+    if fx:
+        fx['people'] = people
+        fx['orders'] = []
+        ctx = EC.Context(kc, admin, people, stamp, fx)
+        ctx.operator.token()
+        ctx.administrator.token()
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(args=['--no-sandbox'] if os.environ.get('UI_NO_SANDBOX') else [])
+            try:
+                support_scenarios(browser, ctx)
+            finally:
+                browser.close()
+    else:
+        G.bad('Продавец и товары для заказов не заведены, сценарии поддержки в браузере не запускались')
+    return finish(bool(fx))
+
+
+def finish(ready):
+    print('\nПроверок успешно: %d, с ошибками: %d' % (G.PASSED, len(G.FAILED)))
+    for name in G.FAILED:
+        print('  - %s' % name)
+    if os.environ.get('GITHUB_ACTIONS'):
+        print('::notice title=ui_smoke::Проверок успешно: %d, с ошибками: %d%s' % (G.PASSED, len(G.FAILED), ('; не прошли: ' + '|'.join(G.FAILED)) if G.FAILED else ''))
+    return 1 if G.FAILED or not ready else 0
+
+
 # --------------------------------------------------------------------------------------------------- запуск
 def main():
     if sync_playwright is None:
         print('Нет пакета playwright: python3 -m pip install -r tools/stand-checks/requirements-ui.txt && python3 -m playwright install --with-deps chromium', file=sys.stderr)
         return 2
+    if os.environ.get('UI_SCOPE') == 'support':
+        return support_main()
     kc, admin = K.from_env(dict(os.environ))
     people = G.users()
     if 'moderator-1' not in people:
@@ -544,12 +946,7 @@ def main():
                 browser.close()
     if not fx:
         G.bad('Продавец и товары для покупки не заведены, сценарии покупателя не запускались')
-    print('\nПроверок успешно: %d, с ошибками: %d' % (G.PASSED, len(G.FAILED)))
-    for name in G.FAILED:
-        print('  - %s' % name)
-    if os.environ.get('GITHUB_ACTIONS'):
-        print('::notice title=ui_smoke::Проверок успешно: %d, с ошибками: %d%s' % (G.PASSED, len(G.FAILED), ('; не прошли: ' + '|'.join(G.FAILED)) if G.FAILED else ''))
-    return 1 if G.FAILED or not data or not fx else 0
+    return finish(bool(data and fx))
 
 
 if __name__ == '__main__':
