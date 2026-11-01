@@ -59,6 +59,8 @@ export const STAFF_ROLES = ['moderator', 'support-operator', 'admin'];
 export const MODERATOR_ROLES = ['moderator'];
 /** Очередь обращений, повторная отправка ключа и смена e-mail доступны только оператору поддержки (OP-71 – OP-74). */
 export const OPERATOR_ROLES = ['support-operator'];
+/** Параметры платформы и журнал аудита доступны только администратору (OP-83, OP-86). */
+export const ADMIN_ROLES = ['admin'];
 
 export function hasAnyRole(claims: Claims, roles: readonly string[]): boolean {
   return roles.some((role) => claims.roles.includes(role));

@@ -1,5 +1,5 @@
 import { Outlet, Route, Routes } from 'react-router-dom';
-import { MODERATOR_ROLES, OPERATOR_ROLES, SELLER_ROLES, STAFF_ROLES } from '../auth/claims';
+import { ADMIN_ROLES, MODERATOR_ROLES, OPERATOR_ROLES, SELLER_ROLES, STAFF_ROLES } from '../auth/claims';
 import { RequireAccess } from './Guards';
 import { Layout } from './Layout';
 import { CallbackPage, HomePage, NotFoundPage, SellerHome, StaffHome, WorkEntry } from './pages';
@@ -14,6 +14,8 @@ import { SellerProductsPage } from '../screens/seller/SellerProductsPage';
 import { ApplicationCardPage } from '../screens/staff/moderation/ApplicationCardPage';
 import { ApplicationQueuePage } from '../screens/staff/moderation/ApplicationQueuePage';
 import { ProductCardPage } from '../screens/staff/moderation/ProductCardPage';
+import { AuditPage } from '../screens/staff/admin/AuditPage';
+import { ParametersPage } from '../screens/staff/admin/ParametersPage';
 import { ProductQueuePage } from '../screens/staff/moderation/ProductQueuePage';
 import { SupportCardPage } from '../screens/staff/support/SupportCardPage';
 import { SupportQueuePage } from '../screens/staff/support/SupportQueuePage';
@@ -158,6 +160,16 @@ export function App() {
           >
             <Route path="support" element={<SupportQueuePage />} />
             <Route path="support/:ticketId" element={<SupportCardPage />} />
+          </Route>
+          <Route
+            element={
+              <RequireAccess kind="staff" roles={ADMIN_ROLES} secondFactor>
+                <Outlet />
+              </RequireAccess>
+            }
+          >
+            <Route path="admin/parameters" element={<ParametersPage />} />
+            <Route path="admin/audit" element={<AuditPage />} />
           </Route>
           <Route path="*" element={<NotFoundPage />} />
         </Route>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
-import { MODERATOR_ROLES, OPERATOR_ROLES, SELLER_ROLES, STAFF_ROLES, hasAnyRole } from '../auth/claims';
+import { ADMIN_ROLES, MODERATOR_ROLES, OPERATOR_ROLES, SELLER_ROLES, STAFF_ROLES, hasAnyRole } from '../auth/claims';
 import { isClientKind } from '../auth/clients';
 import { t } from '../i18n';
 import { Button } from '../ui/Button';
@@ -112,6 +112,7 @@ export function StaffHome() {
   const session = auth.session('staff');
   const moderator = session ? hasAnyRole(session.claims, MODERATOR_ROLES) : false;
   const operator = session ? hasAnyRole(session.claims, OPERATOR_ROLES) : false;
+  const admin = session ? hasAnyRole(session.claims, ADMIN_ROLES) : false;
   return (
     <section>
       <h1>{t('work.staff.title')}</h1>
@@ -130,6 +131,16 @@ export function StaffHome() {
         <ul>
           <li>
             <Link to="/staff/support">{t('supportQueue.home')}</Link>
+          </li>
+        </ul>
+      ) : null}
+      {admin ? (
+        <ul>
+          <li>
+            <Link to="/staff/admin/parameters">{t('admin.home.parameters')}</Link>
+          </li>
+          <li>
+            <Link to="/staff/admin/audit">{t('admin.home.audit')}</Link>
           </li>
         </ul>
       ) : null}
