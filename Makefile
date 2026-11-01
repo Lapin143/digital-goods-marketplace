@@ -284,6 +284,14 @@ audit-check: ## Проверить журнал аудита сквозь сте
 parameters-check: ## Проверить параметры платформы сквозь стенд (К9, US-8.3, US-8.4, TC-816): лимит неоплаченных заказов, комиссия 3 % у нового заказа и 2 % у прежнего, перезапуск order-service посреди сценария, срок ссылки на документ; в конце все параметры возвращены к умолчанию (набор full с make fast-up DEBUG=1, make keycloak-users)
 	$(KC_ENV) python3 tools/stand-checks/parameters_checks.py
 
+.PHONY: support-check
+support-check: ## Проверить обращение «Не получил ключ» и повторную отправку сквозь стенд (К10, TC-015, TC-716, TC-718): покупатель создаёт обращение, оператор находит, берёт, возвращает и берёт снова, двойной щелчок «Повторно отправить» даёт одну выдачу, письмо с тем же ключом, доставка решает обращение, вручную его не закрыть, журнал аудита и сквозной идентификатор, статусы писем платформы от провайдера (набор full с make fast-up DEBUG=1, make keycloak-users, около пяти минут)
+	$(KC_ENV) python3 tools/stand-checks/support_checks.py
+
+.PHONY: email-change-check
+email-change-check: ## Проверить смену e-mail через поддержку и сессию по SMS сквозь стенд (К10, TC-016, TC-720, ST-05): вход по коду из SMS, оператор ведёт смену, ключ уходит на новый адрес, права SMS-сессии, неверные коды и пятая неудача, четвёртый запрос кода за 10 минут отвергнут, канарейка адресов и кодов; на время проверки лимит кодов с IP поднят параметром и возвращён (набор full с make fast-up DEBUG=1, make keycloak-users, около пяти минут)
+	$(KC_ENV) python3 tools/stand-checks/email_change_checks.py
+
 .PHONY: parameters-sabotage
 parameters-sabotage: ## Проверка проверки параметров: слушатель order-service выключен (DGM_CONFIG_ENABLED=false), сценарий лимита обязан покраснеть, с возвращённым слушателем зеленеет (после parameters-check; пересоздаёт order-service дважды)
 	$(KC_ENV) tools/stand-checks/parameters_sabotage.sh

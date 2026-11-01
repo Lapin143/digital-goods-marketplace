@@ -1,0 +1,261 @@
+{
+ "id": "SUP-02",
+ "title": "Операции покупателя и оператора по обращению: права, неизвестные обращения, ошибки тела; коды подтверждения оператору недоступны (ST-02, INV-23)",
+ "steps": [
+  {
+   "name": "Создать обращение по несуществующему заказу: 404 not-found (чужой заказ даёт тот же ответ)",
+   "op": "createSupportTicket",
+   "as": "buyer",
+   "body": {
+    "orderId": "00000000-0000-4000-8000-000000000000",
+    "reason": "key_not_received"
+   },
+   "expect": 404,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "not-found"
+    },
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "Создать обращение с лишним полем и неизвестной причиной: 422 validation-failed, ошибки списком",
+   "op": "createSupportTicket",
+   "as": "buyer",
+   "body": {
+    "orderId": "00000000-0000-4000-8000-000000000000",
+    "reason": "other",
+    "extra": 1
+   },
+   "expect": 422,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "validation-failed"
+    },
+    {
+     "path": "errors",
+     "notEmpty": true
+    },
+    {
+     "header": "Content-Type",
+     "contains": "application/problem+json"
+    }
+   ]
+  },
+  {
+   "name": "Создать обращение оператором: 403 forbidden (операция покупателя)",
+   "op": "createSupportTicket",
+   "as": "support-operator",
+   "body": {
+    "orderId": "00000000-0000-4000-8000-000000000000",
+    "reason": "key_not_received"
+   },
+   "expect": 403
+  },
+  {
+   "name": "Создать обращение без токена: 401 unauthenticated",
+   "op": "createSupportTicket",
+   "as": "guest",
+   "body": {
+    "orderId": "00000000-0000-4000-8000-000000000000",
+    "reason": "key_not_received"
+   },
+   "expect": 401,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "unauthenticated"
+    }
+   ]
+  },
+  {
+   "name": "Список обращений покупателя: 200, страница по схеме, ответ не кэшируется",
+   "op": "listSupportTickets",
+   "as": "buyer",
+   "query": {
+    "limit": "5"
+   },
+   "expect": 200,
+   "assert": [
+    {
+     "path": "items",
+     "exists": true
+    },
+    {
+     "path": "page.limit",
+     "equals": 5
+    },
+    {
+     "header": "Cache-Control",
+     "contains": "no-store"
+    }
+   ]
+  },
+  {
+   "name": "Список обращений оператором: 403 forbidden (у оператора своя очередь)",
+   "op": "listSupportTickets",
+   "as": "support-operator",
+   "expect": 403
+  },
+  {
+   "name": "Карточка неизвестного обращения покупателем: 404 not-found",
+   "op": "getSupportTicket",
+   "as": "buyer",
+   "path": {
+    "ticketId": "00000000-0000-4000-8000-000000000000"
+   },
+   "expect": 404,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "not-found"
+    }
+   ]
+  },
+  {
+   "name": "Повторная отправка по неизвестному обращению: 404 not-found",
+   "op": "resendKeyForTicket",
+   "as": "support-operator",
+   "path": {
+    "ticketId": "00000000-0000-4000-8000-000000000000"
+   },
+   "expect": 404,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "not-found"
+    }
+   ]
+  },
+  {
+   "name": "Повторная отправка покупателем: 403 forbidden (операция оператора)",
+   "op": "resendKeyForTicket",
+   "as": "buyer",
+   "path": {
+    "ticketId": "00000000-0000-4000-8000-000000000000"
+   },
+   "expect": 403
+  },
+  {
+   "name": "Начать смену e-mail по неизвестному обращению: 404 not-found",
+   "op": "startEmailChange",
+   "as": "support-operator",
+   "path": {
+    "ticketId": "00000000-0000-4000-8000-000000000000"
+   },
+   "body": {
+    "newEmail": "newman-change@example.test"
+   },
+   "expect": 404,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "not-found"
+    }
+   ]
+  },
+  {
+   "name": "Начать смену e-mail покупателем: 403 forbidden (адрес называет оператор)",
+   "op": "startEmailChange",
+   "as": "buyer",
+   "path": {
+    "ticketId": "00000000-0000-4000-8000-000000000000"
+   },
+   "body": {
+    "newEmail": "newman-change@example.test"
+   },
+   "expect": 403
+  },
+  {
+   "name": "Состояние смены e-mail по неизвестному обращению: 404 not-found",
+   "op": "getEmailChangeState",
+   "as": "support-operator",
+   "path": {
+    "ticketId": "00000000-0000-4000-8000-000000000000"
+   },
+   "expect": 404,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "not-found"
+    }
+   ]
+  },
+  {
+   "name": "Состояние смены e-mail покупателю: 403 forbidden (состояние проверок покупатель видит в карточке обращения)",
+   "op": "getEmailChangeState",
+   "as": "buyer",
+   "path": {
+    "ticketId": "00000000-0000-4000-8000-000000000000"
+   },
+   "expect": 403
+  },
+  {
+   "name": "Запросить код смены e-mail по неизвестному обращению: 404 not-found (чужое обращение даёт тот же ответ)",
+   "op": "requestEmailChangeCode",
+   "as": "buyer",
+   "path": {
+    "ticketId": "00000000-0000-4000-8000-000000000000"
+   },
+   "body": {
+    "step": "phone"
+   },
+   "expect": 404,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "not-found"
+    }
+   ]
+  },
+  {
+   "name": "Запросить код смены e-mail оператором: 403 forbidden (коды получает только покупатель)",
+   "op": "requestEmailChangeCode",
+   "as": "support-operator",
+   "path": {
+    "ticketId": "00000000-0000-4000-8000-000000000000"
+   },
+   "body": {
+    "step": "phone"
+   },
+   "expect": 403
+  },
+  {
+   "name": "Ввести код смены e-mail по неизвестному обращению: 404 not-found",
+   "op": "verifyEmailChangeCode",
+   "as": "buyer",
+   "path": {
+    "ticketId": "00000000-0000-4000-8000-000000000000"
+   },
+   "body": {
+    "step": "phone",
+    "code": "123456"
+   },
+   "expect": 404,
+   "assert": [
+    {
+     "path": "code",
+     "equals": "not-found"
+    }
+   ]
+  },
+  {
+   "name": "Ввести код смены e-mail оператором: 403 forbidden (оператор кодов не вводит и не видит, INV-23)",
+   "op": "verifyEmailChangeCode",
+   "as": "support-operator",
+   "path": {
+    "ticketId": "00000000-0000-4000-8000-000000000000"
+   },
+   "body": {
+    "step": "phone",
+    "code": "123456"
+   },
+   "expect": 403
+  }
+ ]
+}
