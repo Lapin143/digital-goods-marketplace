@@ -6,6 +6,8 @@
     make -s token             только токен доступа на выводе (для curl); другой пользователь: make -s token WHO=seller-1
     make otp WHO=seller-1     текущий код второго фактора (TOTP) тестового пользователя для входа в браузере: у продавца, модератора,
                               оператора поддержки и администратора с номером 1 секрет в secrets/test_users.json (у пользователей с номером 2 его нет)
+    make demo-r1              проверка исходного состояния стенда перед показом R1 (шаг 24 Ф4): стенд ответил, витрина не пуста, вход шести тестовых
+                              пользователей, заглушки и параметры платформы в исходном режиме; печатает порядок показа (docs/09-operations/demo-r1.md)
     make otp KEY="ABCD EFGH …"  то же для продавца, которого завели через заявку: ключ тот, что Keycloak показывает под QR-кодом («Не удаётся отсканировать?»)
 
 Нужен поднятый набор с шлюзом и сервисами (make up SET=full DEBUG=1) и тестовые пользователи (make keycloak-users). Токен настоящий:
@@ -22,6 +24,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import gateway_checks as G  # noqa: E402
 import kc_client as K  # noqa: E402
+import stubs_admin as SB  # noqa: E402
 
 CA = G.CA
 LINES = []
@@ -88,6 +91,65 @@ def demo(name):
     return 1 if failed else 0
 
 
+# --------------------------------------------------------------------------------------------------- демо R1
+R1_USERS = ('buyer-1', 'buyer-2', 'seller-1', 'moderator-1', 'support-1', 'admin-1')
+R1_PLAN = [
+    ('1', 'Продавец и модератор (срез 1)', '5 минут', 'demo-slice1.md, раздел 3: заявка продавца, решение модератора, товар до витрины'),
+    ('2', 'Покупка до ключа (срез 2)', '6 минут', 'demo-slice2.md, разделы 3.1 – 3.4: каталог, телефон, заказ, оплата на странице шлюза, письмо с ключом'),
+    ('3', 'Поздняя оплата и сбой доставки (срез 2)', '4 минуты', 'demo-slice2.md, разделы 3.5 – 3.7: отказ в оплате, истёкший резерв, гонка за последний ключ'),
+    ('4', 'Поддержка: «Не получил ключ» (срез 3)', '6 минут', 'demo-slice3.md, разделы 3.1 – 3.3: обращение, очередь оператора, повторная отправка'),
+    ('5', 'Смена e-mail и администратор (срез 3)', '8 минут', 'demo-slice3.md, разделы 3.4 – 3.5: два кода, ключ на новый адрес, параметр и журнал аудита'),
+]
+
+
+def r1_state(label, condition, detail=''):
+    out('   %s  %s%s' % ('ок ' if condition else 'НЕТ', label, '' if condition or not detail else ' (%s)' % detail))
+    return 0 if condition else 1
+
+
+def r1():
+    """Исходное состояние стенда перед показом R1: ничего не меняет, только читает. Возвращает число расхождений."""
+    out('== Демо R1: исходное состояние стенда (только чтение, ничего не меняется)')
+    failed = 0
+    storefront = G.call('GET', '/api/v1/products')
+    items = storefront.json().get('items') if storefront.status == 200 else None
+    failed += r1_state('Шлюз отвечает, витрина открыта без токена (200)', storefront.status == 200 and isinstance(items, list), show(storefront, 120))
+    names = [str(i.get('title') or i.get('name') or i.get('productId')) for i in (items or [])][:3]
+    failed += r1_state('На витрине есть опубликованные товары (%d%s)' % (len(items or []), ': ' + ', '.join(names) if names else ''), bool(items),
+                       'выполните make orders-check или проведите шаг 1 показа, товар без ключей в наличии не появится')
+    tokens = {}
+    for name in R1_USERS:
+        token = token_for(name)
+        tokens[name] = token
+        failed += r1_state('Вход %s%s' % (name, ' со вторым фактором' if name not in ('buyer-1', 'buyer-2') else ''), bool(token))
+    try:
+        stubs = SB.StubsAdmin.from_env()
+        email, payment = stubs.modes().get('email') or {}, stubs.modes().get('payment') or {}
+    except Exception as e:   # noqa: BLE001 - заглушки не ответили: расхождение, а не падение показа
+        failed += r1_state('Заглушки внешних систем отвечают на порту управления', False, str(e)[-120:])
+        email, payment = {}, {}
+    else:
+        failed += r1_state('Почтовая заглушка в исходном режиме (принимает письмо и сама сообщает «доставлено»)',
+                           email.get('behavior') == 'accept' and email.get('status') == 'delivered' and email.get('sender') == 'any', str(email)[:160])
+        failed += r1_state('Платёжная заглушка в исходном режиме (сама оплачивает заказ)',
+                           payment.get('scenario') == 'success' and (payment.get('create') or {}).get('failFirst') == 0 and (payment.get('webhook') or {}).get('send') is True,
+                           str(payment)[:160])
+    if tokens.get('admin-1'):
+        answer = G.call('GET', '/api/v1/staff/parameters', headers=G.bearer(tokens['admin-1']))
+        rows = answer.json().get('items') if answer.status == 200 else []
+        changed = [r.get('key') for r in rows if r.get('value') != r.get('defaultValue')]
+        failed += r1_state('Параметры платформы равны значениям по умолчанию (%d параметров)' % len(rows), answer.status == 200 and bool(rows) and not changed,
+                           ', '.join(changed) or show(answer, 100))
+    out()
+    out('== Порядок показа R1 (около 30 минут; видео и проход руками остаются за автором)')
+    for number, title, time_text, where in R1_PLAN:
+        out('   %s. %s, %s: %s' % (number, title, time_text, where))
+    out('   Сводный сценарий: docs/09-operations/demo-r1.md; перед каждым показом: make demo-r1')
+    out()
+    out('Результат: %s' % ('стенд в исходном состоянии, можно показывать' if not failed else 'расхождений с исходным состоянием: %d (см. строки «НЕТ» выше и раздел 4 docs/09-operations/demo-r1.md)' % failed))
+    return failed
+
+
 def otp(name):
     people = G.users()
     secret = (people.get(name) or {}).get('otp_secret')
@@ -118,6 +180,12 @@ def main(argv):
         return otp_for_key(' '.join(argv[2:]))
     if argv and argv[0] == 'otp':
         return otp(argv[1] if len(argv) > 1 else 'seller-1')
+    if argv and argv[0] == 'r1':
+        failed = r1()
+        if os.environ.get('GITHUB_ACTIONS'):
+            keep = [l.strip() for l in LINES if l.strip().startswith(('ок', 'НЕТ', 'Результат'))]
+            print('::notice title=demo-r1::%s' % '%0A'.join(k.replace('%', '%25') for k in keep))
+        return 1 if failed else 0
     if argv and argv[0] == 'token':
         token = token_for(argv[1] if len(argv) > 1 else 'buyer-1')
         if not token:

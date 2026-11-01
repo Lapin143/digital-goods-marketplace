@@ -328,6 +328,10 @@ e2e-check: ## Собрать коллекцию API-тестов без стен
 demo: ## Показать цель вехи M3: вход тестового пользователя (WHO=buyer-1) и запросы через шлюз с токеном и без (набор full, DEBUG=1, make keycloak-users)
 	$(KC_ENV) python3 tools/stand-checks/demo.py $(WHO)
 
+.PHONY: demo-r1
+demo-r1: ## Проверить исходное состояние стенда перед показом R1 (шаг 24 Ф4): витрина не пуста, вход шести тестовых пользователей, заглушки и параметры в исходном режиме, порядок показа (набор full, DEBUG=1, make keycloak-users)
+	$(KC_ENV) python3 tools/stand-checks/demo.py r1
+
 .PHONY: token
 token: ## Напечатать токен доступа тестового пользователя (WHO=buyer-1) для curl: make -s token WHO=seller-1 (подняты dev-auth и сервисы, DEBUG=1)
 	@$(KC_ENV) python3 tools/stand-checks/demo.py token $(WHO)
