@@ -71,6 +71,19 @@ def open_ticket(buyer, order_id, **extra):
     return post_json(buyer.token(), TICKETS, {'orderId': order_id, 'reason': 'key_not_received'}, **extra)
 
 
+def open_ticket_when_issued(buyer, order_id, wait=30.0, token=None, **extra):
+    """Обращение по только что выданному заказу (токен покупателя или, если передан token, сессии по SMS). Платформа видит статус заказа в своей
+    модели чтения, которую ведёт событиями, и сразу после выдачи она может отстать от ответа сервиса заказов на доли секунды: тогда 409
+    state-conflict («создаётся по выданному заказу»). Проверка повторяет запрос, пока приходит именно он (F4-72); любой другой ответ
+    возвращается сразу."""
+    deadline = time.time() + wait
+    while True:
+        answer = post_json(token or buyer.token(), TICKETS, {'orderId': order_id, 'reason': 'key_not_received'}, **extra)
+        if answer.status != 409 or answer.code() != 'state-conflict' or time.time() >= deadline:
+            return answer
+        time.sleep(1)
+
+
 def staff_get(operator, path):
     return get(operator.token(), STAFF + path)
 
@@ -118,7 +131,7 @@ def not_received(fx):
     first_keys = P.KEY_LINE.findall(P.body_of(letters[0]))
     expect('TC-015. В письме выдачи есть ключи (с ними сравнивается повторное письмо)', len(first_keys) == 1, str(first_keys))
     correlation = str(uuid.uuid4())
-    created = open_ticket(buyer, oid, **{'X-Correlation-Id': correlation})
+    created = open_ticket_when_issued(buyer, oid, **{'X-Correlation-Id': correlation})
     ticket = body_of(created)
     if not expect('TC-015. Обращение создано: 201, источник buyer, причина key_not_received, статус created, решения и смены e-mail нет',
                   created.status == 201 and ticket.get('source') == 'buyer' and ticket.get('reason') == 'key_not_received' and ticket.get('status') == 'created'

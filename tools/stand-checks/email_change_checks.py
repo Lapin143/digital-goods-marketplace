@@ -180,7 +180,7 @@ def take(ctx, tid):
 
 
 def create_ticket(ctx, who, token):
-    created = SU.post_json(token, TICKETS, {'orderId': who['oid'], 'reason': 'key_not_received'})
+    created = SU.open_ticket_when_issued(who['buyer'], who['oid'], token=token)
     return created, SU.body_of(created)
 
 

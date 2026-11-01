@@ -45,7 +45,7 @@ ACTIONS = [
     ('support.ticket_released', {OPERATOR}, 'ticket'),
     ('support.resend_requested', {OPERATOR}, 'ticket'),
     ('support.email_change_started', {OPERATOR}, 'ticket'),
-    ('support.email_change_completed', {OPERATOR}, 'ticket'),
+    ('support.email_change_completed', {OPERATOR}, 'user'),
     ('parameter.changed', {ADMIN}, 'parameter'),
     ('audit.viewed', {ADMIN}, 'audit-log'),
     ('user.deactivated', {ADMIN, MODERATOR, OPERATOR, SYSTEM}, None),
@@ -53,7 +53,10 @@ ACTIONS = [
     ('user.role_assigned', {ADMIN, MODERATOR, OPERATOR, SYSTEM}, None),
 ]
 # Действия, чей адрес исполнителя сервис берёт из запроса сотрудника и пишет как есть (US-8.7). Завершение смены e-mail происходит
-# по коду покупателя и адрес оператора не несёт, у user.* исполнитель может быть системой.
+# по коду покупателя и адрес оператора не несёт, у user.* исполнитель может быть системой. Объект записи о завершении смены e-mail это
+# учётная запись покупателя (user), а не обращение: запись пишет identity при смене адреса. Повторную отправку после смены e-mail платформа
+# запускает сама от имени оператора, который вёл обращение (источник не operator), запроса сотрудника там нет и адреса тоже: адрес
+# проверяется у записей с источником operator.
 IP_AS_IS = {'seller.approved', 'seller.rejected', 'seller.document_opened', 'product.published', 'product.rejected', 'support.ticket_taken',
             'support.ticket_released', 'support.resend_requested', 'support.email_change_started', 'parameter.changed', 'audit.viewed'}
 
@@ -77,9 +80,10 @@ def check_action(token, action, roles, object_type):
            not (wrong_actor or wrong_role or no_object or no_time),
            str([(r.get('actorRole'), r.get('objectType'), r.get('objectId')) for r in (wrong_actor + wrong_role + no_object + no_time)[:3]])[:300])
     if action in IP_AS_IS:
-        expect('TC-801. %s: адрес исполнителя-сотрудника записан как есть, не хешем (US-8.7)' % action,
-               all(bool(r.get('actorIp')) and r.get('actorIpHashed') is False for r in records),
-               str([(r.get('actorRole'), r.get('actorIp'), r.get('actorIpHashed')) for r in records[:3]]))
+        by_request = [r for r in records if action != 'support.resend_requested' or (AU.change_of(r, 'source') or {}).get('after') == 'operator']
+        expect('TC-801. %s: адрес исполнителя-сотрудника записан как есть, не хешем (US-8.7; записей по запросу сотрудника %d)' % (action, len(by_request)),
+               bool(by_request) and all(bool(r.get('actorIp')) and r.get('actorIpHashed') is False for r in by_request),
+               str([(r.get('actorRole'), r.get('actorIp'), r.get('actorIpHashed')) for r in by_request[:3]]))
 
 
 def actions(ctx):
