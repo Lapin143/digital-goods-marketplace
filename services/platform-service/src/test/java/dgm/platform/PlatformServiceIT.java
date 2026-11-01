@@ -67,6 +67,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
@@ -1433,9 +1434,15 @@ class PlatformServiceIT {
         return databases.jdbc("support");
     }
 
-    /** Короткий номер заказа события: уникален в модели чтения, поэтому каждый тест берёт свой из диапазона, который не пересекается с соседями. */
+    private static final AtomicLong ORDER_NUMBERS = new AtomicLong(Instant.now().getEpochSecond() * 1000L);
+
+    /**
+     * Следующий номер заказа события. Номер уникален в модели чтения, а база стенда переживает запуски (серия из 50 идёт на одной базе), поэтому
+     * случайный выбор из четырёх миллионов значений рано или поздно повторяется (так и случилось на 45-м запуске серии). Номер строится от секунды
+     * старта процесса: запуски не пересекаются, внутри запуска номера идут подряд, а реальные номера заказов (от 1001) далеко внизу.
+     */
     private static long freshOrderNumber() {
-        return ThreadLocalRandom.current().nextLong(5_000_000L, 9_000_000L);
+        return ORDER_NUMBERS.incrementAndGet();
     }
 
     private static Map<String, Object> money(long amount) {
