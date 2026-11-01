@@ -15,6 +15,8 @@ tools/ci/ci_status.py) и в сводку запуска.
 
 «Строгие» пакеты (Р-148 среза 2, критерий 5 раздела 14 для денег и ключей): отдельная строка и порог STRICT_MIN (90 %) для пакетов из STRICT_PACKAGES, где живёт логика резерва, заказа, платежа и выдачи. Пока коды писались (шаги 5 – 14 среза 2), порог только предупреждал
 (STRICT_ENFORCE = False, аннотация `warning`); с шага 22 STRICT_ENFORCE равен True, и пакет ниже порога даёт код выхода 1 (замер шага 18: 97 – 100 %). Общий порог слоя в 80 % остаётся. Пакета ещё нет в отчёте: строка «пакета ещё нет», это не ошибка.
+Срез 3 (шаг 23 Ф4, Р-176): к четырём пакетам добавлены `support/service` и `auditadmin/service` сервиса platform-service с тем же порогом 90 %; четыре тонких переходника
+транзакции и Outbox этих пакетов (Module…) внесены в EXCLUDED по тому же правилу, что ModulePaymentTransaction.
 """
 import glob
 import os
@@ -32,6 +34,9 @@ STRICT_PACKAGES = (
     ('services/order-service', 'orders/domain'),
     ('services/payment-service', 'payments/domain'),
     ('services/delivery-service', 'delivery/domain'),
+    # Срез 3 (Р-176): логика поддержки и администрирования, где решается, что оператор видит и меняет, и что попадает в журнал аудита
+    ('services/platform-service', 'support/service'),
+    ('services/platform-service', 'auditadmin/service'),
 )
 # Класс (имя из отчёта JaCoCo, с косой чертой) -> причина, по которой его покрывают интеграционные тесты, а не модульные
 EXCLUDED = {
@@ -39,6 +44,13 @@ EXCLUDED = {
     # PaymentWebhookIT), а модульные тесты работают с подменой PaymentTransaction в FakePayments, поэтому в отчёте модульных тестов она на нуле
     'dgm/payment/payments/service/ModulePaymentTransaction': 'покрыта интеграционными тестами payment-service',
     'dgm/payment/payments/service/ModulePaymentTransaction$1': 'покрыта интеграционными тестами payment-service',
+    # Срез 3 (Р-176): такие же тонкие переходники транзакции и Outbox модулей поддержки и администрирования; модульные тесты работают с подменами
+    # SupportTransaction, SupportOutbox, ParameterTransaction и AuditViewOutbox, а настоящие классы проходят интеграционный тест PlatformServiceIT
+    # и проверки стенда (make support-check, parameters-check, audit-check)
+    'dgm/platform/support/service/ModuleSupportTransaction': 'покрыта интеграционным тестом PlatformServiceIT и проверками стенда',
+    'dgm/platform/support/service/ModuleSupportOutbox': 'покрыта интеграционным тестом PlatformServiceIT и проверками стенда',
+    'dgm/platform/auditadmin/service/ModuleAuditViewOutbox': 'покрыта интеграционным тестом PlatformServiceIT и проверками стенда',
+    'dgm/platform/auditadmin/service/ModuleParameterTransaction': 'покрыта интеграционным тестом PlatformServiceIT и проверками стенда',
 }
 
 
