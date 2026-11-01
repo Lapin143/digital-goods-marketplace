@@ -44,6 +44,8 @@ SERVICE = 'inventory-service'
 
 QUERY = 'select kek_version, count(*) from inventory.data_key group by kek_version order by kek_version'
 LOG_DONE = re.compile(r'Ротация мастер-ключа: версия (\d+) -> (\d+), перезавёрнуто ключей данных (\d+)')
+# Та же строка в пересказе, который печатает `start` оператору (по нему сквозная проверка находит итог ротации)
+OUT_DONE = re.compile(r'сервис сообщил: версия (\d+) -> (\d+), перезавёрнуто ключей данных (\d+)')
 
 # Состояния ротации (classify)
 IDLE = 'idle'                  # ротации нет: все DEK на текущей версии, следующего ключа нет
@@ -276,7 +278,7 @@ def cmd_start(args):
         found = LOG_DONE.findall(logs)
         return found[-1] if found else None
     old, new, rewrapped = wait('строки о ротации в журнале %s' % SERVICE, done, args.timeout)
-    print('сервис сообщил: версия %s -> %s, перезавёрнуто ключей данных %s' % (old, new, rewrapped))
+    print('сервис сообщил: версия %s -> %s, перезавёрнуто ключей данных %s' % (old, new, rewrapped))  # формат разбирает OUT_DONE
     counts = wait('DEK на версии %d' % (version + 1), lambda: (lambda c: c if not c.get(version) else None)(db_counts(args.debug)), 30)
     print('ключи данных: %s' % ', '.join('версия %d: %d' % (v, n) for v, n in sorted(counts.items())))
     wait('здоровый %s' % SERVICE, lambda: service_healthy(args.debug, True), args.timeout)

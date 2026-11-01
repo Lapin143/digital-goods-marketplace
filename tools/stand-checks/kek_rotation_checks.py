@@ -122,7 +122,7 @@ def main():
 
     # --- start
     start = tool('start', '--yes')
-    done = K.LOG_DONE.findall(start.stdout)
+    done = K.OUT_DONE.findall(start.stdout)
     expect('start: код 0 и сервис сообщил о ротации (версия %d -> %d, перезавёрнуто ключей данных %d)' % (version, version + 1, len(before)),
            start.returncode == 0 and done and done[-1] == (str(version), str(version + 1), str(len(before))), start.stdout[-400:] + start.stderr[-300:])
     middle = deks() or {}
@@ -140,6 +140,8 @@ def main():
     expect('start: status: все DEK перешифрованы, можно завершать', 'состояние: %s' % K.REWRAPPED in tool('status').stdout)
 
     purchase('покупка 1 (два мастер-ключа)')
+    # журнал контейнера, который выполнил ротацию: после finish сервис пересоздан, и его журнал исчезает вместе с контейнером
+    rotating_logs = log_text()
 
     # --- finish
     plan = tool('finish')
@@ -157,12 +159,12 @@ def main():
            set(after) == set(before) and all(a[0] == version + 1 for a in after.values()) and values_digest() == values, after)
 
     # --- канарейка: мастер-ключей нет в журналах; контроль: строка о ротации на месте
-    logs = log_text()
+    logs = rotating_logs + '\n' + log_text()
     witnesses = [v for v in (old_value, new_value) if v]
     needles = []
     for value in witnesses:
         needles += [value, value.strip('='), base64.b64decode(value).hex()]
-    expect('канарейка: контроль, строка о ротации есть в журнале сервиса', bool(K.LOG_DONE.search(logs)))
+    expect('канарейка: контроль, строка о ротации есть в журнале сервиса, который выполнил ротацию', bool(K.LOG_DONE.search(rotating_logs)))
     expect('канарейка: значения обоих мастер-ключей (как есть, без «=», в hex) не найдены в журналах контейнеров',
            len(witnesses) == 2 and not any(n in logs for n in needles), 'ключи не прочитаны' if len(witnesses) != 2 else 'значение мастер-ключа найдено в журнале')
     expect('канарейка: в журнале не напечатаны строки с обёрнутым ключом данных', not re.search(r'wrapped_key|wrappedKey', logs))

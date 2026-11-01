@@ -193,6 +193,7 @@ class Flow(unittest.TestCase):
         self.assertEqual(K.env_get(env, 'DGM_KEK_ROTATE'), 'true')
         self.assertIn(('restart', True), self.calls)
         self.assertIn('перезавёрнуто ключей данных 3', out)
+        self.assertEqual(K.OUT_DONE.findall(out), [('1', '2', '3')], 'сквозная проверка разбирает вывод start этим выражением')
         self.assertNotIn(self.secret(K.KEK_NEXT), out)
         self.assertNotIn(OLD_KEY, out)
 
