@@ -165,7 +165,7 @@ public final class JdbcSupportRepository implements SupportRepository {
 
     @Override
     public boolean takeTicket(UUID ticketId, UUID operatorId, Instant at) {
-        return jdbc.update("update support.ticket set status = 'in_progress', operator_id = ?, taken_at = ? where id = ? and status = 'created'",
+        return jdbc.update("update support.ticket set status = 'in_progress', operator_id = ?, taken_at = ? where id = ?",
                 operatorId, utc(at), ticketId) == 1;
     }
 
