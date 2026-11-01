@@ -31,6 +31,12 @@ dependencies {
         add("implementation", "at.yawk.lz4:lz4-java:$lz4Floor") {
             because("уязвимость lz4-java ниже $lz4Floor (Trivy, CVE-2026-106451)")
         }
+
+        // snappy-java тоже приходит с клиентом Kafka; версия 1.1.10.7 попала под CVE-2026-108106 и CVE-2026-93451 (HIGH), исправление в 1.1.10.9 (Trivy)
+        val snappyFloor = catalog.findVersion("snappy-security-floor").get().requiredVersion
+        add("implementation", "org.xerial.snappy:snappy-java:$snappyFloor") {
+            because("уязвимости snappy-java ниже $snappyFloor (Trivy, CVE-2026-108106, CVE-2026-93451)")
+        }
     }
 }
 

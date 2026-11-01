@@ -19,6 +19,9 @@ jackson-security-floor = "3.2.3"
 # Нижняя граница версии lz4-java (приходит транзитивно с клиентом Kafka): версия 1.10.1 из BOM Spring Boot 4.1.1 попала под CVE-2026-106451 (HIGH), исправлено
 # в 1.11.4 (Trivy нашёл её 11 октября 2026 года в образах шести сервисов, находка F4-1). Ограничение в dgm.boot-app-conventions убрать, когда BOM принесёт эту версию или выше.
 lz4-security-floor = "1.11.4"
+# Нижняя граница версии snappy-java (приходит транзитивно с клиентом Kafka): версия 1.1.10.7 попала под CVE-2026-108106 и CVE-2026-93451 (HIGH), исправлено в
+# 1.1.10.9 (Trivy нашёл их 1 ноября 2026 года в образах шести сервисов после обновления базы, находка F4-66). Ограничение в dgm.boot-app-conventions убрать, когда BOM принесёт эту версию или выше.
+snappy-security-floor = "1.1.10.9"
 
 [libraries]
 spring-boot-gradle-plugin = { module = "org.springframework.boot:spring-boot-gradle-plugin", version.ref = "spring-boot" }
