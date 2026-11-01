@@ -1,11 +1,11 @@
-# Тест-кейсы: администрирование и аудит (TC-802 – TC-816)
+# Тест-кейсы: администрирование и аудит (TC-801 – TC-816)
 
 | Поле | Содержание |
 | --- | --- |
-| Документ | Тест-кейсы эпика 8 «Администрирование и аудит», область TC-801 – TC-899 ([стратегия](test-strategy.md), раздел 13). Заполнено TC-802 (канарейка: журнал, тема и ответы API без открытых e-mail и телефона), TC-806 – TC-809 (параметры платформы: правка, границы, INV-07, `config.changed`, слушатель в сервисах, комиссия), TC-810 – TC-814 (чтение журнала и запись о чтении; приёмник, неизменяемость, адрес исполнителя) и TC-815, TC-816 (журнал и параметры на стенде); TC-801, TC-803 – TC-805 записаны в разделе 4 «Резерв номеров» и появляются на следующих шагах среза 3 |
+| Документ | Тест-кейсы эпика 8 «Администрирование и аудит», область TC-801 – TC-899 ([стратегия](test-strategy.md), раздел 13). Заполнено TC-801 (каждое действие сотрудника есть в журнале), TC-802 (канарейка: журнал, тема и ответы API без открытых e-mail и телефона), TC-806 – TC-809 (параметры платформы: правка, границы, INV-07, `config.changed`, слушатель в сервисах, комиссия), TC-803 – TC-805 (сквозной идентификатор запроса, метрики через Prometheus, язык интерфейса; шаг 23), TC-810 – TC-814 (чтение журнала и запись о чтении; приёмник, неизменяемость, адрес исполнителя) и TC-815, TC-816 (журнал и параметры на стенде); TC-801, TC-803 – TC-805 записаны в разделе 4 «Резерв номеров» и появляются на следующих шагах среза 3 |
 | Источники | [US-08](../02-requirements/US-08-admin-audit.md) (US-8.3, US-8.6 и US-8.7), [ADR-014](../05-architecture/adr/ADR-014-audit-log-no-pii.md), [модель угроз](../05-architecture/threat-model.md) (ST-09, T-18), [руководство среза 3](../00-phase4-slice3-guide.md) (шаги 4 – 8) |
 | Срез | Ф4, срез 3, шаг 4 «Журнал аудита»: потребитель `audit-consumer`, секции, неизменяемость; шаг 5: чтение журнала, запись о просмотре журнала и об открытии документа заявки; шаг 6: параметры платформы, INV-07, событие `config.changed`; шаг 7: слушатель параметров в `service-kit` и в сервисах, комиссия по умолчанию; шаг 8 (К9): проверка аудита и параметров на стенде |
-| Состояние | Автоматизированы все описанные тест-кейсы, ручных нет. Модульные тесты идут в задании `kit`, интеграционные тесты платформы в нём же на стенде `dev-kit` (Kafka, PostgreSQL под рабочими ролями и под ролью-мигратором). Проверка на уровне базы (ST-09 по таблице, секциям и ролям) дополнительно идёт в задании `docs` (`tools/docs-checks/db/test_db.py`, `--db`). Проверки стенда (TC-802, TC-815, TC-816) идут в задании `e2e` после проверок покупки: `make audit-check`, `make parameters-check`, `make parameters-sabotage`. Тесты интерфейса администратора (TC-806, TC-807, TC-810, TC-815, TC-816) идут в задании `web` (Vitest, без сети и без бэкенда, запросы подменены). Сверка с кодом: `tools/docs-checks/check_testcases.py` |
+| Состояние | Автоматизированы все описанные тест-кейсы, ручных нет. Модульные тесты идут в задании `kit`, интеграционные тесты платформы в нём же на стенде `dev-kit` (Kafka, PostgreSQL под рабочими ролями и под ролью-мигратором). Проверка на уровне базы (ST-09 по таблице, секциям и ролям) дополнительно идёт в задании `docs` (`tools/docs-checks/db/test_db.py`, `--db`). Проверки стенда (TC-802, TC-815, TC-816) идут в задании `e2e` после проверок покупки: `make audit-check`, `make parameters-check`, `make parameters-sabotage`; TC-801 (`make audit-actions-check`) и TC-803 (проверки покупки и поддержки) там же, TC-801 последним; сценарий Newman ADM-01 (TC-806, TC-807, TC-810) идёт в `e2e` вместе с остальными сценариями; TC-804 идёт в задании `obs` (набор `full-obs`), TC-805 в задании `web`. Тесты интерфейса администратора (TC-806, TC-807, TC-810, TC-815, TC-816) идут в задании `web` (Vitest, без сети и без бэкенда, запросы подменены). Сверка с кодом: `tools/docs-checks/check_testcases.py` |
 
 ## 1. Как читать
 
@@ -17,12 +17,16 @@
 
 | TC | Название | История | Уровень | Чем проверяется |
 | --- | --- | --- | --- | --- |
+| TC-801 | Каждое действие сотрудника записано в журнал: исполнитель, роль, объект, адрес как есть (NFT-3.6) | US-8.6, US-8.7 | L5 | Python на стенде |
 | TC-802 | Журнал, тема `audit.events` и ответы API не содержат открытых e-mail и телефона, в том числе после анонимизации (NFT-5.3, канарейка) | US-8.6, US-8.7 | L5 | `audit_checks.py` |
-| TC-806 | Правка параметра записывается в журнал и в сжатую тему `platform.config`, одновременные правки с одной версией дают одну | US-8.3, US-8.4 | L3 | JUnit, JUnit на стенде, Vitest, `ui_smoke.py` |
-| TC-807 | Значение вне границ, нарушение INV-07, чужая версия и недостаток прав отклоняются, ничего не записав | US-8.3 | L3 | JUnit, JUnit на стенде, Vitest |
+| TC-803 | Сквозной идентификатор запроса виден в журналах шлюза и сервисов и в событиях Kafka: путь покупки и путь обращения (NFT-6.0) | US-8.9 | L5 | Python на стенде |
+| TC-804 | Метрики очереди поддержки, журнала и версий параметров читаются через API Prometheus (NFT-6.1) | US-8.9 | L5 | Python на стенде |
+| TC-805 | Тексты интерфейса русские, словарь без случайных иностранных и типографских дефектов (NFT-7.0) | US-8.12 | L8 | Vitest |
+| TC-806 | Правка параметра записывается в журнал и в сжатую тему `platform.config`, одновременные правки с одной версией дают одну | US-8.3, US-8.4 | L3 | JUnit, JUnit на стенде, Vitest, Newman, `ui_smoke.py` |
+| TC-807 | Значение вне границ, нарушение INV-07, чужая версия и недостаток прав отклоняются, ничего не записав | US-8.3 | L3 | JUnit, JUnit на стенде, Vitest, Newman |
 | TC-808 | Слушатель применяет параметр только версией выше сохранённой, закреплённый ключ и значение вне границ не применяются, смена срока не требует перезапуска | US-8.3 | L3 | JUnit, JUnit на стенде |
 | TC-809 | Комиссия по умолчанию из параметра, округление до копейки, смена ставки меняет только новые заказы | US-8.4 | L3 | JUnit |
-| TC-810 | Просмотр журнала записывается до ответа, читает только администратор, при сбое записи данных нет | US-8.6, US-8.7 | L3 | JUnit, JUnit на стенде, Vitest, `ui_smoke.py` |
+| TC-810 | Просмотр журнала записывается до ответа, читает только администратор, при сбое записи данных нет | US-8.6, US-8.7 | L3 | JUnit, JUnit на стенде, Vitest, Newman, `ui_smoke.py` |
 | TC-811 | Открытие документа заявки модератором записывается на каждую ссылку, при сбое записи ссылок нет | US-8.6 | L3 | JUnit, JUnit на стенде |
 | TC-812 | Журнал только добавляется, секции создаёт задание (ST-09, IT-8) | US-8.7 | L7 | JUnit, JUnit на стенде |
 | TC-813 | Запись аудита доходит до журнала без потерь и дублей, открытое персональное значение уходит в DLQ | US-8.6, US-8.7 | L3 | JUnit, JUnit на стенде |
@@ -31,6 +35,33 @@
 | TC-816 | Параметры платформы на стенде: лимит неоплаченных, комиссия, перезапуск сервиса заказов, срок ссылки на документ, возврат к умолчанию | US-8.3, US-8.4, US-5.1 | L5 | `parameters_checks.py`, Vitest |
 
 ## 3. Тест-кейсы
+
+### TC-801. Каждое действие сотрудника записано в журнал: исполнитель, роль, объект, адрес как есть (NFT-3.6, FT-11.2)
+
+| Поле | Содержание |
+| --- | --- |
+| ID | TC-801 |
+| User story | US-8.6, US-8.7 |
+| Требования | NFT-3.6, FT-11.2, FT-11.3 |
+| Уровень | L5 |
+| Тип | интеграционный |
+| Приоритет | Высокий |
+| Автоматизация | Python на стенде |
+| Тег в коде | TC-801 |
+| Где в коде | `tools/stand-checks/audit_actions_checks.py` |
+
+**Предусловия.** Набор `full` с отладочным файлом, тестовые пользователи Keycloak, администратор `admin-1` со вторым фактором. Проверка идёт последней в задании `e2e`: сама ничего не делает, читает журнал после остальных проверок стенда, которые выполнили действия сотрудников (решения модератора по заявкам и товарам, обращения и смена e-mail у оператора, правки параметров, деактивация и анонимизация записей, открытие журнала).
+
+**Шаги.**
+
+1. Для каждого действия из таблицы проверки (15 действий: `seller.approved`, `seller.rejected`, `seller.document_opened`, `product.published`, `product.rejected`, `support.ticket_taken`, `support.ticket_released`, `support.resend_requested`, `support.email_change_started`, `support.email_change_completed`, `parameter.changed`, `audit.viewed`, `user.deactivated`, `user.anonymized`, `user.role_assigned`) прочитать журнал администратором с фильтром по действию, дождавшись записи до 10 секунд.
+2. Проверить найденные записи: исполнитель это UUID, роль входит в ожидаемые для действия, тип и идентификатор объекта непустые (для действий поддержки тип `ticket`, для заявок `seller`, для параметров `parameter`, для просмотра `audit-log`), у записи есть время и номер.
+3. Для действий, где сервис берёт адрес исполнителя из запроса сотрудника, проверить, что адрес записан как есть, а не хешем (TC-814).
+4. Контроль: журнал без фильтра отдаёт записи (проверка читает настоящий журнал, а не пустой ответ).
+
+**Ожидаемый результат.** По каждому действию из таблицы запись найдена и оформлена по правилам; красная строка называет действие, которое выполняется без записи или которое ни одна проверка стенда не делает (тогда добавляют проверку, а не убирают действие из таблицы). Возврат вручную (`refund.marked_manual`), возврат заявки на доработку (`seller.returned`) и блокировка товара (`product.blocked`) на стенде отдельным сценарием не повторяются: запись по ним проверяют `ManualRefundServiceTest`, `RefundIT`, `SellerModerationIT` и `ProductModerationIT`.
+
+**Постусловия.** Нет, проверка ничего не создаёт.
 
 ### TC-802. Журнал, тема `audit.events` и ответы API не содержат открытых e-mail и телефона, в том числе после анонимизации (NFT-5.3, ADR-014, канарейка)
 
@@ -59,6 +90,85 @@
 
 **Ожидаемый результат.** Шаг 3: запись есть через несколько секунд, исполнитель сам покупатель, роль `buyer`, адрес исполнителя это хеш из 64 знаков, у изменения `phone` признак `personal = true`, значение «до» пусто, «после» хеш из 64 знаков, поле `phone_confirmed` меняется с `false` на `true`. Шаг 4: обе записи есть, исполнитель роли `admin`, в изменениях нет значений, которые не были бы хешем. Шаг 5: ни одно значение не найдено нигде. Шаг 6: контроль найден. Если поиск не нашёл записей покупателя, проверка красная: пустой результат без контроля ничего не доказывает. Модульный уровень (разбор записи, отказ открытому значению, хеш считает владелец данных) проверяют `AuditEntryTest`, `AuditRecordsTest` и TC-813.
 
+### TC-803. Сквозной идентификатор запроса виден в журналах шлюза и сервисов и в событиях Kafka (NFT-6.0, Р-155, Р-172)
+
+| Поле | Содержание |
+| --- | --- |
+| ID | TC-803 |
+| User story | US-8.9 |
+| Требования | NFT-6.0, FT-7.3, FT-11.3 |
+| Уровень | L5 |
+| Тип | интеграционный |
+| Приоритет | Высокий |
+| Автоматизация | Python на стенде |
+| Тег в коде | TC-803 |
+| Где в коде | `tools/stand-checks/purchase_checks.py`, `tools/stand-checks/support_checks.py` |
+
+**Предусловия.** Набор `full` с ускоренными сроками, тестовые пользователи Keycloak; оформленный и выданный заказ (проверка покупки), созданное обращение с повторной отправкой ключа (проверка поддержки).
+
+**Шаги.**
+
+1. Путь покупки: найти идентификатор запроса «оформить заказ» в журналах контейнеров `api-gateway`, `order-service`, `inventory-service`, `payment-service`.
+2. Прочитать события заказа в темах Kafka: у `payment.confirmed`, `order.paid`, `delivery.accepted`, `order.issued` есть `traceparent` и `correlationid`; потребитель продолжает трассу издателя (тот же идентификатор трассы, другой отрезок); все события лежат под ключом заказа.
+3. Путь обращения: отправить `createSupportTicket` со своим `X-Correlation-Id`, найти его в журналах `api-gateway` и `platform-service`, в событии `ticket.created` темы `support.events` и в записи журнала аудита о повторной отправке (`correlationId`, TC-015).
+
+**Ожидаемый результат.** Идентификатор запроса покупки виден во всех четырёх сервисах цепочки; события покупки связаны одной трассой и ключом заказа. Идентификатор запроса обращения виден в шлюзе и платформе, в событии `ticket.created` (одно по обращению) и в записи журнала аудита. Разрыв трассы на очереди выдачи (хранение `traceparent` в строке выдачи) записан как F4-16 и остаётся в Ф6: проверка утверждает то, что верно сегодня (Р-155, Р-172), и красная, если связь, которая была, пропала.
+
+**Постусловия.** Нет.
+
+### TC-804. Метрики очереди поддержки, журнала и версий параметров читаются через API Prometheus (NFT-6.1, US-8.9)
+
+| Поле | Содержание |
+| --- | --- |
+| ID | TC-804 |
+| User story | US-8.9 |
+| Требования | NFT-6.1, FT-7.3, NFT-2.4 |
+| Уровень | L5 |
+| Тип | интеграционный |
+| Приоритет | Средний |
+| Автоматизация | Python на стенде |
+| Тег в коде | TC-804 |
+| Где в коде | `tools/stand-checks/obs_checks.py` |
+
+**Предусловия.** Набор `full-obs` с отладочным файлом (`make up SET=full-obs DEBUG=1`): семь сервисов Java и шесть компонентов стека наблюдения, Prometheus собирает метрики по взаимному TLS.
+
+**Шаги.**
+
+1. Прочитать `support_queue_tickets{service="platform-service"}`: ряды по статусам `created` и `in_progress`.
+2. Прочитать `support_queue_oldest_age_seconds{service="platform-service"}`: один ряд (по нему срабатывает оповещение `SupportTicketUnattended`, SM-07).
+3. Прочитать `audit_default_rows{service="platform-service"}`: один ряд со значением 0 (страховочная секция журнала пуста, месячные секции на месте).
+4. Прочитать `config_version{service="order-service"}`: ряды по ключам `orders.max-unpaid`, `reservation.ttl-seconds`, `payment-session.ttl-seconds`, `commission.default-rate-bp`.
+
+**Ожидаемый результат.** Все ряды читаются через API Prometheus, значения неотрицательные; ожидание до срока `OBS_WAIT` на очередной сбор метрик. Счётчики с метками (`audit_records_total`, `audit_views_total`, `support_ticket_requests_total`, `support_queue_actions_total`, `support_resend_total`, `support_email_change_total`, `events_dlq_total`, `config_applied_total`) появляются при первом событии, на свежем стенде их нет: их имена и метки проверяют модульные тесты сервисов (`AuditRecordServiceTest`, `AuditViewServiceTest`, `EventProcessorTest`, `ConfigRegistryTest` и тесты очереди поддержки), а условия оповещений по ним `promtool` проверяет в `make obs-validate`. Параметры платформы читает из базы сама платформа, поэтому метрики версии у неё нет.
+
+**Постусловия.** Нет.
+
+### TC-805. Тексты интерфейса русские, словарь без случайных иностранных и типографских дефектов (NFT-7.0, US-8.12)
+
+| Поле | Содержание |
+| --- | --- |
+| ID | TC-805 |
+| User story | US-8.12 |
+| Требования | NFT-7.0 |
+| Уровень | L8 |
+| Тип | UI |
+| Приоритет | Средний |
+| Автоматизация | Vitest |
+| Тег в коде | TC-805 |
+| Где в коде | `frontend/web-app/src/i18n/index.test.ts` |
+
+**Предусловия.** Нет, тест не требует стенда. Правило ESLint `no-hardcoded-text` запрещает литералы текста в разметке и без замечаний проходит в задании `web` (`--max-warnings 0`).
+
+**Шаги.**
+
+1. Прочитать словарь `i18n/ru.json` (на шаге 23 в нём 704 текста).
+2. Найти тексты без русских букв: допустимы только три формата из подстановок и знаков (`admin.params.bounds.short`, `admin.unit.percent`, `audit.change.line`).
+3. Найти двойные пробелы, пробел перед знаком препинания и тире вместо дефиса в «e-mail».
+
+**Ожидаемый результат.** Список текстов без русских букв равен трём перечисленным форматам; остальные проверки не находят дефектов. Новый текст без русских букв красит тест и вносится в список осознанно. Чтение экранов глазами (естественность формулировок) остаётся за владельцем проекта: ручной просмотр не автоматизируется и в этот тест-кейс не входит.
+
+**Постусловия.** Нет.
+
 ### TC-806. Правка параметра записывается в журнал и в сжатую тему `platform.config`, одновременные правки с одной версией дают одну
 
 | Поле | Содержание |
@@ -69,9 +179,9 @@
 | Уровень | L3 |
 | Тип | интеграционный |
 | Приоритет | Высокий |
-| Автоматизация | JUnit; JUnit на стенде; Vitest; Python на стенде |
+| Автоматизация | JUnit; JUnit на стенде; Vitest; Python на стенде; Newman |
 | Тег в коде | TC-806 |
-| Где в коде | `services/platform-service/src/test/java/dgm/platform/auditadmin/service/ParameterServiceTest.java`, `services/platform-service/src/test/java/dgm/platform/auditadmin/controller/ParameterControllerTest.java`, `services/platform-service/src/test/java/dgm/platform/PlatformServiceIT.java`, `frontend/web-app/src/screens/staff/admin/units.test.ts`, `frontend/web-app/src/screens/staff/admin/ParametersPage.test.tsx`, `frontend/web-app/src/app/AdminRoutes.test.tsx`, `tools/stand-checks/ui_smoke.py` |
+| Где в коде | `services/platform-service/src/test/java/dgm/platform/auditadmin/service/ParameterServiceTest.java`, `services/platform-service/src/test/java/dgm/platform/auditadmin/controller/ParameterControllerTest.java`, `services/platform-service/src/test/java/dgm/platform/PlatformServiceIT.java`, `frontend/web-app/src/screens/staff/admin/units.test.ts`, `frontend/web-app/src/screens/staff/admin/ParametersPage.test.tsx`, `frontend/web-app/src/app/AdminRoutes.test.tsx`, `tools/stand-checks/ui_smoke.py`, `tools/api-tests/scenarios/admin.json` |
 
 **Предусловия.** Стенд `dev-kit`; платформа запущена и при старте переиздала значения параметров; два администратора со вторым фактором и областью `staff.admin`; параметры засеяны миграцией (15 штук, версия 1).
 
@@ -98,9 +208,9 @@
 | Уровень | L3 |
 | Тип | API |
 | Приоритет | Высокий |
-| Автоматизация | JUnit; JUnit на стенде; Vitest |
+| Автоматизация | JUnit; JUnit на стенде; Vitest; Newman |
 | Тег в коде | TC-807 |
-| Где в коде | `services/platform-service/src/test/java/dgm/platform/auditadmin/service/ParameterServiceTest.java`, `services/platform-service/src/test/java/dgm/platform/auditadmin/controller/ParameterControllerTest.java`, `services/platform-service/src/test/java/dgm/platform/PlatformServiceIT.java`, `frontend/web-app/src/screens/staff/admin/units.test.ts`, `frontend/web-app/src/screens/staff/admin/ParametersPage.test.tsx` |
+| Где в коде | `services/platform-service/src/test/java/dgm/platform/auditadmin/service/ParameterServiceTest.java`, `services/platform-service/src/test/java/dgm/platform/auditadmin/controller/ParameterControllerTest.java`, `services/platform-service/src/test/java/dgm/platform/PlatformServiceIT.java`, `frontend/web-app/src/screens/staff/admin/units.test.ts`, `frontend/web-app/src/screens/staff/admin/ParametersPage.test.tsx`, `tools/api-tests/scenarios/admin.json` |
 
 **Предусловия.** Стенд `dev-kit`; платёжная сессия 720 секунд (границы 60 – 3599), резерв 900 секунд (границы 300 – 3600); администратор со вторым фактором и областью `staff.admin`.
 
@@ -179,9 +289,9 @@
 | Уровень | L3 |
 | Тип | безопасность |
 | Приоритет | Высокий |
-| Автоматизация | JUnit; JUnit на стенде; Vitest; Python на стенде |
+| Автоматизация | JUnit; JUnit на стенде; Vitest; Python на стенде; Newman |
 | Тег в коде | TC-810 |
-| Где в коде | `services/platform-service/src/test/java/dgm/platform/auditadmin/service/AuditViewServiceTest.java`, `services/platform-service/src/test/java/dgm/platform/auditadmin/controller/AuditControllerTest.java`, `services/platform-service/src/test/java/dgm/platform/auditadmin/repository/JdbcAuditReadRepositoryTest.java`, `services/platform-service/src/test/java/dgm/platform/PlatformServiceIT.java`, `frontend/web-app/src/screens/staff/admin/audit.test.ts`, `frontend/web-app/src/screens/staff/admin/AuditPage.test.tsx`, `frontend/web-app/src/app/AdminRoutes.test.tsx`, `tools/stand-checks/ui_smoke.py` |
+| Где в коде | `services/platform-service/src/test/java/dgm/platform/auditadmin/service/AuditViewServiceTest.java`, `services/platform-service/src/test/java/dgm/platform/auditadmin/controller/AuditControllerTest.java`, `services/platform-service/src/test/java/dgm/platform/auditadmin/repository/JdbcAuditReadRepositoryTest.java`, `services/platform-service/src/test/java/dgm/platform/PlatformServiceIT.java`, `frontend/web-app/src/screens/staff/admin/audit.test.ts`, `frontend/web-app/src/screens/staff/admin/AuditPage.test.tsx`, `frontend/web-app/src/app/AdminRoutes.test.tsx`, `tools/stand-checks/ui_smoke.py`, `tools/api-tests/scenarios/admin.json` |
 
 **Предусловия.** Стенд `dev-kit`; администратор со вторым фактором и областью `staff.audit`; в журнале три записи одного исполнителя, времена действий разные; одна из записей содержит число в значении изменения.
 
@@ -363,9 +473,4 @@
 
 ## 4. Резерв номеров
 
-| Номера | Сценарии | Срез |
-| --- | --- | --- |
-| TC-801 | Каждое действие сотрудника в журнале: заявка, товар, повторная отправка, смена e-mail, параметр, роль, возврат (NFT-3.6) | Ф4, срез 3, шаги 7 – 17 (закрывается на шаге 23) |
-| TC-803 | Сквозной идентификатор виден в логах шлюза, платформы и сервиса заказов (NFT-6.0) | Ф4, срез 3, шаг 23 |
-| TC-804 | Метрики читаются через API Prometheus (NFT-6.1) | Ф4, срез 3, шаг 23 |
-| TC-805 | Тексты интерфейса из `i18n/ru.json` (NFT-7.0) | Ф4, срез 3, шаг 23 |
+Заняты номера TC-801 – TC-816. Свободны TC-817 – TC-899 (серия для Ф5: возвраты и роли, дашборды, резервное копирование).
