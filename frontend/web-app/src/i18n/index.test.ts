@@ -26,6 +26,28 @@ describe('словарь', () => {
   });
 });
 
+describe('язык интерфейса (TC-805, NFT-7.0)', () => {
+  // Без русских букв остаются только три формата из чисел и подстановок. Любой другой текст без русских букв (английская фраза
+  // в словаре) красит тест: новый формат вносится сюда осознанно.
+  const FORMATS_WITHOUT_LETTERS = ['admin.params.bounds.short', 'admin.unit.percent', 'audit.change.line'];
+
+  it('TC-805. все тексты словаря содержат русские буквы, кроме форматов из подстановок', () => {
+    const withoutRussian = Object.entries(ru)
+      .filter(([, value]) => !/[А-Яа-яЁё]/.test(value))
+      .map(([key]) => key)
+      .sort();
+    expect(withoutRussian).toEqual(FORMATS_WITHOUT_LETTERS);
+  });
+
+  it('TC-805. в текстах нет двойных пробелов, пробела перед знаком препинания и тире вместо дефиса в «e-mail»', () => {
+    for (const [key, value] of Object.entries(ru)) {
+      expect(value, key).not.toMatch(/ {2}/);
+      expect(value, key).not.toMatch(/ [,.;:!?](?!\d)/);
+      expect(value, key).not.toMatch(/e–mail|E–mail/);
+    }
+  });
+});
+
 describe('множественное число', () => {
   const forms = { one: 'plural.test.one', few: 'plural.test.few', many: 'plural.test.many' } as unknown as Parameters<typeof plural>[1];
 
