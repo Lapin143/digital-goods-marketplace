@@ -22,6 +22,9 @@ otp.requests-per-hour-per-ip до 100 и возвращает значение �
               обращение, возвращённое в очередь, смену не принимает (409)
   оператор    ни в одном ответе оператора нет кодов подтверждения, адреса покупателя и ключа (INV-23); в журнале аудита записи support.email_change_started (оператор) и
               support.email_change_completed (оператор, адрес только хешами)
+  Redis       TC-016: Redis остановлен посреди смены (после того как оператор взял обращение): оператор называет новый адрес и получает 503 dependency-unavailable, SMS и письмо
+              с кодом не уходят, обращение остаётся в работе, адрес в Keycloak прежний; после запуска Redis оператор начинает смену заново, коды приходят, смена завершается
+              (сервисы не перезапускались; этот сценарий идёт последним, он останавливает общий для стенда Redis, а данные в нём не хранятся: tmpfs, save "")
   канарейка   прежний и новый адрес и коды из SMS и письма не найдены в ответах API журнала, дампах схем audit_admin, support и notification, темах audit.events,
               support.events и identity.events, журналах платформы и шлюза; у каждого поиска есть контроль, который обязан найтись
 
@@ -477,6 +480,90 @@ def canary(ctx):
         expect('В журнале %s адресов и кодов нет' % service, not found, str(found[:2]))
 
 
+# --------------------------------------------------------------------------------------------------- Redis недоступен
+def redis_healthy(wait=90.0):
+    """Redis снова здоров (проверка состояния контейнера по healthcheck)."""
+    deadline = time.time() + wait
+    while time.time() < deadline:
+        cid = C.sh(G.COMPOSE + ['ps', '-q', 'redis']).stdout.strip()
+        state = C.sh(['docker', 'inspect', '-f', '{{.State.Health.Status}}', cid]).stdout.strip() if cid else ''
+        if state == 'healthy':
+            return True
+        time.sleep(2)
+    return False
+
+
+def redis_outage(ctx):
+    stubs = ctx.stubs
+    print('== Redis недоступен при смене e-mail: коды не выдаются (503), SMS и письма не уходят, после запуска Redis смена начинается заново без перезапуска сервисов (SEQ-04, раздел 7, ADR-010; TC-016)')
+    stubs.reset()
+    who = prepared_buyer(ctx, 'ec4')
+    if not who:
+        return
+    token = sms_session(ctx, who)
+    if not token:
+        return
+    new_email = 'ec-redis-%d@example.test' % ctx.stamp
+    ctx.addresses.append(new_email)
+    ctx.fx['emails'].append(new_email)
+    created, ticket = create_ticket(ctx, who, token)
+    if not expect('TC-016. Redis: обращение создано сессией по SMS: 201', created.status == 201, O.describe(created)):
+        return
+    tid = ticket['ticketId']
+    if not expect('TC-016. Redis: оператор взял обращение: 200', take(ctx, tid).status == 200):
+        return
+    before = sms_count(ctx, who['phone'])
+    stopped = C.sh(G.COMPOSE + ['stop', '-t', '5', 'redis'])
+    if not expect('TC-016. Redis остановлен', stopped.returncode == 0, (stopped.stderr or '')[-200:]):
+        return
+    try:
+        refused = operator_start(ctx, tid, new_email)
+        expect('TC-016. Без Redis оператор называет новый адрес: 503 dependency-unavailable (отказ закрыт: коды без Redis не выдаются)',
+               refused.status == 503 and refused.code() == 'dependency-unavailable', O.describe(refused))
+        time.sleep(3)
+        expect('TC-016. Без Redis SMS на номер покупателя и письмо с кодом на новый адрес не ушли',
+               sms_count(ctx, who['phone']) == before and not stubs.emails(to=new_email, subject=CODE_SUBJECT), '%d SMS' % (sms_count(ctx, who['phone']) - before))
+        ticket_now = SU.body_of(SU.get(token, '%s/%s' % (TICKETS, tid)))
+        expect('TC-016. Без Redis обращение остаётся в работе, смена e-mail не завершена',
+               ticket_now.get('status') == 'in_progress' and (ticket_now.get('emailChange') or {}).get('status') != 'completed', str(ticket_now)[:300])
+        expect('TC-016. Адрес покупателя не изменился: в Keycloak прежний, нового нет',
+               (A.keycloak_user(ctx.admin, who['email']) or {}).get('id') == who['data']['id'] and A.keycloak_user(ctx.admin, new_email) is None, '')
+    finally:
+        C.sh(G.COMPOSE + ['start', 'redis'])
+    if not expect('TC-016. Redis снова здоров', redis_healthy()):
+        return
+    started = None
+    deadline = time.time() + 90
+    while time.time() < deadline:
+        started = operator_start(ctx, tid, new_email)
+        if started.status == 201:
+            break
+        time.sleep(3)
+    state = SU.body_of(started)
+    if not expect('TC-016. После запуска Redis оператор начинает смену заново (сервисы не перезапускались): 201, ждём код из SMS',
+                  started.status == 201 and state.get('status') == 'awaiting_phone_code', O.describe(started)):
+        return
+    phone_code = new_codes(ctx, who['phone'], before)
+    if not expect('TC-016. Redis вернулся: SMS с кодом пришло на номер покупателя (шесть цифр)', phone_code and SIX_DIGITS.fullmatch(phone_code), str(phone_code)):
+        return
+    ctx.secrets.append(phone_code)
+    passed = verify(token, tid, 'phone', phone_code)
+    expect('TC-016. Redis вернулся: верный код из SMS принят, ждём код из письма', passed.status == 200 and SU.body_of(passed).get('status') == 'awaiting_email_code', O.describe(passed))
+    try:
+        letters = stubs.wait_email(to=new_email, subject=CODE_SUBJECT)
+    except Exception as e:   # noqa: BLE001 - письма нет: дальше код брать неоткуда
+        G.bad('TC-016. Redis вернулся: письмо с кодом на новый адрес не пришло', str(e)[-200:])
+        return
+    email_code = (SIX_DIGITS.search(P.body_of(letters[0])) or [None, None])[1]
+    ctx.secrets.append(email_code or '')
+    done = verify(token, tid, 'new_email', email_code or '000000')
+    finished = done.status == 200 and A.eventually(lambda: ((SU.body_of(SU.get(token, '%s/%s' % (TICKETS, tid))).get('emailChange') or {}).get('status')) == 'completed',
+                                                   wait=90, step=3.0)
+    expect('TC-016. Redis вернулся: смена завершена (completed), в Keycloak новый адрес у того же пользователя',
+           bool(finished) and (A.keycloak_user(ctx.admin, new_email) or {}).get('id') == who['data']['id'], O.describe(done))
+    P.email_is_default(stubs, 'TC-016')
+
+
 # --------------------------------------------------------------------------------------------------- запуск
 def main():
     kc, admin = K.from_env(dict(os.environ))
@@ -495,7 +582,7 @@ def main():
     ctx.administrator.token()
     try:
         if O.guarded('raise_ip_limit', raise_ip_limit, ctx):
-            for step in (happy_path, refusals, canary):
+            for step in (happy_path, refusals, canary, redis_outage):
                 O.guarded(step.__name__, step, ctx)
         else:
             G.bad('Лимит с одного IP не поднят, сценарии смены e-mail не запускались')
