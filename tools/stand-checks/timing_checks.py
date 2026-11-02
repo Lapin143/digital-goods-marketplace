@@ -70,14 +70,34 @@ def luhn(digits):
     return total % 10 == 0
 
 
-def card_like(text):
-    """Числа, похожие на номер карты: 13 – 19 цифр (допустимы пробелы и дефисы), префикс платёжной системы, контрольная цифра Луна."""
+CARD_CONTEXT = re.compile(r'(?i)(card|\bpan\b|cvv|cvc|карт|номер|number|\bnum\b)')
+
+
+def card_like(text, bare_needs_context=False):
+    """Числа, похожие на номер карты: 13 – 19 цифр (допустимы пробелы и дефисы), префикс платёжной системы, контрольная цифра Луна.
+
+    bare_needs_context: числа без пробелов и дефисов считаются номером, только если в той же строке за 48 знаков до числа есть слово про карту
+    или номер. Нужно для журналов: служебные числа (счётчики, метки времени, идентификаторы) из 16 цифр проходят префикс и проверку Луна
+    примерно в одном случае из тридцати, поэтому проверка по журналам ложно срабатывала (CI 2 ноября: 4303539032044649)."""
     found = []
     for match in CARD_RUN.finditer(text):
-        digits = re.sub(r'\D', '', match.group(0))
-        if 13 <= len(digits) <= 19 and CARD_PREFIX.match(digits) and luhn(digits):
-            found.append(match.group(0))
+        raw = match.group(0)
+        digits = re.sub(r'\D', '', raw)
+        if not (13 <= len(digits) <= 19 and CARD_PREFIX.match(digits) and luhn(digits)):
+            continue
+        if bare_needs_context and raw == digits:
+            before = text[max(0, match.start() - 48):match.start()].rsplit('\n', 1)[-1]
+            if not CARD_CONTEXT.search(before):
+                continue
+        found.append(raw)
     return found
+
+
+def masked(raw):
+    """Находка для вывода в журнал проверки: видны первые шесть и последние четыре цифры, остальные скрыты."""
+    digits = [i for i, c in enumerate(raw) if c.isdigit()]
+    keep = set(digits[:6] + digits[-4:])
+    return ''.join(c if (not c.isdigit() or i in keep) else '*' for i, c in enumerate(raw))
 
 
 def rows(database, query):
@@ -190,13 +210,13 @@ def card_data():
     logs = C.compose_logs()
     marks = [m for m in re.findall(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', logs)[:1]]
     expect('Контроль: журналы контейнеров (%d КБ) настоящие, в них идентификаторы запросов' % (len(logs) // 1024), len(logs) > 20000 and bool(marks), str(len(logs)))
-    found = card_like(logs)
-    expect('TC-067. В журналах контейнеров стенда чисел, похожих на номер карты, нет', not found, str(found[:3]))
+    found = card_like(logs, bare_needs_context=True)
+    expect('TC-067. В журналах контейнеров стенда чисел, похожих на номер карты, нет', not found, str([masked(f) for f in found[:3]]))
     for database in SCAN_DATABASES:
         text, code, error = P.dump(database)
         expect('Дамп %s снят (%d КБ)' % (database, len(text) // 1024), code == 0 and len(text) > 2000, error)
         found = card_like(text)
-        expect('TC-067. В %s чисел, похожих на номер карты, нет' % database, not found, str(found[:3]))
+        expect('TC-067. В %s чисел, похожих на номер карты, нет' % database, not found, str([masked(f) for f in found[:3]]))
 
 
 def run_scenarios():

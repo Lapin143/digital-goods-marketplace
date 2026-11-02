@@ -47,6 +47,28 @@ class CardTest(unittest.TestCase):
                      'отметка 2026-10-25 09:52:49.123456+00'):
             self.assertEqual(T.card_like(text), [], text)
 
+    def test_log_mode_ignores_bare_service_numbers(self):
+        """Служебное число из 16 цифр, прошедшее проверку Луна (CI 2 ноября: 4303539032044649), в журнале не номер карты."""
+        self.assertTrue(T.luhn('4303539032044649'))
+        for text in ('ts=4303539032044649 ok', 'span 4303539032044649 closed', '{"offset":4303539032044649}'):
+            self.assertEqual(T.card_like(text), ['4303539032044649'], text)
+            self.assertEqual(T.card_like(text, bare_needs_context=True), [], text)
+
+    def test_log_mode_keeps_cards(self):
+        for text, expected in (('оплата 4111 1111 1111 1111 принята', '4111 1111 1111 1111'),
+                               ('card=5555-5555-5555-4444;', '5555-5555-5555-4444'),
+                               ('{"cardNumber":"4111111111111111"}', '4111111111111111'),
+                               ('платёж по карте 4111111111111111', '4111111111111111'),
+                               ('pan: 378282246310005', '378282246310005')):
+            self.assertEqual(T.card_like(text, bare_needs_context=True), [expected], text)
+
+    def test_log_mode_context_is_same_line(self):
+        self.assertEqual(T.card_like('card ok\n4111111111111111', bare_needs_context=True), [])
+
+    def test_masked(self):
+        self.assertEqual(T.masked('4303539032044649'), '430353******4649')
+        self.assertEqual(T.masked('4111 1111 1111 1111'), '4111 11** **** 1111')
+
     def test_ignores_digits_inside_words(self):
         self.assertEqual(T.card_like('\\x4111111111111111abc'), [])
         self.assertEqual(T.card_like('id4111111111111111'), [])
