@@ -58,6 +58,11 @@ def java_files(sub):
     return sorted(glob.glob(os.path.join(KIT, sub, '*.java')))
 
 
+# Типы проблем среза 1 Ф5: записаны в реестр 9.1 на шаге 2 (контракты R2), в коде появятся на шаге 3 руководства Ф5.
+# Список пустеет по мере реализации: тип, который уже есть в коде, из списка нужно убрать. На закрытии среза 1 список пуст.
+PENDING_R2_TYPES = {'issuance-method-mismatch', 'api-key-limit', 'request-expired', 'request-already-answered', 'endpoint-not-allowed'}
+
+
 def problem_types(rep):
     where = 'ProblemType.java / conventions.md 9.1'
     code = {}
@@ -70,8 +75,13 @@ def problem_types(rep):
     doc = {}
     for r in t['rows']:
         doc[r[0].strip('`')] = (int(r[1]), r[2])
-    for k in sorted(set(doc) - set(code)):
+    for k in sorted(set(doc) - set(code) - PENDING_R2_TYPES):
         rep.err(where, 'тип «%s» есть в документе и нет в коде' % k)
+    for k in sorted(PENDING_R2_TYPES):
+        if k not in doc:
+            rep.err(where, 'ожидаемый тип R2 «%s» не записан в реестр 9.1' % k)
+        if k in code:
+            rep.err(where, 'тип R2 «%s» уже есть в коде: уберите его из PENDING_R2_TYPES' % k)
     for k in sorted(set(code) - set(doc)):
         rep.err(where, 'тип «%s» есть в коде и нет в документе: сначала добавляется в реестр 9.1' % k)
     for k in sorted(set(doc) & set(code)):

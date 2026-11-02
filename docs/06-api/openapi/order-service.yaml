@@ -15,6 +15,9 @@ servers:
 tags:
 - name: Заказы
   description: Оформление заказа, платёжная сессия, история и карточка заказа (области `orders.create`, `orders.read`)
+- name: Заказы продавца
+  description: Список заказов продавца без персональных данных покупателя (область `seller.catalog` или API-ключ,
+    R2)
 - name: Внутренние вызовы
   description: Вызовы между сервисами по mTLS
 security: []
@@ -439,6 +442,105 @@ paths:
           $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
         '500':
           $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/seller/orders:
+    get:
+      operationId: listSellerOrders
+      summary: Заказы продавца
+      description: |-
+        Заказы товаров текущего продавца, новые выше (FT-10.1, US-11.2): номер, товар, количество, сумма, комиссия, статус, причина отмены, время оплаты, выдачи и возврата, способ выдачи. Покупатель, e-mail и адрес не возвращаются (INV-44). Чужие заказы не видны ни при каком фильтре (U3); блокировка продавца на чтение не влияет (FT-2.3). Фильтры: `status` (несколько значений через запятую), `createdFrom` включительно, `createdTo` не включая. Читатель работает под ролью `app_orders_read` (ADR-017). Доступна и по API-ключу (`X-Api-Key`, Р-185): личность продавца приходит заголовком шлюза.
+
+        Матрица прав: OP-100. Истории: US-11.2.
+      tags:
+      - Заказы продавца
+      x-release: R2
+      x-matrix-id: OP-100
+      x-stories:
+      - US-11.2
+      x-allowed-roles:
+      - seller
+      x-conditions:
+      - U3
+      x-sms-session: denied
+      x-seller-api: true
+      security:
+      - bearerJwt:
+        - seller.catalog
+      - sellerApiKey: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        description: Статусы через запятую
+        schema:
+          type: string
+          pattern: ^[a-z_]+(,[a-z_]+)*$
+        example: paid,issued
+      - name: createdFrom
+        in: query
+        required: false
+        description: Создан не раньше, RFC 3339
+        schema:
+          type: string
+          format: date-time
+      - name: createdTo
+        in: query
+        required: false
+        description: Создан раньше, RFC 3339
+        schema:
+          type: string
+          format: date-time
+      - $ref: components.yaml#/components/parameters/Limit
+      - $ref: components.yaml#/components/parameters/Cursor
+      responses:
+        '200':
+          description: Страница заказов продавца
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerOrderPage'
+              example:
+                items:
+                - orderId: 0199e0a0-0000-7000-8000-000000000301
+                  orderNumber: 1042
+                  productId: 0199e0a0-0000-7000-8000-000000000202
+                  productTitle: 'Лунная тропа: ключ Steam'
+                  quantity: 2
+                  unitPrice:
+                    amount: 149900
+                    currency: RUB
+                  total:
+                    amount: 299800
+                    currency: RUB
+                  commission:
+                    amount: 29980
+                    currency: RUB
+                  status: issued
+                  cancelReason: null
+                  issuanceMethod: seller_api
+                  createdAt: '2026-11-02T12:00:00.123Z'
+                  paidAt: '2026-11-02T12:01:10.123Z'
+                  issuedAt: '2026-11-02T12:03:40.123Z'
+                  refundedAt: null
+                page:
+                  limit: 20
+                  nextCursor: null
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailed
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
 components:
   schemas:
     PaymentSession:
@@ -489,7 +591,9 @@ components:
         orderNumber:
           type: integer
           format: int64
-          description: 'Короткий номер заказа для людей (FT-5.0): растёт по порядку, уникален, с пропусками. Его называют покупатель и оператор поддержки. Раскрывает общее число заказов, поэтому доступ к заказу проверяется по владельцу, а в путях API остаётся `orderId`'
+          description: 'Короткий номер заказа для людей (FT-5.0): растёт по порядку, уникален, с пропусками. Его
+            называют покупатель и оператор поддержки. Раскрывает общее число заказов, поэтому доступ к заказу проверяется
+            по владельцу, а в путях API остаётся `orderId`'
           minimum: 1001
         productId:
           $ref: components.yaml#/components/schemas/Id
@@ -620,3 +724,94 @@ components:
       - orderId
       - delivery
       - updatedAt
+    SellerOrder:
+      type: object
+      description: 'Заказ глазами продавца (FT-10.1, Р-189). Покупателя, его e-mail и адрес доставки в ответе нет
+        (INV-44): продавцу они не нужны, чтобы исполнить заказ. Цена, сумма и комиссия это снимок на момент заказа
+        (INV-12). Значений ключей нет'
+      properties:
+        orderId:
+          $ref: components.yaml#/components/schemas/Id
+        orderNumber:
+          type: integer
+          format: int64
+          minimum: 1001
+          description: 'Короткий номер заказа: его называет в обращении покупатель, а продавец сверяет со своей
+            системой'
+        productId:
+          $ref: components.yaml#/components/schemas/Id
+        productTitle:
+          type: string
+          description: Название товара на момент заказа (снимок)
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 10
+          description: Количество, от 1 до 10
+        unitPrice:
+          $ref: components.yaml#/components/schemas/Money
+        total:
+          $ref: components.yaml#/components/schemas/Money
+        commission:
+          allOf:
+          - $ref: components.yaml#/components/schemas/Money
+          description: Комиссия платформы с заказа (снимок на момент заказа)
+        status:
+          $ref: components.yaml#/components/schemas/OrderStatus
+        cancelReason:
+          oneOf:
+          - type: string
+            description: Причина отмены, заполнена у `cancelled`. Перечисление открытое
+            enum:
+            - out_of_stock
+            - payment_declined
+            - reservation_expired
+            - payment_session_failed
+            - system_error
+            - seller_api_timeout
+          - type: 'null'
+        issuanceMethod:
+          $ref: components.yaml#/components/schemas/IssuanceMethod
+        createdAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        paidAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+        issuedAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+        refundedAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+      required:
+      - orderId
+      - orderNumber
+      - productId
+      - productTitle
+      - quantity
+      - unitPrice
+      - total
+      - commission
+      - status
+      - cancelReason
+      - issuanceMethod
+      - createdAt
+      - paidAt
+      - issuedAt
+      - refundedAt
+    SellerOrderPage:
+      type: object
+      description: Страница заказов продавца, новые выше
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SellerOrder'
+        page:
+          $ref: components.yaml#/components/schemas/PageInfo
+      required:
+      - items
+      - page

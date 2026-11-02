@@ -11,3 +11,6 @@
 # а tools/docs-checks/check_ledger.py показывает, сколько операций среза ещё не готово.
 
 receiveKeyEmailStatus  done
+
+# Срез 1 Ф5 (R2): контракты шага 2, обработчики по шагам руководства docs/00-phase5-guide.md
+respondSellerDelivery              p5s1

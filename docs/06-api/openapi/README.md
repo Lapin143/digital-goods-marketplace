@@ -1,8 +1,8 @@
-# Контракты REST API (OpenAPI 3.1), релиз R1
+# Контракты REST API (OpenAPI 3.1), релизы R1 и R2
 
 | Поле | Содержание |
 | --- | --- |
-| Состояние | Шаг 11 Ф2. 68 операций в шести сервисах, 965 примеров запросов, ответов и ошибок проверен по схемам |
+| Состояние | Шаг 11 Ф2 и шаг 2 среза 1 Ф5. 82 операции в шести сервисах (68 операций R1, 14 операций R2), 1130 примеров запросов, ответов и ошибок проверен по схемам |
 | Формат | OpenAPI 3.1, YAML, по одному файлу на сервис плюс общий файл компонентов [components.yaml](components.yaml) |
 | Принцип | Contract-first: контракт пишется до кода, сверяется с матрицей прав, историями и доменной моделью, дальше по нему строятся код и контрактные тесты (Ф3) |
 | Правила | [conventions.md](../../05-architecture/conventions.md) (деньги, время, ошибки, страницы, заголовки), [roles-permissions.md](../../05-architecture/roles-permissions.md) (роли, области, условия) |
@@ -14,12 +14,12 @@
 
 | Файл | Сервис | Что описывает | Операций |
 | --- | --- | --- | --- |
-| [catalog-service.yaml](catalog-service.yaml) | `catalog-service` | Заявка продавца и её модерация, товары продавца и модерация товаров, витрина, карточка товара для заказа (внутренний вызов) | 27 |
-| [inventory-service.yaml](inventory-service.yaml) | `inventory-service` | Загрузка пулов ключей и остаток, резерв и подтверждение резерва, значения ключей для письма (внутренние вызовы) | 6 |
-| [order-service.yaml](order-service.yaml) | `order-service` | Оформление заказа, история и карточка заказа, платёжная сессия заказа, обновление адреса доставки (внутренний вызов) | 5 |
+| [catalog-service.yaml](catalog-service.yaml) | `catalog-service` | Заявка продавца и её модерация, товары продавца и модерация товаров, витрина, карточка товара для заказа (внутренний вызов); R2: API-ключи, подключение системы продавца, проверка ключа и адрес продавца (внутренние вызовы) | 35 |
+| [inventory-service.yaml](inventory-service.yaml) | `inventory-service` | Загрузка пулов ключей и остаток, резерв и подтверждение резерва, значения ключей для письма (внутренние вызовы); R2: остаток по API, приём ключей продавца (внутренний вызов) | 8 |
+| [order-service.yaml](order-service.yaml) | `order-service` | Оформление заказа, история и карточка заказа, платёжная сессия заказа, обновление адреса доставки (внутренний вызов); R2: заказы продавца без данных покупателя | 6 |
 | [payment-service.yaml](payment-service.yaml) | `payment-service` | Платёжная сессия (внутренний вызов), вебхук шлюза, очередь ручных возвратов | 4 |
-| [delivery-service.yaml](delivery-service.yaml) | `delivery-service` | Вебхук e-mail-провайдера со статусом письма с ключами | 1 |
-| [platform-service.yaml](platform-service.yaml) | `platform-service` | Подтверждение телефона, обращения и смена e-mail, пользователи и роли, параметры, журнал аудита, коды SMS и e-mail (внутренние вызовы), вебхуки провайдеров | 25 |
+| [delivery-service.yaml](delivery-service.yaml) | `delivery-service` | Вебхук e-mail-провайдера со статусом письма с ключами; R2: ответ системы продавца на запрос выдачи | 2 |
+| [platform-service.yaml](platform-service.yaml) | `platform-service` | Подтверждение телефона, обращения и смена e-mail, пользователи и роли, параметры, журнал аудита, коды SMS и e-mail (внутренние вызовы), вебхуки провайдеров; R2: доставки webhook продавца, счётчик писем на адрес (внутренний вызов) | 27 |
 
 Общие правила:
 
@@ -38,7 +38,7 @@
 
 | Путь | Сервис |
 | --- | --- |
-| `/api/v1/seller/products/{productId}/key-batches`, `.../key-files`, `.../stock` | `inventory-service` |
+| `/api/v1/seller/products/{productId}/key-batches`, `.../key-files`, `.../stock`, `.../api-stock` | `inventory-service` |
 | Остальные пути под `/api/v1/seller/products` | `catalog-service` |
 
 Лимиты и размеры тел задаёт шлюз: тело до 2 МБ (вебхуки до 64 КБ), загрузка ключей 6 раз в час на пользователя, `POST /api/v1/orders` 10 раз в минуту на пользователя. В контрактах они отражены ответами 413 и 429 и описанием операций.
@@ -53,18 +53,21 @@
 | `x-matrix-also` | Другие строки матрицы, исполняемые тем же запросом (правка анкеты в статусе «отклонён» возвращает профиль в «черновик» для повторной заявки: OP-10 и OP-14 в одном `PUT`) |
 | `x-stories` | Истории, к которым относится операция |
 | `x-allowed-roles` | Роли Keycloak, которым разрешена операция. У внутренних вызовов и вебхуков это `system` |
-| `x-conditions` | Условия U1…U18 из матрицы. У чтения условия статуса 409 не дают |
+| `x-conditions` | Условия U1…U24 из матрицы. У чтения условия статуса 409 не дают |
 | `x-sms-session` | `allowed`, если операция доступна из ограниченной сессии по SMS (`orders.read`, `support.write`), иначе `denied` |
 | `x-allowed-callers` | Какие сервисы вправе вызвать внутреннюю операцию (проверка по сертификату) |
 | `x-webhook-secret` | Имя секрета подписи вебхука (`payment_webhook_secret`, `delivery_webhook_secret`, `platform_webhook_secret`). Обязательно у операций со схемой `webhookSignature`, `WebhookSignatureFilter` каркаса берёт ключ из секрета с этим именем (и из `<имя>_previous` при смене ключа) |
 | `x-module` | Модуль базы сервиса, в транзакции которого работает операция. Нужен сервисам с несколькими модулями: `platform-service` (identity, support, notification, audit-admin, audit-writer) и `catalog-service` (`seller_onboarding` для заявки продавца; операции модуля `catalog` поля не задают, это модуль по умолчанию); у остальных сервисов один модуль и поле не задаётся |
 | `x-internal` | `true` у внутренних вызовов |
+| `x-release` | `R2` у операций релиза R2 (у операций R1 поля нет). Линтер сверяет его с таблицей матрицы, где записана строка (раздел 4.2 или 4.4 roles-permissions) |
+| `x-seller-api` | `true` у операций, которые можно вызвать по API-ключу продавца (схема `sellerApiKey`). Список закреплён в roles-permissions, раздел 4.5; без записи в таблице признак отвергается, и наоборот. Сервис принимает заголовок личности от шлюза (`X-Seller-Id`) только у таких операций и только по сертификату `api-gateway` (ADR-027) |
+| `x-no-idempotency` | Причина, по которой у `POST` нет `Idempotency-Key`: операция только читает или идемпотентна по собственному ключу (`checkApiKey`, `respondSellerDelivery`). Строка не короче 20 знаков, у вебхуков и у операций с `Idempotency-Key` поле запрещено |
 | `x-internal-nolocation` | `true` у внутреннего `POST` с ответом 201 без `Location`: созданный ресурс отдельно не читается |
 | `x-idempotency-external-steps` | `true` у операции с `Idempotency-Key`, которая по ходу дела вызывает соседей или внешние системы (`openPaymentSession`, `createOrder`). Охранник идемпотентности не оборачивает такую операцию в транзакцию базы: вызов соседа внутри транзакции нарушает правило 9, а откат общей транзакции стёр бы то, что операция должна оставить при сбое. Ответ сохраняется отдельной короткой транзакцией после выполнения, повтор при сбое между ними выполнит операцию заново, поэтому она обязана быть идемпотентной сама (Р-150, [ADR-006](../../05-architecture/adr/ADR-006-idempotency.md)) |
 
 Параметр `IdempotencyKey` (заголовок `Idempotency-Key`) у изменяющей операции включает охранник идемпотентности каркаса: `gen_routes.py` переносит его в правило маршрута (`idempotent`), и заголовок становится обязательным без правок кода сервиса ([ADR-006](../../05-architecture/adr/ADR-006-idempotency.md)). Допустимо только у операций с `bearerJwt` или `mutualTls`.
 
-Схемы безопасности: `bearerJwt` (HTTP bearer, JWT с областями), `webhookSignature` (заголовки `X-Webhook-Signature` и `X-Webhook-Timestamp`), `mutualTls`.
+Схемы безопасности: `bearerJwt` (HTTP bearer, JWT с областями), `webhookSignature` (заголовки `X-Webhook-Signature` и `X-Webhook-Timestamp`), `mutualTls`, `sellerApiKey` (заголовок `X-Api-Key`, R2: вторая схема у операций из roles-permissions, раздел 4.5; у `respondSellerDelivery` единственная).
 
 ## 4. Владение путями
 
@@ -73,18 +76,20 @@
 | Пути | Сущность | Сервис |
 | --- | --- | --- |
 | `/api/v1/seller-applications`, `/api/v1/staff/seller-applications` | Профиль продавца | `catalog-service` |
+| `/api/v1/seller/api-keys`, `/api/v1/seller/integration`, `/internal/v1/api-keys`, `/internal/v1/sellers` (R2) | Ключ API и подключение системы продавца | `catalog-service` |
 | `/api/v1/seller/products`, `/api/v1/staff/products`, `/api/v1/products`, `/internal/v1/products` | Товар | `catalog-service` |
 | `.../key-batches`, `.../key-files`, `.../stock`, `/internal/v1/keys` | Ключ | `inventory-service` |
-| `/internal/v1/reservations` | Резерв | `inventory-service` |
-| `/api/v1/orders`, `/internal/v1/orders` | Заказ | `order-service` |
+| `/internal/v1/reservations`, `/internal/v1/seller-keys` (R2) | Резерв | `inventory-service` |
+| `/api/v1/orders`, `/internal/v1/orders`, `/api/v1/seller/orders` (R2) | Заказ | `order-service` |
 | `/internal/v1/payment-sessions`, `/api/v1/staff/manual-refunds`, `/api/v1/webhooks/payment-gateway` | Платёж | `payment-service` |
-| `/api/v1/webhooks/email-provider-keys` | Выдача | `delivery-service` |
+| `/api/v1/webhooks/email-provider-keys`, `/api/v1/seller-api/delivery-requests` (R2) | Выдача | `delivery-service` |
 | `/api/v1/phone-confirmations`, `/api/v1/staff/users` | Пользователь | `platform-service` |
 | `/api/v1/support-tickets`, `/api/v1/staff/support-tickets` | Обращение в поддержку | `platform-service` |
 | `/api/v1/staff/parameters` | Параметры платформы | `platform-service` |
 | `/api/v1/staff/audit-records` | Журнал аудита | `platform-service` |
 | `/internal/v1/otp-codes`, `/internal/v1/otp-verifications` | Одноразовый код | `platform-service` |
-| `/api/v1/webhooks/email-provider`, `/api/v1/webhooks/sms-provider` | Уведомление | `platform-service` |
+| `/api/v1/webhooks/email-provider`, `/api/v1/webhooks/sms-provider`, `/api/v1/seller/webhook-deliveries` (R2) | Уведомление | `platform-service` |
+| `/internal/v1/email-quota` (R2) | Счётчик писем на адрес | `platform-service` |
 
 ## 5. Что намеренно не отдано через REST
 
@@ -130,108 +135,125 @@
 <!-- catalog:begin -->
 ### Операции по сервисам
 
-#### `catalog-service`, операций 27
+#### `catalog-service`, операций 35, из них R2: 8
 
-| Метод | Путь | `operationId` | Матрица | Доступ | Роли | Условия | Истории |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| POST | `/api/v1/seller-applications` | `createSellerApplication` | OP-10 | `seller.apply` | `buyer` | U15 | US-2.1 |
-| GET | `/api/v1/seller-applications/current` | `getCurrentSellerApplication` | OP-10 | `seller.apply` | `buyer` | U15 | US-2.1 |
-| PUT | `/api/v1/seller-applications/current` | `replaceSellerApplicationDraft` | OP-10 + OP-14 | `seller.apply` | `buyer` | U14, U15 | US-2.1, US-2.5 |
-| POST | `/api/v1/seller-applications/current/documents` | `uploadSellerDocument` | OP-10 | `seller.apply` | `buyer` | U15 | US-2.1 |
-| DELETE | `/api/v1/seller-applications/current/documents/{documentId}` | `deleteSellerDocument` | OP-10 | `seller.apply` | `buyer` | U15 | US-2.1 |
-| GET | `/api/v1/seller-applications/current/documents/{documentId}/link` | `getSellerDocumentLink` | OP-10 | `seller.apply` | `buyer` | U15 | US-2.1 |
-| POST | `/api/v1/seller-applications/current/submit` | `submitSellerApplication` | OP-10 + OP-14 | `seller.apply` | `buyer` | U14, U15 | US-2.1, US-2.5 |
-| GET | `/api/v1/staff/seller-applications` | `listSellerApplicationQueue` | OP-11 | `staff.moderation` | `moderator` | - | US-2.2 |
-| GET | `/api/v1/staff/seller-applications/{sellerId}` | `getSellerApplicationCard` | OP-11 | `staff.moderation` | `moderator` | - | US-2.2, US-2.3 |
-| POST | `/api/v1/staff/seller-applications/{sellerId}/approve` | `approveSellerApplication` | OP-12 | `staff.moderation` | `moderator` | U6 | US-2.2 |
-| POST | `/api/v1/staff/seller-applications/{sellerId}/reject` | `rejectSellerApplication` | OP-12 | `staff.moderation` | `moderator` | U6 | US-2.3 |
-| POST | `/api/v1/staff/seller-applications/{sellerId}/return` | `returnSellerApplication` | OP-12 | `staff.moderation` | `moderator` | U6 | US-2.3 |
-| GET | `/api/v1/seller/products` | `listSellerProducts` | OP-20 | `seller.catalog` | `seller` | U3 | US-3.1 |
-| POST | `/api/v1/seller/products` | `createSellerProduct` | OP-20 | `seller.catalog` | `seller` | U3 | US-3.1, US-4.1 |
-| GET | `/api/v1/seller/products/{productId}` | `getSellerProduct` | OP-25 | `seller.catalog` | `seller` | U3 | US-3.6 |
-| PUT | `/api/v1/seller/products/{productId}` | `replaceSellerProduct` | OP-25 | `seller.catalog` | `seller` | U3 | US-3.6 |
-| POST | `/api/v1/seller/products/{productId}/submit` | `submitSellerProduct` | OP-21 | `seller.catalog` | `seller` | U3, U4 | US-3.2 |
-| POST | `/api/v1/seller/products/{productId}/archive` | `archiveSellerProduct` | OP-26 | `seller.catalog` | `seller` | U3, U4 | US-3.8 |
-| POST | `/api/v1/seller/products/{productId}/restore` | `restoreSellerProduct` | OP-26 | `seller.catalog` | `seller` | U3, U4 | US-3.8 |
-| GET | `/api/v1/staff/products` | `listProductModerationQueue` | OP-22 | `staff.moderation` | `moderator` | - | US-3.3 |
-| GET | `/api/v1/staff/products/{productId}` | `getProductForModeration` | OP-22 | `staff.moderation` | `moderator` | - | US-3.3 |
-| POST | `/api/v1/staff/products/{productId}/approve` | `approveProduct` | OP-23 | `staff.moderation` | `moderator` | U6 | US-3.3 |
-| POST | `/api/v1/staff/products/{productId}/reject` | `rejectProduct` | OP-23 | `staff.moderation` | `moderator` | U6 | US-3.4 |
-| POST | `/api/v1/staff/products/{productId}/block` | `blockProduct` | OP-24 | `staff.moderation` | `moderator` | U4 | US-3.5 |
-| GET | `/api/v1/products` | `listStorefrontProducts` | OP-28 | публично | `guest`, `buyer`, `seller`, `moderator`, `support-operator`, `admin` | - | US-3.9, US-3.10, US-3.11 |
-| GET | `/api/v1/products/{productId}` | `getStorefrontProduct` | OP-28 | публично | `guest`, `buyer`, `seller`, `moderator`, `support-operator`, `admin` | - | US-3.9 |
-| GET | `/internal/v1/products/{productId}` | `getProductCard` | OP-50 | mTLS: `order-service` | `system` | - | US-5.1 |
+| Метод | Путь | `operationId` | Релиз | Матрица | Доступ | Роли | Условия | Истории |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| POST | `/api/v1/seller-applications` | `createSellerApplication` | R1 | OP-10 | `seller.apply` | `buyer` | U15 | US-2.1 |
+| GET | `/api/v1/seller-applications/current` | `getCurrentSellerApplication` | R1 | OP-10 | `seller.apply` | `buyer` | U15 | US-2.1 |
+| PUT | `/api/v1/seller-applications/current` | `replaceSellerApplicationDraft` | R1 | OP-10 + OP-14 | `seller.apply` | `buyer` | U14, U15 | US-2.1, US-2.5 |
+| POST | `/api/v1/seller-applications/current/documents` | `uploadSellerDocument` | R1 | OP-10 | `seller.apply` | `buyer` | U15 | US-2.1 |
+| DELETE | `/api/v1/seller-applications/current/documents/{documentId}` | `deleteSellerDocument` | R1 | OP-10 | `seller.apply` | `buyer` | U15 | US-2.1 |
+| GET | `/api/v1/seller-applications/current/documents/{documentId}/link` | `getSellerDocumentLink` | R1 | OP-10 | `seller.apply` | `buyer` | U15 | US-2.1 |
+| POST | `/api/v1/seller-applications/current/submit` | `submitSellerApplication` | R1 | OP-10 + OP-14 | `seller.apply` | `buyer` | U14, U15 | US-2.1, US-2.5 |
+| GET | `/api/v1/staff/seller-applications` | `listSellerApplicationQueue` | R1 | OP-11 | `staff.moderation` | `moderator` | - | US-2.2 |
+| GET | `/api/v1/staff/seller-applications/{sellerId}` | `getSellerApplicationCard` | R1 | OP-11 | `staff.moderation` | `moderator` | - | US-2.2, US-2.3 |
+| POST | `/api/v1/staff/seller-applications/{sellerId}/approve` | `approveSellerApplication` | R1 | OP-12 | `staff.moderation` | `moderator` | U6 | US-2.2 |
+| POST | `/api/v1/staff/seller-applications/{sellerId}/reject` | `rejectSellerApplication` | R1 | OP-12 | `staff.moderation` | `moderator` | U6 | US-2.3 |
+| POST | `/api/v1/staff/seller-applications/{sellerId}/return` | `returnSellerApplication` | R1 | OP-12 | `staff.moderation` | `moderator` | U6 | US-2.3 |
+| GET | `/api/v1/seller/products` | `listSellerProducts` | R1 | OP-20 | `seller.catalog` или ключ API | `seller` | U3 | US-3.1 |
+| POST | `/api/v1/seller/products` | `createSellerProduct` | R1 | OP-20 | `seller.catalog` | `seller` | U3 | US-3.1, US-4.1 |
+| GET | `/api/v1/seller/products/{productId}` | `getSellerProduct` | R1 | OP-25 | `seller.catalog` или ключ API | `seller` | U3 | US-3.6 |
+| PUT | `/api/v1/seller/products/{productId}` | `replaceSellerProduct` | R1 | OP-25 | `seller.catalog` | `seller` | U3 | US-3.6 |
+| POST | `/api/v1/seller/products/{productId}/submit` | `submitSellerProduct` | R1 | OP-21 | `seller.catalog` | `seller` | U3, U4 | US-3.2 |
+| POST | `/api/v1/seller/products/{productId}/archive` | `archiveSellerProduct` | R1 | OP-26 | `seller.catalog` | `seller` | U3, U4 | US-3.8 |
+| POST | `/api/v1/seller/products/{productId}/restore` | `restoreSellerProduct` | R1 | OP-26 | `seller.catalog` | `seller` | U3, U4 | US-3.8 |
+| GET | `/api/v1/staff/products` | `listProductModerationQueue` | R1 | OP-22 | `staff.moderation` | `moderator` | - | US-3.3 |
+| GET | `/api/v1/staff/products/{productId}` | `getProductForModeration` | R1 | OP-22 | `staff.moderation` | `moderator` | - | US-3.3 |
+| POST | `/api/v1/staff/products/{productId}/approve` | `approveProduct` | R1 | OP-23 | `staff.moderation` | `moderator` | U6 | US-3.3 |
+| POST | `/api/v1/staff/products/{productId}/reject` | `rejectProduct` | R1 | OP-23 | `staff.moderation` | `moderator` | U6 | US-3.4 |
+| POST | `/api/v1/staff/products/{productId}/block` | `blockProduct` | R1 | OP-24 | `staff.moderation` | `moderator` | U4 | US-3.5 |
+| GET | `/api/v1/products` | `listStorefrontProducts` | R1 | OP-28 | публично | `guest`, `buyer`, `seller`, `moderator`, `support-operator`, `admin` | - | US-3.9, US-3.10, US-3.11 |
+| GET | `/api/v1/products/{productId}` | `getStorefrontProduct` | R1 | OP-28 | публично | `guest`, `buyer`, `seller`, `moderator`, `support-operator`, `admin` | - | US-3.9 |
+| GET | `/internal/v1/products/{productId}` | `getProductCard` | R1 | OP-50 | mTLS: `order-service` | `system` | - | US-5.1 |
+| GET | `/api/v1/seller/api-keys` | `listApiKeys` | R2 | OP-91 | `seller.catalog` | `seller` | U3 | US-11.1 |
+| POST | `/api/v1/seller/api-keys` | `createApiKey` | R2 | OP-90 | `seller.catalog` | `seller` | U3, U20 | US-11.1 |
+| POST | `/api/v1/seller/api-keys/{apiKeyId}/revocation` | `revokeApiKey` | R2 | OP-92 | `seller.catalog` | `seller` | U3, U19 | US-11.1 |
+| GET | `/api/v1/seller/integration` | `getSellerIntegration` | R2 | OP-93 | `seller.catalog` | `seller` | U3 | US-11.3, US-11.4 |
+| PUT | `/api/v1/seller/integration` | `setSellerIntegration` | R2 | OP-94 | `seller.catalog` | `seller` | U3, U21 | US-11.3, US-11.4 |
+| POST | `/api/v1/seller/integration/secret-rotation` | `rotateSellerIntegrationSecret` | R2 | OP-95 | `seller.catalog` | `seller` | U3, U4 | US-11.3, US-11.4 |
+| POST | `/internal/v1/api-keys/check` | `checkApiKey` | R2 | OP-96 | mTLS: `api-gateway` | `system` | - | US-11.1, US-11.2 |
+| GET | `/internal/v1/sellers/{sellerId}/integration` | `getSellerEndpoint` | R2 | OP-97 | mTLS: `delivery-service`, `platform-service` | `system` | - | US-11.3, US-11.4 |
 
-#### `inventory-service`, операций 6
+#### `inventory-service`, операций 8, из них R2: 2
 
-| Метод | Путь | `operationId` | Матрица | Доступ | Роли | Условия | Истории |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| POST | `/api/v1/seller/products/{productId}/key-batches` | `uploadKeyBatch` | OP-36 | `seller.catalog` | `seller` | U3, U4 | US-4.2 |
-| POST | `/api/v1/seller/products/{productId}/key-files` | `uploadKeyFile` | OP-37 | `seller.catalog` | `seller` | U3, U4 | US-4.3 |
-| GET | `/api/v1/seller/products/{productId}/stock` | `getProductStock` | OP-39 | `seller.catalog` | `seller` | U3 | US-4.5 |
-| POST | `/internal/v1/reservations` | `reserveKeys` | OP-51 | mTLS: `order-service` | `system` | - | US-5.2 |
-| POST | `/internal/v1/reservations/confirm` | `confirmReservation` | OP-54 | mTLS: `order-service` | `system` | - | US-5.5 |
-| GET | `/internal/v1/keys` | `getKeyValues` | OP-38 | mTLS: `delivery-service` | `system` | U17 | US-4.4 |
+| Метод | Путь | `operationId` | Релиз | Матрица | Доступ | Роли | Условия | Истории |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| POST | `/api/v1/seller/products/{productId}/key-batches` | `uploadKeyBatch` | R1 | OP-36 | `seller.catalog` или ключ API | `seller` | U3, U4, U22 | US-4.2 |
+| POST | `/api/v1/seller/products/{productId}/key-files` | `uploadKeyFile` | R1 | OP-37 | `seller.catalog` или ключ API | `seller` | U3, U4, U22 | US-4.3 |
+| GET | `/api/v1/seller/products/{productId}/stock` | `getProductStock` | R1 | OP-39 | `seller.catalog` или ключ API | `seller` | U3 | US-4.5 |
+| POST | `/internal/v1/reservations` | `reserveKeys` | R1 | OP-51 | mTLS: `order-service` | `system` | - | US-5.2 |
+| POST | `/internal/v1/reservations/confirm` | `confirmReservation` | R1 | OP-54 | mTLS: `order-service` | `system` | - | US-5.5 |
+| GET | `/internal/v1/keys` | `getKeyValues` | R1 | OP-38 | mTLS: `delivery-service` | `system` | U17 | US-4.4 |
+| PUT | `/api/v1/seller/products/{productId}/api-stock` | `setApiStock` | R2 | OP-98 | `seller.catalog` или ключ API | `seller` | U3, U22 | US-4.7 |
+| POST | `/internal/v1/seller-keys` | `storeSellerKeys` | R2 | OP-99 | mTLS: `delivery-service` | `system` | U23 | US-6.7, US-11.3 |
 
-#### `order-service`, операций 5
+#### `order-service`, операций 6, из них R2: 1
 
-| Метод | Путь | `operationId` | Матрица | Доступ | Роли | Условия | Истории |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| GET | `/api/v1/orders` | `listOrders` | OP-58 | `orders.read` | `buyer` | U1 | US-5.9 |
-| POST | `/api/v1/orders` | `createOrder` | OP-50 | `orders.create` | `buyer` | U2, U16 | US-5.1, US-4.6 |
-| GET | `/api/v1/orders/{orderId}/payment-session` | `getOrderPaymentSession` | OP-52 | `orders.create` | `buyer` | U1, U4 | US-5.3 |
-| GET | `/api/v1/orders/{orderId}` | `getOrder` | OP-58 | `orders.read` | `buyer` | U1 | US-5.9, US-6.6 |
-| POST | `/internal/v1/orders/{orderId}/update-delivery-address` | `updateDeliveryAddress` | OP-72 | mTLS: `platform-service` | `system` | - | US-7.3 |
+| Метод | Путь | `operationId` | Релиз | Матрица | Доступ | Роли | Условия | Истории |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| GET | `/api/v1/orders` | `listOrders` | R1 | OP-58 | `orders.read` | `buyer` | U1 | US-5.9 |
+| POST | `/api/v1/orders` | `createOrder` | R1 | OP-50 | `orders.create` | `buyer` | U2, U16 | US-5.1, US-4.6 |
+| GET | `/api/v1/orders/{orderId}/payment-session` | `getOrderPaymentSession` | R1 | OP-52 | `orders.create` | `buyer` | U1, U4 | US-5.3 |
+| GET | `/api/v1/orders/{orderId}` | `getOrder` | R1 | OP-58 | `orders.read` | `buyer` | U1 | US-5.9, US-6.6 |
+| POST | `/internal/v1/orders/{orderId}/update-delivery-address` | `updateDeliveryAddress` | R1 | OP-72 | mTLS: `platform-service` | `system` | - | US-7.3 |
+| GET | `/api/v1/seller/orders` | `listSellerOrders` | R2 | OP-100 | `seller.catalog` или ключ API | `seller` | U3 | US-11.2 |
 
 #### `payment-service`, операций 4
 
-| Метод | Путь | `operationId` | Матрица | Доступ | Роли | Условия | Истории |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| POST | `/internal/v1/payment-sessions` | `openPaymentSession` | OP-51 | mTLS: `order-service` | `system` | - | US-5.2 |
-| POST | `/api/v1/webhooks/payment-gateway` | `receivePaymentGatewayNotification` | OP-54 | подпись вебхука | `system` | - | US-5.5 |
-| GET | `/api/v1/staff/manual-refunds` | `listManualRefunds` | OP-57 | `staff.admin` | `admin` | U4 | US-5.8 |
-| POST | `/api/v1/staff/manual-refunds/{paymentId}/complete` | `completeManualRefund` | OP-57 | `staff.admin` | `admin` | U4 | US-5.8 |
+| Метод | Путь | `operationId` | Релиз | Матрица | Доступ | Роли | Условия | Истории |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| POST | `/internal/v1/payment-sessions` | `openPaymentSession` | R1 | OP-51 | mTLS: `order-service` | `system` | - | US-5.2 |
+| POST | `/api/v1/webhooks/payment-gateway` | `receivePaymentGatewayNotification` | R1 | OP-54 | подпись вебхука | `system` | - | US-5.5 |
+| GET | `/api/v1/staff/manual-refunds` | `listManualRefunds` | R1 | OP-57 | `staff.admin` | `admin` | U4 | US-5.8 |
+| POST | `/api/v1/staff/manual-refunds/{paymentId}/complete` | `completeManualRefund` | R1 | OP-57 | `staff.admin` | `admin` | U4 | US-5.8 |
 
-#### `delivery-service`, операций 1
+#### `delivery-service`, операций 2, из них R2: 1
 
-| Метод | Путь | `operationId` | Матрица | Доступ | Роли | Условия | Истории |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| POST | `/api/v1/webhooks/email-provider-keys` | `receiveKeyEmailStatus` | OP-60 | подпись вебхука | `system` | - | US-6.3 |
+| Метод | Путь | `operationId` | Релиз | Матрица | Доступ | Роли | Условия | Истории |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| POST | `/api/v1/webhooks/email-provider-keys` | `receiveKeyEmailStatus` | R1 | OP-60 | подпись вебхука | `system` | - | US-6.3 |
+| POST | `/api/v1/seller-api/delivery-requests/{requestId}/answer` | `respondSellerDelivery` | R2 | OP-101 | ключ API | `seller` | U24 | US-11.3, US-6.7 |
 
-#### `platform-service`, операций 25
+#### `platform-service`, операций 27, из них R2: 2
 
-| Метод | Путь | `operationId` | Матрица | Доступ | Роли | Условия | Истории |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| POST | `/api/v1/phone-confirmations` | `createPhoneConfirmation` | OP-06 | `account.manage` | `buyer` | - | US-1.6 |
-| POST | `/api/v1/phone-confirmations/{confirmationId}/verify` | `verifyPhoneConfirmation` | OP-06 | `account.manage` | `buyer` | - | US-1.6 |
-| GET | `/api/v1/support-tickets` | `listSupportTickets` | OP-70 | `support.write` | `buyer`, `system` | U1, U5, U18 | US-7.1 |
-| POST | `/api/v1/support-tickets` | `createSupportTicket` | OP-70 | `support.write` | `buyer`, `system` | U1, U5, U18 | US-7.1 |
-| GET | `/api/v1/support-tickets/{ticketId}` | `getSupportTicket` | OP-70 | `support.write` | `buyer`, `system` | U1, U5, U18 | US-7.1 |
-| POST | `/api/v1/support-tickets/{ticketId}/email-change/codes` | `requestEmailChangeCode` | OP-74 | `support.write` | `buyer` | U1 | US-7.4 |
-| POST | `/api/v1/support-tickets/{ticketId}/email-change/verifications` | `verifyEmailChangeCode` | OP-74 | `support.write` | `buyer` | U1 | US-7.4 |
-| GET | `/api/v1/staff/support-tickets` | `listSupportTicketQueue` | OP-71 | `staff.support` | `support-operator` | U4 | US-7.2 |
-| GET | `/api/v1/staff/support-tickets/{ticketId}` | `getStaffSupportTicket` | OP-71 | `staff.support` | `support-operator` | U4 | US-7.2 |
-| POST | `/api/v1/staff/support-tickets/{ticketId}/take` | `takeSupportTicket` | OP-71 | `staff.support` | `support-operator` | U4 | US-7.2 |
-| POST | `/api/v1/staff/support-tickets/{ticketId}/release` | `releaseSupportTicket` | OP-71 | `staff.support` | `support-operator` | U4 | US-7.2 |
-| POST | `/api/v1/staff/support-tickets/{ticketId}/resend` | `resendKeyForTicket` | OP-72 | `staff.support` | `support-operator` | U4, U10 | US-7.3 |
-| GET | `/api/v1/staff/support-tickets/{ticketId}/email-change` | `getEmailChangeState` | OP-73 | `staff.support` | `support-operator` | U4, U10 | US-7.4 |
-| POST | `/api/v1/staff/support-tickets/{ticketId}/email-change` | `startEmailChange` | OP-73 | `staff.support` | `support-operator` | U4, U10 | US-7.4 |
-| GET | `/api/v1/staff/users` | `listStaffUsers` | OP-80 | `staff.admin` | `admin` | U7, U8 | US-8.1 |
-| POST | `/api/v1/staff/users/{userId}/change-role` | `changeUserRole` | OP-80 | `staff.admin` | `admin` | U7, U8 | US-8.1 |
-| POST | `/api/v1/staff/users/{userId}/deactivate` | `deactivateUser` | OP-81 | `staff.admin` | `admin` | U7 | US-8.2 |
-| POST | `/api/v1/staff/users/{userId}/anonymize` | `anonymizeUser` | OP-82 | `staff.admin` | `admin` | U11 | US-8.2 |
-| GET | `/api/v1/staff/parameters` | `listPlatformParameters` | OP-83 | `staff.admin` | `admin` | U13 | US-8.3 |
-| PUT | `/api/v1/staff/parameters/{key}` | `setPlatformParameter` | OP-83 | `staff.admin` | `admin` | U13 | US-8.3, US-8.4 |
-| GET | `/api/v1/staff/audit-records` | `listAuditRecords` | OP-86 | `staff.audit` | `admin` | - | US-8.7 |
-| POST | `/internal/v1/otp-codes` | `issueOtpCode` | OP-07 | mTLS: `keycloak` | `system` | - | US-1.7 |
-| POST | `/internal/v1/otp-verifications` | `verifyOtpCode` | OP-07 | mTLS: `keycloak` | `system` | - | US-1.7 |
-| POST | `/api/v1/webhooks/email-provider` | `receiveMailStatus` | OP-84 | подпись вебхука | `system` | - | US-8.5 |
-| POST | `/api/v1/webhooks/sms-provider` | `receiveSmsStatus` | OP-06 | подпись вебхука | `system` | - | US-1.6 |
+| Метод | Путь | `operationId` | Релиз | Матрица | Доступ | Роли | Условия | Истории |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| POST | `/api/v1/phone-confirmations` | `createPhoneConfirmation` | R1 | OP-06 | `account.manage` | `buyer` | - | US-1.6 |
+| POST | `/api/v1/phone-confirmations/{confirmationId}/verify` | `verifyPhoneConfirmation` | R1 | OP-06 | `account.manage` | `buyer` | - | US-1.6 |
+| GET | `/api/v1/support-tickets` | `listSupportTickets` | R1 | OP-70 | `support.write` | `buyer`, `system` | U1, U5, U18 | US-7.1 |
+| POST | `/api/v1/support-tickets` | `createSupportTicket` | R1 | OP-70 | `support.write` | `buyer`, `system` | U1, U5, U18 | US-7.1 |
+| GET | `/api/v1/support-tickets/{ticketId}` | `getSupportTicket` | R1 | OP-70 | `support.write` | `buyer`, `system` | U1, U5, U18 | US-7.1 |
+| POST | `/api/v1/support-tickets/{ticketId}/email-change/codes` | `requestEmailChangeCode` | R1 | OP-74 | `support.write` | `buyer` | U1 | US-7.4 |
+| POST | `/api/v1/support-tickets/{ticketId}/email-change/verifications` | `verifyEmailChangeCode` | R1 | OP-74 | `support.write` | `buyer` | U1 | US-7.4 |
+| GET | `/api/v1/staff/support-tickets` | `listSupportTicketQueue` | R1 | OP-71 | `staff.support` | `support-operator` | U4 | US-7.2 |
+| GET | `/api/v1/staff/support-tickets/{ticketId}` | `getStaffSupportTicket` | R1 | OP-71 | `staff.support` | `support-operator` | U4 | US-7.2 |
+| POST | `/api/v1/staff/support-tickets/{ticketId}/take` | `takeSupportTicket` | R1 | OP-71 | `staff.support` | `support-operator` | U4 | US-7.2 |
+| POST | `/api/v1/staff/support-tickets/{ticketId}/release` | `releaseSupportTicket` | R1 | OP-71 | `staff.support` | `support-operator` | U4 | US-7.2 |
+| POST | `/api/v1/staff/support-tickets/{ticketId}/resend` | `resendKeyForTicket` | R1 | OP-72 | `staff.support` | `support-operator` | U4, U10 | US-7.3 |
+| GET | `/api/v1/staff/support-tickets/{ticketId}/email-change` | `getEmailChangeState` | R1 | OP-73 | `staff.support` | `support-operator` | U4, U10 | US-7.4 |
+| POST | `/api/v1/staff/support-tickets/{ticketId}/email-change` | `startEmailChange` | R1 | OP-73 | `staff.support` | `support-operator` | U4, U10 | US-7.4 |
+| GET | `/api/v1/staff/users` | `listStaffUsers` | R1 | OP-80 | `staff.admin` | `admin` | U7, U8 | US-8.1 |
+| POST | `/api/v1/staff/users/{userId}/change-role` | `changeUserRole` | R1 | OP-80 | `staff.admin` | `admin` | U7, U8 | US-8.1 |
+| POST | `/api/v1/staff/users/{userId}/deactivate` | `deactivateUser` | R1 | OP-81 | `staff.admin` | `admin` | U7 | US-8.2 |
+| POST | `/api/v1/staff/users/{userId}/anonymize` | `anonymizeUser` | R1 | OP-82 | `staff.admin` | `admin` | U11 | US-8.2 |
+| GET | `/api/v1/staff/parameters` | `listPlatformParameters` | R1 | OP-83 | `staff.admin` | `admin` | U13 | US-8.3 |
+| PUT | `/api/v1/staff/parameters/{key}` | `setPlatformParameter` | R1 | OP-83 | `staff.admin` | `admin` | U13 | US-8.3, US-8.4 |
+| GET | `/api/v1/staff/audit-records` | `listAuditRecords` | R1 | OP-86 | `staff.audit` | `admin` | - | US-8.7 |
+| POST | `/internal/v1/otp-codes` | `issueOtpCode` | R1 | OP-07 | mTLS: `keycloak` | `system` | - | US-1.7 |
+| POST | `/internal/v1/otp-verifications` | `verifyOtpCode` | R1 | OP-07 | mTLS: `keycloak` | `system` | - | US-1.7 |
+| POST | `/api/v1/webhooks/email-provider` | `receiveMailStatus` | R1 | OP-84 | подпись вебхука | `system` | - | US-8.5 |
+| POST | `/api/v1/webhooks/sms-provider` | `receiveSmsStatus` | R1 | OP-06 | подпись вебхука | `system` | - | US-1.6 |
+| GET | `/api/v1/seller/webhook-deliveries` | `listWebhookDeliveries` | R2 | OP-102 | `seller.catalog` | `seller` | U3 | US-11.4 |
+| POST | `/internal/v1/email-quota/consume` | `consumeEmailQuota` | R2 | OP-103 | mTLS: `keycloak` | `system` | - | US-1.1, US-1.2, US-1.4 |
 
 ### Покрытие историй R1 операциями REST
 
 | История | Операции |
 | --- | --- |
+| US-1.1 | `consumeEmailQuota` |
+| US-1.2 | `consumeEmailQuota` |
+| US-1.4 | `consumeEmailQuota` |
 | US-1.6 | `createPhoneConfirmation`, `verifyPhoneConfirmation`, `receiveSmsStatus` |
 | US-1.7 | `issueOtpCode`, `verifyOtpCode` |
 | US-2.1 | `createSellerApplication`, `getCurrentSellerApplication`, `replaceSellerApplicationDraft`, `uploadSellerDocument`, `deleteSellerDocument`, `getSellerDocumentLink`, `submitSellerApplication` |
@@ -281,12 +303,12 @@
 1. Структуру: пути, методы, уникальные `operationId`, обязательные поля, один успешный ответ, имена путей и параметров.
 2. Ссылки `$ref`, неиспользуемые схемы, ответы, параметры и заголовки.
 3. Ошибки: только типы из реестра 9.1, статус и название совпадают с реестром, у операции есть все обязательные коды (401, 403, 429, 500, а также 404, 409, 412, 413, 415, 422, 428 по её свойствам).
-4. Безопасность: области, роли, условия и признак сессии по SMS равны матрице, у внутренних вызовов совпадают вызывающие с разделом 8.1 матрицы.
-5. Идемпотентность и версии: `Idempotency-Key` у `POST`, `If-Match` у `PUT`, заголовки ответов.
+4. Безопасность: области, роли, условия и признак сессии по SMS равны матрице (4.2 и 4.4), схемы безопасности соответствуют разделу 4.5 (операции по API-ключу) в обе стороны, `x-release` равен релизу строки матрицы, у внутренних вызовов совпадают вызывающие с разделом 8.1 матрицы.
+5. Идемпотентность и версии: `Idempotency-Key` у `POST` (исключение только с `x-no-idempotency` и причиной), `If-Match` у `PUT`, заголовки ответов.
 6. Примеры запросов, ответов и ошибок: проходят по JSON Schema 2020-12, включая форматы `uuid`, `date-time`, `email`, `uri`.
 7. Соглашения: camelCase, идентификаторы ссылаются на `Id`, момент времени на `Timestamp`, деньги это `Money`, перечисления в нижнем регистре, словари статусов и причин совпадают с conventions.md, раздел 7.2.
 8. Покрытие историй R1 в обе стороны, строки матрицы без операции и владение сущностями.
-9. Этот README: таблица без REST, актуальность каталога, число операций в шапке.
+9. Этот README: таблица без REST, актуальность каталога, число операций в шапке (всего, у каждого сервиса).
 
 Запуск из корня репозитория: `python3 tools/docs-checks/check_openapi.py`. Код выхода 0 означает «проблем: 0». Нужны Python 3 с PyYAML и jsonschema.
 

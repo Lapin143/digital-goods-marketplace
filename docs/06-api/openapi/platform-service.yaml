@@ -25,6 +25,9 @@ tags:
   description: Параметры платформы без выпуска новой версии (область `staff.admin`, 2FA)
 - name: Журнал аудита
   description: Чтение журнала аудита (область `staff.audit`, 2FA)
+- name: Webhook продавца
+  description: Доставка уведомлений о заказах в систему продавца и список доставок (область `seller.catalog`, 2FA,
+    R2)
 - name: Коды для Keycloak
   description: Внутренние вызовы расширения `sms-otp` по mTLS
 - name: Вебхуки провайдеров
@@ -609,7 +612,8 @@ paths:
       - name: orderNumber
         in: query
         required: false
-        description: Обращения заказа с этим коротким номером (FT-5.0), с любым статусом, если `status` не задан. Неизвестный номер даёт пустую страницу
+        description: Обращения заказа с этим коротким номером (FT-5.0), с любым статусом, если `status` не задан.
+          Неизвестный номер даёт пустую страницу
         schema:
           type: integer
           format: int64
@@ -1486,7 +1490,8 @@ paths:
                   updatedAt: '2026-10-03T11:00:00.456Z'
                   updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
                 - key: orders.max-unpaid
-                  description: 'Число одновременно неоплаченных заказов пользователя: «создан» и «ожидает оплаты» (FT-5.1, T-12)'
+                  description: 'Число одновременно неоплаченных заказов пользователя: «создан» и «ожидает оплаты»
+                    (FT-5.1, T-12)'
                   unit: count
                   value: 3
                   defaultValue: 3
@@ -1576,7 +1581,8 @@ paths:
                   updatedAt: '2026-10-03T11:00:00.456Z'
                   updatedBy: c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b
                 - key: moderation.review-deadline-seconds
-                  description: Срок рассмотрения заявки продавца и товара от каждой подачи, просрочка даёт метрику (FT-2.1, FT-3.2)
+                  description: Срок рассмотрения заявки продавца и товара от каждой подачи, просрочка даёт метрику
+                    (FT-2.1, FT-3.2)
                   unit: seconds
                   value: 259200
                   defaultValue: 259200
@@ -2063,6 +2069,150 @@ paths:
           $ref: components.yaml#/components/responses/E429RateLimited
         '500':
           $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/seller/webhook-deliveries:
+    get:
+      operationId: listWebhookDeliveries
+      summary: Доставки webhook продавца
+      description: |-
+        Уведомления о заказах, которые платформа отправляла или отправит в систему продавца (FT-10.3, US-11.4): тип события, номер заказа, число попыток, статус, последний код ответа и время следующей попытки. Тела и подписи нет, персональных данных нет. Продавец видит только свои доставки (U3). Ручного повтора нет: платформа повторяет сама с паузами 0, 30 с, 2 мин, 10 мин, 30 мин, 2 ч (Р-193). Только по токену с 2FA, по API-ключу недоступна. Фильтр `status` принимает несколько значений через запятую.
+
+        Матрица прав: OP-102. Истории: US-11.4.
+      tags:
+      - Webhook продавца
+      x-release: R2
+      x-matrix-id: OP-102
+      x-stories:
+      - US-11.4
+      x-allowed-roles:
+      - seller
+      x-conditions:
+      - U3
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - seller.catalog
+      parameters:
+      - name: status
+        in: query
+        required: false
+        description: Статусы через запятую
+        schema:
+          type: string
+          pattern: ^[a-z_]+(,[a-z_]+)*$
+        example: queued,failed
+      - $ref: components.yaml#/components/parameters/Limit
+      - $ref: components.yaml#/components/parameters/Cursor
+      responses:
+        '200':
+          description: Страница доставок
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDeliveryPage'
+              example:
+                items:
+                - deliveryId: 0199e0a0-0000-7000-8000-000000000b02
+                  eventId: 0199e0a0-0000-7000-8000-000000000b01
+                  type: order.issued
+                  orderNumber: 1042
+                  status: queued
+                  attempts: 2
+                  lastResponseCode: 503
+                  lastAttemptAt: '2026-11-02T12:04:10.123Z'
+                  nextAttemptAt: '2026-11-02T12:14:10.123Z'
+                  createdAt: '2026-11-02T12:03:40.123Z'
+                page:
+                  limit: 20
+                  nextCursor: null
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailed
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /internal/v1/email-quota/consume:
+    post:
+      operationId: consumeEmailQuota
+      summary: Занять место в счётчике писем на адрес (внутренний)
+      description: |-
+        Вызывается расширением Keycloak `sms-otp` перед отправкой письма на введённый адрес на шагах регистрации, сброса пароля и запроса e-mail в потоке VK ID (F4-1, Р-194). Счётчик считает по хешу адреса с перцем (3 письма за 10 минут и 10 за сутки, общий для всех шагов, скользящие окна в Redis). Лимит исчерпан: 429 `otp-request-limited`, письмо не отправляется. Если Redis недоступен, отправка запрещена: 503 (как коды SMS, ADR-010). Адрес в журналы не пишется (ADR-014).
+
+        Матрица прав: OP-103. Истории: US-1.1, US-1.2, US-1.4.
+      tags:
+      - Коды для Keycloak
+      x-release: R2
+      x-matrix-id: OP-103
+      x-stories:
+      - US-1.1
+      - US-1.2
+      - US-1.4
+      x-allowed-roles:
+      - system
+      x-conditions: []
+      x-allowed-callers:
+      - keycloak
+      x-internal: true
+      security:
+      - mutualTls: []
+      servers:
+      - url: https://platform-service:8443
+        description: Внутренний адрес сервиса, mTLS, не через шлюз
+      parameters:
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsumeEmailQuotaRequest'
+            example:
+              purpose: vk_email
+              email: buyer@mail.example
+      responses:
+        '200':
+          description: Письмо разрешено
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailQuotaGranted'
+              example:
+                allowed: true
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '403':
+          $ref: components.yaml#/components/responses/E403Forbidden
+        '409':
+          $ref: components.yaml#/components/responses/E409RequestInProgress
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429OtpRequestLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+        '503':
+          $ref: components.yaml#/components/responses/E503DependencyUnavailable
+        '504':
+          $ref: components.yaml#/components/responses/E504GatewayTimeout
 components:
   schemas:
     PhoneConfirmation:
@@ -2263,7 +2413,8 @@ components:
         orderNumber:
           type: integer
           format: int64
-          description: 'Короткий номер заказа из модели чтения поддержки (FT-5.0): по нему оператор находит заказ и обращение'
+          description: 'Короткий номер заказа из модели чтения поддержки (FT-5.0): по нему оператор находит заказ
+            и обращение'
           minimum: 1001
         buyerId:
           $ref: components.yaml#/components/schemas/Id
@@ -2614,12 +2765,14 @@ components:
               before:
                 oneOf:
                 - type: string
-                  description: Значение до изменения или хеш. Число и логическое значение отдаются строкой (`900`, `true`), журнал хранит их как есть
+                  description: Значение до изменения или хеш. Число и логическое значение отдаются строкой (`900`,
+                    `true`), журнал хранит их как есть
                 - type: 'null'
               after:
                 oneOf:
                 - type: string
-                  description: Значение после изменения или хеш. Число и логическое значение отдаются строкой (`1200`, `false`), журнал хранит их как есть
+                  description: Значение после изменения или хеш. Число и логическое значение отдаются строкой (`1200`,
+                    `false`), журнал хранит их как есть
                 - type: 'null'
             required:
             - field
@@ -2773,3 +2926,108 @@ components:
       - status
       - occurredAt
       additionalProperties: false
+    WebhookDelivery:
+      type: object
+      description: 'Уведомление о событии заказа для системы продавца (Р-193). Тела и подписи нет, персональных
+        данных нет. `eventId` один во всех попытках (заголовок `X-Event-Id`): по нему продавец отсекает дубли'
+      properties:
+        deliveryId:
+          $ref: components.yaml#/components/schemas/Id
+        eventId:
+          $ref: components.yaml#/components/schemas/Id
+        type:
+          type: string
+          enum:
+          - order.paid
+          - order.issued
+          - order.cancelled
+          - order.refunded
+          description: Тип события. Перечисление открытое
+        orderNumber:
+          type: integer
+          format: int64
+          minimum: 1001
+          description: Номер заказа
+        status:
+          type: string
+          enum:
+          - queued
+          - sent
+          - failed
+          - skipped
+          description: '`queued`: ждёт отправки или повтора; `sent`: получатель ответил 2xx; `failed`: все шесть
+            попыток исчерпаны; `skipped`: подключение отключено'
+        attempts:
+          type: integer
+          minimum: 0
+          maximum: 6
+          description: Сколько попыток сделано
+        lastResponseCode:
+          oneOf:
+          - type: integer
+            minimum: 100
+            maximum: 599
+            description: Код последнего ответа получателя
+          - type: 'null'
+            description: 'Ответа не было: тайм-аут или обрыв соединения'
+        lastAttemptAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+        nextAttemptAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+        createdAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+      required:
+      - deliveryId
+      - eventId
+      - type
+      - orderNumber
+      - status
+      - attempts
+      - lastResponseCode
+      - lastAttemptAt
+      - nextAttemptAt
+      - createdAt
+    WebhookDeliveryPage:
+      type: object
+      description: Страница доставок webhook, новые выше
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookDelivery'
+        page:
+          $ref: components.yaml#/components/schemas/PageInfo
+      required:
+      - items
+      - page
+    ConsumeEmailQuotaRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - purpose
+      - email
+      description: Запрос на письмо с кодом на адрес (F4-1, Р-194). Платформа считает хеш адреса с перцем и хранит
+        только его
+      properties:
+        purpose:
+          type: string
+          enum:
+          - register
+          - reset
+          - vk_email
+          description: Какой шаг входа собирается отправить письмо. Счётчик общий для всех шагов
+        email:
+          $ref: components.yaml#/components/schemas/Email
+    EmailQuotaGranted:
+      type: object
+      description: Письмо разрешено, счётчик увеличен. Адреса нет
+      properties:
+        allowed:
+          type: boolean
+          description: 'Всегда `true`: отказ приходит как 429'
+      required:
+      - allowed

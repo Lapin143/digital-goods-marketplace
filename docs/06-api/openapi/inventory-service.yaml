@@ -24,9 +24,11 @@ paths:
       operationId: uploadKeyBatch
       summary: Загрузить ключи списком
       description: |-
-        Добавляет ключи в пул товара. Каждый новый ключ шифруется (AES-256-GCM) и сохраняется в статусе `free`, дубликаты по паре «товар, HMAC значения» отклоняются, остальные принимаются (US-4.2). Такое же значение в пуле другого товара дубликатом не считается. Товар должен принадлежать одобренному продавцу (U3) и находиться в статусе `draft`, `on_moderation`, `published` или `rejected` со способом выдачи `key_pool` (U4), иначе 409. Если после загрузки в пуле было бы больше 100000 ключей, список отклоняется целиком (409 `pool-limit-exceeded`). Удалять свободные ключи продавец не может. В списке не больше 10000 ключей, ключ не длиннее 1024 символов. Загрузки идут под лимитом группы продавца на шлюзе (60 запросов в минуту); отдельный лимит «6 загрузок в час» вводится с API продавца в Ф5 (ADR-021).
+        Добавляет ключи в пул товара. Каждый новый ключ шифруется (AES-256-GCM) и сохраняется в статусе `free`, дубликаты по паре «товар, HMAC значения» отклоняются, остальные принимаются (US-4.2). Такое же значение в пуле другого товара дубликатом не считается. Товар должен принадлежать одобренному продавцу (U3) и находиться в статусе `draft`, `on_moderation`, `published` или `rejected` со способом выдачи `key_pool` (U4), иначе 409. Если после загрузки в пуле было бы больше 100000 ключей, список отклоняется целиком (409 `pool-limit-exceeded`). Удалять свободные ключи продавец не может. В списке не больше 10000 ключей, ключ не длиннее 1024 символов. Загрузки идут под лимитом «6 загрузок в час» на продавца, общим для кабинета и API (Р-188, ADR-021), и под общим лимитом группы.
 
         Матрица прав: OP-36. Истории: US-4.2.
+
+        У товара с выдачей по API пула нет: загрузка отвечает 409 `issuance-method-mismatch` (U22, Р-184). Доступна и по API-ключу (`X-Api-Key`, Р-185, US-11.2).
       tags:
       - Пулы ключей
       x-matrix-id: OP-36
@@ -37,10 +39,13 @@ paths:
       x-conditions:
       - U3
       - U4
+      - U22
+      x-seller-api: true
       x-sms-session: denied
       security:
       - bearerJwt:
         - seller.catalog
+      - sellerApiKey: []
       parameters:
       - name: productId
         in: path
@@ -97,7 +102,7 @@ paths:
         '404':
           $ref: components.yaml#/components/responses/E404NotFound
         '409':
-          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressPoolLimitExceeded
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressPoolLimitExceededIssuanceMethodMismatch
         '413':
           $ref: components.yaml#/components/responses/E413PayloadTooLarge
         '415':
@@ -116,6 +121,8 @@ paths:
         Принимает тело `text/csv`: один ключ в строке, кодировка UTF-8, пустые строки считаются некорректными. Правила те же, что у загрузки списком, итог содержит номера отклонённых строк (US-4.3). Пустая строка или строка длиннее 1 КБ отклоняется, остальные принимаются. Тело не больше 2 МБ и 10000 строк, файл читается потоком и нигде не сохраняется, значения не попадают в журналы (ADR-009).
 
         Матрица прав: OP-37. Истории: US-4.3.
+
+        У товара с выдачей по API пула нет: загрузка отвечает 409 `issuance-method-mismatch` (U22, Р-184). Доступна и по API-ключу (`X-Api-Key`, Р-185, US-11.2).
       tags:
       - Пулы ключей
       x-matrix-id: OP-37
@@ -126,10 +133,13 @@ paths:
       x-conditions:
       - U3
       - U4
+      - U22
+      x-seller-api: true
       x-sms-session: denied
       security:
       - bearerJwt:
         - seller.catalog
+      - sellerApiKey: []
       parameters:
       - name: productId
         in: path
@@ -180,7 +190,7 @@ paths:
         '404':
           $ref: components.yaml#/components/responses/E404NotFound
         '409':
-          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressPoolLimitExceeded
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressPoolLimitExceededIssuanceMethodMismatch
         '413':
           $ref: components.yaml#/components/responses/E413PayloadTooLarge
         '415':
@@ -196,9 +206,11 @@ paths:
       operationId: getProductStock
       summary: Остаток своего товара
       description: |-
-        Свободные, зарезервированные и выданные ключи. Остаток товара равен числу свободных ключей (US-4.5). Значений ключей в ответе нет.
+        Свободные, зарезервированные и выданные ключи. Остаток товара с пулом равен числу свободных ключей (US-4.5). Для товара с выдачей по API ответ содержит количество продавца за вычетом резервов, `issuanceMethod = seller_api` и `version` (US-4.7, Р-183). Значений ключей в ответе нет.
 
         Матрица прав: OP-39. Истории: US-4.5.
+
+        Доступна и по API-ключу (`X-Api-Key`, Р-185, US-11.2).
       tags:
       - Пулы ключей
       x-matrix-id: OP-39
@@ -208,10 +220,12 @@ paths:
       - seller
       x-conditions:
       - U3
+      x-seller-api: true
       x-sms-session: denied
       security:
       - bearerJwt:
         - seller.catalog
+      - sellerApiKey: []
       parameters:
       - name: productId
         in: path
@@ -461,6 +475,161 @@ paths:
           $ref: components.yaml#/components/responses/E422ValidationFailed
         '500':
           $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/seller/products/{productId}/api-stock:
+    put:
+      operationId: setApiStock
+      summary: Задать остаток товара с выдачей по API
+      description: |-
+        Продавец сообщает, сколько единиц товара он готов выдать сейчас (FT-4.3, US-4.7): значение заменяет остаток целиком. Версия записи защищает от потерянной правки (ADR-008): пока продавец смотрел форму, заказы уменьшили остаток, поэтому `If-Match` со старой версией даёт 412 `version-conflict`, без заголовка 428. Значение от 0 до 1 000 000, иначе 422. Платформа резервирует и возвращает остаток атомарным условным `UPDATE` (`quantity >= :n`), поэтому он не уходит в минус (INV-09). У товара с пулом ключей остаток по API не ведётся: 409 `issuance-method-mismatch` (U22, Р-184). Доступна и по API-ключу (Р-185). Публикует `stock.changed`.
+
+        Матрица прав: OP-98. Истории: US-4.7.
+      tags:
+      - Пулы ключей
+      x-release: R2
+      x-matrix-id: OP-98
+      x-stories:
+      - US-4.7
+      x-allowed-roles:
+      - seller
+      x-conditions:
+      - U3
+      - U22
+      x-sms-session: denied
+      x-seller-api: true
+      security:
+      - bearerJwt:
+        - seller.catalog
+      - sellerApiKey: []
+      parameters:
+      - name: productId
+        in: path
+        required: true
+        description: Идентификатор своего товара с выдачей по API
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000202
+      - $ref: components.yaml#/components/parameters/IfMatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiStockRequest'
+            example:
+              quantity: 25
+      responses:
+        '200':
+          description: Остаток сохранён
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            ETag:
+              $ref: components.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiStock'
+              example:
+                productId: 0199e0a0-0000-7000-8000-000000000202
+                quantity: 25
+                version: 4
+                updatedAt: '2026-11-02T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409IssuanceMethodMismatch
+        '412':
+          $ref: components.yaml#/components/responses/E412VersionConflict
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailed
+        '428':
+          $ref: components.yaml#/components/responses/E428PreconditionRequired
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /internal/v1/seller-keys:
+    post:
+      operationId: storeSellerKeys
+      summary: Принять ключи продавца для заказа (внутренний)
+      description: |-
+        Вызывает `delivery-service` сразу после ответа продавца (Р-190, ADR-028). Ключи шифруются как обычные (DEK, HMAC значения, INV-03), привязываются к заказу и к его резерву и проходят статусы `free`, `reserved`, `issued` (SM-03) одной транзакцией. Резерв к этому моменту уже `used`: оплату подтвердило `confirmReservation`, ключей он не привязывал (Р-183). Число ключей равно числу единиц в заказе, иначе 422; заказ без резерва по API: 404; резерв не `used` (снят после отмены заказа или не подтверждён): 409 (U23); значение, уже выданное по этому товару, отклоняется как дубликат (INV-03). Повтор с тем же `Idempotency-Key` и теми же ключами возвращает тот же итог. Значения нигде не логируются и в ответ не возвращаются (INV-20).
+
+        Матрица прав: OP-99. Истории: US-6.7, US-11.3.
+      tags:
+      - Внутренние вызовы
+      x-release: R2
+      x-matrix-id: OP-99
+      x-stories:
+      - US-6.7
+      - US-11.3
+      x-allowed-roles:
+      - system
+      x-conditions:
+      - U23
+      x-allowed-callers:
+      - delivery-service
+      x-internal: true
+      security:
+      - mutualTls: []
+      servers:
+      - url: https://inventory-service:8443
+        description: Внутренний адрес сервиса, mTLS, не через шлюз
+      parameters:
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SellerKeysRequest'
+            example:
+              orderId: 0199e0a0-0000-7000-8000-000000000301
+              requestId: 0199e0a0-0000-7000-8000-000000000a01
+              keys:
+              - SELLR-KEY00-00001
+              - SELLR-KEY00-00002
+      responses:
+        '200':
+          description: Ключи приняты
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerKeysStored'
+              example:
+                orderId: 0199e0a0-0000-7000-8000-000000000301
+                stored: 2
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '403':
+          $ref: components.yaml#/components/responses/E403Forbidden
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
 components:
   schemas:
     RejectedLine:
@@ -517,8 +686,8 @@ components:
       - poolLimit
     KeyBatchRequest:
       type: object
-      description: 'Ручная загрузка. Размер тела не больше 2 МБ (предел шлюза), ключей не больше 10000 в запросе: больший пул загружают несколькими
-        запросами'
+      description: 'Ручная загрузка. Размер тела не больше 2 МБ (предел шлюза), ключей не больше 10000 в запросе:
+        больший пул загружают несколькими запросами'
       properties:
         keys:
           type: array
@@ -534,7 +703,8 @@ components:
       additionalProperties: false
     StockInfo:
       type: object
-      description: Остаток товара с пулом ключей по статусам ключей (SM-03). Выданный ключ в остаток не возвращается
+      description: 'Остаток товара: у товара с пулом ключей по статусам ключей (SM-03), у товара с выдачей по API
+        остаток, который задаёт продавец и уменьшают заказы (Р-183). Выданный ключ в остаток не возвращается'
       properties:
         productId:
           $ref: components.yaml#/components/schemas/Id
@@ -552,21 +722,30 @@ components:
           minimum: 0
         poolSize:
           type: integer
-          description: 'Всего ключей в пуле: свободные, в резерве и выданные (аннулированных в R1 нет)'
+          description: 'Всего ключей в пуле: свободные, в резерве и выданные (аннулированных в R1 нет). Только у
+            товара с пулом ключей'
           minimum: 0
         poolLimit:
           type: integer
-          description: Предел пула одного товара
+          description: Предел пула одного товара. Только у товара с пулом ключей
           minimum: 1
         updatedAt:
           $ref: components.yaml#/components/schemas/Timestamp
+        issuanceMethod:
+          allOf:
+          - $ref: components.yaml#/components/schemas/IssuanceMethod
+          description: 'Способ выдачи товара. Для `seller_api` пула нет: `available` это остаток по API (доступно
+            к заказу), `reserved` число единиц в активных резервах, `poolSize` и `poolLimit` не передаются, есть
+            `version` (R2, Р-183, Р-184)'
+        version:
+          type: integer
+          minimum: 0
+          description: Версия остатка по API для `If-Match` в `setApiStock`; только у товара `seller_api`
       required:
       - productId
       - available
       - reserved
       - issued
-      - poolSize
-      - poolLimit
       - updatedAt
     ReserveRequest:
       type: object
@@ -650,3 +829,74 @@ components:
       required:
       - orderId
       - keys
+    ApiStockRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - quantity
+      description: 'Новый остаток товара с выдачей по API (FT-4.3, US-4.7): заменяет текущее значение, а не прибавляется
+        к нему'
+      properties:
+        quantity:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+          description: Сколько единиц продавец готов выдать сейчас. Единицы в заказах уже вычтены из остатка, поэтому
+            правка по устаревшей версии отклоняется (412)
+    ApiStock:
+      type: object
+      description: 'Остаток товара по API после правки: доступное количество и версия записи (Р-183)'
+      properties:
+        productId:
+          $ref: components.yaml#/components/schemas/Id
+        quantity:
+          type: integer
+          minimum: 0
+          description: Остаток, доступный к заказу
+        version:
+          type: integer
+          minimum: 0
+          description: Версия записи, совпадает с `ETag`
+        updatedAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+      required:
+      - productId
+      - quantity
+      - version
+      - updatedAt
+    SellerKeysRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - orderId
+      - requestId
+      - keys
+      description: Ключи, присланные продавцом в ответ на запрос выдачи (Р-190). Значения нигде не логируются (INV-20)
+      properties:
+        orderId:
+          $ref: components.yaml#/components/schemas/Id
+        requestId:
+          $ref: components.yaml#/components/schemas/Id
+        keys:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            type: string
+            minLength: 1
+            maxLength: 1024
+          description: Ровно столько ключей, сколько единиц товара в заказе
+    SellerKeysStored:
+      type: object
+      description: Итог приёма ключей продавца. Значений нет
+      properties:
+        orderId:
+          $ref: components.yaml#/components/schemas/Id
+        stored:
+          type: integer
+          minimum: 1
+          maximum: 10
+          description: Сколько ключей принято
+      required:
+      - orderId
+      - stored

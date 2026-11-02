@@ -10,6 +10,10 @@
 
 Правило операции:
   security bearerJwt          scopes = области из security, roles = x-allowed-roles (токен нужен)
+  security sellerApiKey       R2: вход по API-ключу продавца. Допустим только у операций с x-seller-api: true и наоборот (roles-permissions, раздел 4.5).
+                              Вместе с bearerJwt (токен или ключ): scopes из bearerJwt, добавляется sellerApi = true. Один (только ключ):
+                              scopes = ["seller.api"], roles = x-allowed-roles, sellerApi = true. Личность по ключу приходит заголовком шлюза
+                              (ADR-027), фильтры каркаса читают sellerApi в шаге 3 среза 1 Ф5
   security mutualTls          callers = x-allowed-callers (вход по клиентскому сертификату сервиса, токена нет)
   security webhookSignature   ни областей, ни ролей, ни вызывающих; подпись проверяет WebhookSignatureFilter каркаса, имя секрета
                               берётся из x-webhook-secret (webhookSecret), без него операция не принимается
@@ -18,6 +22,8 @@
   параметр IdempotencyKey     idempotent = true: заголовок обязателен, повтор получает прежний ответ (ADR-006); нужны bearerJwt или mutualTls
   x-module: <имя>             module = модуль базы сервиса, в транзакции которого работает операция (по умолчанию модуль Outbox)
 Что не описано в OpenAPI, закрыто: фильтр отвечает 404 (deny-by-default).
+Операции релиза R2 (x-release: R2) в таблицу шлюза не попадают, пока шаг 5 среза 1 Ф5 не научит шлюз видам входа по ключу и новым группам лимитов:
+у операций R1 с двумя схемами (загрузка пулов, остаток, чтение товаров) шлюз остаётся на токене, поэтому файл шлюза от шага 2 не меняется.
 
 Шлюз (шаг 13) получает свою таблицу services/api-gateway/src/main/resources/dgm/gateway-routes.json: все внешние маршруты шести
 сервисов (внутренние с mutualTls в неё не входят, снаружи они недоступны) плюс сервис-получатель и группа ограничения частоты:
@@ -76,14 +82,22 @@ def rule(service, path, method, op, item_parameters=None):
             kinds.add(scheme)
             if scheme == 'bearerJwt':
                 scopes += list(values or [])
-            elif scheme not in ('mutualTls', 'webhookSignature'):
+            elif scheme not in ('mutualTls', 'webhookSignature', 'sellerApiKey'):
                 raise SpecError('%s: неизвестная схема защиты %s' % (where, scheme))
-    if len(kinds) > 1:
-        raise SpecError('%s: несколько схем защиты (%s), фильтр ждёт одну' % (where, ', '.join(sorted(kinds))))
+    if len(kinds) > 1 and kinds != {'bearerJwt', 'sellerApiKey'}:
+        raise SpecError('%s: несколько схем защиты (%s), фильтр ждёт одну (кроме пары bearerJwt и sellerApiKey)' % (where, ', '.join(sorted(kinds))))
+    key = 'sellerApiKey' in kinds
+    if key != (op.get('x-seller-api') is True):
+        raise SpecError('%s: схема sellerApiKey и x-seller-api: true допустимы только вместе' % where)
     if 'bearerJwt' in kinds:
         roles = list(op.get('x-allowed-roles') or [])
         if not scopes or not roles:
             raise SpecError('%s: bearerJwt без областей или без x-allowed-roles' % where)
+    elif key:
+        roles = list(op.get('x-allowed-roles') or [])
+        scopes = ['seller.api']
+        if not roles:
+            raise SpecError('%s: sellerApiKey без x-allowed-roles' % where)
     if 'mutualTls' in kinds:
         callers = list(op.get('x-allowed-callers') or [])
         if not callers:
@@ -96,11 +110,13 @@ def rule(service, path, method, op, item_parameters=None):
         'roles': roles,
         'callers': callers,
     }
+    if key:
+        item['sellerApi'] = True
     if op.get('x-sms-session') == 'denied':
         item['smsSession'] = 'denied'
     if has_idempotency_key(op.get('parameters')) or has_idempotency_key(item_parameters):
-        if method == 'get' or not (kinds & {'bearerJwt', 'mutualTls'}):
-            raise SpecError('%s: Idempotency-Key допустим у изменяющих операций с токеном или клиентским сертификатом' % where)
+        if method == 'get' or not (kinds & {'bearerJwt', 'mutualTls', 'sellerApiKey'}):
+            raise SpecError('%s: Idempotency-Key допустим у изменяющих операций с токеном, ключом API или клиентским сертификатом' % where)
         item['idempotent'] = True
     if op.get('x-idempotency-external-steps') is not None:
         if op.get('x-idempotency-external-steps') is not True or not item.get('idempotent'):
@@ -173,6 +189,8 @@ def build_gateway():
                 item = rule(service, path, method, op, spec['paths'][path].get('parameters'))
                 if item['callers']:
                     continue          # внутренний вызов по mTLS: через шлюз не ходит
+                if op.get('x-release') == 'R2':
+                    continue          # R2: шлюз получает маршрут на шаге 5 среза 1 Ф5 (виды входа по ключу, группы лимитов)
                 kinds = {scheme for alternative in op['security'] for scheme in alternative}
                 auth = 'token' if 'bearerJwt' in kinds else 'webhook' if 'webhookSignature' in kinds else 'public'
                 entry = {'method': item['method'], 'path': path, 'operationId': item['operationId'], 'service': service, 'auth': auth,

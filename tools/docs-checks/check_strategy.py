@@ -384,6 +384,16 @@ def main():
             cov_exc |= exc
         if len(e2e_ids) != len(set(e2e_ids)):
             rep.err(where, 'в разделе 8 повторяется номер TC')
+        # сквозные сценарии R2 (таблица после таблицы R1): диаграммы SEQ-07 и далее
+        r2_tb = L.find_table(s8, 'Сквозной сценарий R2', 'Диаграммы')
+        if r2_tb:
+            for r in r2_tb['rows']:
+                for d in re.findall(r'\d\d\.\d', r[2]):
+                    if d not in seq_diagrams:
+                        rep.err(where, '%s: диаграммы %s нет в sequence-файлах' % (r[1], d))
+                    cov_diag.add(d)
+                if not re.match(r'TC-9[5-7]\d$', r[1]):
+                    rep.err(where, 'сценарий R2 «%s»: %s не из области TC-950 – TC-974' % (r[0][:30], r[1]))
         want_diag = seq_diagrams - {'01.0'}
         if cov_diag != want_diag:
             rep.err(where, 'сквозные сценарии и диаграммы SEQ расходятся: не покрыты %s, лишние %s'

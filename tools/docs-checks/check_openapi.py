@@ -31,7 +31,7 @@ README = os.path.join(OA, 'README.md')
 SERVICE_ORDER = ['catalog-service', 'inventory-service', 'order-service', 'payment-service',
                  'delivery-service', 'platform-service']
 METHODS = ['get', 'put', 'post', 'patch', 'delete']
-STATUS_CONDITIONS = {'U4', 'U5', 'U6', 'U9', 'U10', 'U14', 'U15', 'U16'}
+STATUS_CONDITIONS = {'U4', 'U5', 'U6', 'U9', 'U10', 'U14', 'U15', 'U16', 'U20', 'U22', 'U23', 'U24'}
 ROLE_ALIAS = {'Гость': 'guest', 'Покупатель': 'buyer', 'Продавец': 'seller', 'Модератор': 'moderator',
               'Оператор': 'support-operator', 'Админ': 'admin', 'Система': 'system'}
 # Владение путями: префикс пути -> сервис (README контрактов, раздел 4)
@@ -41,11 +41,21 @@ OWNERS = [
     ('/api/v1/seller/products/{productId}/key-batches', 'inventory-service'),
     ('/api/v1/seller/products/{productId}/key-files', 'inventory-service'),
     ('/api/v1/seller/products/{productId}/stock', 'inventory-service'),
+    ('/api/v1/seller/products/{productId}/api-stock', 'inventory-service'),
+    ('/api/v1/seller/api-keys', 'catalog-service'),
+    ('/api/v1/seller/integration', 'catalog-service'),
+    ('/api/v1/seller/orders', 'order-service'),
+    ('/api/v1/seller/webhook-deliveries', 'platform-service'),
+    ('/api/v1/seller-api/delivery-requests', 'delivery-service'),
     ('/api/v1/seller/products', 'catalog-service'),
     ('/api/v1/staff/products', 'catalog-service'),
     ('/api/v1/products', 'catalog-service'),
     ('/internal/v1/products', 'catalog-service'),
     ('/internal/v1/keys', 'inventory-service'),
+    ('/internal/v1/seller-keys', 'inventory-service'),
+    ('/internal/v1/api-keys', 'catalog-service'),
+    ('/internal/v1/sellers', 'catalog-service'),
+    ('/internal/v1/email-quota', 'platform-service'),
     ('/internal/v1/reservations', 'inventory-service'),
     ('/api/v1/orders', 'order-service'),
     ('/internal/v1/orders', 'order-service'),
@@ -73,6 +83,10 @@ CALLERS = [
     ('/internal/v1/orders', ['platform-service']),
     ('/internal/v1/otp-codes', ['keycloak']),
     ('/internal/v1/otp-verifications', ['keycloak']),
+    ('/internal/v1/api-keys', ['api-gateway']),
+    ('/internal/v1/sellers', ['delivery-service', 'platform-service']),
+    ('/internal/v1/seller-keys', ['delivery-service']),
+    ('/internal/v1/email-quota', ['keycloak']),
 ]
 
 problems = []
@@ -183,23 +197,31 @@ for r in table_rows(CONV_TEXT, r'^### 7\.3\. Типы и причины')[1:]:
 
 ROLES_TEXT = open(ROLES, encoding='utf-8').read()
 MATRIX = {}
-for r in table_rows(ROLES_TEXT, r'^### 4\.2\. Матрица')[1:]:
-    if not re.match(r'OP-\d+$', r[0]):
-        continue
-    cols = r[5:13]
-    names = ['Гость', 'Покупатель', 'Покупатель SMS', 'Продавец', 'Модератор', 'Оператор', 'Админ', 'Система']
-    cell = dict(zip(names, cols))
-    roles, conds = set(), set()
-    for n, v in cell.items():
-        if n == 'Покупатель SMS':
+for rel, start in (('R1', r'^### 4\.2\. Матрица'), ('R2', r'^### 4\.4\. Матрица R2')):
+    for r in table_rows(ROLES_TEXT, start)[1:]:
+        if not re.match(r'OP-\d+$', r[0]):
             continue
-        if v != 'Нет':
-            roles.add(ROLE_ALIAS[n])
-    for v in cols:
-        conds |= set(re.findall(r'\bU\d+\b', v))
-    MATRIX[r[0]] = dict(
-        stories=re.findall(r'US-\d+\.\d+', r[2]), area=r[3].strip('`'), service=r[4].strip('`'),
-        roles=roles, conds=conds, sms=(cell['Покупатель SMS'] != 'Нет'))
+        cols = r[5:13]
+        names = ['Гость', 'Покупатель', 'Покупатель SMS', 'Продавец', 'Модератор', 'Оператор', 'Админ', 'Система']
+        cell = dict(zip(names, cols))
+        roles, conds = set(), set()
+        for n, v in cell.items():
+            if n == 'Покупатель SMS':
+                continue
+            if v != 'Нет':
+                roles.add(ROLE_ALIAS[n])
+        for v in cols:
+            conds |= set(re.findall(r'\bU\d+\b', v))
+        MATRIX[r[0]] = dict(
+            stories=re.findall(r'US-\d+\.\d+', r[2]), area=r[3].strip('`'), service=r[4].strip('`'),
+            roles=roles, conds=conds, sms=(cell['Покупатель SMS'] != 'Нет'), rel=rel)
+
+# права API-ключа (roles-permissions.md, раздел 4.5): operationId -> (строка матрицы, вход)
+KEYOPS = {}
+for r in table_rows(ROLES_TEXT, r'^### 4\.5\. Что можно вызвать по API-ключу')[1:]:
+    m = re.match(r'`(\w+)`$', r[0])
+    if m:
+        KEYOPS[m.group(1)] = (r[1], 'key' if r[2].startswith('Только ключ') else 'token-or-key')
 
 # истории R1
 STORIES = {}
@@ -554,8 +576,27 @@ def check_security():
                     err('%s: публичная операция с security' % n)
             elif area.startswith('Нет'):
                 err('%s: строка %s (%s) не бывает операцией REST' % (n, mid, area))
-            elif sec != [{'bearerJwt': [area]}]:
-                err('%s: security %s, в матрице область %s' % (n, sec, area))
+            else:
+                key = KEYOPS.get(op.get('operationId'))
+                if key is None:
+                    want_sec = [{'bearerJwt': [area]}]
+                    if op.get('x-seller-api'):
+                        err('%s: x-seller-api без строки в roles-permissions.md, раздел 4.5' % n)
+                elif key[1] == 'key':
+                    want_sec = [{'sellerApiKey': []}]
+                    if area != 'seller.api':
+                        err('%s: операция только по ключу, область в матрице %s, ожидалась seller.api' % (n, area))
+                else:
+                    want_sec = [{'bearerJwt': [area]}, {'sellerApiKey': []}]
+                if key is not None:
+                    if key[0] != mid:
+                        err('%s: в разделе 4.5 строка %s, в операции %s' % (n, key[0], mid))
+                    if op.get('x-seller-api') is not True:
+                        err('%s: операция есть в разделе 4.5, нет x-seller-api: true' % n)
+                elif area == 'seller.api':
+                    err('%s: область seller.api только у операций из раздела 4.5' % n)
+                if sec != want_sec:
+                    err('%s: security %s, в матрице область %s (ожидалось %s)' % (n, sec, area, want_sec))
             for r in rows[1:]:
                 if MATRIX[r]['area'] != area:
                     err('%s: области строк %s и %s различаются' % (n, mid, r))
@@ -597,9 +638,20 @@ def check_security():
                 err('%s: публичная операция с x-internal или x-allowed-callers' % n)
         if o['method'] == 'post' and op.get('x-internal-nolocation') is not None and not internal:
             err('%s: x-internal-nolocation только у внутренних операций' % n)
+        rel = op.get('x-release')
+        if rel not in (None, 'R2'):
+            err('%s: x-release «%s», допустимо только R2 (у операций R1 поля нет)' % (n, rel))
+        if (rel == 'R2') != (MATRIX[mid]['rel'] == 'R2') and not also:
+            err('%s: x-release %s, строка %s матрицы относится к %s' % (n, rel or 'R1', mid, MATRIX[mid]['rel']))
         own = owner_of(o['path'])
         if own != o['svc']:
             err('%s: путь принадлежит сервису %s' % (n, own))
+    # права ключа: каждая строка раздела 4.5 исполняется существующей операцией
+    ids = {o['op'].get('operationId') for o in OPS}
+    for name in sorted(set(KEYOPS) - ids):
+        err('roles-permissions.md, раздел 4.5: операции %s нет в контрактах' % name)
+    if not KEYOPS:
+        err('roles-permissions.md: не найден раздел 4.5 (права API-ключа)')
     # аудит: только чтение
     for o in OPS:
         if o['path'].startswith('/api/v1/staff/audit-records') and o['method'] != 'get':
@@ -620,8 +672,14 @@ def check_headers():
         refs = refs_of(op) + sum([refs_of(x) for x in o['common']], [])
         has = lambda s: any(r.endswith(s) for r in refs)
         webhook = 'webhooks' in o['path']
-        if o['method'] == 'post' and not webhook:
-            if not any(r.endswith('/parameters/IdempotencyKey') for r in refs):
+        exempt = op.get('x-no-idempotency')
+        has_key = any(r.endswith('/parameters/IdempotencyKey') for r in refs)
+        if exempt is not None and (not isinstance(exempt, str) or len(exempt) < 20):
+            err('%s: x-no-idempotency должен быть строкой с причиной (не короче 20 знаков)' % n)
+        if exempt is not None and (webhook or o['method'] != 'post' or has_key):
+            err('%s: x-no-idempotency допустим только у POST без Idempotency-Key, не у вебхука' % n)
+        if o['method'] == 'post' and not webhook and not exempt:
+            if not has_key:
                 err('%s: POST без Idempotency-Key' % n)
         if webhook and any(r.endswith('/parameters/IdempotencyKey') for r in refs):
             err('%s: вебхук с Idempotency-Key (раздел 8.3 conventions.md)' % n)
@@ -642,7 +700,7 @@ def check_headers():
                         err('%s: публичный ответ %s без ETag' % (n, c))
                 if c == '201' and not op.get('x-internal-nolocation') and 'Location' not in hdr:
                     err('%s: 201 без Location' % n)
-                if o['method'] == 'post' and not webhook and c.startswith('2') and 'Idempotency-Replayed' not in hdr:
+                if o['method'] == 'post' and not webhook and not exempt and c.startswith('2') and 'Idempotency-Replayed' not in hdr:
                     err('%s: ответ %s без Idempotency-Replayed' % (n, c))
                 if o['method'] == 'put' and c == '200' and 'ETag' not in hdr:
                     err('%s: PUT 200 без ETag' % n)
@@ -906,8 +964,11 @@ def access(op):
     if not sec:
         return 'публично'
     k = list(sec[0].keys())[0]
+    if k == 'sellerApiKey':
+        return 'ключ API'
     if k == 'bearerJwt':
-        return ', '.join('`%s`' % s for s in sec[0][k])
+        scopes = ', '.join('`%s`' % s for s in sec[0][k])
+        return scopes + ' или ключ API' if any('sellerApiKey' in a for a in sec[1:]) else scopes
     if k == 'mutualTls':
         return 'mTLS: ' + ', '.join('`%s`' % c for c in op.get('x-allowed-callers', []))
     return 'подпись вебхука'
@@ -917,17 +978,18 @@ def build_catalog():
     L = ['### Операции по сервисам', '']
     for svc in SERVICE_ORDER:
         ops = [o for o in OPS if o['svc'] == svc]
-        L.append('#### `%s`, операций %d' % (svc, len(ops)))
+        r2 = len([o for o in ops if o['op'].get('x-release') == 'R2'])
+        L.append('#### `%s`, операций %d%s' % (svc, len(ops), ', из них R2: %d' % r2 if r2 else ''))
         L.append('')
-        L.append('| Метод | Путь | `operationId` | Матрица | Доступ | Роли | Условия | Истории |')
-        L.append('| --- | --- | --- | --- | --- | --- | --- | --- |')
+        L.append('| Метод | Путь | `operationId` | Релиз | Матрица | Доступ | Роли | Условия | Истории |')
+        L.append('| --- | --- | --- | --- | --- | --- | --- | --- | --- |')
         for o in ops:
             op = o['op']
             mat = ' + '.join([op['x-matrix-id']] + op.get('x-matrix-also', []))
             roles = ', '.join('`%s`' % r for r in op.get('x-allowed-roles', []))
             conds = ', '.join(op.get('x-conditions', [])) or '-'
-            L.append('| %s | `%s` | `%s` | %s | %s | %s | %s | %s |' % (
-                o['method'].upper(), o['path'], op['operationId'], mat, access(op), roles, conds,
+            L.append('| %s | `%s` | `%s` | %s | %s | %s | %s | %s | %s |' % (
+                o['method'].upper(), o['path'], op['operationId'], op.get('x-release', 'R1'), mat, access(op), roles, conds,
                 ', '.join(op.get('x-stories', []))))
         L.append('')
     L.append('### Покрытие историй R1 операциями REST')
@@ -960,7 +1022,7 @@ def check_readme(write):
             err('README: каталог операций устарел (python3 check_openapi.py --write-catalog)')
     # число операций в шапке и в таблице файлов
     total = len(OPS)
-    mm = re.search(r'\| Состояние \| .*?(\d+) операций.*?(\d+) пример', README_TEXT)
+    mm = re.search(r'\| Состояние \| .*?(\d+) операци\w*.*?(\d+) пример', README_TEXT)
     if not mm:
         err('README: в шапке нет числа операций и примеров')
     else:
@@ -968,6 +1030,12 @@ def check_readme(write):
             err('README: в шапке %s операций, в контрактах %d' % (mm.group(1), total))
         if int(mm.group(2)) != Counter.total:
             err('README: в шапке %s примеров, фактически %d' % (mm.group(2), Counter.total))
+    r2 = len([o for o in OPS if o['op'].get('x-release') == 'R2'])
+    mm = re.search(r'(\d+) операций R1, (\d+) операций R2', README_TEXT)
+    if not mm:
+        err('README: в шапке нет разбивки «N операций R1, M операций R2»')
+    elif (int(mm.group(1)), int(mm.group(2))) != (total - r2, r2):
+        err('README: в шапке R1 %s и R2 %s, в контрактах %d и %d' % (mm.group(1), mm.group(2), total - r2, r2))
     for svc in SERVICE_ORDER:
         mm = re.search(r'\| \[%s\.yaml\]\(%s\.yaml\) \| `%s` \| .*? \| (\d+) \|' % (svc, svc, svc), README_TEXT)
         cnt = len([o for o in OPS if o['svc'] == svc])

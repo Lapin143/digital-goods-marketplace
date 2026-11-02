@@ -2,7 +2,7 @@
 """Проверка матрицы ролей и прав и модели угроз.
 
 roles-permissions.md:
-  - строки матрицы OP-nn без повторов, столбцы и ячейки из словаря, условия U1..U18 определены и использованы;
+  - строки матрицы OP-nn без повторов, столбцы и ячейки из словаря, условия U1..Un определены и использованы;
   - области токена из таблицы раздела 3, роль получает область только если она названа в столбце «Кто получает»;
   - сессия по SMS: разрешены только операции с областями, которые выдаются этой сессии;
   - роли со вторым фактором совпадают с FT-1.3 (продавец, модератор, оператор поддержки, администратор);
@@ -30,6 +30,7 @@ CELL_RE = re.compile(r'^(Да|Нет|Усл: U\d+(?:, U\d+)*)$')
 SCOPE_NONE = re.compile(r'^Нет, (публичный|Keycloak|внутренний|подпись вебхука|вне API|не существует)$')
 STRIDE = set('STRIDE') | {'R'}
 EXTENSIONS = {'sms-otp'}   # расширение Keycloak, отдельного контейнера нет
+KEY_SCOPES = {'seller.api'}   # область ключа API (R2): её присваивает шлюз, в токене и в таблице раздела 3 её нет
 KEYCLOAK_ROLE = {'Продавец': 'seller', 'Модератор': 'moderator', 'Оператор': 'support-operator', 'Админ': 'admin'}
 RISK_WORDS = ('низкий', 'средний', 'высокий')
 STATUS_WORDS = ('В архитектуре', 'К реализации', 'Ф6', 'Рекомендация v1.6')
@@ -87,6 +88,12 @@ def check_roles(rep):
     if hdr[:5] != ['ID', 'Операция', 'Истории', 'Область', 'Сервис'] or hdr[5:] != ROLE_COLS:
         rep.err('roles-permissions 4.2', 'заголовок матрицы: %s' % hdr)
         return None
+    # R2, срез 1 Ф5: вторая таблица того же формата (раздел 4.4)
+    mt2 = L.table_after(text, r'^### 4\.4\. Матрица R2')
+    if mt2['header'] != hdr:
+        rep.err('roles-permissions 4.4', 'заголовок матрицы R2: %s' % mt2['header'])
+        return None
+    mt = dict(mt, rows=mt['rows'] + mt2['rows'])
     ids = []
     used_conds = set()
     story_in_matrix = set()
@@ -96,7 +103,7 @@ def check_roles(rep):
             rep.err('roles-permissions 4.2', 'строка %s: %d ячеек вместо %d' % (r[0] if r else '?', len(r), len(hdr)))
             continue
         oid = r[0]
-        if not re.match(r'^OP-\d{2}$', oid):
+        if not re.match(r'^OP-\d{2,3}$', oid):
             rep.err('roles-permissions 4.2', 'идентификатор «%s» не в формате OP-nn' % oid)
         ids.append(oid)
         cells = dict(zip(ROLE_COLS, r[5:]))
@@ -111,7 +118,7 @@ def check_roles(rep):
         scode = L.backticked(scope_cell)
         if scode:
             for s in scode:
-                if s not in scopes:
+                if s not in scopes and s not in KEY_SCOPES:
                     rep.err(oid, 'область %s не описана в разделе 3' % s)
         elif not SCOPE_NONE.match(scope_cell):
             rep.err(oid, 'область «%s» не из словаря' % scope_cell)
@@ -120,7 +127,12 @@ def check_roles(rep):
             rep.err(oid, 'сервис «%s» не найден среди контейнеров' % r[4])
         # роли и области
         allowed_cols = [c for c, v in cells.items() if v != 'Нет']
-        if scode and scode[0] in scopes:
+        if scode and scode[0] in KEY_SCOPES:
+            # область ключа: операцию выполняет только продавец (по ключу), остальные роли и «Система» запрещены
+            for col, v in cells.items():
+                if v != 'Нет' and col != 'Продавец':
+                    rep.err(oid, 'операция с областью ключа %s доступна роли «%s»' % (scode[0], col))
+        elif scode and scode[0] in scopes:
             who = scopes[scode[0]]
             for col in allowed_cols:
                 if col == 'Гость' or (col == 'Система' and not cells[col].startswith('Усл')):
@@ -155,7 +167,7 @@ def check_roles(rep):
     dup = sorted(set(i for i in ids if ids.count(i) > 1))
     if dup:
         rep.err('roles-permissions 4.2', 'повторяются строки: %s' % dup)
-    if ids != sorted(ids):
+    if ids != sorted(ids, key=lambda i: int(i[3:])):
         rep.err('roles-permissions 4.2', 'строки идут не по возрастанию ID')
     for u in conds:
         if u not in used_conds and not re.search(r'\b%s\b' % u, text[text.index('## 5.'):]):
@@ -342,7 +354,7 @@ def check_op_refs(rep, matrix_ids):
             if not os.path.isfile(f) or not f.endswith(('.md', '.yaml', '.yml')):
                 continue
             t = L.read(f)
-            for m in re.finditer(r'\bOP-(\d{2})\b', t):
+            for m in re.finditer(r'\bOP-(\d{2,3})\b', t):
                 total += 1
                 if m.group(0) not in matrix_ids:
                     bad += 1

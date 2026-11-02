@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Проверка sequence-диаграмм SEQ-01 … SEQ-06 (docs/05-architecture/sequence-*.md).
+"""Проверка sequence-диаграмм SEQ-01 … SEQ-07 (docs/05-architecture/sequence-*.md).
 
   1. Одна и та же директива оформления (%%{init ...}%%) во всех sequence-диаграммах, по одной на диаграмму.
   2. Участники диаграммы объявлены в разделе 2 файла; участники раздела 2 это контейнеры, внешние системы или люди;
@@ -20,7 +20,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import docslib as L
 
-EXTERNALS = {'payment-gateway', 'email-provider', 'sms-provider', 'vk-id'}
+EXTERNALS = {'payment-gateway', 'email-provider', 'sms-provider', 'vk-id', 'seller-systems'}
 EXTENSIONS = {'sms-otp'}   # расширение Keycloak, отдельного компонента в c4-components нет
 PEOPLE = {'buyer', 'seller', 'moderator', 'operator', 'admin', 'support-operator', 'user', 'browser'}
 STEP_RE = re.compile(r'^(\d+)([a-z]?)\.\s')
@@ -32,9 +32,10 @@ EXPECT = {
     'SEQ-04': dict(E={'BPMN-04': {'E%d' % i for i in range(1, 8)}}, T={'SM-07': {'T1', 'T2', 'T3', 'T4'}}),
     'SEQ-05': dict(E={'BPMN-01': {'E1'}, 'BPMN-04': {'E2'}}, T={}),
     'SEQ-06': dict(E={'BPMN-02': {'E%d' % i for i in range(1, 6)}}, T={'SM-05': {'T%d' % i for i in range(1, 10)}}),
+    'SEQ-07': dict(E={}, T={'SM-06': {'T1', 'T4'}, 'SM-01': {'T8', 'T10'}, 'SM-08': {'T5'}, 'SM-02': {'T4'}}),
 }
 DEFAULT_BPMN = {'SEQ-01': 'BPMN-01', 'SEQ-02': 'BPMN-01', 'SEQ-03': 'BPMN-01', 'SEQ-04': 'BPMN-04',
-                'SEQ-05': None, 'SEQ-06': 'BPMN-02'}
+                'SEQ-05': None, 'SEQ-06': 'BPMN-02', 'SEQ-07': None}
 
 
 def numbers(text):

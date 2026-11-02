@@ -46,13 +46,15 @@ def load_matrix(path=MATRIX):
     """OP-NN -> {роль: 'allow' | 'conditional' | 'deny'}."""
     text = open(path, encoding='utf-8').read()
     matrix = {}
-    for row in table_rows(text, r'^### 4\.2\. Матрица')[1:]:
-        if not re.match(r'OP-\d+$', row[0]):
-            continue
-        cells = dict(zip(COLUMNS, row[5:13]))
-        matrix[row[0]] = {role: classify(cells[role]) for role in ROLES}
-        if classify(cells['buyer-sms']) == 'allow' and matrix[row[0]]['buyer'] == 'deny':
-            matrix[row[0]]['buyer'] = 'allow'
+    # R1 (раздел 4.2) и срезы R2 (раздел 4.4 и далее): колонки одинаковые
+    for start in (r'^### 4\.2\. Матрица', r'^### 4\.4\. Матрица R2'):
+        for row in table_rows(text, start)[1:]:
+            if not re.match(r'OP-\d+$', row[0]):
+                continue
+            cells = dict(zip(COLUMNS, row[5:13]))
+            matrix[row[0]] = {role: classify(cells[role]) for role in ROLES}
+            if classify(cells['buyer-sms']) == 'allow' and matrix[row[0]]['buyer'] == 'deny':
+                matrix[row[0]]['buyer'] = 'allow'
     return matrix
 
 

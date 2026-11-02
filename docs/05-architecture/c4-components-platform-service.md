@@ -169,3 +169,19 @@
 | 2 | Кто считает хеш персонального поля для аудита | Владелец данных: `user-service` для телефона и e-mail | Открытое значение не покидает владельца, в Kafka идёт только хеш ([ADR-014](adr/ADR-014-audit-log-no-pii.md)) |
 | 3 | Как параметры доходят до сервисов | `parameter-service` пишет в сжатую тему `platform.config`, сервисы читают с начала | Новый экземпляр сервиса получает актуальные значения без запроса к `platform-service` |
 | 4 | Что делает `otp-service` при недоступном Redis | Отказывает во входе по коду и подтверждении телефона | Безопасность важнее доступности для кодов ([ADR-010](adr/ADR-010-keycloak-sms-codes.md)) |
+
+## 5. Расширение релиза R2
+
+Рисунок не добавляется (правило 8 нотации о несмешивании R1 и R2). Компоненты среза 1 Ф5 в таблице.
+
+| Компонент | Алиас | Модуль | Spring-слой | Ответственность | События и вызовы |
+| --- | --- | --- | --- | --- | --- |
+| Обработчик событий для продавцов | `seller-webhook-handler` | `notification` | Метод `event-consumer` | По `order.paid`, `order.issued`, `order.cancelled`, `order.refunded` создаёт строку `notification.webhook_delivery` (статус `queued`) для продавца товара, если подключение активно. Тело без персональных данных (INV-44, Р-193) | Читает `order.events` |
+| Отправка webhook | `seller-webhook-job` | `notification` | `@Scheduled`, раз в секунду | Берёт строки с `FOR UPDATE SKIP LOCKED`, получает адрес и версию секрета у `catalog-service` (`getSellerEndpoint`), отправляет подписанный `POST` через `SellerCaller`. Паузы 0, 30 с, 2 мин, 10 мин, 30 мин, 2 ч, затем `failed` | Вызывает `catalog-service`, `seller-systems` |
+| Недоставленные уведомления | `webhook-delivery-controller` | `notification` | `@RestController` | `listWebhookDeliveries`: недоставленные и последние уведомления продавца (US-11.4) | Нет |
+| Счётчик писем | `email-quota-controller` | `identity` | `@RestController`, внутренний | `consumeEmailQuota` для `keycloak`: не больше 3 писем на адрес за 10 минут и 10 за сутки, счётчик по хешу адреса в Redis (Р-194) | Нет |
+
+**Состав среза 1 Ф5.** Статусы строки webhook: `queued`, `sent`, `failed`; идентификатор события одинаков во всех попытках, получатель отсекает дубли ([ADR-011](adr/ADR-011-guaranteed-delivery.md)). Ручного повтора нет. Адрес проверяется против SSRF при каждом вызове (`SellerCaller`, правило 2 среза), секрет подписи считается из мастер-секрета и не хранится (Р-187).
+
+Связи R2 на уровне контейнеров: [c4-containers.md](c4-containers.md), раздел 9.1 (связи 7 и 10).
+

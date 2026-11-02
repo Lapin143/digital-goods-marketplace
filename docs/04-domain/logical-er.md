@@ -147,9 +147,12 @@ erDiagram
     API_KEY["API-ключ продавца"] {
         id id PK "идентификатор"
         id seller_id FK "продавец"
+        text name "имя ключа"
         hash key_hash "хеш ключа"
+        text fingerprint "отпечаток: первые восемь знаков ключа"
         datetime issued_at "дата выпуска"
         datetime last_used_at "дата последнего использования"
+        datetime revoked_at "дата отзыва"
         status status "активен, отозван"
     }
     PRODUCT["Товар"] {

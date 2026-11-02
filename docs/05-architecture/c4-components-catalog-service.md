@@ -43,6 +43,8 @@
 | --- | --- | --- | --- | --- | --- |
 | API-ключи | `api-key-service` | `seller_onboarding` | `@Service` | Выпуск и отзыв API-ключа в кабинете. Хранится только хеш SHA-256, значение показывается один раз (INV-41, NFT-3.4) | `api-key.issued`, `api-key.revoked` |
 | Проверка API-ключа | `api-key-check-controller` | `seller_onboarding` | `@RestController`, внутренний | «Проверить API-ключ» для `api-gateway`: по хешу возвращает продавца и права. Ответ кэширует шлюз на 30 секунд ([ADR-021](adr/ADR-021-api-gateway.md)) | Нет |
+| Подключение системы продавца | `seller-integration-service` | `seller_onboarding` | `@Service` | Адрес `https`, статус и версия секрета подписи; проверка адреса против SSRF при сохранении (U21). Секрет не хранится: он производный от мастер-секрета (Р-187), продавец видит его при подключении и смене | `catalog-service` публикует аудит правок |
+| Контроллер подключения | `seller-integration-controller` | `seller_onboarding` | `@RestController`, кабинет и внутренний | Кабинет: `getSellerIntegration`, `setSellerIntegration`, `rotateSellerIntegrationSecret`. Внутренний `getSellerEndpoint` для `delivery-service` и `platform-service` (список вызывающих задан в контракте) | Нет |
 | Реквизиты продавца | `seller-payout-controller` | `seller_onboarding` | `@RestController`, внутренний | «Реквизиты и статус продавца» для `finance-service` | Нет |
 | Блокировка продавца | `seller-block-handler` | `catalog` | Метод `product-service` | По `seller.blocked` блокирует товары продавца, по `seller.unblocked` возвращает. Внутри сервиса через интерфейс модуля, наружу не выходит | `product.blocked` |
 
@@ -61,6 +63,8 @@
 | Раздел 8: события аудита решений модератора | `seller-profile-service`, `product-service` | `outbox-relay` → `audit.events` |
 | Раздел 8: параметры изменены | `platform-service` | `config-listener` |
 | Раздел 9.1, связь 2 (R2): проверка API-ключа | `api-gateway` | `api-key-check-controller` |
+| Раздел 9.1, связь 8 (R2): адрес и секрет системы продавца | `delivery-service` | `seller-integration-controller` |
+| Раздел 9.1, связь 10 (R2): адрес и секрет для webhook | `platform-service` | `seller-integration-controller` |
 | Раздел 9.2, связь 2 (R2): реквизиты продавца | `finance-service` | `seller-payout-controller` |
 
 ## 3. Компонент → инварианты и требования
@@ -77,7 +81,8 @@
 | `catalog-cache` | | NFT-1.0, NFT-1.1 | Кэш с коротким TTL, сброс после фиксации изменения (Р-85 шага 13 Ф4) |
 | `stock-view-service` | INV-09 | FT-4.3, FT-4.4 | Признак доступности по `stock.changed` |
 | `product-card-controller` | | FT-5.0, NFT-1.2 | Ответ из индекса по идентификатору, список разрешённых вызывающих |
-| `api-key-service` (R2) | INV-41 | FT-10.0, NFT-3.4 | Хранится только хеш, значение один раз |
+| `api-key-service` (R2) | INV-41 | FT-10.0, NFT-3.4, [ADR-027](adr/ADR-027-api-key-access.md) | Хранится только хеш, значение один раз, не больше пяти активных ключей (атомарная проверка при вставке), повтор выпуска значения не возвращает (Р-198) |
+| `seller-integration-service` (R2) | | FT-10.2, FT-10.3, NFT-3.5, [ADR-028](adr/ADR-028-seller-delivery-request.md) | Адрес проходит проверку U21 при сохранении, секрет не хранится, увеличение версии сразу отменяет старый секрет |
 | `moderation-deadline-job` | | FT-2.1, FT-3.2, NFT-6.1 | Только пометка и метрика, статус профиля и товара не меняет (SM-05 и SM-04: перехода по таймеру нет) |
 | `event-consumer`, `config-listener`, `outbox-relay` | INV-43 (публикация аудита) | NFT-2.3, NFT-6.0, [ADR-003](adr/ADR-003-kafka-events.md), [ADR-005](adr/ADR-005-transactional-outbox.md), [ADR-006](adr/ADR-006-idempotency.md) | Общий каркас |
 

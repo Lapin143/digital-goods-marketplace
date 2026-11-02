@@ -36,3 +36,7 @@ resendKeyForTicket       done
 startEmailChange         done
 takeSupportTicket        done
 verifyEmailChangeCode    done
+
+# Срез 1 Ф5 (R2): контракты шага 2, обработчики по шагам руководства docs/00-phase5-guide.md
+listWebhookDeliveries              p5s1
+consumeEmailQuota                  p5s1

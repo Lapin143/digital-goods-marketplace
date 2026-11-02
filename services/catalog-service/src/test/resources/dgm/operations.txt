@@ -38,3 +38,13 @@ getProductForModeration        done
 getStorefrontProduct           done
 listProductModerationQueue     done
 rejectProduct                  done
+
+# Срез 1 Ф5 (R2): контракты шага 2, обработчики по шагам руководства docs/00-phase5-guide.md
+createApiKey                       p5s1
+listApiKeys                        p5s1
+revokeApiKey                       p5s1
+getSellerIntegration               p5s1
+setSellerIntegration               p5s1
+rotateSellerIntegrationSecret      p5s1
+checkApiKey                        p5s1
+getSellerEndpoint                  p5s1

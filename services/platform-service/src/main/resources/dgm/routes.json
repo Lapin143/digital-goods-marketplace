@@ -32,6 +32,19 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/seller/webhook-deliveries",
+      "operationId": "listWebhookDeliveries",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/staff/audit-records",
       "operationId": "listAuditRecords",
       "scopes": [
@@ -313,6 +326,17 @@
       "roles": [],
       "callers": [],
       "webhookSecret": "platform_webhook_secret"
+    },
+    {
+      "method": "POST",
+      "path": "/internal/v1/email-quota/consume",
+      "operationId": "consumeEmailQuota",
+      "scopes": [],
+      "roles": [],
+      "callers": [
+        "keycloak"
+      ],
+      "idempotent": true
     },
     {
       "method": "POST",

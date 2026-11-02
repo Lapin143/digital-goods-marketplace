@@ -197,12 +197,16 @@ flowchart LR
 
 | Компонент | Алиас | Spring-слой | Ответственность | События и вызовы |
 | --- | --- | --- | --- | --- |
-| Клиент API продавца | `seller-api-client` | `@Component`, адаптер | «Запросить ключ» у системы продавца, ответ ждём 10 минут (FT-7.4). Переводит статусы продавца в исходы попытки | Вызывает `seller-systems` |
-| Контроллер ответа продавца | `seller-answer-controller` | `@RestController` | Принимает ответ продавца с ключом (FT-10.2), вызов приходит через `api-gateway` с проверкой API-ключа. Значение ключа живёт только в памяти до формирования письма | Нет |
-| Тайм-аут продавца | `seller-timeout-job` | `@Scheduled` | Запросы без ответа 10 минут передаёт домену | Публикует `delivery.seller-timeout` через домен |
+| Запросы продавцу | `seller-request-service` | `@Service` домена, `@Transactional` | Подсостояние выдачи по товару с выдачей по API: таблица `seller_request` (`requested`, `accepted`, `answered`, `failed`, `timeout`), срок ответа, аренда на время приёма ответа. Создаётся вместе с первичной выдачей по `order.paid` с `issuanceMethod = seller_api` (INV-18), любой переход одним условным `UPDATE` | `delivery.seller-timeout` через Outbox |
+| Отправка запроса продавцу | `seller-request-job` | `@Scheduled`, раз в секунду | Берёт запросы `requested` с `FOR UPDATE SKIP LOCKED`, получает адрес и версию секрета у `catalog-service` (`getSellerEndpoint`, кэш 30 секунд), вызывает `seller-api-client`. Три попытки внутри окна, паузы 5 и 30 секунд | Вызывает `catalog-service` |
+| Клиент API продавца | `seller-api-client` | `@Component`, адаптер поверх `SellerCaller` | «Запросить ключ» у системы продавца, ответ ждём 10 минут (FT-7.4). Только `https`, адрес проверяется при каждом вызове, без перенаправлений, тайм-аут 5 секунд, ответ до 64 КБ, подпись `WebhookSignature`. Переводит статусы продавца в исходы попытки | Вызывает `seller-systems` |
+| Контроллер ответа продавца | `seller-answer-controller` | `@RestController` | Принимает ответ продавца с ключом (FT-10.2), вызов приходит через `api-gateway` с проверкой API-ключа ([ADR-027](adr/ADR-027-api-key-access.md)). Ответ идемпотентен по `requestId`. Значение ключа живёт только в памяти на время вызова `key-client` (`storeSellerKeys`), в базе выдачи его нет (INV-20) | Вызывает `inventory-service` через `key-client` |
+| Тайм-аут продавца | `seller-timeout-job` | `@Scheduled` | Запросы `requested` и `accepted` со сроком в прошлом и без действующей аренды передаёт домену: запрос `timeout`, выдача `failed` с причиной `seller_unavailable`, `delivery.failed` **не** публикуется (ADR-028) | Публикует `delivery.seller-timeout` через домен |
 | Обработчик замены | `key-replacement-handler` | Метод `event-consumer` | По `key.replaced` создаёт повторную выдачу | Читает `key.replaced` |
 
-Связи R2 на уровне контейнеров: [c4-containers.md](c4-containers.md), раздел 9.1.
+**Состав среза 1 Ф5 (решения Р-190 – Р-192 руководства [00-phase5-guide.md](../00-phase5-guide.md), [ADR-028](adr/ADR-028-seller-delivery-request.md), SEQ-07).** Первичную выдачу и строку `seller_request` создаёт `delivery-domain` в транзакции обработчика `order.paid`; `delivery-dispatcher` не берёт выдачу в отправку, пока запрос не `answered` (условие в запросе выбора). Приём ответа идёт в три шага: короткая транзакция проверяет продавца и срок и ставит аренду на 30 секунд, затем вызов `storeSellerKeys` вне транзакции, затем условный `UPDATE` в `answered`. Аренда убирает гонку «ключ сохранён, а заказ уже отменён»: `seller-timeout-job` пропускает запросы с действующей арендой. Письмо после `answered` строится как для пула (`key-value-reader` не участвует: значения читает `key-client` через `getKeyValues`).
+
+Связи R2 на уровне контейнеров: [c4-containers.md](c4-containers.md), раздел 9.1 (связи 5, 6, 8, 9).
 
 ## 5. Компонент → инварианты и требования
 

@@ -55,6 +55,20 @@
       "smsSession": "denied"
     },
     {
+      "method": "GET",
+      "path": "/api/v1/seller/orders",
+      "operationId": "listSellerOrders",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "callers": [],
+      "sellerApi": true,
+      "smsSession": "denied"
+    },
+    {
       "method": "POST",
       "path": "/internal/v1/orders/{orderId}/update-delivery-address",
       "operationId": "updateDeliveryAddress",

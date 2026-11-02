@@ -21,6 +21,10 @@ tags:
   description: 'Кабинет продавца: создание, правка, отправка на модерацию, архив (область `seller.catalog`, 2FA)'
 - name: Модерация товаров
   description: Очередь и решения модератора по товарам (область `staff.moderation`, 2FA)
+- name: Ключи API
+  description: Выпуск и отзыв API-ключей продавца (область `seller.catalog`, 2FA, по ключу недоступно, R2)
+- name: Подключение системы
+  description: Адрес системы продавца и секрет подписи запросов платформы (область `seller.catalog`, 2FA, R2)
 - name: Витрина
   description: Публичный каталог, карточка товара, поиск и фильтры без токена
 - name: Внутренние вызовы
@@ -984,7 +988,7 @@ paths:
       operationId: createSellerProduct
       summary: Создать товар
       description: |-
-        Создаёт товар в статусе `draft` (SM-04, T1), на витрине его нет. Нужны все поля, цена больше нуля. В R1 способ выдачи только `key_pool`, `seller_api` даёт 422. Ключи для создания не нужны, пул загружается отдельно (inventory-service). Продавец должен быть одобрен (U3), иначе 403.
+        Создаёт товар в статусе `draft` (SM-04, T1), на витрине его нет. Нужны все поля, цена больше нуля. Способ выдачи `key_pool` (пул ключей) или `seller_api` (выдача по запросу к системе продавца, R2, Р-184), после создания он не меняется. У товара `seller_api` пула нет, остаток ведёт продавец (`setApiStock`), публикация с нулевым остатком разрешена, витрина покажет «нет в наличии» (INV-09). Ключи для создания не нужны, пул загружается отдельно (inventory-service). Продавец должен быть одобрен (U3), иначе 403.
 
         Матрица прав: OP-20. Истории: US-3.1, US-4.1.
       tags:
@@ -1084,6 +1088,8 @@ paths:
         Товары продавца, новые выше. Фильтр `status` принимает несколько значений через запятую (например `status=draft,rejected`). Продавец видит только свои товары (U3).
 
         Матрица прав: OP-20. Истории: US-3.1.
+
+        Доступна и по API-ключу (`X-Api-Key`, Р-185): личность продавца приходит заголовком шлюза.
       tags:
       - Товары продавца
       x-matrix-id: OP-20
@@ -1093,10 +1099,12 @@ paths:
       - seller
       x-conditions:
       - U3
+      x-seller-api: true
       x-sms-session: denied
       security:
       - bearerJwt:
         - seller.catalog
+      - sellerApiKey: []
       parameters:
       - name: status
         in: query
@@ -1166,6 +1174,8 @@ paths:
         Товар со статусом, причиной отклонения или блокировки и версией для правки. Чужой товар даёт 404.
 
         Матрица прав: OP-25. Истории: US-3.6.
+
+        Доступна и по API-ключу (`X-Api-Key`, Р-185): личность продавца приходит заголовком шлюза.
       tags:
       - Товары продавца
       x-matrix-id: OP-25
@@ -1175,10 +1185,12 @@ paths:
       - seller
       x-conditions:
       - U3
+      x-seller-api: true
       x-sms-session: denied
       security:
       - bearerJwt:
         - seller.catalog
+      - sellerApiKey: []
       parameters:
       - name: productId
         in: path
@@ -1239,7 +1251,7 @@ paths:
       operationId: replaceSellerProduct
       summary: Править товар
       description: |-
-        Заменяет изменяемые поля товара (`PUT`, нужен `If-Match`). В статусах `draft`, `rejected` и `blocked` правка только сохраняется. В статусе `published` правка названия, описания или типа возвращает товар на модерацию и снимает с витрины (T6), правка цены, платформы, региона или способа выдачи статус не меняет (T7); заказы, созданные раньше, сохраняют прежнюю цену. В статусах `on_moderation` и `archived` правка запрещена (409). Новое состояние видно в ответе.
+        Заменяет изменяемые поля товара (`PUT`, нужен `If-Match`). В статусах `draft`, `rejected` и `blocked` правка только сохраняется. В статусе `published` правка названия, описания или типа возвращает товар на модерацию и снимает с витрины (T6), правка цены, платформы или региона статус не меняет (T7); способ выдачи после создания не меняется, другое значение даёт 422 (Р-184); заказы, созданные раньше, сохраняют прежнюю цену. В статусах `on_moderation` и `archived` правка запрещена (409). Новое состояние видно в ответе.
 
         Матрица прав: OP-25. Истории: US-3.6.
       tags:
@@ -2242,6 +2254,526 @@ paths:
           $ref: components.yaml#/components/responses/E404NotFound
         '500':
           $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/seller/api-keys:
+    post:
+      operationId: createApiKey
+      summary: Выпустить API-ключ
+      description: |-
+        Выпускает ключ для системы продавца (FT-10.0, US-11.1). Значение: префикс `dgm_` и 40 символов base64url от 30 случайных байт, показывается **один раз** в ответе, в базе остаётся SHA-256 и отпечаток (INV-41, NFT-3.4). Не больше пяти активных ключей на продавца, иначе 409 `api-key-limit` с `limit`. Профиль продавца должен быть «одобрен» (U3). Доступна только по токену с 2FA: по ключу выпускать ключи нельзя (Р-185). Повтор с тем же `Idempotency-Key` возвращает 201 с метаданными ключа без значения (Р-198): потерявший ответ отзывает ключ и выпускает новый. Публикует `api-key.issued`.
+
+        Матрица прав: OP-90. Истории: US-11.1.
+      tags:
+      - Ключи API
+      x-release: R2
+      x-matrix-id: OP-90
+      x-stories:
+      - US-11.1
+      x-allowed-roles:
+      - seller
+      x-conditions:
+      - U3
+      - U20
+      x-sms-session: denied
+      x-module: seller_onboarding
+      security:
+      - bearerJwt:
+        - seller.catalog
+      parameters:
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiKeyRequest'
+            example:
+              name: Склад ключей
+      responses:
+        '201':
+          description: Ключ выпущен, значение показано один раз
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Location:
+              $ref: components.yaml#/components/headers/Location
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyIssued'
+              example:
+                apiKey:
+                  id: 0199e0a0-0000-7000-8000-000000000901
+                  name: Склад ключей
+                  fingerprint: kJ3x9Zt0
+                  status: active
+                  createdAt: '2026-11-02T12:00:00.123Z'
+                  revokedAt: null
+                value: dgm_kJ3x9Zt0Qw5LmN8RpV2cYbH7sGdFaE4uTi6oXe1A
+                shownOnce: true
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '409':
+          $ref: components.yaml#/components/responses/E409RequestInProgressApiKeyLimit
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedIdempotencyKeyReuse
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+    get:
+      operationId: listApiKeys
+      summary: Список API-ключей
+      description: |-
+        Ключи продавца, новые выше: имя, отпечаток, статус, даты. Значений нет и быть не может. Фильтр `status` (`active`, `revoked`). Доступна только по токену с 2FA (US-11.1).
+
+        Матрица прав: OP-91. Истории: US-11.1.
+      tags:
+      - Ключи API
+      x-release: R2
+      x-matrix-id: OP-91
+      x-stories:
+      - US-11.1
+      x-allowed-roles:
+      - seller
+      x-conditions:
+      - U3
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - seller.catalog
+      parameters:
+      - name: status
+        in: query
+        required: false
+        description: 'Статус ключа: `active` или `revoked`'
+        schema:
+          type: string
+          enum:
+          - active
+          - revoked
+        example: active
+      - $ref: components.yaml#/components/parameters/Limit
+      - $ref: components.yaml#/components/parameters/Cursor
+      responses:
+        '200':
+          description: Страница ключей
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyPage'
+              example:
+                items:
+                - id: 0199e0a0-0000-7000-8000-000000000901
+                  name: Склад ключей
+                  fingerprint: kJ3x9Zt0
+                  status: active
+                  createdAt: '2026-11-02T12:00:00.123Z'
+                  revokedAt: null
+                - id: 0199e0a0-0000-7000-8000-000000000902
+                  name: Тестовый стенд
+                  fingerprint: Xe1AkJ3x
+                  status: revoked
+                  createdAt: '2026-11-02T12:00:00.123Z'
+                  revokedAt: '2026-11-02T13:00:00.123Z'
+                page:
+                  limit: 20
+                  nextCursor: null
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailed
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/seller/api-keys/{apiKeyId}/revocation:
+    post:
+      operationId: revokeApiKey
+      summary: Отозвать API-ключ
+      description: |-
+        Переводит ключ в «отозван» (US-11.1, сценарий 2). Повтор безвреден: отозванный ключ остаётся отозванным, ответ 200. Шлюз перестаёт принимать ключ не позже срока кэша проверки (30 секунд, на стенде 2). Чужой ключ даёт 404 (U19). Публикует `api-key.revoked`. Только по токену с 2FA.
+
+        Матрица прав: OP-92. Истории: US-11.1.
+      tags:
+      - Ключи API
+      x-release: R2
+      x-matrix-id: OP-92
+      x-stories:
+      - US-11.1
+      x-allowed-roles:
+      - seller
+      x-conditions:
+      - U3
+      - U19
+      x-sms-session: denied
+      x-module: seller_onboarding
+      security:
+      - bearerJwt:
+        - seller.catalog
+      parameters:
+      - name: apiKeyId
+        in: path
+        required: true
+        description: Идентификатор своего API-ключа
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000901
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: Ключ отозван
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKey'
+              example:
+                id: 0199e0a0-0000-7000-8000-000000000901
+                name: Склад ключей
+                fingerprint: kJ3x9Zt0
+                status: revoked
+                createdAt: '2026-11-02T12:00:00.123Z'
+                revokedAt: '2026-11-02T13:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/seller/integration:
+    get:
+      operationId: getSellerIntegration
+      summary: Подключение системы продавца
+      description: |-
+        Адрес системы продавца, статус и версия секрета (FT-10.2, FT-10.3, US-11.3, US-11.4). Пока подключения нет, ответ 200 с пустым адресом и версией 0: по этой версии выполняется первое подключение. Секрет не возвращается. В `ETag` версия записи.
+
+        Матрица прав: OP-93. Истории: US-11.3, US-11.4.
+      tags:
+      - Подключение системы
+      x-release: R2
+      x-matrix-id: OP-93
+      x-stories:
+      - US-11.3
+      - US-11.4
+      x-allowed-roles:
+      - seller
+      x-conditions:
+      - U3
+      x-sms-session: denied
+      security:
+      - bearerJwt:
+        - seller.catalog
+      responses:
+        '200':
+          description: Подключение
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            ETag:
+              $ref: components.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerIntegration'
+              example:
+                endpointUrl: https://shop.seller.example/dgm
+                status: active
+                secretVersion: 1
+                version: 1
+                updatedAt: '2026-11-02T12:00:00.123Z'
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+    put:
+      operationId: setSellerIntegration
+      summary: Задать или изменить адрес системы продавца
+      description: |-
+        Сохраняет адрес и статус подключения; нужен `If-Match` (первое подключение: `"0"`). Адрес только `https`, порт 443 или 8443; платформа отвергает внутренние адреса, loopback, link-local и адрес метаданных облака (SSRF, Р-187), иначе 422 `endpoint-not-allowed`. Проверка повторяется при каждом вызове платформы. При первом подключении ответ содержит секрет подписи, он показывается один раз и нигде не сохраняется; потерявший секрет меняет его через `rotateSellerIntegrationSecret`.
+
+        Матрица прав: OP-94. Истории: US-11.3, US-11.4.
+      tags:
+      - Подключение системы
+      x-release: R2
+      x-matrix-id: OP-94
+      x-stories:
+      - US-11.3
+      - US-11.4
+      x-allowed-roles:
+      - seller
+      x-conditions:
+      - U3
+      - U21
+      x-sms-session: denied
+      x-module: seller_onboarding
+      security:
+      - bearerJwt:
+        - seller.catalog
+      parameters:
+      - $ref: components.yaml#/components/parameters/IfMatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SellerIntegrationInput'
+            example:
+              endpointUrl: https://shop.seller.example/dgm
+              status: active
+      responses:
+        '200':
+          description: Подключение сохранено
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            ETag:
+              $ref: components.yaml#/components/headers/ETag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerIntegrationSaved'
+              example:
+                integration:
+                  endpointUrl: https://shop.seller.example/dgm
+                  status: active
+                  secretVersion: 1
+                  version: 1
+                  updatedAt: '2026-11-02T12:00:00.123Z'
+                secret: 9f2c4e6a8b0d1f3a5c7e9b1d3f5a7c9e0b2d4f6a8c0e2a4c6e8b0d2f4a6c8e0a
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '412':
+          $ref: components.yaml#/components/responses/E412VersionConflict
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailedEndpointNotAllowed
+        '428':
+          $ref: components.yaml#/components/responses/E428PreconditionRequired
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/seller/integration/secret-rotation:
+    post:
+      operationId: rotateSellerIntegrationSecret
+      summary: Сменить секрет подписи
+      description: |-
+        Увеличивает версию секрета: прежний секрет перестаёт действовать **сразу**, наложения нет (Р-187). Новый секрет показывается один раз; повтор с тем же `Idempotency-Key` возвращает 200 с версией без секрета (Р-198). Подключения нет (версия 0): 409 `state-conflict` (U4).
+
+        Матрица прав: OP-95. Истории: US-11.3, US-11.4.
+      tags:
+      - Подключение системы
+      x-release: R2
+      x-matrix-id: OP-95
+      x-stories:
+      - US-11.3
+      - US-11.4
+      x-allowed-roles:
+      - seller
+      x-conditions:
+      - U3
+      - U4
+      x-sms-session: denied
+      x-module: seller_onboarding
+      security:
+      - bearerJwt:
+        - seller.catalog
+      parameters:
+      - $ref: components.yaml#/components/parameters/IdempotencyKey
+      responses:
+        '200':
+          description: Секрет сменён
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+            Idempotency-Replayed:
+              $ref: components.yaml#/components/headers/IdempotencyReplayed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecretRotation'
+              example:
+                secretVersion: 2
+                secret: 9f2c4e6a8b0d1f3a5c7e9b1d3f5a7c9e0b2d4f6a8c0e2a4c6e8b0d2f4a6c8e0a
+                shownOnce: true
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequestIdempotencyKeyRequired
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403ForbiddenSecondFactorRequired
+        '409':
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /internal/v1/api-keys/check:
+    post:
+      operationId: checkApiKey
+      summary: Проверить API-ключ по хешу (внутренний)
+      description: |-
+        Шлюз присылает SHA-256 значения ключа, сервис отвечает, активен ли ключ, чей он и в каком статусе профиль продавца (US-11.1, US-11.2). Для неизвестного и отозванного ключа ответ один: `valid = false`. Шлюз кэширует ответ на 30 секунд, отказ на 5 секунд. Операция не меняет данные и без `Idempotency-Key` (исключение для чтения по POST: хеш не должен попадать в адрес или журнал). Тайм-аут вызывающего 1 секунда.
+
+        Матрица прав: OP-96. Истории: US-11.1, US-11.2.
+      tags:
+      - Внутренние вызовы
+      x-release: R2
+      x-matrix-id: OP-96
+      x-stories:
+      - US-11.1
+      - US-11.2
+      x-allowed-roles:
+      - system
+      x-conditions: []
+      x-allowed-callers:
+      - api-gateway
+      x-internal: true
+      x-no-idempotency: 'Чтение по POST: хеш ключа не передаётся в адресе, повтор безвреден'
+      security:
+      - mutualTls: []
+      servers:
+      - url: https://catalog-service:8443
+        description: Внутренний адрес сервиса, mTLS, не через шлюз
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiKeyCheckRequest'
+            example:
+              keyHash: a3c1e5b7d9f0123456789abcdef0123456789abcdef0123456789abcdef01234
+      responses:
+        '200':
+          description: Результат проверки
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyCheck'
+              example:
+                valid: true
+                apiKeyId: 0199e0a0-0000-7000-8000-000000000901
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                sellerStatus: approved
+        '403':
+          $ref: components.yaml#/components/responses/E403Forbidden
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailed
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+  /internal/v1/sellers/{sellerId}/integration:
+    get:
+      operationId: getSellerEndpoint
+      summary: Адрес и версия секрета продавца (внутренний)
+      description: |-
+        Для `delivery-service` (запрос ключа продавцу) и `platform-service` (webhook) (US-11.3, US-11.4): адрес, статус и версия секрета. Секрет вызывающий считает сам из мастер-секрета (Р-187). Подключения нет или оно отключено: 404. Вызывающие кэшируют ответ на 30 секунд. Тайм-аут вызывающего 1 секунда.
+
+        Матрица прав: OP-97. Истории: US-11.3, US-11.4.
+      tags:
+      - Внутренние вызовы
+      x-release: R2
+      x-matrix-id: OP-97
+      x-stories:
+      - US-11.3
+      - US-11.4
+      x-allowed-roles:
+      - system
+      x-conditions: []
+      x-allowed-callers:
+      - delivery-service
+      - platform-service
+      x-internal: true
+      security:
+      - mutualTls: []
+      servers:
+      - url: https://catalog-service:8443
+        description: Внутренний адрес сервиса, mTLS, не через шлюз
+      parameters:
+      - name: sellerId
+        in: path
+        required: true
+        description: Идентификатор профиля продавца
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000101
+      responses:
+        '200':
+          description: Адрес продавца
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerEndpoint'
+              example:
+                sellerId: 0199e0a0-0000-7000-8000-000000000101
+                endpointUrl: https://shop.seller.example/dgm
+                status: active
+                secretVersion: 1
+        '403':
+          $ref: components.yaml#/components/responses/E403Forbidden
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
 components:
   schemas:
     PayoutDetails:
@@ -2510,8 +3042,8 @@ components:
       additionalProperties: false
     ProductInput:
       type: object
-      description: Поля товара при создании и правке. Все поля обязательны. Цена больше нуля. В R1 способ выдачи
-        только `key_pool`
+      description: Поля товара при создании и правке. Все поля обязательны. Цена больше нуля. Способ выдачи `key_pool`
+        или `seller_api` (Р-184) задаётся при создании, при правке другое значение даёт 422
       properties:
         title:
           type: string
@@ -2792,3 +3324,237 @@ components:
       - price
       - issuanceMethod
       - productType
+    ApiKeyRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      description: 'Выпуск ключа: имя нужно продавцу, чтобы отличать ключи разных систем'
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 60
+          description: Имя ключа, не больше 60 символов
+    ApiKey:
+      type: object
+      description: API-ключ продавца без значения (R2, Р-185). Значение показывается один раз при выпуске, в базе
+        хранится только SHA-256 (INV-41)
+      properties:
+        id:
+          $ref: components.yaml#/components/schemas/Id
+        name:
+          type: string
+          description: Имя, заданное при выпуске
+          maxLength: 60
+        fingerprint:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{8}$
+          description: 'Первые восемь символов ключа после префикса `dgm_`: по ним продавец узнаёт ключ в списке,
+            они же в журналах (не секрет)'
+        status:
+          type: string
+          description: 'Статус ключа: `active` или `revoked`'
+          enum:
+          - active
+          - revoked
+        createdAt:
+          $ref: components.yaml#/components/schemas/Timestamp
+        revokedAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+      required:
+      - id
+      - name
+      - fingerprint
+      - status
+      - createdAt
+      - revokedAt
+    ApiKeyIssued:
+      type: object
+      description: 'Результат выпуска ключа. `value` есть только в ответе на первое выполнение запроса. Сохранённый
+        ответ для повтора с тем же `Idempotency-Key` значения не содержит (Р-198): продавец, потерявший ответ, отзывает
+        ключ и выпускает новый'
+      properties:
+        apiKey:
+          $ref: '#/components/schemas/ApiKey'
+        value:
+          type: string
+          pattern: ^dgm_[A-Za-z0-9_-]{40}$
+          description: 'Значение ключа: `dgm_` и 40 символов base64url (30 случайных байт). Показывается один раз'
+        shownOnce:
+          type: boolean
+          description: 'Всегда `true`: значение ключа выдаётся один раз и восстановлению не подлежит'
+      required:
+      - apiKey
+      - shownOnce
+    ApiKeyPage:
+      type: object
+      description: Страница API-ключей продавца, новые выше
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiKey'
+        page:
+          $ref: components.yaml#/components/schemas/PageInfo
+      required:
+      - items
+      - page
+    SellerIntegration:
+      type: object
+      description: Подключение системы продавца (R2, Р-187). Пока не подключено, `endpointUrl` равен `null`, `version`
+        равна 0. Секрет подписи не хранится и в ответах чтения не возвращается
+      properties:
+        endpointUrl:
+          oneOf:
+          - type: string
+            format: uri
+            pattern: ^https://[^\s]+$
+            maxLength: 2048
+            description: Адрес системы продавца, только `https`. Проверка защиты от SSRF выполняется при сохранении
+              и при каждом вызове (Р-187)
+          - type: 'null'
+        status:
+          type: string
+          description: 'Статус подключения: `active` (платформа вызывает адрес) или `disabled`'
+          enum:
+          - active
+          - disabled
+        secretVersion:
+          type: integer
+          minimum: 0
+          description: Версия секрета подписи; растёт при смене, старый секрет перестаёт действовать сразу
+        version:
+          type: integer
+          minimum: 0
+          description: Версия записи для `If-Match`, совпадает с `ETag`
+        updatedAt:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Timestamp
+          - type: 'null'
+      required:
+      - endpointUrl
+      - status
+      - secretVersion
+      - version
+      - updatedAt
+    SellerIntegrationInput:
+      type: object
+      additionalProperties: false
+      required:
+      - endpointUrl
+      description: 'Новое состояние подключения: адрес и необязательное отключение без потери адреса'
+      properties:
+        endpointUrl:
+          type: string
+          format: uri
+          pattern: ^https://[^\s]+$
+          maxLength: 2048
+          description: Адрес системы продавца, только `https`. Проверка защиты от SSRF выполняется при сохранении
+            и при каждом вызове (Р-187)
+        status:
+          type: string
+          enum:
+          - active
+          - disabled
+          default: active
+          description: Желаемый статус, по умолчанию `active`
+    SellerIntegrationSaved:
+      type: object
+      description: Подключение после сохранения. `secret` есть только в ответе на первое подключение (версия 0 стала
+        1) и показывается один раз; этот ответ нигде не сохраняется
+      properties:
+        integration:
+          $ref: '#/components/schemas/SellerIntegration'
+        secret:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+          description: Секрет подписи запросов платформы, 64 символа hex (HMAC-SHA-256 от строки с идентификатором
+            продавца и версией)
+      required:
+      - integration
+    SecretRotation:
+      type: object
+      description: Новая версия секрета подписи. `secret` есть в ответе на первое выполнение; сохранённый ответ
+        для повтора с тем же `Idempotency-Key` секрета не содержит (Р-198)
+      properties:
+        secretVersion:
+          type: integer
+          minimum: 1
+          description: Новая версия секрета
+        secret:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+          description: Новый секрет подписи, показывается один раз
+        shownOnce:
+          type: boolean
+          description: Всегда `true`
+      required:
+      - secretVersion
+      - shownOnce
+    ApiKeyCheckRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - keyHash
+      description: 'Проверка ключа по хешу: значение ключа сервису каталога не передаётся'
+      properties:
+        keyHash:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+          description: SHA-256 значения ключа, 64 символа hex
+    ApiKeyCheck:
+      type: object
+      description: Результат проверки ключа. Неизвестный и отозванный ключ дают `valid = false` без причины (шлюз
+        кэширует ответ)
+      properties:
+        valid:
+          type: boolean
+          description: '`true`, если ключ активен'
+        apiKeyId:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Id
+          - type: 'null'
+        sellerId:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/Id
+          - type: 'null'
+        sellerStatus:
+          oneOf:
+          - $ref: components.yaml#/components/schemas/SellerProfileStatus
+          - type: 'null'
+      required:
+      - valid
+      - apiKeyId
+      - sellerId
+      - sellerStatus
+    SellerEndpoint:
+      type: object
+      description: Адрес и версия секрета продавца для вызовов платформы (внутренний ответ)
+      properties:
+        sellerId:
+          $ref: components.yaml#/components/schemas/Id
+        endpointUrl:
+          type: string
+          format: uri
+          pattern: ^https://[^\s]+$
+          maxLength: 2048
+          description: Адрес системы продавца, только `https`. Проверка защиты от SSRF выполняется при сохранении
+            и при каждом вызове (Р-187)
+        status:
+          type: string
+          enum:
+          - active
+          - disabled
+          description: Статус подключения
+        secretVersion:
+          type: integer
+          minimum: 1
+          description: Версия секрета; секрет вызывающий считает сам
+      required:
+      - sellerId
+      - endpointUrl
+      - status
+      - secretVersion

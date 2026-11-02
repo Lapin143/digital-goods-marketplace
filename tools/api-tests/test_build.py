@@ -53,7 +53,7 @@ def good():
 
 class BuildTest(unittest.TestCase):
     def test_every_operation_has_service_matrix_row_and_roles(self):
-        self.assertEqual(68, len(OPS))
+        self.assertEqual(82, len(OPS))
         for op in OPS.values():
             self.assertTrue(set(op.matrix_ids) <= set(MATRIX), op.id)
 

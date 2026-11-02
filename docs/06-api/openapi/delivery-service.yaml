@@ -6,6 +6,8 @@ info:
     REST API сервиса выдачи. Выдача запускается событием `order.paid` и пользовательских маршрутов не имеет: покупатель видит статус выдачи в карточке заказа, оператор повторяет отправку через обращение (platform-service). Единственный вход по HTTP это вебхук e-mail-провайдера со статусами писем с ключами.
 
     Значения ключей в этом API не передаются: сервис запрашивает их у `inventory-service` по mTLS, вкладывает в письмо и отдаёт провайдеру, не сохраняя (NFT-3.2, ADR-009).
+
+    Для товаров с выдачей по API сервис шлёт подписанный запрос в систему продавца и принимает ответ отдельным вызовом по API-ключу (R2, Р-190). Ключ продавца сразу уходит в `inventory-service`, в базе выдачи его нет.
   license:
     name: Учебный проект, лицензия не задана
     identifier: NOASSERTION
@@ -15,6 +17,8 @@ servers:
 tags:
 - name: Вебхук провайдера
   description: Статусы писем с ключом от e-mail-провайдера без токена, подпись проверяет сервис
+- name: Ответ продавца
+  description: Ответ системы продавца на запрос выдачи ключа, только по API-ключу (R2, ADR-028)
 security: []
 paths:
   /api/v1/webhooks/email-provider-keys:
@@ -73,6 +77,85 @@ paths:
           $ref: components.yaml#/components/responses/E429RateLimited
         '500':
           $ref: components.yaml#/components/responses/E500InternalError
+  /api/v1/seller-api/delivery-requests/{requestId}/answer:
+    post:
+      operationId: respondSellerDelivery
+      summary: Ответить на запрос выдачи ключа
+      description: |-
+        Система продавца присылает ключи (или отказ) по запросу, который платформа отправила на подключённый адрес (US-6.7, US-11.3). Только по API-ключу: ключ продавца должен совпасть с продавцом запроса, иначе 404 как для чужого ресурса (U24). Ответ принимается, пока не истекло окно (по умолчанию 10 минут): ответ, начатый до конца окна, имеет право закончиться, начатый после получает 409 `request-expired`. Платформа проверяет число ключей, шифрует их в `inventory-service` и продолжает выдачу письмом. Если хранилище ключей не ответило, ключи не потеряны: ответ 503, продавец повторяет вызов. Идемпотентность по `requestId` вместо `Idempotency-Key`: те же ключи дают 200 без второго ключа, другие ключи 409 `request-already-answered`. Число ключей не равно числу единиц, дубликат в пуле товара или лишнее поле: 422. Ответ с `error` переводит выдачу в сбой по причине продавца.
+
+        Матрица прав: OP-101. Истории: US-11.3, US-6.7.
+      tags:
+      - Ответ продавца
+      x-release: R2
+      x-matrix-id: OP-101
+      x-stories:
+      - US-11.3
+      - US-6.7
+      x-allowed-roles:
+      - seller
+      x-conditions:
+      - U24
+      x-sms-session: denied
+      x-seller-api: true
+      x-no-idempotency: 'Идемпотентность по requestId: повтор того же ответа возвращает тот же итог, другой ответ
+        409'
+      security:
+      - sellerApiKey: []
+      parameters:
+      - name: requestId
+        in: path
+        required: true
+        description: Идентификатор запроса выдачи из тела запроса платформы
+        schema:
+          $ref: components.yaml#/components/schemas/Id
+        example: 0199e0a0-0000-7000-8000-000000000a01
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SellerAnswerRequest'
+            example:
+              keys:
+              - SELLR-KEY00-00001
+              - SELLR-KEY00-00002
+      responses:
+        '200':
+          description: Ответ принят (в том числе повтор того же ответа)
+          headers:
+            X-Correlation-Id:
+              $ref: components.yaml#/components/headers/CorrelationId
+            Cache-Control:
+              $ref: components.yaml#/components/headers/CacheControlNoStore
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SellerAnswerResult'
+              example:
+                requestId: 0199e0a0-0000-7000-8000-000000000a01
+                status: answered
+                stored: 2
+        '400':
+          $ref: components.yaml#/components/responses/E400BadRequest
+        '401':
+          $ref: components.yaml#/components/responses/E401Unauthenticated
+        '403':
+          $ref: components.yaml#/components/responses/E403Forbidden
+        '404':
+          $ref: components.yaml#/components/responses/E404NotFound
+        '409':
+          $ref: components.yaml#/components/responses/E409RequestInProgressRequestExpiredRequestAlreadyAnswered
+        '415':
+          $ref: components.yaml#/components/responses/E415UnsupportedMediaType
+        '422':
+          $ref: components.yaml#/components/responses/E422ValidationFailed
+        '429':
+          $ref: components.yaml#/components/responses/E429RateLimited
+        '500':
+          $ref: components.yaml#/components/responses/E500InternalError
+        '503':
+          $ref: components.yaml#/components/responses/E503DependencyUnavailable
 components:
   schemas:
     EmailStatusNotification:
@@ -105,3 +188,65 @@ components:
       - status
       - occurredAt
       additionalProperties: false
+    SellerAnswerRequest:
+      type: object
+      additionalProperties: false
+      description: 'Ответ продавца на запрос выдачи (Р-190): либо `keys` (ровно столько ключей, сколько единиц в
+        заказе), либо `error`. Лишние поля дают 422. Значения ключей нигде не логируются (INV-20)'
+      properties:
+        keys:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            type: string
+            minLength: 1
+            maxLength: 1024
+          description: Значения ключей, по одному на единицу товара в заказе
+        error:
+          type: object
+          additionalProperties: false
+          required:
+          - code
+          description: Продавец сообщает, что выдать не может. Заказ отменяется, деньги возвращаются
+          properties:
+            code:
+              type: string
+              enum:
+              - out_of_stock
+              - cannot_issue
+              - other
+              description: Причина отказа. Перечисление открытое
+            message:
+              type: string
+              maxLength: 500
+              description: Пояснение для оператора поддержки, в журнал не пишется
+      oneOf:
+      - required:
+        - keys
+      - required:
+        - error
+    SellerAnswerResult:
+      type: object
+      description: Итог приёма ответа. Повтор того же ответа возвращает тот же итог (идемпотентность по `requestId`)
+      properties:
+        requestId:
+          $ref: components.yaml#/components/schemas/Id
+        status:
+          type: string
+          enum:
+          - answered
+          - failed
+          description: '`answered`: ключи приняты, выдача продолжится письмом; `failed`: продавец отказал, заказ
+            будет отменён'
+        stored:
+          oneOf:
+          - type: integer
+            minimum: 1
+            maximum: 10
+            description: Сколько ключей принято
+          - type: 'null'
+      required:
+      - requestId
+      - status
+      - stored

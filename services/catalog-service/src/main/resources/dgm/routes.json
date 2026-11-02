@@ -121,6 +121,91 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/seller/api-keys",
+      "operationId": "listApiKeys",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller/api-keys",
+      "operationId": "createApiKey",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "callers": [],
+      "smsSession": "denied",
+      "idempotent": true,
+      "module": "seller_onboarding"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller/api-keys/{apiKeyId}/revocation",
+      "operationId": "revokeApiKey",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "callers": [],
+      "smsSession": "denied",
+      "idempotent": true,
+      "module": "seller_onboarding"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/seller/integration",
+      "operationId": "getSellerIntegration",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "callers": [],
+      "smsSession": "denied"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/seller/integration",
+      "operationId": "setSellerIntegration",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "callers": [],
+      "smsSession": "denied",
+      "module": "seller_onboarding"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller/integration/secret-rotation",
+      "operationId": "rotateSellerIntegrationSecret",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "callers": [],
+      "smsSession": "denied",
+      "idempotent": true,
+      "module": "seller_onboarding"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/seller/products",
       "operationId": "listSellerProducts",
       "scopes": [
@@ -130,6 +215,7 @@
         "seller"
       ],
       "callers": [],
+      "sellerApi": true,
       "smsSession": "denied"
     },
     {
@@ -157,6 +243,7 @@
         "seller"
       ],
       "callers": [],
+      "sellerApi": true,
       "smsSession": "denied"
     },
     {
@@ -354,6 +441,16 @@
       "module": "seller_onboarding"
     },
     {
+      "method": "POST",
+      "path": "/internal/v1/api-keys/check",
+      "operationId": "checkApiKey",
+      "scopes": [],
+      "roles": [],
+      "callers": [
+        "api-gateway"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/internal/v1/products/{productId}",
       "operationId": "getProductCard",
@@ -361,6 +458,17 @@
       "roles": [],
       "callers": [
         "order-service"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/internal/v1/sellers/{sellerId}/integration",
+      "operationId": "getSellerEndpoint",
+      "scopes": [],
+      "roles": [],
+      "callers": [
+        "delivery-service",
+        "platform-service"
       ]
     }
   ]

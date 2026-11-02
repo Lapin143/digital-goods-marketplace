@@ -29,6 +29,16 @@ components:
       type: mutualTLS
       description: 'Внутренний вызов по mTLS: вызывающий определяется по CN клиентского сертификата, он должен входить
         в `x-allowed-callers` операции (roles-permissions.md, раздел 8.1, ADR-022). Токен пользователя не пересылается.'
+    sellerApiKey:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+      description: 'API-ключ продавца (R2, Р-185): `dgm_` и 40 символов base64url. Шлюз считает SHA-256 значения,
+        спрашивает `catalog-service` (`checkApiKey`, кэш 30 секунд) и передаёт сервису личность продавца заголовками
+        `X-Seller-Id` и `X-Auth-Kind: api-key` по mTLS (ADR-027). Сервис заголовку верит только при сертификате
+        `api-gateway` и только у операций с `x-seller-api: true`. Доступна часть операций продавца: загрузка пулов,
+        остаток, список заказов, чтение товаров, ответ на запрос выдачи. Выпуск ключей, подключение системы, заявка
+        и вывод по ключу недоступны. Значение ключа не попадает в журналы и события, хранится только хеш (INV-41).'
   schemas:
     Id:
       type: string
@@ -99,8 +109,8 @@ components:
       - subscription
     IssuanceMethod:
       type: string
-      description: 'Способ выдачи: пул ключей (R1) или API продавца (R2). В R1 принимается только `key_pool`. Перечисление
-        открытое'
+      description: 'Способ выдачи: пул ключей (R1) или API продавца (R2, Р-184). Способ задаётся при создании товара
+        и не меняется. Перечисление открытое'
       enum:
       - key_pool
       - seller_api
@@ -274,11 +284,16 @@ components:
           - pool-limit-exceeded
           - last-admin-required
           - role-managed-by-system
+          - issuance-method-mismatch
+          - api-key-limit
+          - request-expired
+          - request-already-answered
           - version-conflict
           - payload-too-large
           - unsupported-media-type
           - validation-failed
           - idempotency-key-reuse
+          - endpoint-not-allowed
           - otp-invalid
           - otp-expired
           - precondition-required
@@ -301,7 +316,8 @@ components:
           description: Текущий статус объекта, для `state-conflict`
         cancelReason:
           type: string
-          description: Причина отмены заказа, для `state-conflict` по заказу в статусе «отменён» (платёжная сессия недоступна)
+          description: Причина отмены заказа, для `state-conflict` по заказу в статусе «отменён» (платёжная сессия
+            недоступна)
         available:
           type: integer
           description: Доступное число ключей, для `insufficient-stock`
@@ -314,7 +330,8 @@ components:
           minimum: 0
         limit:
           type: integer
-          description: Предел, для `pool-limit-exceeded` (ключей в пуле) и `unpaid-orders-limit` (неоплаченных заказов)
+          description: Предел, для `pool-limit-exceeded` (ключей в пуле), `unpaid-orders-limit` (неоплаченных заказов)
+            и `api-key-limit` (активных API-ключей)
           minimum: 0
       required:
       - type
@@ -881,47 +898,6 @@ components:
                 detail: Роль, область токена или условие операции не выполнены.
                 code: forbidden
                 correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
-    E409StateConflictRequestInProgressPoolLimitExceeded:
-      description: Действие недоступно в этом статусе; Запрос уже выполняется; Пул ключей переполнен
-      headers:
-        X-Correlation-Id:
-          $ref: '#/components/headers/CorrelationId'
-        Retry-After:
-          $ref: '#/components/headers/RetryAfter'
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/Problem'
-          examples:
-            state-conflict:
-              summary: Действие недоступно в этом статусе
-              value:
-                type: https://api.marketplace.example/problems/state-conflict
-                title: Действие недоступно в этом статусе
-                status: 409
-                detail: Действие недоступно в текущем статусе объекта.
-                code: state-conflict
-                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
-                currentStatus: created
-            request-in-progress:
-              summary: Запрос уже выполняется
-              value:
-                type: https://api.marketplace.example/problems/request-in-progress
-                title: Запрос уже выполняется
-                status: 409
-                detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
-                code: request-in-progress
-                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
-            pool-limit-exceeded:
-              summary: Пул ключей переполнен
-              value:
-                type: https://api.marketplace.example/problems/pool-limit-exceeded
-                title: Пул ключей переполнен
-                status: 409
-                detail: После загрузки в пуле товара было бы больше 100000 ключей.
-                code: pool-limit-exceeded
-                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
-                limit: 100000
     E409StateConflictRequestInProgressInsufficientStock:
       description: Действие недоступно в этом статусе; Запрос уже выполняется; Недостаточно ключей
       headers:
@@ -1380,7 +1356,8 @@ components:
                 code: ticket-already-open
                 correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
     E409StateConflictRequestInProgressTicketNotInProgressDeliveryInProgress:
-      description: Действие недоступно в этом статусе; Запрос уже выполняется; Обращение не в работе; Выдача ещё выполняется
+      description: Действие недоступно в этом статусе; Запрос уже выполняется; Обращение не в работе; Выдача ещё
+        выполняется
       headers:
         X-Correlation-Id:
           $ref: '#/components/headers/CorrelationId'
@@ -1469,7 +1446,8 @@ components:
                 code: email-not-allowed
                 correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
     E409StateConflictRequestInProgressTicketNotInProgressEmailNotAllowed:
-      description: Действие недоступно в этом статусе; Запрос уже выполняется; Обращение не в работе; Адрес использовать нельзя
+      description: Действие недоступно в этом статусе; Запрос уже выполняется; Обращение не в работе; Адрес использовать
+        нельзя
       headers:
         X-Correlation-Id:
           $ref: '#/components/headers/CorrelationId'
@@ -1648,4 +1626,179 @@ components:
                 status: 429
                 detail: Исчерпаны попытки ввода кода, повторите позже.
                 code: otp-locked
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E409RequestInProgressApiKeyLimit:
+      description: Запрос уже выполняется; Достигнут предел API-ключей
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            request-in-progress:
+              summary: Запрос уже выполняется
+              value:
+                type: https://api.marketplace.example/problems/request-in-progress
+                title: Запрос уже выполняется
+                status: 409
+                detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
+                code: request-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            api-key-limit:
+              summary: Достигнут предел API-ключей
+              value:
+                type: https://api.marketplace.example/problems/api-key-limit
+                title: Достигнут предел API-ключей
+                status: 409
+                detail: У продавца уже пять активных API-ключей, отзовите ненужный.
+                code: api-key-limit
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                limit: 5
+    E409IssuanceMethodMismatch:
+      description: Способ выдачи не подходит
+      headers:
+        X-Correlation-Id:
+          $ref: components.yaml#/components/headers/CorrelationId
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            issuance-method-mismatch:
+              summary: Способ выдачи не подходит
+              value:
+                type: https://api.marketplace.example/problems/issuance-method-mismatch
+                title: Способ выдачи не подходит
+                status: 409
+                detail: 'Операция не подходит способу выдачи товара: пул ключей у товара с выдачей по API или остаток
+                  по API у товара с пулом ключей.'
+                code: issuance-method-mismatch
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E409StateConflictRequestInProgressPoolLimitExceededIssuanceMethodMismatch:
+      description: Действие недоступно в этом статусе; Запрос уже выполняется; Пул ключей переполнен; Способ выдачи
+        не подходит
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            state-conflict:
+              summary: Действие недоступно в этом статусе
+              value:
+                type: https://api.marketplace.example/problems/state-conflict
+                title: Действие недоступно в этом статусе
+                status: 409
+                detail: Действие недоступно в текущем статусе объекта.
+                code: state-conflict
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                currentStatus: created
+            request-in-progress:
+              summary: Запрос уже выполняется
+              value:
+                type: https://api.marketplace.example/problems/request-in-progress
+                title: Запрос уже выполняется
+                status: 409
+                detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
+                code: request-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            pool-limit-exceeded:
+              summary: Пул ключей переполнен
+              value:
+                type: https://api.marketplace.example/problems/pool-limit-exceeded
+                title: Пул ключей переполнен
+                status: 409
+                detail: После загрузки в пуле товара было бы больше 100000 ключей.
+                code: pool-limit-exceeded
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                limit: 100000
+            issuance-method-mismatch:
+              summary: Способ выдачи не подходит
+              value:
+                type: https://api.marketplace.example/problems/issuance-method-mismatch
+                title: Способ выдачи не подходит
+                status: 409
+                detail: 'Операция не подходит способу выдачи товара: пул ключей у товара с выдачей по API или остаток
+                  по API у товара с пулом ключей.'
+                code: issuance-method-mismatch
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E409RequestInProgressRequestExpiredRequestAlreadyAnswered:
+      description: Запрос уже выполняется; Срок ответа истёк; Запрос уже получил ответ
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            request-in-progress:
+              summary: Запрос уже выполняется
+              value:
+                type: https://api.marketplace.example/problems/request-in-progress
+                title: Запрос уже выполняется
+                status: 409
+                detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
+                code: request-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            request-expired:
+              summary: Срок ответа истёк
+              value:
+                type: https://api.marketplace.example/problems/request-expired
+                title: Срок ответа истёк
+                status: 409
+                detail: Окно ответа на запрос выдачи (10 минут) закрыто.
+                code: request-expired
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            request-already-answered:
+              summary: Запрос уже получил ответ
+              value:
+                type: https://api.marketplace.example/problems/request-already-answered
+                title: Запрос уже получил ответ
+                status: 409
+                detail: По запросу выдачи уже есть другой ответ.
+                code: request-already-answered
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E422ValidationFailedEndpointNotAllowed:
+      description: Данные не прошли проверку; Адрес не разрешён
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            validation-failed:
+              summary: Данные не прошли проверку
+              value:
+                type: https://api.marketplace.example/problems/validation-failed
+                title: Данные не прошли проверку
+                status: 422
+                detail: Данные не прошли проверку, подробности в поле errors.
+                code: validation-failed
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                errors:
+                - pointer: /quantity
+                  code: out_of_range
+                  detail: Допустимо от 1 до 10 штук.
+            endpoint-not-allowed:
+              summary: Адрес не разрешён
+              value:
+                type: https://api.marketplace.example/problems/endpoint-not-allowed
+                title: Адрес не разрешён
+                status: 422
+                detail: 'Адрес системы продавца не прошёл проверку: нужен https, внутренние адреса и посторонние
+                  порты не допускаются.'
+                code: endpoint-not-allowed
                 correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b

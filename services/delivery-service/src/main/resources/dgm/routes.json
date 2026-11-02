@@ -4,6 +4,20 @@
   "routes": [
     {
       "method": "POST",
+      "path": "/api/v1/seller-api/delivery-requests/{requestId}/answer",
+      "operationId": "respondSellerDelivery",
+      "scopes": [
+        "seller.api"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "callers": [],
+      "sellerApi": true,
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/webhooks/email-provider-keys",
       "operationId": "receiveKeyEmailStatus",
       "scopes": [],

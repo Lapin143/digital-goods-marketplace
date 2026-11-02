@@ -3,6 +3,20 @@
   "service": "inventory-service",
   "routes": [
     {
+      "method": "PUT",
+      "path": "/api/v1/seller/products/{productId}/api-stock",
+      "operationId": "setApiStock",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "callers": [],
+      "sellerApi": true,
+      "smsSession": "denied"
+    },
+    {
       "method": "POST",
       "path": "/api/v1/seller/products/{productId}/key-batches",
       "operationId": "uploadKeyBatch",
@@ -13,6 +27,7 @@
         "seller"
       ],
       "callers": [],
+      "sellerApi": true,
       "smsSession": "denied",
       "idempotent": true
     },
@@ -27,6 +42,7 @@
         "seller"
       ],
       "callers": [],
+      "sellerApi": true,
       "smsSession": "denied",
       "idempotent": true
     },
@@ -41,6 +57,7 @@
         "seller"
       ],
       "callers": [],
+      "sellerApi": true,
       "smsSession": "denied"
     },
     {
@@ -72,6 +89,17 @@
       "roles": [],
       "callers": [
         "order-service"
+      ],
+      "idempotent": true
+    },
+    {
+      "method": "POST",
+      "path": "/internal/v1/seller-keys",
+      "operationId": "storeSellerKeys",
+      "scopes": [],
+      "roles": [],
+      "callers": [
+        "delivery-service"
       ],
       "idempotent": true
     }

@@ -386,6 +386,9 @@ flowchart LR
     api-gateway -->|"Передаёт ответ на запрос ключа<br/>[REST/HTTPS]"| delivery-service
     delivery-service -->|"Запрашивает ключ<br/>[REST/HTTPS]"| seller-systems
     platform-service -->|"Отправляет уведомления<br/>о заказах и спорах<br/>[Webhook/HTTPS]"| seller-systems
+    delivery-service -->|"Запрашивает адрес и секрет<br/>системы продавца<br/>[REST/HTTPS]"| catalog-service
+    delivery-service -->|"Передаёт присланные ключи<br/>на хранение<br/>[REST/HTTPS]"| inventory-service
+    platform-service -->|"Запрашивает адрес и секрет<br/>для webhook<br/>[REST/HTTPS]"| catalog-service
 
     classDef container fill:#438dd5,stroke:#2e6295,color:#ffffff
     classDef ext fill:#999999,stroke:#6b6b6b,color:#ffffff
@@ -402,6 +405,9 @@ flowchart LR
 | 5 | `api-gateway` | `delivery-service` | Ответ продавца на запрос ключа | REST/HTTPS | FT-10.2 |
 | 6 | `delivery-service` | `seller-systems` | «Запросить ключ», ответ ждём 10 минут | REST/HTTPS | FT-7.4, FT-8.6 |
 | 7 | `platform-service` | `seller-systems` | Уведомления о заказах и спорах | Webhook/HTTPS | FT-10.3 |
+| 8 | `delivery-service` | `catalog-service` | Адрес системы продавца и версия секрета подписи (`getSellerEndpoint`, кэш 30 секунд) | REST/HTTPS | FT-7.4, FT-10.2 |
+| 9 | `delivery-service` | `inventory-service` | Ключи, присланные продавцом: шифрование и привязка к заказу (`storeSellerKeys`, [ADR-028](adr/ADR-028-seller-delivery-request.md)) | REST/HTTPS | FT-7.4, INV-20 |
+| 10 | `platform-service` | `catalog-service` | Адрес системы продавца и версия секрета для webhook (`getSellerEndpoint`) | REST/HTTPS | FT-10.3 |
 
 ### 9.2. Споры, баланс и вывод средств
 

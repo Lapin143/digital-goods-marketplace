@@ -7007,7 +7007,9 @@ components:
           description: Версия остатка товара (`inventory.product_copy.stock_version`). Растёт на единицу в последнем операторе
             каждой транзакции, меняющей пул товара (загрузка, резерв, подтверждение, снятие), поэтому порядок версий равен
             порядку фиксации изменений, а не порядку меток времени. Потребитель применяет событие, только если версия
-            больше сохранённой (ADR-012, уточнение для среза 2)
+            больше сохранённой (ADR-012, уточнение для среза 2). У товара с выдачей по API пула нет, версию несёт
+            `inventory.api_stock.version`, она растёт на единицу при каждом изменении количества (резерв, снятие, правка
+            продавца), порядок и смысл те же (R2, Р-183)
     StockChangedEnvelope:
       allOf:
       - $ref: '#/components/schemas/EventEnvelope'
@@ -7251,6 +7253,12 @@ components:
         latePayment:
           type: boolean
           description: '`true`, если оплата пришла после отмены заказа и ключи резервировались заново (T7, ADR-013)'
+        issuanceMethod:
+          type: string
+          enum:
+          - key_pool
+          - seller_api
+          description: 'Способ выдачи товара заказа (R2, Р-190): для `seller_api` «Выдача» запрашивает ключ у системы продавца. Поле необязательное, при отсутствии `key_pool`. Перечисление открытое. Добавление необязательного поля совместимо, `schemaversion` остаётся 1'
         delivery:
           $ref: '#/components/schemas/DeliveryAddress'
           description: Снимок адреса доставки на момент заказа. Персональные данные
@@ -8659,6 +8667,12 @@ components:
           type: integer
           minimum: 1
           description: Сколько секунд ждали ответа
+        reason:
+          type: string
+          enum:
+          - timeout
+          - seller_error
+          description: 'Что случилось (R2, Р-192): `timeout` продавец промолчал, `seller_error` продавец вернул ошибку или отказал при запросе. Поле необязательное, при отсутствии `timeout`. Перечисление открытое. Добавление необязательного поля совместимо, `schemaversion` остаётся 1'
     DeliverySellerTimeoutEnvelope:
       allOf:
       - $ref: '#/components/schemas/EventEnvelope'
