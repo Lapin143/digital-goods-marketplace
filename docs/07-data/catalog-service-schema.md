@@ -6,7 +6,7 @@
 | --- | --- |
 | Сервис | Каталог и подключение продавцов ([компоненты](../05-architecture/c4-components-catalog-service.md)) |
 | База | `catalog_db` |
-| Таблиц предметной области | 4, служебных (`outbox`, `processed_event`, `idempotency_key`) 3 |
+| Таблиц предметной области | 6, служебных (`outbox`, `processed_event`, `idempotency_key`) 3 |
 | Роли приложения | `app_seller_onboarding` (схема `seller_onboarding`), `app_catalog` (схема `catalog`) |
 | Назначение | Сервис владеет профилями продавцов с документами заявки и каталогом товаров. Модуль `seller_onboarding` ведёт заявку продавца ([SM-05](../03-processes/SM-05-seller-profile.md)), модуль `catalog` ведёт товары ([SM-04](../03-processes/SM-04-product.md)) и копию остатка для витрины, которую обновляет событие `stock.changed` из «Остатков и ключей». |
 
@@ -48,6 +48,16 @@ erDiagram
         bigint version
         timestamptz updated_at
     }
+    API_KEY {
+        uuid id PK
+        uuid seller_id FK
+        text name
+        bytea key_hash UK
+        text fingerprint
+        text status
+        timestamptz created_at
+        timestamptz revoked_at
+    }
     SELLER_DOCUMENT {
         uuid id PK
         uuid seller_id FK
@@ -56,6 +66,15 @@ erDiagram
         text content_type
         bigint size_bytes
         timestamptz uploaded_at
+    }
+    SELLER_INTEGRATION {
+        uuid seller_id PK
+        text endpoint_url
+        int secret_version
+        text status
+        int version
+        timestamptz created_at
+        timestamptz updated_at
     }
     SELLER_PROFILE {
         uuid id PK
@@ -78,7 +97,9 @@ erDiagram
         timestamptz updated_at
     }
     PRODUCT ||--o{ STOCK_VIEW : "product_id"
+    SELLER_PROFILE ||--o{ API_KEY : "seller_id"
     SELLER_PROFILE ||--o{ SELLER_DOCUMENT : "seller_id"
+    SELLER_PROFILE ||--o{ SELLER_INTEGRATION : "seller_id"
 ```
 
 ## Инварианты этой базы
@@ -90,6 +111,7 @@ erDiagram
 | INV-09 | Товар с нулевым остатком недоступен для оформления заказа | `ck_stock_view_available` |
 | INV-39 | У пользователя один профиль продавца, пока профиль «на проверке», вторая заявка не принимается | `uq_seller_profile_user_id` |
 | INV-40 | На витрине показываются только товары «опубликован». У блокированного товара заполнены «статус до блокировки» и «причина блокировки», у остальных они пусты | `ck_product_block_state`, `ix_product_published`, `ix_product_published_type`, `ix_product_published_platform`, `ix_product_published_price`, `ix_product_published_title_trgm`, `ck_product_published_state` |
+| INV-41 | В API-ключе хранится только хеш, значение показывается один раз | `ck_api_key_key_hash`, `uq_api_key_key_hash`, `trg_api_key_immutable`, `trg_api_key_limit`, `trg_api_key_status_transition` |
 | INV-43 | Действие сотрудника и событие аудита записываются в одной транзакции (Outbox): действия без записи в журнале не бывает | `uq_outbox_event_id`, `ck_outbox_published_or_failed`, `ix_outbox_unpublished` |
 
 ## Таблицы
@@ -193,6 +215,51 @@ erDiagram
 | `ck_stock_view_available` | проверка | `CHECK ((available >= 0))` |
 | `ck_stock_view_version` | проверка | `CHECK ((version >= 0))` |
 
+### seller_onboarding.api_key
+
+API-ключ продавца (R2, Р-185). Значения ключа нет: показывается один раз при выпуске, хранится SHA-256 (INV-41). Не больше пяти активных ключей на продавца.
+
+**Столбцы**
+
+| Столбец | Тип | Обязателен | По умолчанию | Описание |
+| --- | --- | --- | --- | --- |
+| `id` | `uuid` | да |  | Идентификатор ключа: по нему шлюз считает лимит 600 запросов в минуту (Р-188), он же в журналах вместо значения |
+| `seller_id` | `uuid` | да |  | SellerID владельца ключа, профиль в этой же схеме |
+| `name` | `text` | да |  | Имя, которое продавец задал при выпуске, от 1 до 60 знаков: по нему он отличает ключи разных систем |
+| `key_hash` | `bytea` | да |  | SHA-256 значения ключа, 32 байта. Значение (dgm_ и 40 знаков base64url) в базе не хранится и восстановлению не подлежит (INV-41) |
+| `fingerprint` | `text` | да |  | Первые восемь знаков ключа после префикса dgm_: продавец узнаёт ключ в списке, они же в журналах. Не секрет |
+| `status` | `text` | да | `'active'::text` | active или revoked. Отозванный ключ не возвращается в active: отзыв необратим |
+| `created_at` | `timestamp with time zone` | да | `now()` | Когда ключ выпущен |
+| `revoked_at` | `timestamp with time zone` | нет |  | Когда ключ отозван, есть ровно у отозванного. Шлюз перестаёт принимать ключ не позже чем через 30 секунд (кэш проверки) |
+
+**Ограничения**
+
+| Имя | Вид | Определение |
+| --- | --- | --- |
+| `pk_api_key` | первичный ключ | `PRIMARY KEY (id)` |
+| `uq_api_key_key_hash` | уникальность | `UNIQUE (key_hash)` |
+| `fk_api_key_seller_id` | внешний ключ | `FOREIGN KEY (seller_id) REFERENCES seller_onboarding.seller_profile(id)` |
+| `ck_api_key_fingerprint` | проверка | `CHECK ((fingerprint ~ '^[A-Za-z0-9_-]{8}$'::text))` |
+| `ck_api_key_key_hash` | проверка | `CHECK ((octet_length(key_hash) = 32))` |
+| `ck_api_key_name_len` | проверка | `CHECK (((char_length(name) >= 1) AND (char_length(name) <= 60)))` |
+| `ck_api_key_revoked_state` | проверка | `CHECK (((status = 'revoked'::text) = (revoked_at IS NOT NULL)))` |
+| `ck_api_key_status` | проверка | `CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text])))` |
+
+**Индексы**
+
+| Имя | Определение | Для чего |
+| --- | --- | --- |
+| `ix_api_key_seller_id` | `ix_api_key_seller_id ON seller_onboarding.api_key USING btree (seller_id, created_at DESC, id DESC)` | GET /api/v1/seller/api-keys (OP-91): ключи продавца, новые выше, курсор по (created_at, id), счёт активных при выпуске (не больше пяти), проверка внешнего ключа |
+
+**Триггеры**
+
+| Имя | Когда | Назначение |
+| --- | --- | --- |
+| `trg_api_key_immutable` | до: изменение | Владелец, имя, хеш и отпечаток API-ключа неизменны, ключ только отзывается |
+| `trg_api_key_limit` | до: вставка | Не больше пяти активных API-ключей на продавца (Р-185): счёт под консультативной блокировкой продавца |
+| `trg_api_key_status_initial` | до: вставка | Начальный статус при вставке: active |
+| `trg_api_key_status_transition` | до: изменение статуса | Допустимые переходы статуса: active → revoked |
+
 ### seller_onboarding.seller_document
 
 Ссылка на документ заявки. Сам файл лежит в S3-хранилище в РФ (NFT-5.0), в базе только ключ объекта.
@@ -225,6 +292,39 @@ erDiagram
 | Имя | Определение | Для чего |
 | --- | --- | --- |
 | `ix_seller_document_seller_id` | `ix_seller_document_seller_id ON seller_onboarding.seller_document USING btree (seller_id, uploaded_at)` | Документы заявки продавца: карточка заявки и список документов (US-2.1, US-2.2), а также проверка внешнего ключа |
+
+### seller_onboarding.seller_integration
+
+Подключение системы продавца (R2, Р-187): куда платформа отправляет запрос ключа и уведомления. Секрета подписи в таблице нет: он производный, считается из идентификатора продавца и версии секрета.
+
+**Столбцы**
+
+| Столбец | Тип | Обязателен | По умолчанию | Описание |
+| --- | --- | --- | --- | --- |
+| `seller_id` | `uuid` | да |  | SellerID, одно подключение на продавца |
+| `endpoint_url` | `text` | да |  | Адрес системы продавца, только https, до 2048 знаков. Защиту от SSRF проходит при сохранении и при каждом вызове (ADR-027), а не в базе |
+| `secret_version` | `integer` | да | `1` | Версия секрета подписи, растёт при смене: прежний секрет перестаёт действовать сразу, наложения нет |
+| `status` | `text` | да | `'active'::text` | active (платформа вызывает адрес) или disabled (адрес сохранён, вызовов нет) |
+| `version` | `integer` | да | `1` | Версия записи для ETag и If-Match, растёт на единицу при каждом изменении |
+| `created_at` | `timestamp with time zone` | да | `now()` | Когда система подключена |
+| `updated_at` | `timestamp with time zone` | да | `now()` | Последнее изменение |
+
+**Ограничения**
+
+| Имя | Вид | Определение |
+| --- | --- | --- |
+| `pk_seller_integration` | первичный ключ | `PRIMARY KEY (seller_id)` |
+| `fk_seller_integration_seller_id` | внешний ключ | `FOREIGN KEY (seller_id) REFERENCES seller_onboarding.seller_profile(id)` |
+| `ck_seller_integration_endpoint_url` | проверка | `CHECK (((endpoint_url ~ '^https://[^[:space:]]+$'::text) AND (char_length(endpoint_url) <= 2048)))` |
+| `ck_seller_integration_secret_version` | проверка | `CHECK ((secret_version >= 1))` |
+| `ck_seller_integration_status` | проверка | `CHECK ((status = ANY (ARRAY['active'::text, 'disabled'::text])))` |
+| `ck_seller_integration_version` | проверка | `CHECK ((version >= 1))` |
+
+**Триггеры**
+
+| Имя | Когда | Назначение |
+| --- | --- | --- |
+| `trg_seller_integration_touch` | до: изменение | Владелец и время создания подключения неизменны, версия секрета не уменьшается, версия записи растёт на единицу |
 
 ### seller_onboarding.seller_profile
 
@@ -292,6 +392,9 @@ erDiagram
 
 | Функция | Назначение |
 | --- | --- |
+| `seller_onboarding.api_key_immutable()` | Владелец, имя, хеш и отпечаток API-ключа неизменны, ключ только отзывается |
+| `seller_onboarding.api_key_limit()` | Не больше пяти активных API-ключей на продавца (Р-185): счёт под консультативной блокировкой продавца |
+| `seller_onboarding.seller_integration_touch()` | Владелец и время создания подключения неизменны, версия секрета не уменьшается, версия записи растёт на единицу |
 | `public.enforce_status_transition()` | Допустимые переходы статуса по диаграммам SM. Аргументы триггера: initial:<статус> для вставки и <из>><в> для изменения. Нарушение даёт ошибку 23514 с ограничением ck_<таблица>_status_transition |
 
 ## Права ролей
@@ -308,5 +411,7 @@ erDiagram
 | `app_seller_onboarding` | `public.idempotency_key` | DELETE, INSERT, SELECT, UPDATE |
 | `app_seller_onboarding` | `public.outbox` | DELETE, INSERT, SELECT, UPDATE |
 | `app_seller_onboarding` | `public.processed_event` | DELETE, INSERT, SELECT, UPDATE |
+| `app_seller_onboarding` | `seller_onboarding.api_key` | INSERT, SELECT, UPDATE |
 | `app_seller_onboarding` | `seller_onboarding.seller_document` | DELETE, INSERT, SELECT, UPDATE |
+| `app_seller_onboarding` | `seller_onboarding.seller_integration` | INSERT, SELECT, UPDATE |
 | `app_seller_onboarding` | `seller_onboarding.seller_profile` | INSERT, SELECT, UPDATE |

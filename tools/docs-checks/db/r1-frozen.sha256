@@ -1,0 +1,24 @@
+# Контрольные суммы миграций R1 (тег r1, commit 0cf93a8). Flyway сверяет контрольную сумму применённой миграции, поэтому файлы R1 не меняются.
+# Проверяет tools/docs-checks/db/gen_migrations.py --check. Изменения модели идут только частями parts/<часть>.r2.sql (Р-181).
+644bca70f9e60adc22c9592307dd6c83d66407d53dddd381502ac683c426a74b  services/catalog-service/src/main/resources/db/migration/access/V4__access.sql
+cd04c3da8086a05e6b1abb6b19cd5912c57f71341bb546bc23aa9b33719b0a7e  services/catalog-service/src/main/resources/db/migration/catalog/V3__catalog.sql
+75c1df3a9bd8a411e285da8e6e82c534640d5a03fb4c9a36e2ff4e42dc939667  services/catalog-service/src/main/resources/db/migration/common/V1__common.sql
+79a1ad11890e4ed2c1f4d0f9a47524c117ae964d29ea8525ee060f968f81b28b  services/catalog-service/src/main/resources/db/migration/seller_onboarding/V2__seller_onboarding.sql
+a8bdcc61e490daa06fd5140437f438345dbfee4871cd51d29b6dc9f6766a6b04  services/delivery-service/src/main/resources/db/migration/access/V3__access.sql
+6a8eeb2128a2877633f63bf1a38e5667d07d1e8cf26cae588bf8bd699780c354  services/delivery-service/src/main/resources/db/migration/common/V1__common.sql
+d5ce49cae2b1d71dd238b781636bbc166b7cbf151b4c387105141970d0125868  services/delivery-service/src/main/resources/db/migration/delivery/V2__delivery.sql
+336b8c18e450544a37bd295452bfc7f164c747b3e4d57f70a3fc0b759390759e  services/inventory-service/src/main/resources/db/migration/access/V3__access.sql
+15f1002c7f714e9de046135506accc561c63ad92f5e882eb6279498d1b0d93b0  services/inventory-service/src/main/resources/db/migration/common/V1__common.sql
+e2d53e5a3a748f7e76770adde2ce403cdaff122f16604c734a3e9703b8236ebb  services/inventory-service/src/main/resources/db/migration/inventory/V2__inventory.sql
+5174101c4fc884052240a1713d58dfd6565f00c3a0bd34e3bdef41da0252910d  services/order-service/src/main/resources/db/migration/access/V3__access.sql
+93fa49a4008709c5afd3e9533a8c0fd4fada905ab0a8d017b9d4170558808028  services/order-service/src/main/resources/db/migration/common/V1__common.sql
+5dc740834aa1f6c58b44bc63d1df9f30c1f1f654d8ccee2a30b4c85643ea9c32  services/order-service/src/main/resources/db/migration/orders/V2__orders.sql
+ab1efaffcffa887b3e26085cf0720ba3e9c6d10a562ae9b9b26c80a3ef4c7b2f  services/payment-service/src/main/resources/db/migration/access/V3__access.sql
+a627804d92e188b06c7e09ea524ced8cebbcb922e6815b0cc944ddebf1432ff5  services/payment-service/src/main/resources/db/migration/common/V1__common.sql
+0b1609e75206048c17ab7e3252f850dbc5cb4f22ebb45966fb86f81eef799e0b  services/payment-service/src/main/resources/db/migration/payments/V2__payments.sql
+9411465a82d5c275c1b0f9ac2fd2669b18609b4767a10f991e08eb55891f5f20  services/platform-service/src/main/resources/db/migration/access/V6__access.sql
+aa1bb3e949155014ba5307bfc46dbc1ff192ccf661ea9eca0df2e06a61daea7d  services/platform-service/src/main/resources/db/migration/audit_admin/V5__audit_admin.sql
+3d50ce7338e6caec9d2de9dfd101ce49323997b6db5c0229483d4ede8ce6b9e6  services/platform-service/src/main/resources/db/migration/common/V1__common.sql
+06a93ee2f4fe52007010fa9f0052fcce8a6c9ebe762fa36e399266c92f902825  services/platform-service/src/main/resources/db/migration/identity/V2__identity.sql
+42fe5016dee92bf217fdef7cbe6064b84e2f055206845453ccc8066dc499f964  services/platform-service/src/main/resources/db/migration/notification/V4__notification.sql
+445cee21e6a7bc78086e868c6a362b74405f0fa1b15de8cf8c05659a0920c261  services/platform-service/src/main/resources/db/migration/support/V3__support.sql

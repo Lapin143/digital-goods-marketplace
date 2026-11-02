@@ -127,6 +127,7 @@ erDiagram
 | `ix_orders_awaiting_reserve_until` | `ix_orders_awaiting_reserve_until ON orders.orders USING btree (reserve_until) WHERE (status = 'awaiting_payment'::text)` | Сторож раз в минуту: заказы awaiting_payment с резервом, истёкшим больше 5 минут назад (SM-01/T6) |
 | `ix_orders_buyer_id` | `ix_orders_buyer_id ON orders.orders USING btree (buyer_id, created_at DESC, id DESC)` | GET /api/v1/orders (US-5.9): заказы покупателя, новые выше, курсор по (created_at, id). Фильтр status поверх. Он же находит заказы покупателя при user.anonymized (INV-44) |
 | `ix_orders_created_watchdog` | `ix_orders_created_watchdog ON orders.orders USING btree (created_at) WHERE (status = 'created'::text)` | Сторож раз в минуту: заказы created старше 60 секунд (потеряно событие или ответ) |
+| `ix_orders_seller_id` | `ix_orders_seller_id ON orders.orders USING btree (seller_id, created_at DESC, id DESC)` | GET /api/v1/seller/orders (OP-100, Р-189): заказы продавца, новые выше, курсор по (created_at, id), фильтры статуса и дат поверх |
 
 **Триггеры**
 
@@ -134,7 +135,7 @@ erDiagram
 | --- | --- | --- |
 | `trg_orders_immutable` | до: изменение | Снимки заказа неизменны (INV-12, INV-13), дата первой выдачи записывается один раз (INV-17), версия растёт на единицу при каждом изменении |
 | `trg_orders_status_initial` | до: вставка | Начальный статус при вставке: created |
-| `trg_orders_status_transition` | до: изменение статуса | Допустимые переходы статуса: created → awaiting_payment; created → cancelled; awaiting_payment → paid; awaiting_payment → cancelled; cancelled → paid; cancelled → refunded; paid → issued |
+| `trg_orders_status_transition` | до: изменение статуса | Допустимые переходы статуса: created → awaiting_payment; created → cancelled; awaiting_payment → paid; awaiting_payment → cancelled; cancelled → paid; cancelled → refunded; paid → issued; paid → cancelled |
 
 ## Функции
 

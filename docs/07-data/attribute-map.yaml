@@ -7,7 +7,7 @@
 #   [столбец, столбец]               атрибут разложен на несколько столбцов
 #   {table: схема.таблица, note: ..} атрибут вынесен в отдельную таблицу (она при этом описана здесь же в tables)
 #   {derived: [таблица.столбец], note: ..}  значение вычисляется из таблицы, отдельного столбца нет
-#   {release: R2}                    атрибут будущего релиза, физической модели R1 в нём нет
+#   {release: R2}                    атрибут будущего релиза (R2 или R3), физической модели в нём ещё нет
 version: 1
 entities:
   USER:
@@ -59,6 +59,18 @@ entities:
       updated_at: Время последнего изменения строки
   API_KEY:
     release: R2
+    db: catalog_db
+    table: seller_onboarding.api_key
+    attributes:
+      id: id
+      seller_id: seller_id
+      name: name
+      key_hash: key_hash
+      fingerprint: fingerprint
+      issued_at: created_at
+      last_used_at: {release: R3}
+      revoked_at: revoked_at
+      status: status
   PRODUCT:
     release: R1
     db: catalog_db
@@ -122,6 +134,14 @@ entities:
       released_at: Когда резерв снят (SM-08/T3, T4)
   API_STOCK:
     release: R2
+    db: inventory_db
+    table: inventory.api_stock
+    attributes:
+      product_id: product_id
+      quantity: quantity
+      version: version
+    technical:
+      updated_at: Время последнего изменения количества
   ORDER:
     release: R1
     db: order_db
@@ -314,6 +334,15 @@ tables:
   - db: platform_db
     table: notification.provider_status_event
     reason: "Дедупликация статусов писем провайдера (ADR-006)"
+  - db: catalog_db
+    table: seller_onboarding.seller_integration
+    reason: "Подключение системы продавца: адрес и версия секрета подписи (R2, Р-187, ADR-027), отдельной сущности в логической ER нет"
+  - db: delivery_db
+    table: delivery.seller_request
+    reason: "Запрос ключа у системы продавца: состояние ожидания перед первичной выдачей (R2, Р-190, ADR-028)"
+  - db: platform_db
+    table: notification.webhook_delivery
+    reason: "Уведомление о событии заказа для системы продавца с повторами (R2, Р-193), «Уведомление» с получателем-продавцом"
 
 # Служебные таблицы схемы public, одинаковые во всех шести базах (domain-model, раздел 5)
 shared:

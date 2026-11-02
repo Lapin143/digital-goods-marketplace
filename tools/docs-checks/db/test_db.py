@@ -965,6 +965,330 @@ def t_audit_reader_role():
         ok(c, "reset role")
 
 
+# --------------------------------------------------------------------------------------------- R2, срез 1 Ф5
+def new_seller(c):
+    sid = uid()
+    ok(c, "insert into seller_onboarding.seller_profile (id, user_id) values (%s, %s)" % (q(sid), q(uid())))
+    return sid
+
+
+def key_insert(seller, hash_hex=None, name='Склад', fingerprint='AbCd_-12'):
+    hash_hex = hash_hex or uuid.uuid4().hex + uuid.uuid4().hex
+    return ("insert into seller_onboarding.api_key (id, seller_id, name, key_hash, fingerprint) values (%s, %s, %s, decode(%s, 'hex'), %s)"
+            % (q(uid()), q(seller), q(name), q(hash_hex), q(fingerprint)))
+
+
+@test('api_key: хранится только хеш 32 байта, значения нет; хеш уникален; отпечаток и имя по форме; ключ неизменен и отзывается один раз', 'INV-41, Р-185')
+def t_api_key():
+    c = conn('catalog_db')
+    seller = new_seller(c)
+    cols = {r[0] for r in c.query("select column_name from information_schema.columns where table_schema = 'seller_onboarding' and table_name = 'api_key'")}
+    assert not ({'value', 'key', 'api_key', 'secret', 'token'} & cols), cols
+    h = uuid.uuid4().hex + uuid.uuid4().hex
+    ok(c, key_insert(seller, h))
+    raises(c, key_insert(seller, h), '23505', 'uq_api_key_key_hash')
+    raises(c, key_insert(seller, 'ab' * 31), '23514', 'ck_api_key_key_hash')
+    raises(c, key_insert(seller, fingerprint='short'), '23514', 'ck_api_key_fingerprint')
+    raises(c, key_insert(seller, name=''), '23514', 'ck_api_key_name_len')
+    raises(c, key_insert(seller, name='я' * 61), '23514', 'ck_api_key_name_len')
+    raises(c, "insert into seller_onboarding.api_key (id, seller_id, name, key_hash, fingerprint, status, revoked_at) values (%s, %s, 'x', decode(repeat('cd', 32), 'hex'), 'AbCd_-12', 'revoked', now())" % (q(uid()), q(seller)), '23514', 'ck_api_key_status_transition')
+    raises(c, "insert into seller_onboarding.api_key (id, seller_id, name, key_hash, fingerprint) values (%s, %s, 'x', decode(repeat('cd', 32), 'hex'), 'AbCd_-12')" % (q(uid()), q(uid())), '23503', 'fk_api_key_seller_id')
+    kid = c.scalar("select id from seller_onboarding.api_key where key_hash = decode(%s, 'hex')" % q(h))
+    raises(c, "update seller_onboarding.api_key set key_hash = decode(repeat('ee', 32), 'hex') where id = %s" % q(kid), '23514', 'ck_api_key_immutable')
+    raises(c, "update seller_onboarding.api_key set name = 'другое' where id = %s" % q(kid), '23514', 'ck_api_key_immutable')
+    raises(c, "update seller_onboarding.api_key set status = 'revoked' where id = %s" % q(kid), '23514', 'ck_api_key_revoked_state')
+    ok(c, "update seller_onboarding.api_key set status = 'revoked', revoked_at = now() where id = %s" % q(kid))
+    raises(c, "update seller_onboarding.api_key set status = 'active', revoked_at = null where id = %s" % q(kid), '23514')       # отзыв необратим
+    raises(c, "update seller_onboarding.api_key set status = 'active' where id = %s" % q(kid), '23514', 'ck_api_key_status_transition')
+
+
+@test('api_key: не больше пяти активных ключей на продавца, в том числе при одновременном выпуске; отзыв освобождает место', 'Р-185')
+def t_api_key_limit():
+    c = conn('catalog_db')
+    seller = new_seller(c)
+    for i in range(5):
+        ok(c, key_insert(seller))
+    raises(c, key_insert(seller), '23514', 'ck_api_key_limit')
+    kid = c.scalar("select id from seller_onboarding.api_key where seller_id = %s limit 1" % q(seller))
+    ok(c, "update seller_onboarding.api_key set status = 'revoked', revoked_at = now() where id = %s" % q(kid))
+    ok(c, key_insert(seller))
+    # гонка: шесть потоков выпускают ключи продавцу без ключей, проходят ровно пять
+    racer = new_seller(c)
+    results = []
+    barrier = threading.Barrier(6)
+
+    def run():
+        w = conn('catalog_db')
+        try:
+            barrier.wait()
+            w.execute(key_insert(racer))
+            results.append('ok')
+        except PgError as e:
+            results.append(e.constraint or e.code)
+    th = [threading.Thread(target=run) for _ in range(6)]
+    [t.start() for t in th]
+    [t.join() for t in th]
+    assert results.count('ok') == 5 and results.count('ck_api_key_limit') == 1, results
+    assert c.scalar("select count(*) from seller_onboarding.api_key where seller_id = %s and status = 'active'" % q(racer)) == '5'
+
+
+@test('seller_integration: только https, версия записи растёт, версия секрета не уменьшается, владелец неизменен', 'Р-187')
+def t_seller_integration():
+    c = conn('catalog_db')
+    seller = new_seller(c)
+    ins = "insert into seller_onboarding.seller_integration (seller_id, endpoint_url) values (%s, %s)"
+    raises(c, ins % (q(seller), q('http://seller.example/hook')), '23514', 'ck_seller_integration_endpoint_url')
+    raises(c, ins % (q(seller), q('https://seller.example/ hook')), '23514', 'ck_seller_integration_endpoint_url')
+    raises(c, ins % (q(seller), q('https://' + 'a' * 2050)), '23514', 'ck_seller_integration_endpoint_url')
+    raises(c, ins % (q(uid()), q('https://seller.example/hook')), '23503', 'fk_seller_integration_seller_id')
+    ok(c, ins % (q(seller), q('https://seller.example/hook')))
+    raises(c, ins % (q(seller), q('https://seller.example/other')), '23505', 'pk_seller_integration')
+    assert c.scalar("select version from seller_onboarding.seller_integration where seller_id = %s" % q(seller)) == '1'
+    ok(c, "update seller_onboarding.seller_integration set secret_version = secret_version + 1 where seller_id = %s" % q(seller))
+    assert c.scalar("select version || '/' || secret_version from seller_onboarding.seller_integration where seller_id = %s" % q(seller)) == '2/2'
+    raises(c, "update seller_onboarding.seller_integration set secret_version = 1 where seller_id = %s" % q(seller), '23514', 'ck_seller_integration_secret_version_down')
+    raises(c, "update seller_onboarding.seller_integration set seller_id = %s where seller_id = %s" % (q(uid()), q(seller)), '23514', 'ck_seller_integration_immutable')
+    raises(c, "update seller_onboarding.seller_integration set status = 'off' where seller_id = %s" % q(seller), '23514', 'ck_seller_integration_status')
+
+
+def api_product(c, method='seller_api'):
+    pid = uid()
+    ok(c, "insert into inventory.product_copy (product_id, seller_id, issuance_method, status, source_version) values (%s, %s, %s, 'published', 1)" % (q(pid), q(uid()), q(method)))
+    return pid
+
+
+@test('api_stock: остаток только у товара по API, не отрицателен, версия растёт на единицу; 20 одновременных резервов на остаток 5 дают ровно 5', 'INV-08, INV-09, Р-183')
+def t_api_stock():
+    c = conn('inventory_db')
+    pool = api_product(c, 'key_pool')
+    raises(c, "insert into inventory.api_stock (product_id) values (%s)" % q(pool), '23514', 'ck_api_stock_issuance_method')
+    raises(c, "insert into inventory.api_stock (product_id) values (%s)" % q(uid()), '23514', 'ck_api_stock_issuance_method')     # товара нет в копии
+    pid = api_product(c)
+    ok(c, "insert into inventory.api_stock (product_id, quantity) values (%s, 5)" % q(pid))
+    assert c.scalar("select quantity || '/' || version from inventory.api_stock where product_id = %s" % q(pid)) == '5/1'
+    raises(c, "update inventory.api_stock set quantity = -1 where product_id = %s" % q(pid), '23514', 'ck_api_stock_quantity')
+    raises(c, "update inventory.api_stock set product_id = %s where product_id = %s" % (q(uid()), q(pid)), '23514', 'ck_api_stock_immutable')
+    # версия растёт на единицу, даже если оператор пытается её задать сам
+    ok(c, "update inventory.api_stock set quantity = 5, version = 99 where product_id = %s" % q(pid))
+    assert c.scalar("select version from inventory.api_stock where product_id = %s" % q(pid)) == '2'
+    # правка по версии: вторая правка по устаревшей версии не применяется (ADR-008)
+    assert c.execute("update inventory.api_stock set quantity = 7 where product_id = %s and version = 2" % q(pid)) == 1
+    assert c.execute("update inventory.api_stock set quantity = 8 where product_id = %s and version = 2" % q(pid)) == 0
+    ok(c, "update inventory.api_stock set quantity = 5 where product_id = %s" % q(pid))
+    results = []
+    barrier = threading.Barrier(20)
+
+    def run():
+        w = conn('inventory_db')
+        try:
+            barrier.wait()
+            results.append(w.execute("update inventory.api_stock set quantity = quantity - 1 where product_id = %s and quantity >= 1" % q(pid)))
+        except Exception as e:  # noqa
+            results.append(repr(e))
+    th = [threading.Thread(target=run) for _ in range(20)]
+    [t.start() for t in th]
+    [t.join() for t in th]
+    assert results.count(1) == 5 and results.count(0) == 15, results
+    assert c.scalar("select quantity from inventory.api_stock where product_id = %s" % q(pid)) == '0'
+
+
+@test('reservation: SM-08/T5 использован > снят только у товара по API и пока ключ не выдан; время использования остаётся', 'INV-04, SM-08, Р-192')
+def t_reservation_t5():
+    c = conn('inventory_db')
+    p = api_product(c)
+    ins = "insert into inventory.reservation (id, order_id, product_id, quantity, expires_at) values (%s, %s, %s, 1, now() + interval '15 minutes')"
+    r = uid()
+    ok(c, ins % (q(r), q(uid()), q(p)))
+    ok(c, "update inventory.reservation set status = 'used', used_at = now() where id = %s" % q(r))
+    raises(c, "update inventory.reservation set status = 'released', release_reason = 'order_cancelled' where id = %s" % q(r), '23514', 'ck_reservation_released_state')
+    ok(c, "update inventory.reservation set status = 'released', release_reason = 'order_cancelled', released_at = now() where id = %s" % q(r))
+    assert c.scalar("select used_at is not null from inventory.reservation where id = %s" % q(r)) == 't'
+    raises(c, "update inventory.reservation set status = 'used' where id = %s" % q(r), '23514', 'ck_reservation_status_transition')
+    # снятый без использования резерв по-прежнему без used_at, использованный требует used_at
+    r2 = uid()
+    ok(c, ins % (q(r2), q(uid()), q(p)))
+    raises(c, "update inventory.reservation set used_at = now() where id = %s" % q(r2), '23514', 'ck_reservation_used_state')
+    # товар с пулом: использованный резерв не снимается
+    pool = api_product(c, 'key_pool')
+    r3 = uid()
+    ok(c, ins % (q(r3), q(uid()), q(pool)))
+    ok(c, "update inventory.reservation set status = 'used', used_at = now() where id = %s" % q(r3))
+    raises(c, "update inventory.reservation set status = 'released', release_reason = 'order_cancelled', released_at = now() where id = %s" % q(r3), '23514', 'ck_reservation_used_release_api')
+    # ключ продавца проходит те же переходы SM-03, что обычный: free > reserved > issued, после выдачи резерв не снимается (INV-04)
+    r4, order = uid(), uid()
+    ok(c, ins % (q(r4), q(order), q(p)))
+    ok(c, "update inventory.reservation set status = 'used', used_at = now() where id = %s" % q(r4))
+    if not c.scalar("select 1 from inventory.data_key where status = 'active'"):
+        ok(c, "insert into inventory.data_key (wrapped_key, kek_version) values (decode(repeat('00', 60), 'hex'), 1)")
+    kid = insert_key(c, p, 'seller-key-1')
+    ok(c, "update inventory.key set status = 'reserved', order_id = %s, reservation_id = %s where id = %s" % (q(order), q(r4), q(kid)))
+    ok(c, "update inventory.key set status = 'issued', issued_at = now() where id = %s" % q(kid))
+    raises(c, "update inventory.reservation set status = 'released', release_reason = 'order_cancelled', released_at = now() where id = %s" % q(r4), '23514', 'ck_reservation_used_release_issued')
+
+
+@test('seller_request: переходы requested > accepted | answered | failed | timeout, поля состояния согласованы, один запрос на выдачу', 'Р-190, Р-191')
+def t_seller_request():
+    c = conn('delivery_db')
+    d = new_delivery(c)
+    req = uid()
+    ins = ("insert into delivery.seller_request (delivery_id, request_id, seller_id, product_id, order_number, deadline_at%s) "
+           "values (%s, %s, %s, %s, 1001, now() + interval '10 minutes'%s)")
+    raises(c, ins % ('', q(uid()), q(req), q(uid()), q(uid()), ''), '23503', 'fk_seller_request_delivery_id')
+    ok(c, ins % ('', q(d), q(req), q(uid()), q(uid()), ''))
+    raises(c, ins % ('', q(d), q(uid()), q(uid()), q(uid()), ''), '23505', 'pk_seller_request')
+    d2 = new_delivery(c)
+    raises(c, ins % ('', q(d2), q(req), q(uid()), q(uid()), ''), '23505', 'uq_seller_request_request_id')
+    raises(c, ins % (', status', q(d2), q(uid()), q(uid()), q(uid()), ", 'accepted'"), '23514', 'ck_seller_request_status_transition')
+    raises(c, ins.replace("1001", "1000") % ('', q(d2), q(uid()), q(uid()), q(uid()), ''), '23514', 'ck_seller_request_order_number')
+    raises(c, "update delivery.seller_request set attempts = 4 where delivery_id = %s" % q(d), '23514', 'ck_seller_request_attempts')
+    ok(c, "update delivery.seller_request set attempts = 1, next_attempt_at = now() + interval '5 seconds' where delivery_id = %s" % q(d))
+    raises(c, "update delivery.seller_request set attempts = 3 where delivery_id = %s" % q(d), '23514', 'ck_seller_request_next_attempt')
+    ok(c, "update delivery.seller_request set attempts = 3, next_attempt_at = null where delivery_id = %s" % q(d))
+    raises(c, "update delivery.seller_request set status = 'accepted', next_attempt_at = null where delivery_id = %s" % q(d), '23514', 'ck_seller_request_accepted_at')
+    ok(c, "update delivery.seller_request set status = 'accepted', accepted_at = now() where delivery_id = %s" % q(d))
+    ok(c, "update delivery.seller_request set lease_until = now() + interval '30 seconds' where delivery_id = %s" % q(d))
+    raises(c, "update delivery.seller_request set status = 'answered', lease_until = now() where delivery_id = %s" % q(d), '23514')   # ответ без answered_at и аренда у завершённого
+    ok(c, "update delivery.seller_request set status = 'answered', answered_at = now(), lease_until = null where delivery_id = %s" % q(d))
+    raises(c, "update delivery.seller_request set status = 'timeout' where delivery_id = %s" % q(d), '23514', 'ck_seller_request_status_transition')
+    raises(c, "update delivery.seller_request set deadline_at = now() + interval '1 hour' where delivery_id = %s" % q(d), '23514', 'ck_seller_request_immutable')
+    raises(c, "update delivery.seller_request set request_id = %s where delivery_id = %s" % (q(uid()), q(d)), '23514', 'ck_seller_request_immutable')
+    # ответ может прийти раньше, чем завершится запрос: requested > answered
+    d3 = new_delivery(c)
+    ok(c, ins % ('', q(d3), q(uid()), q(uid()), q(uid()), ''))
+    ok(c, "update delivery.seller_request set status = 'answered', answered_at = now() where delivery_id = %s" % q(d3))
+    # отказ продавца: код обязателен, свободный текст вместо кода не принимается, пояснение только у отказа
+    d4 = new_delivery(c)
+    ok(c, ins % ('', q(d4), q(uid()), q(uid()), q(uid()), ''))
+    raises(c, "update delivery.seller_request set status = 'failed' where delivery_id = %s" % q(d4), '23514', 'ck_seller_request_failed')
+    raises(c, "update delivery.seller_request set error_message = 'нет в наличии' where delivery_id = %s" % q(d4), '23514', 'ck_seller_request_error_message')
+    raises(c, "update delivery.seller_request set status = 'failed', error_code = 'ключ ABCD-1234' where delivery_id = %s" % q(d4), '23514', 'ck_seller_request_error_code')
+    ok(c, "update delivery.seller_request set status = 'failed', error_code = 'out_of_stock', error_message = 'нет в наличии' where delivery_id = %s" % q(d4))
+    # тайм-аут: выдача получает причину seller_unavailable
+    d5 = new_delivery(c)
+    ok(c, ins % ('', q(d5), q(uid()), q(uid()), q(uid()), ''))
+    ok(c, "update delivery.seller_request set status = 'timeout' where delivery_id = %s" % q(d5))
+    ok(c, "update delivery.delivery set status = 'failed', fail_reason = 'seller_unavailable', next_attempt_at = null where id = %s" % q(d5))
+    raises(c, "update delivery.delivery set fail_reason = 'other' where id = %s" % q(d5), '23514', 'ck_delivery_fail_reason')
+
+
+@test('seller_request: два экземпляра задания берут разные запросы (FOR UPDATE SKIP LOCKED), запрос с арендой тайм-аут не берёт', 'Р-190, ADR-011')
+def t_seller_request_jobs():
+    c = conn('delivery_db')
+    ids = []
+    for _ in range(4):
+        d = new_delivery(c)
+        ok(c, "insert into delivery.seller_request (delivery_id, request_id, seller_id, product_id, order_number, deadline_at, created_at, next_attempt_at) "
+              "values (%s, %s, %s, %s, 1001, now() - interval '1 minute', now() - interval '11 minutes', now() - interval '1 second')" % (q(d), q(uid()), q(uid()), q(uid())))
+        ids.append(d)
+    leased = ids[0]
+    ok(c, "update delivery.seller_request set lease_until = now() + interval '30 seconds', next_attempt_at = null where delivery_id = %s" % q(leased))
+    take = ("select delivery_id from delivery.seller_request where delivery_id in (%s) and status in ('requested', 'accepted') and deadline_at <= now() "
+            "and (lease_until is null or lease_until < now()) order by deadline_at limit 2 for update skip locked" % ', '.join(q(i) for i in ids))
+    a, b = conn('delivery_db'), conn('delivery_db')
+    ok(a, 'begin')
+    ok(b, 'begin')
+    got_a = {r[0] for r in a.query(take)}
+    got_b = {r[0] for r in b.query(take)}
+    assert len(got_a) == 2 and len(got_b) == 1 and not (got_a & got_b) and leased not in (got_a | got_b), (got_a, got_b)
+    ok(a, 'rollback')
+    ok(b, 'rollback')
+
+
+@test('orders: SM-01/T10 оплачен > отменён с причиной seller_api_timeout; из «выдан» отмены нет; индекс списка заказов продавца', 'SM-01, Р-189, Р-192')
+def t_order_t10():
+    c = conn('order_db')
+    oid = new_order(c)
+    ok(c, "update orders.orders set status = 'awaiting_payment', reserve_until = now() + interval '15 minutes', session_until = now() + interval '12 minutes', payment_session_url = 'https://pay.example/s' where id = %s" % q(oid))
+    ok(c, "update orders.orders set status = 'paid', paid_at = now() where id = %s" % q(oid))
+    raises(c, "update orders.orders set status = 'cancelled' where id = %s" % q(oid), '23514', 'ck_orders_cancelled')
+    ok(c, "update orders.orders set status = 'cancelled', cancel_reason = 'seller_api_timeout' where id = %s" % q(oid))
+    assert c.scalar("select paid_at is not null from orders.orders where id = %s" % q(oid)) == 't'
+    ok(c, "update orders.orders set status = 'refunded' where id = %s" % q(oid))
+    o2 = new_order(c)
+    ok(c, "update orders.orders set status = 'cancelled', cancel_reason = 'system_error' where id = %s" % q(o2))
+    ok(c, "update orders.orders set status = 'paid', paid_at = now() where id = %s" % q(o2))
+    ok(c, "update orders.orders set status = 'issued', issued_at = now() where id = %s" % q(o2))
+    raises(c, "update orders.orders set status = 'cancelled', cancel_reason = 'seller_api_timeout' where id = %s" % q(o2), '23514', 'ck_orders_status_transition')
+    assert c.scalar("select count(*) from pg_indexes where schemaname = 'orders' and indexname = 'ix_orders_seller_id'") == '1'
+
+
+@test('webhook_delivery: одно событие одно уведомление, нет персональных данных, не больше шести попыток, поля состояния согласованы', 'INV-44, Р-193')
+def t_webhook_delivery():
+    c = conn('platform_db')
+    ins = ("insert into notification.webhook_delivery (id, seller_id, event_id, event_type, order_number, payload, next_attempt_at%s) values (%s, %s, %s, %s, 1001, %s, now()%s)")
+    body = """'{"eventId": "e", "type": "order.paid", "orderNumber": 1001, "quantity": 1, "amount": 14999}'"""
+    ev = uid()
+    ok(c, ins % ('', q(uid()), q(uid()), q(ev), q('order.paid'), body, ''))
+    raises(c, ins % ('', q(uid()), q(uid()), q(ev), q('order.paid'), body, ''), '23505', 'uq_webhook_delivery_event_id')
+    raises(c, ins % ('', q(uid()), q(uid()), q(uid()), q('order.disputed'), body, ''), '23514', 'ck_webhook_delivery_event_type')
+    for key in ('email', 'phone', 'name', 'address', 'buyerId'):
+        raises(c, ins % ('', q(uid()), q(uid()), q(uid()), q('order.paid'), """'{"%s": "v"}'""" % key, ''), '23514', 'ck_webhook_delivery_payload')
+    raises(c, ins % ('', q(uid()), q(uid()), q(uid()), q('order.paid'), "'[]'", ''), '23514', 'ck_webhook_delivery_payload')
+    w = uid()
+    ok(c, ins % ('', q(w), q(uid()), q(uid()), q('order.issued'), body, ''))
+    raises(c, ins % (', status', q(uid()), q(uid()), q(uid()), q('order.paid'), body, ", 'sent'"), '23514', 'ck_webhook_delivery_status_transition')
+    raises(c, "update notification.webhook_delivery set status = 'queued', attempts = 7 where id = %s" % q(w), '23514', 'ck_webhook_delivery_attempts')
+    raises(c, "update notification.webhook_delivery set status = 'sent', sent_at = now() where id = %s" % q(w), '23514', 'ck_webhook_delivery_queue')
+    ok(c, "update notification.webhook_delivery set attempts = 2, last_attempt_at = now(), last_response_code = 503, last_error_code = 'http_5xx', next_attempt_at = now() + interval '2 minutes' where id = %s" % q(w))
+    raises(c, "update notification.webhook_delivery set last_error_code = 'Ответ: нет' where id = %s" % q(w), '23514', 'ck_webhook_delivery_last_error_code')
+    raises(c, "update notification.webhook_delivery set last_response_code = 99 where id = %s" % q(w), '23514', 'ck_webhook_delivery_last_response_code')
+    raises(c, "update notification.webhook_delivery set status = 'failed', next_attempt_at = null where id = %s" % q(w), '23514', 'ck_webhook_delivery_failed_attempts')
+    ok(c, "update notification.webhook_delivery set status = 'failed', attempts = 6, next_attempt_at = null where id = %s" % q(w))
+    raises(c, "update notification.webhook_delivery set status = 'sent', sent_at = now() where id = %s" % q(w), '23514', 'ck_webhook_delivery_status_transition')
+    raises(c, "update notification.webhook_delivery set payload = '{}' where id = %s" % q(w), '23514', 'ck_webhook_delivery_immutable')
+    s = uid()
+    ok(c, ins % ('', q(s), q(uid()), q(uid()), q('order.cancelled'), body, ''))
+    raises(c, "update notification.webhook_delivery set status = 'skipped', attempts = 1, next_attempt_at = null where id = %s" % q(s), '23514', 'ck_webhook_delivery_skipped_attempts')
+    ok(c, "update notification.webhook_delivery set status = 'skipped', next_attempt_at = null where id = %s" % q(s))
+    sent = uid()
+    ok(c, ins % ('', q(sent), q(uid()), q(uid()), q('order.refunded'), body, ''))
+    ok(c, "update notification.webhook_delivery set status = 'sent', attempts = 1, sent_at = now(), last_response_code = 200, next_attempt_at = null where id = %s" % q(sent))
+
+
+@test('параметр delivery.seller-response-seconds: 600 по умолчанию, границы 30 – 900', 'Р-190, US-6.7')
+def t_seller_response_parameter():
+    c = conn('platform_db')
+    row = c.query("select value, default_value, min_value, max_value, unit from audit_admin.platform_parameter where key = 'delivery.seller-response-seconds'")
+    assert row == [['600', '600', '30', '900', 'seconds']] or [list(r) for r in row] == [['600', '600', '30', '900', 'seconds']], row
+    raises(c, "update audit_admin.platform_parameter set value = 29 where key = 'delivery.seller-response-seconds'", '23514', 'ck_platform_parameter_value')
+    raises(c, "update audit_admin.platform_parameter set value = 901 where key = 'delivery.seller-response-seconds'", '23514', 'ck_platform_parameter_value')
+    ok(c, "update audit_admin.platform_parameter set value = 60 where key = 'delivery.seller-response-seconds'")
+    ok(c, "update audit_admin.platform_parameter set value = 600 where key = 'delivery.seller-response-seconds'")
+
+
+@test('роли R2: таблицы новых схем доступны только роли своего модуля, DELETE нет ни у одной', 'decomposition 7.2, Р-181')
+def t_roles_r2():
+    c = conn('catalog_db')
+    ok(c, "set role app_seller_onboarding")
+    try:
+        assert c.query("select count(*) from seller_onboarding.api_key") is not None
+        assert c.query("select count(*) from seller_onboarding.seller_integration") is not None
+        raises(c, "delete from seller_onboarding.api_key", '42501')
+        raises(c, "delete from seller_onboarding.seller_integration", '42501')
+    finally:
+        ok(c, "reset role")
+    ok(c, "set role app_catalog")
+    try:
+        raises(c, "select * from seller_onboarding.api_key", '42501')
+    finally:
+        ok(c, "reset role")
+    for db, role, table in (('inventory_db', 'app_inventory', 'inventory.api_stock'), ('delivery_db', 'app_delivery', 'delivery.seller_request'),
+                            ('platform_db', 'app_notification', 'notification.webhook_delivery')):
+        c = conn(db)
+        ok(c, "set role " + role)
+        try:
+            assert c.query("select count(*) from " + table) is not None
+            raises(c, "delete from " + table, '42501')
+        finally:
+            ok(c, "reset role")
+    c = conn('platform_db')
+    ok(c, "set role app_support")
+    try:
+        raises(c, "select * from notification.webhook_delivery", '42501')
+    finally:
+        ok(c, "reset role")
+
+
 @test('роли модулей видят только свою схему (правило модульности 2)', 'decomposition 7.2')
 def t_roles():
     c = conn('catalog_db')

@@ -6,7 +6,7 @@
 | --- | --- |
 | Сервис | Платформа: идентификация, поддержка, уведомления, аудит и администрирование ([компоненты](../05-architecture/c4-components-platform-service.md)) |
 | База | `platform_db` |
-| Таблиц предметной области | 8, служебных (`outbox`, `processed_event`, `idempotency_key`) 3 |
+| Таблиц предметной области | 9, служебных (`outbox`, `processed_event`, `idempotency_key`) 3 |
 | Роли приложения | `app_identity`, `app_support`, `app_notification`, `app_audit_admin` и `app_audit_writer` (только `INSERT` и `SELECT` в журнал аудита) |
 | Назначение | Четыре модуля в одной базе, у каждого своя схема и роль: `identity` (расширение учётной записи Keycloak: телефон, роль, признаки), `support` (обращения по [SM-07](../03-processes/SM-07-support-ticket.md), смена e-mail, модель чтения заказов), `notification` (очередь писем), `audit_admin` (параметры платформы и журнал аудита, секционированный по месяцам). Правила модульности: между схемами нет внешних ключей и запросов. |
 
@@ -84,6 +84,23 @@ erDiagram
         text provider_status PK
         timestamptz occurred_at
         timestamptz received_at
+    }
+    WEBHOOK_DELIVERY {
+        uuid id PK
+        uuid seller_id
+        uuid event_id UK
+        text event_type
+        bigint order_number
+        jsonb payload
+        text status
+        int attempts
+        timestamptz next_attempt_at
+        timestamptz last_attempt_at
+        int last_response_code
+        text last_error_code
+        timestamptz sent_at
+        timestamptz created_at
+        timestamptz updated_at
     }
     EMAIL_CHANGE {
         uuid ticket_id PK
@@ -388,6 +405,63 @@ erDiagram
 | --- | --- | --- |
 | `ix_provider_status_event_received_at` | `ix_provider_status_event_received_at ON notification.provider_status_event USING btree (received_at)` | Очистка записей старше срока хранения (14 суток) |
 
+### notification.webhook_delivery
+
+Уведомление о событии заказа для системы продавца (R2, Р-193): очередь отправки, повторы и итог. Отдельно от notification.notification: получатель продавец, а не пользователь, и диспетчер писем эти строки не берёт.
+
+**Столбцы**
+
+| Столбец | Тип | Обязателен | По умолчанию | Описание |
+| --- | --- | --- | --- | --- |
+| `id` | `uuid` | да |  | DeliveryID уведомления, он же в списке «Недоставленные уведомления» кабинета |
+| `seller_id` | `uuid` | да |  | SellerID получателя. Адрес и версию секрета платформа берёт у catalog-service в момент отправки (getSellerEndpoint), в таблице их нет |
+| `event_id` | `uuid` | да |  | Идентификатор события, одинаков во всех попытках (заголовок X-Event-Id): по нему продавец отсекает дубли. Равен eventId события Kafka, из которого создано уведомление |
+| `event_type` | `text` | да |  | Тип события: order.paid, order.issued, order.cancelled, order.refunded. События споров добавит срез 2 миграцией |
+| `order_number` | `bigint` | да |  | Короткий номер заказа для списка в кабинете |
+| `payload` | `jsonb` | да |  | Тело уведомления: eventId, type, occurredAt, orderNumber, productId, quantity, amount. Персональных данных нет (INV-44) |
+| `status` | `text` | да | `'queued'::text` | queued (ждёт отправки или повтора), sent (получатель ответил 2xx), failed (шесть попыток исчерпаны), skipped (подключение отключено или не настроено) |
+| `attempts` | `integer` | да | `0` | Сколько попыток сделано, от 0 до 6 |
+| `next_attempt_at` | `timestamp with time zone` | нет |  | Срок следующей попытки, есть только у уведомления в очереди |
+| `last_attempt_at` | `timestamp with time zone` | нет |  | Когда была последняя попытка |
+| `last_response_code` | `integer` | нет |  | HTTP-код последнего ответа получателя, пусто, если ответа не было (тайм-аут, обрыв соединения) |
+| `last_error_code` | `text` | нет |  | Короткий код последней ошибки отправки без свободного текста (например timeout, connection_failed, http_5xx) |
+| `sent_at` | `timestamp with time zone` | нет |  | Когда получатель ответил 2xx |
+| `created_at` | `timestamp with time zone` | да | `now()` | Когда уведомление поставлено в очередь |
+| `updated_at` | `timestamp with time zone` | да | `now()` | Последнее изменение |
+
+**Ограничения**
+
+| Имя | Вид | Определение |
+| --- | --- | --- |
+| `pk_webhook_delivery` | первичный ключ | `PRIMARY KEY (id)` |
+| `uq_webhook_delivery_event_id` | уникальность | `UNIQUE (event_id)` |
+| `ck_webhook_delivery_attempts` | проверка | `CHECK (((attempts >= 0) AND (attempts <= 6)))` |
+| `ck_webhook_delivery_event_type` | проверка | `CHECK ((event_type = ANY (ARRAY['order.paid'::text, 'order.issued'::text, 'order.cancelled'::text, 'order.refunded'::text])))` |
+| `ck_webhook_delivery_failed_attempts` | проверка | `CHECK (((status <> 'failed'::text) OR (attempts = 6)))` |
+| `ck_webhook_delivery_last_error_code` | проверка | `CHECK ((last_error_code ~ '^[a-z0-9_.-]{1,64}$'::text))` |
+| `ck_webhook_delivery_last_response_code` | проверка | `CHECK (((last_response_code >= 100) AND (last_response_code <= 599)))` |
+| `ck_webhook_delivery_order_number` | проверка | `CHECK ((order_number >= 1001))` |
+| `ck_webhook_delivery_payload` | проверка | `CHECK (((jsonb_typeof(payload) = 'object'::text) AND (NOT (payload ?\| ARRAY['email'::text, 'phone'::text, 'name'::text, 'address'::text, 'recipient'::text, 'buyerId'::text, 'buyer_id'::text]))))` |
+| `ck_webhook_delivery_queue` | проверка | `CHECK (((status = 'queued'::text) = (next_attempt_at IS NOT NULL)))` |
+| `ck_webhook_delivery_sent_at` | проверка | `CHECK (((status = 'sent'::text) = (sent_at IS NOT NULL)))` |
+| `ck_webhook_delivery_skipped_attempts` | проверка | `CHECK (((status <> 'skipped'::text) OR (attempts = 0)))` |
+| `ck_webhook_delivery_status` | проверка | `CHECK ((status = ANY (ARRAY['queued'::text, 'sent'::text, 'failed'::text, 'skipped'::text])))` |
+
+**Индексы**
+
+| Имя | Определение | Для чего |
+| --- | --- | --- |
+| `ix_webhook_delivery_dispatch` | `ix_webhook_delivery_dispatch ON notification.webhook_delivery USING btree (next_attempt_at, id) WHERE (status = 'queued'::text)` | Отправитель webhook: WHERE status = 'queued' AND next_attempt_at <= now() ORDER BY next_attempt_at LIMIT 20 FOR UPDATE SKIP LOCKED |
+| `ix_webhook_delivery_seller_id` | `ix_webhook_delivery_seller_id ON notification.webhook_delivery USING btree (seller_id, created_at DESC, id DESC)` | GET /api/v1/seller/webhook-deliveries (OP-102): доставки продавца, новые выше, курсор по (created_at, id), фильтр status поверх |
+
+**Триггеры**
+
+| Имя | Когда | Назначение |
+| --- | --- | --- |
+| `trg_webhook_delivery_immutable` | до: изменение | Получатель, событие и тело webhook-уведомления неизменны (повтор шлёт то же тело с тем же eventId), время изменения обновляется |
+| `trg_webhook_delivery_status_initial` | до: вставка | Начальный статус при вставке: queued |
+| `trg_webhook_delivery_status_transition` | до: изменение статуса | Допустимые переходы статуса: queued → sent; queued → failed; queued → skipped |
+
 ### support.email_change
 
 Этап смены e-mail по обращению: проверка телефона, затем нового адреса. Результат проверки, не код (коды лежат в Redis как HMAC).
@@ -517,6 +591,7 @@ erDiagram
 | `audit_admin.platform_parameter_guard()` | Ключ параметра неизменен, версия растёт на единицу при каждой правке (ETag) |
 | `identity.keep_last_admin()` | В системе остаётся хотя бы один активный администратор (INV-38): проверка под консультативной блокировкой, два одновременных снятия не пройдут оба |
 | `identity.user_account_touch()` | Идентификатор и дата регистрации неизменны, анонимизация необратима (INV-44), версия растёт на единицу |
+| `notification.webhook_delivery_immutable()` | Получатель, событие и тело webhook-уведомления неизменны (повтор шлёт то же тело с тем же eventId), время изменения обновляется |
 | `support.ticket_touch()` | Заказ, покупатель, источник и причина обращения неизменны, версия растёт на единицу |
 | `public.enforce_status_transition()` | Допустимые переходы статуса по диаграммам SM. Аргументы триггера: initial:<статус> для вставки и <из>><в> для изменения. Нарушение даёт ошибку 23514 с ограничением ck_<таблица>_status_transition |
 
@@ -539,6 +614,7 @@ erDiagram
 | `app_identity` | `public.processed_event` | DELETE, INSERT, SELECT, UPDATE |
 | `app_notification` | `notification.notification` | INSERT, SELECT, UPDATE |
 | `app_notification` | `notification.provider_status_event` | DELETE, INSERT, SELECT |
+| `app_notification` | `notification.webhook_delivery` | INSERT, SELECT, UPDATE |
 | `app_notification` | `public.idempotency_key` | DELETE, INSERT, SELECT, UPDATE |
 | `app_notification` | `public.outbox` | DELETE, INSERT, SELECT, UPDATE |
 | `app_notification` | `public.processed_event` | DELETE, INSERT, SELECT, UPDATE |

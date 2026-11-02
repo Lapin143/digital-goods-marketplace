@@ -103,7 +103,12 @@ from (
 ) t;
 insert into catalog.stock_view (product_id, available, last_event_at)
 select id, (row_number() over ()) % 50, now() from catalog.product where status = 'published';
-""".format(ns=ns, np=np_, nd=n(8000, s)) + infra
+insert into seller_onboarding.api_key (id, seller_id, name, key_hash, fingerprint, status, created_at, revoked_at)
+select md5('ak' || i)::uuid, md5('s' || (1 + i % {ns}))::uuid, 'Ключ ' || i, decode(md5('kh' || i) || md5('KH' || i), 'hex'),
+       substr(md5('fp' || i), 1, 8), case when i % 5 = 0 then 'revoked' else 'active' end, now() - i * interval '1 minute',
+       case when i % 5 = 0 then now() end
+from generate_series(1, {nk}) i;
+""".format(ns=ns, np=np_, nd=n(8000, s), nk=n(25000, s)) + infra
     if db == 'inventory_db':
         nr, nf, nprod = n(150000, s), n(150000, s), n(20000, s)
         return """
@@ -223,9 +228,23 @@ select order_id, created_at + interval '30 minutes', case when i % 7500 = 0 then
 from (select d.*, row_number() over (order by d.id) i from delivery.delivery d) d;
 insert into delivery.provider_status_event (delivery_id, provider_status, occurred_at, received_at)
 select id, 'delivered', created_at, now() - (row_number() over (order by id)) * interval '8 seconds' from delivery.delivery;
+insert into delivery.seller_request (delivery_id, request_id, seller_id, product_id, order_number, status, deadline_at, attempts,
+    next_attempt_at, lease_until, error_code, accepted_at, answered_at, created_at, updated_at)
+select id, md5('rq' || i)::uuid, md5('s' || (1 + i % 5000))::uuid, md5('p' || (1 + i % 60000))::uuid, 1000 + i, st,
+       created_at + interval '10 minutes', case when st = 'requested' then 1 else 0 end,
+       case when st = 'requested' then now() - (i % 10) * interval '1 second' end,
+       case when st = 'accepted' and i % 2 = 0 then now() + interval '30 seconds' end,
+       case when st = 'failed' then 'out_of_stock' end,
+       case when st in ('accepted', 'answered') then created_at + interval '1 second' end,
+       case when st = 'answered' then created_at + interval '1 minute' end, created_at, created_at
+from (select d.id, d.created_at, row_number() over (order by d.id) i,
+             case when row_number() over (order by d.id) % 1000 < 3 then 'requested' when row_number() over (order by d.id) % 1000 < 6 then 'accepted'
+                  when row_number() over (order by d.id) % 1000 < 8 then 'failed' when row_number() over (order by d.id) % 1000 < 10 then 'timeout'
+                  else 'answered' end st
+      from delivery.delivery d where d.kind = 'primary') d;
 """.format(nb=n(30000, s), no=no) + infra
     if db == 'platform_db':
-        nu, nt, nv, nn, na = n(100000, s), n(20000, s), n(150000, s), n(400000, s), n(200000, s)
+        nu, nt, nv, nn, na, nw = n(100000, s), n(20000, s), n(150000, s), n(400000, s), n(200000, s), n(200000, s)
         return """
 insert into identity.user_account (id, email, previous_email, previous_email_until, phone, phone_confirmed, phone_synced_to_idp,
     name, role, seller_id, has_2fa, audit_salt, status, registered_at, updated_at)
@@ -272,7 +291,17 @@ select md5('a' || i)::uuid, md5('ae' || i)::uuid,
        (array['product', 'user', 'parameter', 'ticket'])[1 + i % 4], md5('obj' || (i % 5000)),
        '[{{"field":"status","personal":false,"before":"on_moderation","after":"published"}}]'::jsonb, null, false, md5('c' || i)::uuid
 from generate_series(1, {na}) i;
-""".format(nu=nu, nt=nt, nv=nv, nn=nn, na=na) + infra
+insert into notification.webhook_delivery (id, seller_id, event_id, event_type, order_number, payload, status, attempts, next_attempt_at,
+    last_attempt_at, last_response_code, last_error_code, sent_at, created_at, updated_at)
+select md5('wd' || i)::uuid, md5('s' || (1 + i % 5000))::uuid, md5('we' || i)::uuid, (array['order.paid', 'order.issued', 'order.cancelled', 'order.refunded'])[1 + i % 4],
+       1000 + i, jsonb_build_object('type', 'order.paid', 'orderNumber', 1000 + i, 'quantity', 1, 'amount', 10000 + i % 5000), st,
+       case when st = 'failed' then 6 when st = 'queued' then 1 else 1 end,
+       case when st = 'queued' then now() - (i % 10 - 3) * interval '1 second' end,
+       now() - i * interval '1 minute', case when st = 'sent' then 200 else 503 end, case when st = 'sent' then null else 'http_5xx' end,
+       case when st = 'sent' then now() - i * interval '1 minute' end, now() - i * interval '1 minute', now()
+from (select i, case when i % 10000 < 20 then 'queued' when i % 10000 < 30 then 'failed' else 'sent' end st
+      from generate_series(1, {nw}) i) t;
+""".format(nu=nu, nt=nt, nv=nv, nn=nn, na=na, nw=nw) + infra
     raise ValueError(db)
 
 
@@ -358,6 +387,14 @@ def build_queries():
       ['uq_seller_profile_user_id'])
     Q(c, 'C-19', 'US-2.2 документы заявки',
       "select * from seller_onboarding.seller_document where seller_id = %s order by uploaded_at" % U('s', 55), ['ix_seller_document_seller_id'])
+    Q(c, 'C-20', 'OP-91 список API-ключей продавца, новые выше (R2)',
+      "select id, name, fingerprint, status, created_at, revoked_at from seller_onboarding.api_key where seller_id = %s "
+      "order by created_at desc, id desc limit 20" % U('s', 55), ['ix_api_key_seller_id'], True)
+    Q(c, 'C-21', 'OP-96 проверка API-ключа по хешу, горячий путь шлюза (R2)',
+      "select id, seller_id, status from seller_onboarding.api_key where key_hash = decode(md5('kh' || 777) || md5('KH' || 777), 'hex')",
+      ['uq_api_key_key_hash'])
+    Q(c, 'C-22', 'OP-90 число активных API-ключей продавца при выпуске (R2)',
+      "select count(*) from seller_onboarding.api_key where seller_id = %s and status = 'active'" % U('s', 55), ['ix_api_key_seller_id'])
 
     i = 'inventory_db'
     Q(i, 'I-01', 'ADR-007 выбор свободных ключей для резерва',
@@ -400,6 +437,11 @@ def build_queries():
     Q(o, 'O-07', 'FT-5.1 число неоплаченных заказов покупателя (лимит orders.max-unpaid)',
       "select count(*) from orders.orders where buyer_id = %s and status in ('created', 'awaiting_payment')" % U('u', 700), ['ix_orders_buyer_id'])
     Q(o, 'O-08', 'FT-5.0 заказ по короткому номеру (оператор поддержки)', "select * from orders.orders where number = 1001 + 12345", ['uq_orders_number'])
+    Q(o, 'O-09', 'OP-100 заказы продавца, новые выше (R2)',
+      "select * from orders.orders where seller_id = %s order by created_at desc, id desc limit 20" % U('s', 700), ['ix_orders_seller_id'], True)
+    Q(o, 'O-10', 'OP-100 заказы продавца с фильтром статуса и периода (R2)',
+      "select * from orders.orders where seller_id = %s and status = 'issued' and created_at >= now() - interval '30 days' "
+      "order by created_at desc, id desc limit 20" % U('s', 700), ['ix_orders_seller_id'], True)
 
     p = 'payment_db'
     Q(p, 'P-01', 'FT-6.1 платёж по заказу', "select * from payments.payment where order_id = %s" % U('o', 12345), ['uq_payment_order_id'])
@@ -440,6 +482,14 @@ def build_queries():
     Q(d, 'D-07', 'Попытки отправки выдачи', "select * from delivery.delivery_attempt where delivery_id = %s order by attempt_no" % U('d', 12345), ['pk_delivery_attempt'])
     Q(d, 'D-08', 'Статус письма от провайдера',
       "select 1 from delivery.provider_status_event where delivery_id = %s and provider_status = 'delivered'" % U('d', 12345), ['pk_provider_status_event'])
+    Q(d, 'D-10', 'Р-191 отправка запросов продавцам (R2)',
+      "select delivery_id from delivery.seller_request where status = 'requested' and next_attempt_at <= now() order by next_attempt_at limit 20 for update skip locked",
+      ['ix_seller_request_dispatch'], True)
+    Q(d, 'D-11', 'Р-190 тайм-аут запросов без ответа и без аренды (R2)',
+      "select delivery_id from delivery.seller_request where status in ('requested', 'accepted') and deadline_at <= now() "
+      "and (lease_until is null or lease_until < now()) order by deadline_at limit 20 for update skip locked", ['ix_seller_request_deadline'], True)
+    Q(d, 'D-12', 'OP-101 запрос по идентификатору из ответа продавца (R2)',
+      "select delivery_id, status, seller_id, deadline_at from delivery.seller_request where request_id = md5('rq' || 12345)::uuid", ['uq_seller_request_request_id'])
 
     f = 'platform_db'
     Q(f, 'F-01', 'US-8.1 пользователи, фильтр роли и статуса',
@@ -513,6 +563,17 @@ def build_queries():
     Q('delivery_db', 'D-09', 'Очистка статусов провайдера старше 14 суток',
       "select delivery_id, provider_status from delivery.provider_status_event where received_at < now() - interval '14 days' limit 10000",
       ['ix_provider_status_event_received_at'])
+    Q('platform_db', 'F-25', 'Р-193 отправка webhook продавцам (R2)',
+      "select id from notification.webhook_delivery where status = 'queued' and next_attempt_at <= now() order by next_attempt_at limit 20 for update skip locked",
+      ['ix_webhook_delivery_dispatch'], True)
+    Q('platform_db', 'F-26', 'OP-102 доставки webhook продавца, новые выше (R2)',
+      "select id, event_type, order_number, status, attempts from notification.webhook_delivery where seller_id = %s order by created_at desc, id desc limit 20" % U('s', 55),
+      ['ix_webhook_delivery_seller_id'], True)
+    Q('platform_db', 'F-27', 'OP-102 недоставленные webhook продавца (R2)',
+      "select id from notification.webhook_delivery where seller_id = %s and status = 'failed' order by created_at desc, id desc limit 20" % U('s', 55),
+      ['ix_webhook_delivery_seller_id'], True)
+    Q('platform_db', 'F-28', 'ADR-006 дедупликация события webhook (R2)',
+      "select id from notification.webhook_delivery where event_id = md5('we' || 777)::uuid", ['uq_webhook_delivery_event_id'])
     Q('platform_db', 'F-24', 'Очистка статусов провайдера уведомлений старше 14 суток',
       "select notification_id, provider_status from notification.provider_status_event where received_at < now() - interval '14 days' limit 10000",
       ['ix_provider_status_event_received_at'])

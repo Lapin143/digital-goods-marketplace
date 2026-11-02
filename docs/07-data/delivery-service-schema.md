@@ -6,7 +6,7 @@
 | --- | --- |
 | Сервис | Выдача ([компоненты](../05-architecture/c4-components-delivery-service.md)) |
 | База | `delivery_db` |
-| Таблиц предметной области | 4, служебных (`outbox`, `processed_event`, `idempotency_key`) 3 |
+| Таблиц предметной области | 5, служебных (`outbox`, `processed_event`, `idempotency_key`) 3 |
 | Роли приложения | `app_delivery` (схема `delivery`) |
 | Назначение | Сервис владеет выдачей ([SM-06](../03-processes/SM-06-delivery.md)): очередь отправки писем с ключами, история попыток без значений ключей, контроль доставки в течение 30 минут и дедупликация статусов провайдера ([ADR-011](../05-architecture/adr/ADR-011-guaranteed-delivery.md)). |
 
@@ -57,8 +57,27 @@ erDiagram
         timestamptz occurred_at
         timestamptz received_at
     }
+    SELLER_REQUEST {
+        uuid delivery_id PK
+        uuid request_id UK
+        uuid seller_id
+        uuid product_id
+        bigint order_number
+        text status
+        timestamptz deadline_at
+        int attempts
+        timestamptz next_attempt_at
+        timestamptz lease_until
+        text error_code
+        text error_message
+        timestamptz accepted_at
+        timestamptz answered_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
     DELIVERY ||--o{ DELIVERY_ATTEMPT : "delivery_id"
     DELIVERY ||--o{ PROVIDER_STATUS_EVENT : "delivery_id"
+    DELIVERY ||--o{ SELLER_REQUEST : "delivery_id"
 ```
 
 ## Инварианты этой базы
@@ -95,7 +114,7 @@ erDiagram
 | `attempt_no` | `integer` | да | `0` | Число выполненных попыток отправки, от 0 до 6. Автоповторы меняют только его |
 | `next_attempt_at` | `timestamp with time zone` | нет |  | Срок следующей попытки. У занятой выдачи сдвигается на аренду 2 минуты, чтобы упавший процесс не терял выдачу |
 | `last_error_code` | `text` | нет |  | Код последней ошибки отправки: короткий идентификатор без свободного текста, значения ключей сюда попасть не могут |
-| `fail_reason` | `text` | нет |  | attempts_exhausted или address_rejected, только у статуса failed |
+| `fail_reason` | `text` | нет |  | attempts_exhausted, address_rejected или seller_unavailable (продавец не ответил или отказал, только у товара с выдачей по API, письма не было), только у статуса failed |
 | `sent_at` | `timestamp with time zone` | нет |  | Когда провайдер принял письмо |
 | `delivered_at` | `timestamp with time zone` | нет |  | Когда провайдер подтвердил доставку (метрика BG-01) |
 | `status` | `text` | да | `'queued'::text` | SM-06: queued, sent, delivered, failed |
@@ -111,7 +130,7 @@ erDiagram
 | `ck_delivery_attempt_no` | проверка | `CHECK (((attempt_no >= 0) AND (attempt_no <= 6)))` |
 | `ck_delivery_channel` | проверка | `CHECK ((channel = 'email'::text))` |
 | `ck_delivery_delivered_at` | проверка | `CHECK (((status = 'delivered'::text) = (delivered_at IS NOT NULL)))` |
-| `ck_delivery_fail_reason` | проверка | `CHECK ((fail_reason = ANY (ARRAY['attempts_exhausted'::text, 'address_rejected'::text])))` |
+| `ck_delivery_fail_reason` | проверка | `CHECK ((fail_reason = ANY (ARRAY['attempts_exhausted'::text, 'address_rejected'::text, 'seller_unavailable'::text])))` |
 | `ck_delivery_fail_state` | проверка | `CHECK (((status = 'failed'::text) = (fail_reason IS NOT NULL)))` |
 | `ck_delivery_kind` | проверка | `CHECK ((kind = ANY (ARRAY['primary'::text, 'repeat'::text])))` |
 | `ck_delivery_last_error_code` | проверка | `CHECK ((last_error_code ~ '^[a-z0-9_.-]{1,64}$'::text))` |
@@ -232,11 +251,72 @@ erDiagram
 | --- | --- | --- |
 | `ix_provider_status_event_received_at` | `ix_provider_status_event_received_at ON delivery.provider_status_event USING btree (received_at)` | Очистка записей старше срока хранения (14 суток) |
 
+### delivery.seller_request
+
+Запрос ключа у системы продавца по заказу с выдачей по API (R2, Р-190, ADR-028): состояние ожидания перед первичной выдачей. Значений ключей нет (INV-20): ключ уходит в inventory-service сразу при ответе.
+
+**Столбцы**
+
+| Столбец | Тип | Обязателен | По умолчанию | Описание |
+| --- | --- | --- | --- | --- |
+| `delivery_id` | `uuid` | да |  | Первичная выдача заказа, на одну выдачу один запрос. Пока запрос не answered, диспетчер выдачу в отправку не берёт |
+| `request_id` | `uuid` | да |  | Идентификатор запроса: продавец возвращает его в ответе, повтор ответа с тем же значением идемпотентен (Р-191) |
+| `seller_id` | `uuid` | да |  | SellerID из order.paid: ответ принимается только от ключа этого продавца, чужой ключ даёт 404 |
+| `product_id` | `uuid` | да |  | ProductID из order.paid, уходит в тело запроса продавцу |
+| `order_number` | `bigint` | да |  | Короткий номер заказа из order.paid для запроса продавцу и для людей, не идентификатор |
+| `status` | `text` | да | `'requested'::text` | requested (запрос не доставлен), accepted (продавец ответил 2xx), answered (ключи получены и сохранены), failed (продавец отказал или система не подключена), timeout (окно закрылось без ответа) |
+| `deadline_at` | `timestamp with time zone` | да |  | Срок ответа: время оплаты плюс параметр delivery.seller-response-seconds (по умолчанию 600 секунд, US-6.7) |
+| `attempts` | `integer` | да | `0` | Сколько раз платформа отправила запрос, от 0 до 3 (паузы 5 и 30 секунд внутри окна) |
+| `next_attempt_at` | `timestamp with time zone` | нет |  | Срок следующей отправки запроса, есть только у ещё не доставленного запроса с попытками в запасе |
+| `lease_until` | `timestamp with time zone` | нет |  | Аренда на приём ответа: ответ, начатый до конца окна, имеет право завершиться, тайм-аут запрос с арендой не трогает (Р-190) |
+| `error_code` | `text` | нет |  | Код отказа, только у failed: out_of_stock, cannot_issue, other из ответа продавца или seller_rejected, integration_disabled, integration_missing от платформы |
+| `error_message` | `text` | нет |  | Пояснение продавца для оператора поддержки, до 500 знаков, только у failed. В журналы и события не попадает |
+| `accepted_at` | `timestamp with time zone` | нет |  | Когда продавец ответил 2xx на запрос |
+| `answered_at` | `timestamp with time zone` | нет |  | Когда ключи сохранены в inventory-service |
+| `created_at` | `timestamp with time zone` | да | `now()` | Когда запрос создан (по order.paid) |
+| `updated_at` | `timestamp with time zone` | да | `now()` | Последнее изменение |
+
+**Ограничения**
+
+| Имя | Вид | Определение |
+| --- | --- | --- |
+| `pk_seller_request` | первичный ключ | `PRIMARY KEY (delivery_id)` |
+| `uq_seller_request_request_id` | уникальность | `UNIQUE (request_id)` |
+| `fk_seller_request_delivery_id` | внешний ключ | `FOREIGN KEY (delivery_id) REFERENCES delivery.delivery(id)` |
+| `ck_seller_request_accepted_at` | проверка | `CHECK (((status <> 'accepted'::text) OR (accepted_at IS NOT NULL)))` |
+| `ck_seller_request_answered_at` | проверка | `CHECK (((status = 'answered'::text) = (answered_at IS NOT NULL)))` |
+| `ck_seller_request_attempts` | проверка | `CHECK (((attempts >= 0) AND (attempts <= 3)))` |
+| `ck_seller_request_deadline` | проверка | `CHECK ((deadline_at > created_at))` |
+| `ck_seller_request_error_code` | проверка | `CHECK ((error_code ~ '^[a-z0-9_.-]{1,64}$'::text))` |
+| `ck_seller_request_error_message` | проверка | `CHECK (((error_message IS NULL) OR (status = 'failed'::text)))` |
+| `ck_seller_request_error_message_len` | проверка | `CHECK (((char_length(error_message) >= 1) AND (char_length(error_message) <= 500)))` |
+| `ck_seller_request_failed` | проверка | `CHECK (((status = 'failed'::text) = (error_code IS NOT NULL)))` |
+| `ck_seller_request_lease` | проверка | `CHECK (((lease_until IS NULL) OR (status = ANY (ARRAY['requested'::text, 'accepted'::text]))))` |
+| `ck_seller_request_next_attempt` | проверка | `CHECK (((next_attempt_at IS NULL) OR ((status = 'requested'::text) AND (attempts < 3))))` |
+| `ck_seller_request_order_number` | проверка | `CHECK ((order_number >= 1001))` |
+| `ck_seller_request_status` | проверка | `CHECK ((status = ANY (ARRAY['requested'::text, 'accepted'::text, 'answered'::text, 'failed'::text, 'timeout'::text])))` |
+
+**Индексы**
+
+| Имя | Определение | Для чего |
+| --- | --- | --- |
+| `ix_seller_request_deadline` | `ix_seller_request_deadline ON delivery.seller_request USING btree (deadline_at) WHERE (status = ANY (ARRAY['requested'::text, 'accepted'::text]))` | SellerTimeoutJob: запросы requested и accepted со сроком в прошлом и без действующей аренды, FOR UPDATE SKIP LOCKED |
+| `ix_seller_request_dispatch` | `ix_seller_request_dispatch ON delivery.seller_request USING btree (next_attempt_at, delivery_id) WHERE ((status = 'requested'::text) AND (next_attempt_at IS NOT NULL))` | SellerRequestJob: WHERE status = 'requested' AND next_attempt_at <= now() ORDER BY next_attempt_at LIMIT 20 FOR UPDATE SKIP LOCKED (образец диспетчера выдач) |
+
+**Триггеры**
+
+| Имя | Когда | Назначение |
+| --- | --- | --- |
+| `trg_seller_request_immutable` | до: изменение | Выдача, идентификатор запроса, продавец, товар и срок запроса неизменны, время изменения обновляется |
+| `trg_seller_request_status_initial` | до: вставка | Начальный статус при вставке: requested |
+| `trg_seller_request_status_transition` | до: изменение статуса | Допустимые переходы статуса: requested → accepted; requested → answered; requested → failed; requested → timeout; accepted → answered; accepted → failed; accepted → timeout |
+
 ## Функции
 
 | Функция | Назначение |
 | --- | --- |
 | `delivery.delivery_immutable()` | Заказ, покупатель, тип, количество и название товара выдачи неизменны, время изменения обновляется |
+| `delivery.seller_request_immutable()` | Выдача, идентификатор запроса, продавец, товар и срок запроса неизменны, время изменения обновляется |
 | `public.enforce_status_transition()` | Допустимые переходы статуса по диаграммам SM. Аргументы триггера: initial:<статус> для вставки и <из>><в> для изменения. Нарушение даёт ошибку 23514 с ограничением ck_<таблица>_status_transition |
 
 ## Права ролей
@@ -249,6 +329,7 @@ erDiagram
 | `app_delivery` | `delivery.delivery_attempt` | INSERT, SELECT |
 | `app_delivery` | `delivery.delivery_watch` | INSERT, SELECT, UPDATE |
 | `app_delivery` | `delivery.provider_status_event` | DELETE, INSERT, SELECT |
+| `app_delivery` | `delivery.seller_request` | INSERT, SELECT, UPDATE |
 | `app_delivery` | `public.idempotency_key` | DELETE, INSERT, SELECT, UPDATE |
 | `app_delivery` | `public.outbox` | DELETE, INSERT, SELECT, UPDATE |
 | `app_delivery` | `public.processed_event` | DELETE, INSERT, SELECT, UPDATE |

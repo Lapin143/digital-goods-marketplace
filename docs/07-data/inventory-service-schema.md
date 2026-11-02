@@ -6,7 +6,7 @@
 | --- | --- |
 | Сервис | Остатки и ключи ([компоненты](../05-architecture/c4-components-inventory-service.md)) |
 | База | `inventory_db` |
-| Таблиц предметной области | 4, служебных (`outbox`, `processed_event`, `idempotency_key`) 3 |
+| Таблиц предметной области | 5, служебных (`outbox`, `processed_event`, `idempotency_key`) 3 |
 | Роли приложения | `app_inventory` (схема `inventory`), без права `DELETE` на таблицу ключей |
 | Назначение | Сервис владеет резервами ([SM-08](../03-processes/SM-08-reservation.md)), зашифрованными ключами ([SM-03](../03-processes/SM-03-key.md)), версиями ключа данных шифрования и копией владельца и способа выдачи товара из событий каталога. Открытого значения ключа в базе нет нигде ([ADR-009](../05-architecture/adr/ADR-009-key-encryption-hmac.md)). |
 
@@ -16,6 +16,12 @@
 
 ```mermaid
 erDiagram
+    API_STOCK {
+        uuid product_id PK
+        int quantity
+        int version
+        timestamptz updated_at
+    }
     DATA_KEY {
         int id PK
         bytea wrapped_key
@@ -60,6 +66,7 @@ erDiagram
         timestamptz used_at
         timestamptz released_at
     }
+    PRODUCT_COPY ||--o{ API_STOCK : "product_id"
     DATA_KEY ||--o{ KEY : "dek_id"
     PRODUCT_COPY ||--o{ KEY : "product_id"
     RESERVATION ||--o{ KEY : "reservation_id"
@@ -78,11 +85,41 @@ erDiagram
 | INV-04 | Выданный ключ не возвращается в «свободен», ключ «аннулирован» не используется снова | `trg_key_status_transition` |
 | INV-05 | Резерв охватывает всё заказанное количество, частичного резерва нет. Заказ получает все ключи или отменяется | `ck_reservation_quantity` |
 | INV-06 | У заказа в любой момент не больше одного резерва в статусе «активен» | `uq_reservation_order_id_active` |
+| INV-08 | Остаток по API не отрицателен, уменьшение при резерве атомарно, правка продавца применяется только при совпадении версии | `ck_api_stock_quantity`, `trg_api_stock_guard` |
+| INV-09 | Товар с нулевым остатком недоступен для оформления заказа | `ck_api_stock_quantity` |
 | INV-10 | Количество в заказе от 1 до 10 | `ck_reservation_quantity` |
 | INV-20 | Значения ключей не попадают в логи, события Kafka и базу «Выдачи» | `ck_key_ciphertext`, `ck_key_hmac` |
 | INV-43 | Действие сотрудника и событие аудита записываются в одной транзакции (Outbox): действия без записи в журнале не бывает | `uq_outbox_event_id`, `ck_outbox_published_or_failed`, `ix_outbox_unpublished` |
 
 ## Таблицы
+
+### inventory.api_stock
+
+Остаток товара с выдачей по API (R2, Р-183, ADR-008): сколько единиц продавец готов выдать сейчас. Резерв уменьшает остаток, снятие резерва возвращает, продавец правит значение по версии. Ключей в хранилище до оплаты нет.
+
+**Столбцы**
+
+| Столбец | Тип | Обязателен | По умолчанию | Описание |
+| --- | --- | --- | --- | --- |
+| `product_id` | `uuid` | да |  | ProductID товара с issuance_method = seller_api, одна строка на товар, создаётся вместе с копией товара |
+| `quantity` | `integer` | да | `0` | Сколько единиц можно заказать сейчас: единицы в активных и использованных резервах уже вычтены. Не меньше нуля (INV-09) |
+| `version` | `integer` | да | `1` | Версия записи для ETag и If-Match в setApiStock (ADR-008), растёт на единицу при каждом изменении количества, она же версия события stock.changed этого товара. Не путать с product_copy.stock_version: та версия пула ключей |
+| `updated_at` | `timestamp with time zone` | да | `now()` | Последнее изменение количества |
+
+**Ограничения**
+
+| Имя | Вид | Определение |
+| --- | --- | --- |
+| `pk_api_stock` | первичный ключ | `PRIMARY KEY (product_id)` |
+| `fk_api_stock_product_id` | внешний ключ | `FOREIGN KEY (product_id) REFERENCES inventory.product_copy(product_id)` |
+| `ck_api_stock_quantity` | проверка | `CHECK ((quantity >= 0))` |
+| `ck_api_stock_version` | проверка | `CHECK ((version >= 1))` |
+
+**Триггеры**
+
+| Имя | Когда | Назначение |
+| --- | --- | --- |
+| `trg_api_stock_guard` | до: вставка, изменение | Остаток по API бывает только у товара с выдачей по API (Р-184), товар строки неизменен, версия растёт на единицу при каждом изменении (Р-183) |
 
 ### inventory.data_key
 
@@ -228,7 +265,7 @@ erDiagram
 | `ck_reservation_release_reason` | проверка | `CHECK ((release_reason = ANY (ARRAY['expired'::text, 'payment_declined'::text, 'order_cancelled'::text])))` |
 | `ck_reservation_released_state` | проверка | `CHECK ((((status = 'released'::text) = ((release_reason IS NOT NULL) AND (released_at IS NOT NULL))) AND ((release_reason IS NULL) = (released_at IS NULL))))` |
 | `ck_reservation_status` | проверка | `CHECK ((status = ANY (ARRAY['active'::text, 'used'::text, 'released'::text])))` |
-| `ck_reservation_used_state` | проверка | `CHECK (((status = 'used'::text) = (used_at IS NOT NULL)))` |
+| `ck_reservation_used_state` | проверка | `CHECK ((((status <> 'used'::text) OR (used_at IS NOT NULL)) AND ((status <> 'active'::text) OR (used_at IS NULL))))` |
 
 **Индексы**
 
@@ -243,13 +280,16 @@ erDiagram
 | Имя | Когда | Назначение |
 | --- | --- | --- |
 | `trg_reservation_status_initial` | до: вставка | Начальный статус при вставке: active |
-| `trg_reservation_status_transition` | до: изменение статуса | Допустимые переходы статуса: active → used; active → released |
+| `trg_reservation_status_transition` | до: изменение статуса | Допустимые переходы статуса: active → used; active → released; used → released |
+| `trg_reservation_used_release` | до: изменение статуса | SM-08/T5: использованный резерв снимается только у товара с выдачей по API и только пока по нему не выдан ключ (INV-04) |
 
 ## Функции
 
 | Функция | Назначение |
 | --- | --- |
+| `inventory.api_stock_guard()` | Остаток по API бывает только у товара с выдачей по API (Р-184), товар строки неизменен, версия растёт на единицу при каждом изменении (Р-183) |
 | `inventory.key_immutable()` | Идентификатор и товар ключа неизменны (на них опирается шифрование), закреплённый за заказом ключ не перепривязывается (INV-01, второй рубеж) |
+| `inventory.reservation_used_release_guard()` | SM-08/T5: использованный резерв снимается только у товара с выдачей по API и только пока по нему не выдан ключ (INV-04) |
 | `public.enforce_status_transition()` | Допустимые переходы статуса по диаграммам SM. Аргументы триггера: initial:<статус> для вставки и <из>><в> для изменения. Нарушение даёт ошибку 23514 с ограничением ck_<таблица>_status_transition |
 
 ## Права ролей
@@ -258,6 +298,7 @@ erDiagram
 
 | Роль | Таблица | Права |
 | --- | --- | --- |
+| `app_inventory` | `inventory.api_stock` | INSERT, SELECT, UPDATE |
 | `app_inventory` | `inventory.data_key` | INSERT, SELECT, UPDATE |
 | `app_inventory` | `inventory.key` | INSERT, SELECT, UPDATE |
 | `app_inventory` | `inventory.product_copy` | INSERT, SELECT, UPDATE |

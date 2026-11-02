@@ -1,6 +1,6 @@
 -- ============================================================================
 -- order-service: база order_db (модуль orders)
--- Физическая модель данных R1, PostgreSQL 16. Файл собран из общего служебного блока и части сервиса.
+-- Физическая модель данных R1 и R2, PostgreSQL 16. Файл собран из общего служебного блока, части R1 и блоков R2 (их разделы начинаются со слов «R2, <схема>»).
 -- Выполняется с нуля одним проходом: psql -v ON_ERROR_STOP=1 -d order_db -f order-service.sql
 -- Нужны права создания схем, ролей и расширений. В проекте файл разбит на миграции Flyway по схемам (decomposition.md, правило 7),
 -- здесь они сведены вместе, чтобы модель читалась и проверялась целиком.
@@ -300,3 +300,19 @@ grant usage on schema orders to app_orders_read;
 grant select on orders.orders to app_orders_read;
 
 comment on function orders.orders_immutable() is 'Снимки заказа неизменны (INV-12, INV-13), дата первой выдачи записывается один раз (INV-17), версия растёт на единицу при каждом изменении';
+
+-- ============================================================================
+-- R2, orders: отмена оплаченного заказа и список заказов продавца (срез 1 Ф5, Р-189, Р-192)
+-- ============================================================================
+-- SM-01/T10 (оплачен > отменён): продавец с выдачей по API не ответил или вернул ошибку, причина seller_api_timeout (Р-192).
+-- T11 (выдан > возвращён) добавит срез 2
+drop trigger trg_orders_status_transition on orders.orders;
+create trigger trg_orders_status_transition before update of status on orders.orders
+    for each row when (old.status is distinct from new.status)
+    execute function public.enforce_status_transition(
+        'created>awaiting_payment', 'created>cancelled', 'awaiting_payment>paid', 'awaiting_payment>cancelled',
+        'cancelled>paid', 'cancelled>refunded', 'paid>issued', 'paid>cancelled');
+
+-- кабинет продавца: свои заказы, новые выше
+create index ix_orders_seller_id on orders.orders (seller_id, created_at desc, id desc);
+comment on index orders.ix_orders_seller_id is 'GET /api/v1/seller/orders (OP-100, Р-189): заказы продавца, новые выше, курсор по (created_at, id), фильтры статуса и дат поверх';

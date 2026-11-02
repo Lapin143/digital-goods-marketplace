@@ -16,8 +16,14 @@
 Номера версий сквозные внутри сервиса, Flyway читает все подпапки каталога db/migration (расположение по умолчанию) и применяет по номеру.
 Содержимое разделов не меняется ни на символ: склейка миграций (без шапок) равна телу docs/07-data/ddl/<сервис>.sql, это проверяется
 сравнением SHA-256. Контрольную сумму миграции считает сам Flyway при применении, правка применённого файла вызывает ошибку проверки.
-Пока выпуск R1 не вышел, базовые миграции пересобираются; когда стенд с данными станет долгоживущим, изменения модели пойдут новыми
-миграциями с большим номером (см. docs/07-data/README.md).
+
+R1 заморожен (выпуск вышел, тег r1, Р-181): файл r1-frozen.sha256 хранит контрольные суммы всех миграций R1, --check сверяет с ними файлы
+и части. Изменения модели R2 идут отдельной частью сервиса parts/<часть>.r2.sql. Её разделы начинаются с заголовка «R2, <схема>: описание»
+(схема это папка миграции, для прав «access») и выпускаются миграциями с номерами выше последней миграции R1 в той же папке модуля:
+
+  <схема>/V<n>__r2_<схема>.sql     один раздел части R2 в одной миграции; «R2, access» идёт последним (права на новые таблицы)
+
+Склейка по возрастанию номера: служебный блок, разделы R1, разделы R2. Так же собирает документ DDL build.py.
 """
 import hashlib
 import os
@@ -33,6 +39,8 @@ PARTS = ddl_build.PARTS
 SERVICES = ddl_build.SERVICES
 DDL_DIR = os.path.join(REPO, 'docs', '07-data', 'ddl')
 RULE = '-- ' + '=' * 76
+FROZEN = os.path.join(HERE, 'r1-frozen.sha256')
+R2_TITLE = re.compile(r'^R2, (\w+): (.+)$')
 
 SHAPKA = """-- СОЗДАН СКРИПТОМ tools/docs-checks/db/gen_migrations.py ИЗ tools/docs-checks/db/parts/{parts}. РУКАМИ НЕ ПРАВИТЬ.
 -- Сервис {service}, база {db}. Миграция V{version}, {what}.
@@ -106,7 +114,30 @@ def plan():
             text = SHAPKA.format(parts='infra.sql' if mod == 'common' else '%s.sql' % part,
                                  service=service, db=db, version=n, what=what) + chunk + '\n'
             rel = os.path.join('services', service, 'src', 'main', 'resources', 'db', 'migration', mod, 'V%d__%s.sql' % (n, mod))
-            result.append({'service': service, 'db': db, 'module': mod, 'version': n, 'path': rel, 'text': text, 'section': chunk})
+            result.append({'service': service, 'db': db, 'module': mod, 'version': n, 'path': rel, 'text': text, 'section': chunk, 'release': 'R1'})
+        r2_text = ddl_build.read_r2(part)
+        if r2_text is None:
+            continue
+        label = 'parts/%s.r2.sql' % part
+        r2_sections = split_sections(r2_text, label)
+        seen_r2 = set()
+        for k, (title, chunk) in enumerate(r2_sections):
+            m = R2_TITLE.match(title)
+            if not m:
+                raise GenError('%s: заголовок раздела «%s» должен иметь вид «R2, <схема>: описание»' % (label, title))
+            mod, descr = m.group(1), m.group(2)
+            if mod in seen_r2:
+                raise GenError('%s: схема %s встречается дважды' % (label, mod))
+            seen_r2.add(mod)
+            if mod == 'access' and k != len(r2_sections) - 1:
+                raise GenError('%s: раздел «R2, access» должен идти последним' % label)
+            if mod != 'access' and mod not in seen:
+                raise GenError('%s: схемы %s нет среди модулей сервиса %s' % (label, mod, service))
+            version = len(items) + 1 + k
+            what = 'R2, %s' % descr
+            text = SHAPKA.format(parts='%s.r2.sql' % part, service=service, db=db, version=version, what=what) + chunk + '\n'
+            rel = os.path.join('services', service, 'src', 'main', 'resources', 'db', 'migration', mod, 'V%d__r2_%s.sql' % (version, mod))
+            result.append({'service': service, 'db': db, 'module': mod, 'version': version, 'path': rel, 'text': text, 'section': chunk, 'release': 'R2'})
     return result
 
 
@@ -146,6 +177,22 @@ def check(items):
                 rel = os.path.relpath(os.path.join(d, f), REPO)
                 if rel not in expected_paths:
                     problems.append('лишний файл миграции %s (его нет в разбиении частей DDL)' % rel)
+    # R1 заморожен: каждая миграция R1 совпадает с контрольной суммой из r1-frozen.sha256, и новых миграций R1 нет
+    frozen = {}
+    for line in open(FROZEN, encoding='utf-8').read().split('\n'):
+        if line.strip() and not line.startswith('#'):
+            digest, path = line.split(None, 1)
+            frozen[path.strip()] = digest
+    r1_items = {it['path']: it for it in items if it['release'] == 'R1'}
+    for path, digest in sorted(frozen.items()):
+        it = r1_items.get(path)
+        if it is None:
+            problems.append('миграция R1 %s есть в r1-frozen.sha256, но частями R1 больше не порождается' % path)
+        elif sha(it['text']) != digest:
+            problems.append('миграция R1 %s изменилась (sha256 %s, в r1-frozen.sha256 %s): R1 заморожен, правки идут частью parts/*.r2.sql'
+                            % (path, sha(it['text'])[:12], digest[:12]))
+    for path in sorted(set(r1_items) - set(frozen)):
+        problems.append('новая миграция R1 %s: R1 заморожен, изменения модели идут частью parts/*.r2.sql' % path)
     # Склейка миграций с диска равна телу docs/07-data/ddl/<сервис>.sql, а тот равен сборке build.py из частей
     infra = open(os.path.join(PARTS, 'infra.sql'), encoding='utf-8').read()
     for service, db, part, modules in SERVICES:
@@ -164,8 +211,7 @@ def check(items):
         elif sha(glued) != sha(body):
             problems.append('склейка миграций %s (sha256 %s) не равна docs/07-data/ddl/%s.sql (sha256 %s)'
                             % (service, sha(glued)[:12], service, sha(body)[:12]))
-        built = open(os.path.join(PARTS, part + '.sql'), encoding='utf-8').read()
-        if body is not None and body != infra.rstrip() + '\n\n' + built.rstrip() + '\n':
+        if body is not None and body != ddl_build.body_of(infra, part):
             problems.append('docs/07-data/ddl/%s.sql не соответствует частям, выполните python3 tools/docs-checks/db/build.py' % service)
     return problems
 

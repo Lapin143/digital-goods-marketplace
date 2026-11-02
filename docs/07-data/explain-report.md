@@ -6,6 +6,7 @@
 
 | База | Таблица | Строк |
 | --- | --- | --- |
+| `catalog_db` | `api_key` | 25 000 |
 | `catalog_db` | `idempotency_key` | 50 000 |
 | `catalog_db` | `outbox` | 100 000 |
 | `catalog_db` | `processed_event` | 100 000 |
@@ -37,6 +38,7 @@
 | `delivery_db` | `outbox` | 100 000 |
 | `delivery_db` | `processed_event` | 100 000 |
 | `delivery_db` | `provider_status_event` | 150 000 |
+| `delivery_db` | `seller_request` | 150 000 |
 | `platform_db` | `audit_log` | 200 000 |
 | `platform_db` | `idempotency_key` | 50 000 |
 | `platform_db` | `notification` | 400 000 |
@@ -46,6 +48,7 @@
 | `platform_db` | `provider_status_event` | 50 000 |
 | `platform_db` | `ticket` | 20 000 |
 | `platform_db` | `user_account` | 100 000 |
+| `platform_db` | `webhook_delivery` | 200 000 |
 
 ## Запросы
 
@@ -57,7 +60,7 @@
 | C-03b | `catalog_db` | US-3.10 фильтр по редкому типу (подписки) | Index Scan по ix_product_published_type; Index Scan по pk_stock_view | верно |
 | C-04 | `catalog_db` | US-3.10 фильтр по редкой платформе | Index Scan по ix_product_published_platform; Index Scan по pk_stock_view | верно |
 | C-05 | `catalog_db` | US-3.10 фильтр по частой платформе | Index Scan по ix_product_published; Index Scan по pk_stock_view | верно |
-| C-06 | `catalog_db` | US-3.11 узкий диапазон цены | Sort 49 строк; Bitmap Index Scan по ix_product_published_price; Index Scan по pk_stock_view | верно |
+| C-06 | `catalog_db` | US-3.11 узкий диапазон цены | Sort 51 строк; Bitmap Index Scan по ix_product_published_price; Index Scan по pk_stock_view | верно |
 | C-07 | `catalog_db` | US-3.11 широкий диапазон цены | Index Scan по ix_product_published; Index Scan по pk_stock_view | верно |
 | C-08 | `catalog_db` | US-3.10 регион, частый (РФ, плюс товары без ограничений) | Index Scan по ix_product_published; Index Scan по pk_stock_view | верно |
 | C-09 | `catalog_db` | US-3.10 регион, редкий (Исландия, плюс товары без ограничений) | Index Scan по ix_product_published; Index Scan по pk_stock_view | верно |
@@ -72,6 +75,9 @@
 | C-17 | `catalog_db` | US-8.8 просрочка рассмотрения заявок | Index Scan по ix_seller_profile_overdue | верно |
 | C-18 | `catalog_db` | US-2.1 профиль продавца по пользователю | Index Scan по uq_seller_profile_user_id | верно |
 | C-19 | `catalog_db` | US-2.2 документы заявки | Sort 2 строк; Bitmap Index Scan по ix_seller_document_seller_id | верно |
+| C-20 | `catalog_db` | OP-91 список API-ключей продавца, новые выше (R2) | Sort 5 строк; Bitmap Index Scan по ix_api_key_seller_id | верно |
+| C-21 | `catalog_db` | OP-96 проверка API-ключа по хешу, горячий путь шлюза (R2) | Index Scan по uq_api_key_key_hash | верно |
+| C-22 | `catalog_db` | OP-90 число активных API-ключей продавца при выпуске (R2) | Bitmap Index Scan по ix_api_key_seller_id | верно |
 | I-01 | `inventory_db` | ADR-007 выбор свободных ключей для резерва | Index Scan по ix_key_product_id_free | верно |
 | I-02 | `inventory_db` | stock.changed число свободных ключей товара | Index Only Scan по ix_key_product_id_free | верно |
 | I-03 | `inventory_db` | US-4.4 число ключей по статусам товара | Index Only Scan по ix_key_product_id_status | верно |
@@ -80,7 +86,7 @@
 | I-06 | `inventory_db` | Подтверждение резерва по заказу | Index Scan по uq_reservation_order_id_active | верно |
 | I-07 | `inventory_db` | Сверка раз в минуту: резервы с прошедшим сроком | Index Scan по ix_reservation_expires_at_active | верно |
 | I-08 | `inventory_db` | ADR-013 последний резерв заказа | Index Scan по ix_reservation_order_id | верно |
-| I-09 | `inventory_db` | ADR-009 перешифровка значений старой версии ключа данных | Sort 1310 строк; Index Scan по ix_key_dek_id | верно |
+| I-09 | `inventory_db` | ADR-009 перешифровка значений старой версии ключа данных | Sort 1570 строк; Index Scan по ix_key_dek_id | верно |
 | I-10 | `inventory_db` | FT-4.1 проверка дублей при загрузке пачки | Index Only Scan по uq_key_product_id_hmac | верно |
 | I-11 | `inventory_db` | Реестр товара: владелец и способ выдачи | Index Scan по pk_product_copy | верно |
 | O-01 | `order_db` | US-5.9 история заказов покупателя | Sort 5 строк; Bitmap Index Scan по ix_orders_buyer_id | верно |
@@ -91,6 +97,8 @@
 | O-06 | `order_db` | INV-44 замена адресов покупателя при анонимизации | Bitmap Index Scan по ix_orders_buyer_id | верно |
 | O-07 | `order_db` | FT-5.1 число неоплаченных заказов покупателя (лимит orders.max-unpaid) | Bitmap Index Scan по ix_orders_buyer_id | верно |
 | O-08 | `order_db` | FT-5.0 заказ по короткому номеру (оператор поддержки) | Index Scan по uq_orders_number | верно |
+| O-09 | `order_db` | OP-100 заказы продавца, новые выше (R2) | Index Scan по ix_orders_seller_id | верно |
+| O-10 | `order_db` | OP-100 заказы продавца с фильтром статуса и периода (R2) | Sort 3 строк; Bitmap Index Scan по ix_orders_seller_id | верно |
 | P-01 | `payment_db` | FT-6.1 платёж по заказу | Index Scan по uq_payment_order_id | верно |
 | P-02 | `payment_db` | FT-6.2 платёж по идентификатору из уведомления шлюза | Index Scan по uq_payment_gateway_payment_id | верно |
 | P-03 | `payment_db` | FT-6.4 платёж по идентификатору возврата | Index Scan по uq_payment_gateway_refund_id | верно |
@@ -107,9 +115,12 @@
 | D-03 | `delivery_db` | Выдачи заказа | Index Scan по ix_delivery_order_id | верно |
 | D-04 | `delivery_db` | INV-18 первичная выдача заказа | Index Scan по uq_delivery_order_id_primary | верно |
 | D-05 | `delivery_db` | INV-44 выдачи покупателя при анонимизации | Bitmap Index Scan по ix_delivery_buyer_id | верно |
-| D-06 | `delivery_db` | NFT-2.4 контроль доставки 30 минут | Sort 30 строк; Bitmap Index Scan по ix_delivery_watch_due | верно |
+| D-06 | `delivery_db` | NFT-2.4 контроль доставки 30 минут | Sort 15 строк; Bitmap Index Scan по ix_delivery_watch_due | верно |
 | D-07 | `delivery_db` | Попытки отправки выдачи | Index Scan по pk_delivery_attempt | верно |
 | D-08 | `delivery_db` | Статус письма от провайдера | Index Only Scan по pk_provider_status_event | верно |
+| D-10 | `delivery_db` | Р-191 отправка запросов продавцам (R2) | Index Scan по ix_seller_request_dispatch | верно |
+| D-11 | `delivery_db` | Р-190 тайм-аут запросов без ответа и без аренды (R2) | Index Scan по ix_seller_request_deadline | верно |
+| D-12 | `delivery_db` | OP-101 запрос по идентификатору из ответа продавца (R2) | Index Scan по uq_seller_request_request_id | верно |
 | F-01 | `platform_db` | US-8.1 пользователи, фильтр роли и статуса | Index Scan по ix_user_account_role | верно |
 | F-02 | `platform_db` | US-8.1 пользователи, только роль (покупатели) | Index Scan по ix_user_account_registered_at | верно |
 | F-03 | `platform_db` | US-8.1 пользователи без фильтров | Index Scan по ix_user_account_registered_at | верно |
@@ -125,7 +136,7 @@
 | F-12 | `platform_db` | INV-21 открытое обращение по заказу | Index Scan по uq_ticket_order_id_open | верно |
 | F-13 | `platform_db` | INV-22 заказ в модели чтения поддержки | Index Scan по pk_order_view | верно |
 | F-25 | `platform_db` | FT-5.0 заказ в модели чтения поддержки по короткому номеру | Index Scan по uq_order_view_order_number | верно |
-| F-14 | `platform_db` | Отправитель уведомлений | Sort 8 строк; Bitmap Index Scan по ix_notification_dispatch | верно |
+| F-14 | `platform_db` | Отправитель уведомлений | Index Scan по ix_notification_dispatch | верно |
 | F-15 | `platform_db` | Недоставленные письма | Index Scan по ix_notification_dead_queue | верно |
 | F-16 | `platform_db` | Уведомления пользователя | Index Scan по ix_notification_user_id | верно |
 | F-17 | `platform_db` | ADR-006 одно событие, одно письмо | Index Only Scan по uq_notification_source_event_id_template_user_id | верно |
@@ -168,4 +179,8 @@
 | S-61 | `order_db` | ADR-006 ключ идемпотентности запроса | Index Scan по pk_idempotency_key | верно |
 | S-62 | `order_db` | ADR-006 обработанное событие потребителя | Index Only Scan по pk_processed_event | верно |
 | D-09 | `delivery_db` | Очистка статусов провайдера старше 14 суток | Index Scan по ix_provider_status_event_received_at | верно |
+| F-25 | `platform_db` | Р-193 отправка webhook продавцам (R2) | Index Scan по ix_webhook_delivery_dispatch | верно |
+| F-26 | `platform_db` | OP-102 доставки webhook продавца, новые выше (R2) | Index Scan по ix_webhook_delivery_seller_id | верно |
+| F-27 | `platform_db` | OP-102 недоставленные webhook продавца (R2) | Sort 1 строк; Bitmap Index Scan по ix_webhook_delivery_seller_id | верно |
+| F-28 | `platform_db` | ADR-006 дедупликация события webhook (R2) | Index Scan по uq_webhook_delivery_event_id | верно |
 | F-24 | `platform_db` | Очистка статусов провайдера уведомлений старше 14 суток | Index Scan по ix_provider_status_event_received_at | верно |

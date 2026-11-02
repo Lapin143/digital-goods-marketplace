@@ -140,11 +140,12 @@ def check_attributes(cats):
         if e not in er:
             continue
         rel = spec.get('release')
-        if rel != 'R1':
+        # сущность R2 с таблицей уже вошла в модель (миграции R2, срез Ф5): проверяется так же, как сущность R1
+        if rel != 'R1' and not (rel == 'R2' and 'table' in spec):
             if rel not in ('R2', 'R3'):
                 err('A: у сущности %s не указан релиз' % e)
             if 'table' in spec:
-                err('A: сущность %s не входит в R1, но у неё есть таблица' % e)
+                err('A: сущность %s не входит в R1 и не помечена R2, но у неё есть таблица' % e)
             continue
         db, table = spec['db'], spec['table']
         cat = cats[db]
@@ -224,8 +225,9 @@ def check_attributes(cats):
         for sh in shared:
             if cats[db].table(sh) is None:
                 err('A: служебной таблицы %s нет в базе %s' % (sh, db))
-    stats['A'] = 'сущностей R1: %d, атрибутов: %d, столбцов основных таблиц: %d, таблиц в карте: %d' % (
-        sum(1 for s in ents.values() if s.get('release') == 'R1'), n_attr, n_cols, n_tables + len(shared))
+    stats['A'] = 'сущностей R1: %d, R2 с таблицей: %d, атрибутов: %d, столбцов основных таблиц: %d, таблиц в карте: %d' % (
+        sum(1 for s in ents.values() if s.get('release') == 'R1'), sum(1 for s in ents.values() if s.get('release') == 'R2' and 'table' in s),
+        n_attr, n_cols, n_tables + len(shared))
 
 
 # ------------------------------------------------------------------------------------------------ B. соглашения
@@ -258,7 +260,8 @@ def sm_transitions(sm_id, ru2code):
     for line in text.split('\n'):
         cells = [x.strip() for x in line.strip().strip('|').split('|')]
         if len(cells) >= 6 and re.match(r'^T\d+$', cells[0]):
-            r2 = cells[3].startswith('R2.') or cells[3].startswith('R3.')
+            # переход R2 или R3 в проверку не входит, пока триггера нет; с пометкой «В модели данных с Ф5» триггер есть, и переход сверяется
+            r2 = (cells[3].startswith('R2.') or cells[3].startswith('R3.')) and 'В модели данных с Ф5' not in cells[3]
             frm = [x.strip() for x in cells[1].split(',')]
             to = cells[2].strip()
             if r2:
