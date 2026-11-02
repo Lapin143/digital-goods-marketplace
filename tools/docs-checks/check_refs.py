@@ -22,6 +22,7 @@ SKIP_DIRS = ('node_modules', '.git')
 FUTURE_MD = {
     'monitoring.md', 'runbook.md', 'deploy.md',      # Ф6, раздел 09-operations
     'versions.md',                                   # Ф3, шаг 2: версии компонентов
+    'demo-r2-slice1.md',                             # Ф5, срез 1, шаг 20 (план: docs/00-phase5-guide.md)
 }
 # скрипты проверок, которые появятся на шагах Ф3 (план: docs/00-phase3-guide.md); после создания файла запись безвредна
 FUTURE_SCRIPTS = {'check_compose.py', 'check_realm.py',
