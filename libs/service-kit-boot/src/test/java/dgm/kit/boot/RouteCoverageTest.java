@@ -77,6 +77,16 @@ class RouteCoverageTest {
         assertTrue(problems.stream().anyMatch(p -> p.contains("getThing") && p.contains("неизвестный статус")), problems.toString());
     }
 
+    /** Статусы операций R2 (p5s1, p5s2, p5s3) допустимы для операции без обработчика, как slice1 – slice3 для R1. */
+    @Test
+    void releaseTwoStatusesAreAcceptedForOperationsWithoutHandlers() {
+        // closeThing в образце реализована: статус p5s2 при наличии обработчика должен быть отвергнут, а getThing без обработчика принята
+        List<String> problems = RouteCoverage.ledgerProblems(SAMPLE, "dgm/sample-routes.json", "dgm/p5-operations.txt");
+        assertEquals(1, problems.size(), problems.toString());
+        assertTrue(problems.get(0).contains("closeThing") && problems.get(0).contains("переведите её в done"), problems.toString());
+        assertTrue(problems.stream().noneMatch(p -> p.contains("неизвестный статус")), problems.toString());
+    }
+
     @Test
     void missingLedgerFileIsReported() {
         List<String> problems = RouteCoverage.ledgerProblems(SAMPLE, "dgm/sample-routes.json", "dgm/no-such-operations.txt");

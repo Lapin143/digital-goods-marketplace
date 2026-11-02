@@ -1,0 +1,4 @@
+# Реестр с операциями релиза R2: статусы p5s1, p5s2 и p5s3 допустимы, пока обработчика нет (Р-182)
+listThings   done
+closeThing   p5s2
+getThing     p5s1

@@ -30,13 +30,19 @@ import org.springframework.web.bind.annotation.RestController;
  */
 public final class RouteCoverage {
 
-    /** Статусы реестра операций: обработчик есть; войдёт в срез 1; войдёт в срез 2; войдёт в срез 3; относится к Ф5. */
+    /**
+     * Статусы реестра операций: обработчик есть; войдёт в срез 1, 2 или 3 Ф4 (релиз R1); войдёт в срез 1, 2 или 3 Ф5 (релиз R2, Р-182);
+     * отложено.
+     */
     public static final String DONE = "done";
     public static final String SLICE = "slice1";
     public static final String SLICE2 = "slice2";
     public static final String SLICE3 = "slice3";
+    public static final String P5S1 = "p5s1";
+    public static final String P5S2 = "p5s2";
+    public static final String P5S3 = "p5s3";
     public static final String LATER = "later";
-    private static final Set<String> STATUSES = Set.of(DONE, SLICE, SLICE2, SLICE3, LATER);
+    private static final Set<String> STATUSES = Set.of(DONE, SLICE, SLICE2, SLICE3, P5S1, P5S2, P5S3, LATER);
 
     private RouteCoverage() {
     }
@@ -92,7 +98,7 @@ public final class RouteCoverage {
 
     /**
      * Полнота операций (находка 5 плана Ф4). Сверяет три вещи: операции из OpenAPI (файл правил маршрутов), обработчики контроллеров и реестр
-     * готовности {@code ledgerResource}, где каждая операция записана строкой «имя статус» ({@code done}, {@code slice1}, {@code slice2}, {@code slice3}, {@code later};
+     * готовности {@code ledgerResource}, где каждая операция записана строкой «имя статус» ({@code done}, {@code slice1}, {@code slice2}, {@code slice3}, {@code p5s1}, {@code p5s2}, {@code p5s3}, {@code later};
      * после {@code #} комментарий). Красным запуск становится, если
      * <ul>
      * <li>операция есть в OpenAPI и нет в реестре, или наоборот: новая операция не может остаться без решения «когда»;</li>
