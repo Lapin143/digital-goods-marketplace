@@ -19,10 +19,15 @@ import java.util.regex.Pattern;
  * @param webhookSecret имя секрета подписи вебхука ({@code x-webhook-secret}); {@code null}: маршрут не вебхук
  * @param externalSteps операция по ходу дела вызывает соседей или внешние системы ({@code x-idempotency-external-steps}): охранник
  *                      идемпотентности не оборачивает её в транзакцию базы (Р-150, ADR-006)
+ * @param sellerApi   операцию можно вызвать по API-ключу продавца ({@code x-seller-api}, ADR-027): шлюз проверяет ключ и передаёт личность
+ *                    заголовком {@code X-Seller-Id}; только у таких маршрутов сервис этот заголовок принимает
  */
 public record RouteRule(String method, String path, String operationId, List<String> scopes, List<String> roles,
                         boolean smsSessionDenied, List<String> callers, boolean idempotent, String module, String webhookSecret,
-                        boolean externalSteps) {
+                        boolean externalSteps, boolean sellerApi) {
+
+    /** Область личности по API-ключу. У маршрута, доступного только по ключу, она единственная в {@code scopes} (gen_routes.py). */
+    public static final String SELLER_API_SCOPE = "seller.api";
 
     public RouteRule {
         scopes = List.copyOf(scopes);
@@ -42,9 +47,20 @@ public record RouteRule(String method, String path, String operationId, List<Str
         this(method, path, operationId, scopes, roles, smsSessionDenied, callers, idempotent, module, webhookSecret, false);
     }
 
+    /** Маршрут без признака API-ключа: так выглядят правила, написанные до R2, и почти все правила R2. */
+    public RouteRule(String method, String path, String operationId, List<String> scopes, List<String> roles, boolean smsSessionDenied,
+                     List<String> callers, boolean idempotent, String module, String webhookSecret, boolean externalSteps) {
+        this(method, path, operationId, scopes, roles, smsSessionDenied, callers, idempotent, module, webhookSecret, externalSteps, false);
+    }
+
     /** Маршрут вебхука: тело читает и подпись проверяет {@code WebhookSignatureFilter}, предел тела меньше обычного. */
     public boolean webhook() {
         return webhookSecret != null;
+    }
+
+    /** Маршрут доступен только по API-ключу: токен пользователя на нём не принимается (схема {@code sellerApiKey} без {@code bearerJwt}). */
+    public boolean keyOnly() {
+        return sellerApi && scopes.contains(SELLER_API_SCOPE);
     }
 
     /** Маршрут требует токен пользователя. */

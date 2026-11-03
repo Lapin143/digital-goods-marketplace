@@ -22,7 +22,8 @@ public final class AccessRules {
         if (!rule.roles().isEmpty() && rule.roles().stream().noneMatch(user::hasRole)) {
             return Optional.of(new Denial(ProblemType.FORBIDDEN, "Роль пользователя не допускает эту операцию."));
         }
-        if (user.roles().stream().anyMatch(SECOND_FACTOR_ROLES::contains) && !user.secondFactorPassed()) {
+        // Ключ API второго фактора не имеет: его выдал продавец, прошедший вход с кодом, а доступные ключу операции ограничены контрактом
+        if (!user.apiKey() && user.roles().stream().anyMatch(SECOND_FACTOR_ROLES::contains) && !user.secondFactorPassed()) {
             return Optional.of(new Denial(ProblemType.SECOND_FACTOR_REQUIRED, "Для этой роли нужна двухфакторная проверка."));
         }
         if (rule.smsSessionDenied() && user.smsSession()) {

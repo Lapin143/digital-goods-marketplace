@@ -135,4 +135,38 @@ class RoutePolicyTest {
         }
         assertFalse(PathGuard.isSafe(null));
     }
+
+    @Test
+    void sellerApiFlagIsReadAndKeyOnlyFollowsTheKeyScope() {
+        RoutePolicy keys = RoutePolicy.fromJson("""
+                {"service": "catalog-service", "routes": [
+                  {"method": "GET",  "path": "/api/v1/seller/products", "operationId": "listSellerProducts", "scopes": ["products.read"], "roles": ["seller"], "sellerApi": true},
+                  {"method": "POST", "path": "/api/v1/seller-api/delivery-requests/{requestId}/answer", "operationId": "respondSellerDelivery", "scopes": ["seller.api"], "roles": ["seller"], "sellerApi": true},
+                  {"method": "POST", "path": "/api/v1/seller/products", "operationId": "createProduct", "scopes": ["products.write"], "roles": ["seller"]},
+                  {"method": "POST", "path": "/api/v1/seller/x", "operationId": "falseFlag", "scopes": ["seller.api"], "roles": ["seller"], "sellerApi": false}
+                ]}
+                """);
+        RouteRule either = keys.match("GET", "/api/v1/seller/products").orElseThrow();
+        assertTrue(either.sellerApi());
+        assertFalse(either.keyOnly());
+        assertTrue(either.requiresToken());
+        RouteRule only = keys.match("POST", "/api/v1/seller-api/delivery-requests/42/answer").orElseThrow();
+        assertTrue(only.sellerApi());
+        assertTrue(only.keyOnly());
+        assertEquals(RouteRule.SELLER_API_SCOPE, "seller.api");
+        RouteRule plain = keys.match("POST", "/api/v1/seller/products").orElseThrow();
+        assertFalse(plain.sellerApi());
+        assertFalse(plain.keyOnly());
+        // Область seller.api без признака sellerApi не делает маршрут «только ключ»
+        assertFalse(keys.match("POST", "/api/v1/seller/x").orElseThrow().keyOnly());
+    }
+
+    @Test
+    void rulesWithoutTheFlagKeepWorkingThroughTheOlderConstructors() {
+        RouteRule seven = new RouteRule("GET", "/a", "op", List.of("orders.read"), List.of("buyer"), false, List.of());
+        RouteRule eleven = new RouteRule("GET", "/a", "op", List.of("orders.read"), List.of("buyer"), false, List.of(), true, "m", null, true);
+        assertFalse(seven.sellerApi());
+        assertFalse(eleven.sellerApi());
+        assertTrue(eleven.externalSteps());
+    }
 }

@@ -24,6 +24,9 @@ import org.springframework.security.oauth2.jwt.Jwt;
 public record AuthenticatedUser(String subject, Set<String> scopes, Set<String> roles, List<String> amr, boolean phoneVerified,
                                 String sellerId, String email) {
 
+    /** Способ входа «API-ключ продавца»: в {@code amr} его нет у токенов Keycloak, его ставит только {@link #forApiKey(String)}. */
+    public static final String AMR_API_KEY = "api-key";
+
     public AuthenticatedUser {
         scopes = Set.copyOf(scopes);
         roles = Set.copyOf(roles);
@@ -42,6 +45,15 @@ public record AuthenticatedUser(String subject, Set<String> scopes, Set<String> 
         this(subject, scopes, roles, amr, phoneVerified, sellerId, null);
     }
 
+    /**
+     * Личность по API-ключу продавца (ADR-027): шлюз проверил ключ и передал идентификатор профиля заголовком {@code X-Seller-Id}.
+     * Субъект это сам профиль продавца, роль {@code seller}, область {@code seller.api}, способ входа {@code api-key}. Второго фактора и
+     * подтверждённого телефона у ключа нет: ключ не пользователь, права продавца на нём ограничены списком операций {@code x-seller-api}.
+     */
+    public static AuthenticatedUser forApiKey(String sellerId) {
+        return new AuthenticatedUser(sellerId, Set.of("seller.api"), Set.of("seller"), List.of(AMR_API_KEY), false, sellerId, null);
+    }
+
     public static AuthenticatedUser from(Jwt jwt) {
         Set<String> scopes = new HashSet<>();
         String scope = jwt.getClaimAsString("scope");
@@ -55,9 +67,11 @@ public record AuthenticatedUser(String subject, Set<String> scopes, Set<String> 
                 roles.add(String.valueOf(r));
             }
         }
-        List<String> amr = jwt.getClaimAsStringList("amr");
+        List<String> claimed = jwt.getClaimAsStringList("amr");
+        // Способ входа «api-key» ставит только шлюзовая личность: в токене Keycloak он не значит ничего и второй фактор не отменяет
+        List<String> amr = claimed == null ? List.of() : claimed.stream().filter(a -> !AMR_API_KEY.equals(a)).toList();
         String sellerId = jwt.getClaimAsString("seller_id");
-        return new AuthenticatedUser(jwt.getSubject(), scopes, roles, amr == null ? List.of() : amr,
+        return new AuthenticatedUser(jwt.getSubject(), scopes, roles, amr,
                 Boolean.TRUE.equals(jwt.getClaimAsBoolean("phone_verified")), sellerId == null || sellerId.isBlank() ? null : sellerId,
                 jwt.getClaimAsString("email"));
     }
@@ -75,6 +89,11 @@ public record AuthenticatedUser(String subject, Set<String> scopes, Set<String> 
 
     public boolean hasRole(String role) {
         return roles.contains(role);
+    }
+
+    /** Личность получена по API-ключу, а не по токену Keycloak. */
+    public boolean apiKey() {
+        return amr.contains(AMR_API_KEY);
     }
 
     /** В токене есть подтверждение второго фактора (INV-37). */

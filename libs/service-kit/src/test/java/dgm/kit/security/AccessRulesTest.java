@@ -120,4 +120,40 @@ class AccessRulesTest {
         assertFalse(text.contains("secret.buyer"), text);
         assertTrue(text.contains("email=скрыт"), text);
     }
+
+    private static final String SELLER_UUID = "0199e0a0-0000-7000-8000-000000000101";
+
+    @Test
+    void apiKeyIdentityIsASellerWithoutSecondFactorAndWithTheKeyScope() {
+        AuthenticatedUser key = AuthenticatedUser.forApiKey(SELLER_UUID);
+        assertTrue(key.apiKey());
+        assertEquals(SELLER_UUID, key.subject());
+        assertEquals(SELLER_UUID, key.sellerId());
+        assertEquals(java.util.Set.of("seller"), key.roles());
+        assertEquals(java.util.Set.of("seller.api"), key.scopes());
+        assertEquals(List.of("api-key"), key.amr());
+        assertFalse(key.secondFactorPassed());
+        assertFalse(key.smsSession());
+        assertNull(key.email());
+        // Ключ проходит маршрут продавца без второго фактора: токен продавца без otp на том же маршруте не прошёл бы
+        assertEquals(Optional.empty(), AccessRules.check(key, SELLER_ROUTE));
+        assertEquals(ProblemType.SECOND_FACTOR_REQUIRED, AccessRules.check(user("seller", List.of("pwd")), SELLER_ROUTE).orElseThrow().type());
+    }
+
+    @Test
+    void apiKeyIdentityDoesNotOpenRoutesOfOtherRoles() {
+        AuthenticatedUser key = AuthenticatedUser.forApiKey(SELLER_UUID);
+        assertEquals(ProblemType.FORBIDDEN, AccessRules.check(key, BUYER_ROUTE).orElseThrow().type());
+        RouteRule moderation = new RouteRule("POST", "/m", "op", List.of("moderation.write"), List.of("moderator"), false, List.of());
+        assertEquals(ProblemType.FORBIDDEN, AccessRules.check(key, moderation).orElseThrow().type());
+    }
+
+    @Test
+    void apiKeyMarkerInATokenIsIgnored() {
+        // Токен продавца не может объявить себя «ключом» и обойти второй фактор
+        AuthenticatedUser forged = user("seller", List.of("pwd", "api-key"));
+        assertFalse(forged.apiKey());
+        assertEquals(List.of("pwd"), forged.amr());
+        assertEquals(ProblemType.SECOND_FACTOR_REQUIRED, AccessRules.check(forged, SELLER_ROUTE).orElseThrow().type());
+    }
 }

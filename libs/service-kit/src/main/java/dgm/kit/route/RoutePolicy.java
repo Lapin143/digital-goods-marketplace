@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
  * в коде сервиса нет: контракт и защита не расходятся (roles-permissions.md, раздел 10).
  *
  * <p>Формат JSON: {@code {"service": "...", "routes": [{"method", "path", "operationId", "scopes", "roles", "smsSession", "callers",
- * "idempotent", "module", "webhookSecret"}]}}; три последних поля необязательны.
+ * "idempotent", "module", "webhookSecret", "externalSteps", "sellerApi"}]}}; пять последних полей необязательны.
  */
 public final class RoutePolicy {
 
@@ -55,7 +55,8 @@ public final class RoutePolicy {
                     Boolean.TRUE.equals(raw.get("idempotent")),
                     optionalText(raw, "module"),
                     optionalText(raw, "webhookSecret"),
-                    Boolean.TRUE.equals(raw.get("externalSteps")));
+                    Boolean.TRUE.equals(raw.get("externalSteps")),
+                    Boolean.TRUE.equals(raw.get("sellerApi")));
             compiled.add(new Compiled(rule, rule.pattern()));
         }
         // Точные шаблоны раньше общих: /orders/current раньше /orders/{id}

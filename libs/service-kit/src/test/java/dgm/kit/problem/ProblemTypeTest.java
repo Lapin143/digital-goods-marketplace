@@ -11,8 +11,8 @@ import org.junit.jupiter.api.Test;
 class ProblemTypeTest {
 
     @Test
-    void registryHasThirtyEightTypes() {
-        assertEquals(41, ProblemType.values().length);
+    void registryHasFortySixTypes() {
+        assertEquals(46, ProblemType.values().length);
     }
 
     @Test

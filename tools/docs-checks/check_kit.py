@@ -58,9 +58,9 @@ def java_files(sub):
     return sorted(glob.glob(os.path.join(KIT, sub, '*.java')))
 
 
-# Типы проблем среза 1 Ф5: записаны в реестр 9.1 на шаге 2 (контракты R2), в коде появятся на шаге 3 руководства Ф5.
-# Список пустеет по мере реализации: тип, который уже есть в коде, из списка нужно убрать. На закрытии среза 1 список пуст.
-PENDING_R2_TYPES = {'issuance-method-mismatch', 'api-key-limit', 'request-expired', 'request-already-answered', 'endpoint-not-allowed'}
+# Типы проблем R2, записанные в реестр 9.1 раньше, чем попали в код. Тип, который уже есть в коде, из списка нужно убрать.
+# Пять типов среза 1 Ф5 реализованы на шаге 3 руководства Ф5, список пуст.
+PENDING_R2_TYPES = set()
 
 
 def problem_types(rep):

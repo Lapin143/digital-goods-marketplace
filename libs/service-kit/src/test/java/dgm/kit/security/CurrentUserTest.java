@@ -77,4 +77,11 @@ class CurrentUserTest {
                 null, "  ");
         assertEquals(ProblemType.VALIDATION_FAILED, assertThrows(ProblemException.class, () -> CurrentUser.email(blank)).type());
     }
+
+    @Test
+    void sellerIdOfApiKeyIdentityIsItsProfile() {
+        AuthenticatedUser key = AuthenticatedUser.forApiKey("0199e0a0-0000-7000-8000-000000000101");
+        assertEquals(UUID.fromString("0199e0a0-0000-7000-8000-000000000101"), CurrentUser.sellerId(key));
+        assertEquals(UUID.fromString("0199e0a0-0000-7000-8000-000000000101"), CurrentUser.id(key));
+    }
 }

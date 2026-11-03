@@ -27,6 +27,11 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * в OpenAPI, закрыто). Публичные и внутренние маршруты проходят дальше (внутренние проверяет {@link CallerFilter}). Для остальных
  * нужен токен: подпись, срок, издатель и адресат проверяет декодер, области и роль проверяет фильтр по правилу маршрута. Владельца
  * объекта и статус объекта проверяет сам сервис.
+ *
+ * <p>Маршруты с {@code x-seller-api} принимают и вторую личность: продавца по API-ключу (ADR-027). Ключ проверил шлюз, сервис видит
+ * заголовки {@code X-Seller-Id} и {@code X-Auth-Kind}, которым верит только при сертификате {@code api-gateway} ({@link GatewayIdentity}).
+ * Заголовки без права на них читаются как отсутствующие: маршрут только для ключа отвечает 401, маршрут с токеном идёт обычным путём.
+ * Токен и ключ в одном запросе не принимаются.
  */
 public final class JwtFilter extends OncePerRequestFilter {
 
@@ -64,6 +69,40 @@ public final class JwtFilter extends OncePerRequestFilter {
         if (rule.internal() || !rule.requiresToken()) {
             chain.doFilter(request, response);
             return;
+        }
+
+        if (rule.sellerApi()) {
+            GatewayIdentity.Result identity = GatewayIdentity.resolve(request, rule);
+            switch (identity.status()) {
+                case MALFORMED -> {
+                    LOG.warn("Шлюз передал неполную личность по ключу: {} {}", request.getMethod(), rule.path());
+                    ProblemWriter.write(request, response, ProblemType.UNAUTHENTICATED, "Личность по API-ключу не распознана.");
+                    return;
+                }
+                case TRUSTED -> {
+                    if (request.getHeader("Authorization") != null) {
+                        ProblemWriter.write(request, response, ProblemType.UNAUTHENTICATED, "Передайте токен или API-ключ, но не оба сразу.");
+                        return;
+                    }
+                    AuthenticatedUser keyUser = AuthenticatedUser.forApiKey(identity.sellerId());
+                    // Области токена здесь не проверяются: ключу достаточно того, что маршрут помечен x-seller-api (иначе личность не принята)
+                    Optional<AccessRules.Denial> keyDenial = AccessRules.check(keyUser, rule);
+                    if (keyDenial.isPresent()) {
+                        ProblemWriter.write(request, response, keyDenial.get().type(), keyDenial.get().detail());
+                        return;
+                    }
+                    request.setAttribute(USER_ATTRIBUTE, keyUser);
+                    chain.doFilter(request, response);
+                    return;
+                }
+                case ABSENT -> {
+                    if (rule.keyOnly()) {
+                        ProblemWriter.write(request, response, ProblemType.UNAUTHENTICATED, "Нужен API-ключ продавца.");
+                        return;
+                    }
+                }
+                default -> throw new IllegalStateException("Неизвестный исход разбора личности: " + identity.status());
+            }
         }
 
         String token = bearerToken(request.getHeader("Authorization"));
