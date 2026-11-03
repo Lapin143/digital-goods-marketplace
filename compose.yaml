@@ -202,6 +202,8 @@ services:
       STUBS_DELIVERY_EMAIL_WEBHOOK_URL: https://api-gateway:8443/api/v1/webhooks/email-provider-keys
       STUBS_PLATFORM_EMAIL_WEBHOOK_URL: https://api-gateway:8443/api/v1/webhooks/email-provider
       STUBS_PLATFORM_SMS_WEBHOOK_URL: https://api-gateway:8443/api/v1/webhooks/sms-provider
+      # «Система продавца» отвечает платформе вызовом respondSellerDelivery с API-ключом, как настоящий продавец: через публичный вход
+      STUBS_GATEWAY_URL: https://api-gateway:8443
     tmpfs:
       - /tmp:uid=10001,gid=10001,mode=1777,size=8m
     secrets:

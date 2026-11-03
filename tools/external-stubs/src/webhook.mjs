@@ -26,6 +26,35 @@ export function httpRequest(config) {
     });
 }
 
+/**
+ * Вызов с ответом: для запросов заглушки к платформе, где нужно тело ответа (ответ продавца шлюзу, ADR-028).
+ * Как `httpRequest`, но возвращает код, заголовки X-Correlation-Id и Idempotency-Replayed и первые 64 КБ тела; клиентский сертификат не предъявляется:
+ * продавец приходит к шлюзу снаружи, без сертификата сервиса.
+ */
+export function httpCall(config) {
+  const LIMIT = 65536;
+  return (url, { method = 'POST', headers = {}, body = '', timeoutMs = 10_000 } = {}) =>
+    new Promise((resolve, reject) => {
+      const target = new URL(url);
+      const secure = target.protocol === 'https:';
+      const options = { method, headers: { ...headers, 'Content-Length': Buffer.byteLength(body) }, timeout: timeoutMs };
+      if (secure && config.tls?.ca) options.ca = config.tls.ca;
+      const req = (secure ? https : http).request(target, options, (res) => {
+        const chunks = [];
+        let size = 0;
+        res.on('data', (c) => {
+          if (size < LIMIT) chunks.push(c);
+          size += c.length;
+        });
+        res.on('end', () => resolve({ status: res.statusCode, correlationId: res.headers['x-correlation-id'], replayed: res.headers['idempotency-replayed'] === 'true', text: Buffer.concat(chunks).toString('utf8').slice(0, LIMIT) }));
+        res.on('error', reject);
+      });
+      req.on('timeout', () => req.destroy(new Error(`тайм-аут ${timeoutMs} мс`)));
+      req.on('error', reject);
+      req.end(body);
+    });
+}
+
 export function createWebhookSender({ state, clock, request, pause = sleep }) {
   /**
    * @param {object} p

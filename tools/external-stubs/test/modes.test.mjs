@@ -4,7 +4,7 @@ import { SCHEMAS, SYSTEMS, defaults, validateMode } from '../src/modes.mjs';
 import { HttpError } from '../src/util.mjs';
 
 test('у каждой системы есть режим по умолчанию, и он проходит собственную проверку', () => {
-  assert.deepEqual(SYSTEMS, ['payment', 'email', 'sms', 'vkid']);
+  assert.deepEqual(SYSTEMS, ['payment', 'email', 'sms', 'vkid', 'seller']);
   for (const s of SYSTEMS) assert.deepEqual(validateMode(s, defaults(SCHEMAS[s])), defaults(SCHEMAS[s]));
 });
 

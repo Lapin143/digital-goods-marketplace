@@ -1,4 +1,4 @@
-// Всё состояние заглушки в памяти процесса: режимы, платежи, письма, SMS, журнал.
+// Всё состояние заглушки в памяти процесса: режимы, платежи, письма, SMS, системы продавцов, журнал.
 import { defaults, SCHEMAS, SYSTEMS, validateMode } from './modes.mjs';
 import { mulberry32 } from './util.mjs';
 
@@ -20,19 +20,22 @@ export function createState({ clock, bootTag, seed = 20261004, journalLimit = 20
     s.emails = [];
     s.sms = [];
     s.vk = { codes: new Map(), tokens: new Map() };
+    s.sellers = new Map(); // подключения «систем продавца» (секрет подписи, API-ключ), по slug; очищаются сбросом
     s.journal = [];
     initCounters();
   }
 
   /** Счётчики «первые N вызовов» заводятся при установке режима. */
   function initCounters() {
-    const { payment, email } = s.modes;
+    const { payment, email, seller } = s.modes;
     s.counters = {
       createFail: payment.create.failFirst,
       createLose: payment.create.loseResponseFirst,
       statusFail: payment.status.failFirst,
       refundFail: payment.refund.failFirst,
       emailFail: email.failFirst,
+      sellerRequestFail: seller.request.failFirst,
+      sellerWebhookFail: seller.webhook.failFirst,
     };
   }
 

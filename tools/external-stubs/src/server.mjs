@@ -6,6 +6,7 @@ import { createRouter } from './router.mjs';
 import { registerAdmin } from './admin.mjs';
 import { registerEmail } from './email.mjs';
 import { registerPayment } from './payment.mjs';
+import { registerSeller } from './seller.mjs';
 import { registerSms } from './sms.mjs';
 import { registerVkid } from './vkid.mjs';
 import { createSmtpServer } from './smtp.mjs';
@@ -19,7 +20,7 @@ function maskBody(body) {
 }
 
 const systemOf = (path) =>
-  path.startsWith('/payment/') ? 'payment' : path.startsWith('/email/') || path.startsWith('/mail') ? 'email' : path.startsWith('/sms/') ? 'sms' : path.startsWith('/vkid/') ? 'vkid' : 'stubs';
+  path.startsWith('/payment/') ? 'payment' : path.startsWith('/email/') || path.startsWith('/mail') ? 'email' : path.startsWith('/sms/') ? 'sms' : path.startsWith('/vkid/') ? 'vkid' : path.startsWith('/seller/') ? 'seller' : 'stubs';
 
 function makeHandler(app, router, { journal }) {
   return async (req, res) => {
@@ -72,6 +73,7 @@ export function createStubs(config, deps = {}) {
   registerEmail(api, app);
   registerSms(api, app);
   registerVkid(api, app);
+  registerSeller(api, app);
 
   const admin = createRouter();
   registerAdmin(admin, app);

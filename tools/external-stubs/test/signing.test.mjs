@@ -42,3 +42,13 @@ test('проверка отвергает отсутствие заголовк�
   assert.equal(verify({ secrets: ['a'], timestamp: undefined, body, signature: 'x' }).reason, 'missing');
   assert.equal(verify({ secrets: ['a'], timestamp: 'вчера', body, signature: 'x' }).reason, 'bad_timestamp');
 });
+
+// Общий пример с WebhookSignatureTest.java каркаса: значение посчитано независимо (Python hmac). Эти же секрет, метка и тело должны
+// лежать в обоих файлах: tools/docs-checks/check_stub_contract.py пересчитывает пример и ищет его здесь.
+test('общий пример каркаса: заглушка подписывает так же, как WebhookSignature', () => {
+  const sharedBody = '{"messageId":"sms_1","status":"delivered"}';
+  const sharedTs = '2026-10-11T10:00:00.000Z';
+  const sig = sign('test-secret-key', sharedTs, sharedBody);
+  assert.equal(sig, '8ac3e6a4436ff6b0364f1c6f4bc15544f0ff204d533f82cccc036b032dbe694b');
+  assert.equal(verify({ secrets: ['test-secret-key'], timestamp: sharedTs, body: sharedBody, signature: sig, now: Date.parse(sharedTs) + 30_000 }).ok, true);
+});

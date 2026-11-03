@@ -12,7 +12,7 @@ export const SECRETS = {
   platformWebhookSecret: 'platform-hook-secret',
 };
 
-export async function startHarness({ webhookStatuses = [] } = {}) {
+export async function startHarness({ webhookStatuses = [], respond, config: overrides = {} } = {}) {
   // Получатель вебхуков: запоминает всё, что пришло; ответы берёт из очереди statuses, затем отвечает 200
   const hooks = [];
   const statuses = [...webhookStatuses];
@@ -20,7 +20,15 @@ export async function startHarness({ webhookStatuses = [] } = {}) {
     const chunks = [];
     req.on('data', (c) => chunks.push(c));
     req.on('end', () => {
-      hooks.push({ path: req.url, headers: req.headers, body: Buffer.concat(chunks).toString('utf8') });
+      const hook = { path: req.url, headers: req.headers, body: Buffer.concat(chunks).toString('utf8') };
+      hooks.push(hook);
+      // `respond` играет шлюз платформы там, где нужно тело ответа (ответ продавца): { status, json, headers }
+      const custom = respond?.(hook);
+      if (custom) {
+        res.writeHead(custom.status, { 'Content-Type': 'application/json', ...(custom.headers ?? {}) });
+        res.end(custom.json === undefined ? '' : JSON.stringify(custom.json));
+        return;
+      }
       res.statusCode = statuses.length ? statuses.shift() : 200;
       res.end();
     });
@@ -44,7 +52,9 @@ export async function startHarness({ webhookStatuses = [] } = {}) {
       platformEmail: `${base}/platform-email`,
       platformSms: `${base}/platform-sms`,
     },
+    gatewayUrl: `${base}/gateway`,
     quiet: true,
+    ...overrides,
   };
   const stubs = createStubs(config, { bootTag: 't', pause: () => Promise.resolve() });
   const ports = await stubs.start();

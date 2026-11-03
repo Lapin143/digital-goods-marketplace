@@ -10,9 +10,14 @@
     времени, пути приёма; результат лежит в репозитории рядом с тестами заглушки;
   - эта проверка падает, если файл расходится с OpenAPI (изменили контракт, пересоберите файл и перечитайте заглушку);
   - модульные тесты заглушки (`test/contract.test.mjs`) проверяют каждое отправляемое ею уведомление по этим схемам;
-  - адреса вебхуков в compose.yaml (`STUBS_*_WEBHOOK_URL`) оканчиваются путями приёма из OpenAPI.
+  - адреса вебхуков в compose.yaml (`STUBS_*_WEBHOOK_URL`) оканчиваются путями приёма из OpenAPI;
+  - подпись заглушки совпадает с подписью каркаса: общий пример `WebhookSignatureTest` (секрет, метка, тело и подпись, посчитанная независимо)
+    пересчитывается здесь и должен лежать в `test/signing.test.mjs` заглушки с теми же значениями; имена заголовков и окно метки времени
+    сверяются с `WebhookSignature.java` (заглушка «система продавца» и получатели платформы подписывают одинаково, Ф5).
 Нужен PyYAML.
 """
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -40,6 +45,10 @@ ENV_OF = {
     'platformEmail': 'STUBS_PLATFORM_EMAIL_WEBHOOK_URL',
     'platformSms': 'STUBS_PLATFORM_SMS_WEBHOOK_URL',
 }
+KIT_SIGNATURE = os.path.join(L.REPO, 'libs', 'service-kit', 'src', 'main', 'java', 'dgm', 'kit', 'crypto', 'WebhookSignature.java')
+KIT_SIGNATURE_TEST = os.path.join(L.REPO, 'libs', 'service-kit', 'src', 'test', 'java', 'dgm', 'kit', 'crypto', 'WebhookSignatureTest.java')
+STUB_SIGNING = os.path.join(L.REPO, 'tools', 'external-stubs', 'src', 'signing.mjs')
+STUB_SIGNING_TEST = os.path.join(L.REPO, 'tools', 'external-stubs', 'test', 'signing.test.mjs')
 _cache = {}
 
 
@@ -100,6 +109,61 @@ def build():
     return contract
 
 
+def java_string(source, name):
+    """Значение константы `name` (строковый литерал Java в одну строку) из текста класса; None, если не найдена."""
+    m = re.search(r'\b%s\s*=\s*(?:SecretValue\.of\()?"((?:[^"\\]|\\.)*)"' % re.escape(name), source)
+    if not m:
+        return None
+    return re.sub(r'\\(.)', r'\1', m.group(1))
+
+
+def check_signature(problems):
+    """Подпись заглушки и подпись каркаса `WebhookSignature` совпадают на общем примере и по именам заголовков."""
+    missing = [L.rel(p) for p in (KIT_SIGNATURE, KIT_SIGNATURE_TEST, STUB_SIGNING, STUB_SIGNING_TEST) if not os.path.exists(p)]
+    if missing:
+        problems.append('нет файлов для сверки подписи: %s' % ', '.join(missing))
+        return
+    kit = open(KIT_SIGNATURE, encoding='utf-8').read()
+    test = open(KIT_SIGNATURE_TEST, encoding='utf-8').read()
+    stub = open(STUB_SIGNING, encoding='utf-8').read()
+    stub_test = open(STUB_SIGNING_TEST, encoding='utf-8').read()
+
+    secret = java_string(test, 'SECRET')
+    timestamp = java_string(test, 'TIMESTAMP')
+    body = java_string(test, 'BODY')
+    known = java_string(test, 'KNOWN')
+    if None in (secret, timestamp, body, known):
+        problems.append('%s: не найден общий пример (SECRET, TIMESTAMP, BODY, KNOWN)' % L.rel(KIT_SIGNATURE_TEST))
+        return
+    body = body.replace('\\"', '"')
+    computed = hmac.new(secret.encode('utf-8'), ('%s.%s' % (timestamp, body)).encode('utf-8'), hashlib.sha256).hexdigest()
+    if computed != known:
+        problems.append('%s: подпись общего примера не пересчитывается (в тесте %s, получилось %s)' % (L.rel(KIT_SIGNATURE_TEST), known, computed))
+    else:
+        print('общий пример подписи каркаса (%s) пересчитан независимо: %s' % (L.rel(KIT_SIGNATURE_TEST), known[:16] + '…'))
+
+    for what, value in (('подпись', known), ('метка времени', timestamp)):
+        if value not in stub_test:
+            problems.append('%s: нет %s общего примера каркаса (%s); добавьте проверку из WebhookSignatureTest' % (L.rel(STUB_SIGNING_TEST), what, value))
+    if "'%s'" % body.replace("'", "\\'") not in stub_test:
+        problems.append('%s: нет тела общего примера каркаса (%s)' % (L.rel(STUB_SIGNING_TEST), body))
+    if "'%s'" % secret not in stub_test:
+        problems.append('%s: нет секрета общего примера каркаса (%s)' % (L.rel(STUB_SIGNING_TEST), secret))
+
+    for const, expected in (('SIGNATURE_HEADER', 'X-Webhook-Signature'), ('TIMESTAMP_HEADER', 'X-Webhook-Timestamp')):
+        kit_value = java_string(kit, const)
+        if kit_value != expected:
+            problems.append('%s: %s = %r, ожидалось %r' % (L.rel(KIT_SIGNATURE), const, kit_value, expected))
+        if "'%s'" % expected.lower() not in stub:
+            problems.append('%s: нет заголовка %s (в нижнем регистре, как в Node.js)' % (L.rel(STUB_SIGNING), expected))
+    tolerance = re.search(r'TOLERANCE\s*=\s*Duration\.ofMinutes\((\d+)\)', kit)
+    stub_tolerance = re.search(r'TOLERANCE_MS\s*=\s*(\d+)\s*\*\s*60\s*\*\s*1000', stub)
+    if not tolerance or not stub_tolerance or tolerance.group(1) != stub_tolerance.group(1):
+        problems.append('окно метки времени заглушки (%s) и каркаса (%s) не совпадают' % (stub_tolerance and stub_tolerance.group(1), tolerance and tolerance.group(1)))
+    else:
+        print('имена заголовков подписи и окно метки времени (%s мин) совпадают с каркасом' % tolerance.group(1))
+
+
 def main():
     contract = build()
     text = json.dumps(contract, ensure_ascii=False, indent=2, sort_keys=True) + '\n'
@@ -132,6 +196,7 @@ def main():
                     problems.append('compose.yaml: %s=%s, ожидался адрес https://<контейнер>:<порт>%s' % (var, url, want))
                 else:
                     print('compose.yaml: %s оканчивается путём приёма %s' % (var, want))
+    check_signature(problems)
     for p in problems:
         print('  -', p)
     print('проблем:', len(problems))

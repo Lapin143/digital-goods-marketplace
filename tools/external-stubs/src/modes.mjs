@@ -83,6 +83,27 @@ export const SCHEMAS = {
       phone_number: str('+79990000001', 32),
     }),
   }),
+  // «Система продавца» (Ф5, ADR-028): принимает подписанный запрос платформы и подписанные webhook, отвечает вызовом respondSellerDelivery
+  seller: obj({
+    request: obj({
+      // что заглушка делает с запросом выдачи: answer — подтверждает приём и присылает ключи; silent — подтверждает и молчит;
+      // error — подтверждает и присылает отказ; duplicate — присылает тот же ответ дважды; http500 — отвечает 500; refuse — рвёт соединение;
+      // reject — отвечает 422 (отказ продавца, платформа не повторяет)
+      behavior: oneOf('answer', ['answer', 'silent', 'error', 'duplicate', 'http500', 'refuse', 'reject']),
+      failFirst: int(-1, -1, 100_000), // для http500, refuse, reject: сколько попыток отказывают (-1 все); дальше работает thenBehavior
+      thenBehavior: oneOf('answer', ['answer', 'silent', 'error', 'duplicate']),
+      answerDelayMs: int(3000, 0, 3_600_000), // пауза между подтверждением приёма и ответом продавца
+      repeatDelayMs: int(0, 0, 60_000), // при duplicate: пауза перед вторым ответом
+      keysDelta: int(0, -10, 10), // ключей в ответе на столько больше (меньше) заказанного: проверка 422
+      errorCode: oneOf('cannot_issue', ['out_of_stock', 'cannot_issue', 'other']), // причина отказа при behavior=error
+    }),
+    webhook: obj({
+      failFirst: int(0, -1, 100_000), // первые N попыток доставки webhook отказывают (-1 все)
+      failure: oneOf('status', ['status', 'drop']), // status: ответ failStatus; drop: соединение рвётся без ответа
+      failStatus: int(500, 400, 599),
+      delayMs: int(0, 0, 60_000), // пауза перед ответом получателя (проверка тайм-аута отправителя)
+    }),
+  }),
 };
 
 export const SYSTEMS = Object.keys(SCHEMAS);

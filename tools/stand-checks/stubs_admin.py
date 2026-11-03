@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Клиент команд управления заглушками внешних систем для проверок на стенде (шаг 4 среза 2 Ф4, Р-146).
 
-Заглушки (`tools/external-stubs`, порт 8444, команды `/admin/...`) задают платёжному шлюзу, почте и SMS режим ответа, сбрасываются между тестами и
+Заглушки (`tools/external-stubs`, порт 8444, команды `/admin/...`) задают платёжному шлюзу, почте, SMS и «системе продавца» режим ответа, сбрасываются между тестами и
 показывают, что платформа им прислала. Сценарии среза 2 (оплата, поздняя оплата, отказ шлюза, потерянный вебхук, письмо с ключами, недоставка) меняют
 режим и обязаны вернуть его: чужой режим, оставшийся после упавшего сценария, ломает следующий. Поэтому режим меняется через контекст:
 
@@ -29,7 +29,7 @@ sys.path.insert(0, HERE)
 import kc_client as K  # noqa: E402
 
 ADMIN_URL = 'https://external-stubs:8444'
-SYSTEMS = ('payment', 'email', 'sms', 'vkid')
+SYSTEMS = ('payment', 'email', 'sms', 'vkid', 'seller')
 
 
 class StubsError(RuntimeError):
@@ -73,7 +73,7 @@ class StubsAdmin:
 
     # --------------------------------------------------------------------------------------------- режимы и сброс
     def reset(self):
-        """Дожидается отложенных исходов прошлого теста, очищает платежи, письма, SMS, журнал и возвращает режимы по умолчанию."""
+        """Дожидается отложенных исходов прошлого теста, очищает платежи, письма, SMS, подключения продавцов, журнал и возвращает режимы по умолчанию."""
         return self._call('POST', '/admin/reset')
 
     def idle(self):
@@ -194,6 +194,93 @@ class StubsAdmin:
             if time.time() >= deadline:
                 raise StubsError('SMS на %s: найдено %d из %d за %.0f с' % (to, len(found), count, wait))
             time.sleep(self.poll_seconds)
+
+    # --------------------------------------------------------------------------------------------- «система продавца» (Ф5, ADR-028)
+    def seller_mode(self, request=None, webhook=None):
+        """Режим «системы продавца» на время блока (на выходе умолчания). request: behavior (answer, silent, error, duplicate, http500, refuse,
+        reject), failFirst, thenBehavior, answerDelayMs, repeatDelayMs, keysDelta, errorCode; webhook: failFirst, failure, failStatus, delayMs."""
+        fields = {}
+        if request is not None:
+            fields['request'] = request
+        if webhook is not None:
+            fields['webhook'] = webhook
+        return self.mode('seller', **fields)
+
+    def connect_seller(self, slug, secret, api_key=None, previous_secret=None):
+        """Сообщает заглушке, кто такой продавец `slug`: секрет подписи (тот, что платформа показала при подключении системы) и API-ключ (тот, что
+        выпущен в кабинете; по нему заглушка отвечает на запросы выдачи). Секрет и ключ остаются в памяти заглушки и обратно не возвращаются.
+        Сброс (`reset`) забывает подключение. `previous_secret` оставляет действующим и прежний секрет (проверка смены секрета)."""
+        body = {'secret': secret}
+        if api_key is not None:
+            body['apiKey'] = api_key
+        if previous_secret is not None:
+            body['previousSecret'] = previous_secret
+        return self._call('PUT', '/admin/sellers/%s' % urllib.parse.quote(slug, safe=''), body)
+
+    def disconnect_seller(self, slug):
+        return self._call('DELETE', '/admin/sellers/%s' % urllib.parse.quote(slug, safe=''))
+
+    def sellers(self):
+        """Подключённые продавцы: slug, есть ли ключ, сколько секретов, сколько запросов и webhook принято. Секретов и ключей в ответе нет."""
+        return self._items(self._call('GET', '/admin/sellers'))
+
+    def seller_requests(self, slug, request_id=None, order_number=None):
+        """Запросы выдачи, принятые «системой продавца» (с подписью и меткой времени, прошедшими проверку): число попыток платформы, исходы,
+        лишние поля тела (`extraFields`, ждём пусто: персональных данных в запросе нет) и ответы заглушки платформе (`answers`: вид, код HTTP,
+        тип проблемы, значения ключей, которые заглушка прислала, чтобы сверить их с письмом покупателя)."""
+        query = {k: v for k, v in (('requestId', request_id), ('orderNumber', order_number)) if v}
+        suffix = '?' + urllib.parse.urlencode(query) if query else ''
+        return self._items(self._call('GET', '/admin/sellers/%s/requests%s' % (urllib.parse.quote(slug, safe=''), suffix)))
+
+    def wait_seller_request(self, slug, count=1, wait=20.0, **query):
+        """Ждёт, пока «система продавца» примет не меньше `count` запросов по условию (request_id, order_number)."""
+        deadline = time.time() + wait
+        while True:
+            found = self.seller_requests(slug, **query)
+            if len(found) >= count:
+                return found
+            if time.time() >= deadline:
+                raise StubsError('запросов продавцу %s %s: найдено %d из %d за %.0f с' % (slug, query, len(found), count, wait))
+            time.sleep(self.poll_seconds)
+
+    def wait_seller_answers(self, slug, request_id, count=1, wait=30.0):
+        """Ждёт, пока заглушка отправит платформе не меньше `count` ответов на запрос `request_id`; возвращает запись запроса."""
+        deadline = time.time() + wait
+        while True:
+            found = self.seller_requests(slug, request_id=request_id)
+            if found and len(found[0].get('answers') or []) >= count:
+                return found[0]
+            if time.time() >= deadline:
+                have = len(found[0].get('answers') or []) if found else 0
+                raise StubsError('ответов продавца %s на %s: %d из %d за %.0f с' % (slug, request_id, have, count, wait))
+            time.sleep(self.poll_seconds)
+
+    def answer_seller_request(self, slug, request_id, **body):
+        """Ответ продавца по команде: поздний ответ после окна, чужие ключи, отказ, лишнее поле. body: keys, error, count, extra, repeat.
+        Без полей заглушка присылает те же ключи, что в режиме `answer`. Возвращает ответы платформы."""
+        path = '/admin/sellers/%s/requests/%s/answer' % (urllib.parse.quote(slug, safe=''), urllib.parse.quote(request_id, safe=''))
+        return self._call('POST', path, body)
+
+    def seller_webhooks(self, slug, type=None, event_id=None):
+        """Webhook, принятые «системой продавца»: `items` (по одному на событие, с числом попыток и дублей) и `attempts` (каждая попытка с исходом)."""
+        query = {k: v for k, v in (('type', type), ('eventId', event_id)) if v}
+        suffix = '?' + urllib.parse.urlencode(query) if query else ''
+        return self._call('GET', '/admin/sellers/%s/webhooks%s' % (urllib.parse.quote(slug, safe=''), suffix))
+
+    def wait_seller_webhooks(self, slug, count=1, wait=30.0, **query):
+        """Ждёт, пока принято не меньше `count` событий по условию (type, event_id); возвращает ответ `seller_webhooks`."""
+        deadline = time.time() + wait
+        while True:
+            found = self.seller_webhooks(slug, **query)
+            if len(found.get('items') or []) >= count:
+                return found
+            if time.time() >= deadline:
+                raise StubsError('webhook продавцу %s %s: принято %d из %d за %.0f с' % (slug, query, len(found.get('items') or []), count, wait))
+            time.sleep(self.poll_seconds)
+
+    def seller_rejected(self, slug):
+        """Вызовы платформы, которые «система продавца» отвергла (подпись, метка времени, тело) с причиной: так видно, что платформа подписывает неверно."""
+        return self._items(self._call('GET', '/admin/sellers/%s/rejected' % urllib.parse.quote(slug, safe='')))
 
     # --------------------------------------------------------------------------------------------- журнал
     def journal(self, since=0, system=None, kind=None):

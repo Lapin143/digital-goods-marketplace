@@ -111,5 +111,62 @@ class StubsAdminTest(unittest.TestCase):
         self.assertEqual(found['paymentId'], 'b')
 
 
+    def test_seller_mode_is_restored_after_block(self):
+        with self.admin.seller_mode(request={'behavior': 'silent'}, webhook={'failFirst': 2}):
+            pass
+        self.assertEqual(self.net.calls, [
+            ('PUT', '/admin/modes/seller', {'request': {'behavior': 'silent'}, 'webhook': {'failFirst': 2}}),
+            ('PUT', '/admin/modes/seller', {}),
+        ])
+
+    def test_connect_seller_sends_secret_and_key_to_the_admin_port_only(self):
+        self.admin.connect_seller('shop 1', 's' * 64, api_key='dgm_x', previous_secret='p' * 64)
+        self.admin.connect_seller('shop-2', 's' * 64)
+        self.assertEqual(self.net.calls, [
+            ('PUT', '/admin/sellers/shop%201', {'secret': 's' * 64, 'apiKey': 'dgm_x', 'previousSecret': 'p' * 64}),
+            ('PUT', '/admin/sellers/shop-2', {'secret': 's' * 64}),
+        ])
+
+    def test_seller_read_commands_paths(self):
+        self.admin.seller_requests('shop', request_id='r 1', order_number='DGM-1')
+        self.admin.seller_webhooks('shop', type='order.paid')
+        self.admin.seller_rejected('shop')
+        self.admin.sellers()
+        self.admin.disconnect_seller('shop')
+        self.admin.answer_seller_request('shop', 'r1', keys=['K-1'])
+        self.assertEqual([c[:2] for c in self.net.calls], [
+            ('GET', '/admin/sellers/shop/requests?requestId=r+1&orderNumber=DGM-1'),
+            ('GET', '/admin/sellers/shop/webhooks?type=order.paid'),
+            ('GET', '/admin/sellers/shop/rejected'),
+            ('GET', '/admin/sellers'),
+            ('DELETE', '/admin/sellers/shop'),
+            ('POST', '/admin/sellers/shop/requests/r1/answer'),
+        ])
+        self.assertEqual(self.net.calls[-1][2], {'keys': ['K-1']})
+
+    def test_wait_seller_request_and_answers(self):
+        replies = iter([{'items': []}, {'items': [{'requestId': 'r1', 'answers': []}]}, {'items': [{'requestId': 'r1', 'answers': [{'kind': 'keys', 'status': 200}]}]}])
+        net = FakeNet({('GET', '/admin/sellers/shop/requests'): lambda: next(replies)})
+        admin = S.StubsAdmin(net, poll_seconds=0.01)
+        self.assertEqual(admin.wait_seller_request('shop', wait=5)[0]['requestId'], 'r1')
+        self.assertEqual(admin.wait_seller_answers('shop', 'r1', wait=5)['answers'][0]['status'], 200)
+
+    def test_wait_seller_answers_times_out_with_explanation(self):
+        net = FakeNet({('GET', '/admin/sellers/shop/requests'): {'items': [{'requestId': 'r1', 'answers': []}]}})
+        with self.assertRaises(S.StubsError) as ctx:
+            S.StubsAdmin(net, poll_seconds=0.01).wait_seller_answers('shop', 'r1', count=2, wait=0.05)
+        self.assertIn('0 из 2', str(ctx.exception))
+
+    def test_wait_seller_webhooks_returns_items_and_attempts(self):
+        replies = iter([{'items': [], 'attempts': []}, {'items': [{'eventId': 'e1'}], 'attempts': [{'eventId': 'e1', 'outcome': 'accepted'}]}])
+        net = FakeNet({('GET', '/admin/sellers/shop/webhooks'): lambda: next(replies)})
+        found = S.StubsAdmin(net, poll_seconds=0.01).wait_seller_webhooks('shop', wait=5)
+        self.assertEqual(found['attempts'][0]['outcome'], 'accepted')
+        net = FakeNet({('GET', '/admin/sellers/shop/webhooks'): {'items': [], 'attempts': []}})
+        with self.assertRaises(S.StubsError) as ctx:
+            S.StubsAdmin(net, poll_seconds=0.01).wait_seller_webhooks('shop', count=3, wait=0.05, type='order.paid')
+        self.assertIn('принято 0 из 3', str(ctx.exception))
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -43,7 +43,7 @@ test('все режимы одним запросом и сводка состо
   await newPayment(h);
   await h.stubs.app.idle();
   const all = (await h.admin('GET', '/admin/modes')).json;
-  assert.deepEqual(Object.keys(all), ['payment', 'email', 'sms', 'vkid']);
+  assert.deepEqual(Object.keys(all), ['payment', 'email', 'sms', 'vkid', 'seller']);
   const state = (await h.admin('GET', '/admin/state')).json;
   assert.equal(state.bootTag, 't');
   assert.equal(state.counts.payments, 1);

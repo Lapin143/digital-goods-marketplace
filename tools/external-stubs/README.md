@@ -8,6 +8,7 @@
 | E-mail-провайдер | REST `/email/v1/messages` (ключи `delivery_email_key`, `platform_email_key`), SMTP на порту 1025, статусы вебхуком, просмотр писем `/mail` | `delivery-service`, `platform-service`, Keycloak (SMTP) |
 | SMS-провайдер | REST `/sms/v1/messages` (ключ `platform_sms_key`), «телефон» (доставленные SMS) в списке команд управления, статус вебхуком | `platform-service` (SPI Keycloak) |
 | VK ID | OpenID Connect под `/vkid`: описание, `authorize`, `token` (PKCE), `userinfo`, `jwks` (RS256) | Keycloak (брокер идентификации) |
+| Система продавца | `POST /seller/<slug>/request` (запрос ключа, подписан), `POST /seller/<slug>/webhook` (уведомление о заказе, подписано); ответ продавца заглушка отправляет сама вызовом `respondSellerDelivery` через шлюз с `X-Api-Key` | `delivery-service`, `platform-service` (через `SellerCaller`) |
 
 Порты: **8443** прикладной интерфейс по TLS, **8444** команды управления по TLS (в контуре сервера наружу не публикуется, [ADR-015](../../docs/05-architecture/adr/ADR-015-payment-gateway-integration.md)), **1025** SMTP без TLS и AUTH. С отладочным файлом на ноутбуке: `18443`, `18444`, `11025` на 127.0.0.1 (`make up DEBUG=1`).
 
@@ -68,6 +69,26 @@
 
 `behavior`: `success`, `deny` (возврат `error=access_denied`), `error` (`server_error`); `delayMs`; `profile` (`sub`, `name`, `email`, ...) для следующих входов.
 
+### `seller` («система продавца», Ф5, ADR-028)
+
+Заглушка играет то, что у настоящего продавца стоит за адресом из кабинета. Она **не знает продавца заранее**: сценарий сообщает команде `PUT /admin/sellers/<slug>` секрет подписи (его платформа показала продавцу при подключении) и API-ключ (выпущен в кабинете), после этого адреса платформе такие: `https://external-stubs:8443/seller/<slug>/request` и `.../webhook`. Секрет и ключ живут только в памяти, наружу не выходят (ни в ответах команд, ни в журнале), сброс их забывает. Подпись и метка времени проверяются как у получателей платформы (общая функция `verify`, окно 5 минут), `tools/docs-checks/check_stub_contract.py` сверяет её с `WebhookSignature` каркаса.
+
+`request` (запрос выдачи):
+
+| Поле | По умолчанию | Смысл |
+| --- | --- | --- |
+| `behavior` | `answer` | `answer`: подтверждает приём (202) и после `answerDelayMs` присылает ключи вызовом `respondSellerDelivery`; `silent`: подтверждает и молчит (проверка окна и T10); `error`: подтверждает и присылает `error`; `duplicate`: присылает тот же ответ дважды (второй должен получить 200 с `Idempotency-Replayed`); `http500`: отвечает 500; `refuse`: рвёт соединение без ответа; `reject`: отвечает 422 (отказ продавца, платформа не повторяет) |
+| `failFirst` | -1 | Для `http500`, `refuse`, `reject`: сколько попыток отказывают (-1: все); дальше работает `thenBehavior` |
+| `thenBehavior` | `answer` | Что делать после отказов: `answer`, `silent`, `error`, `duplicate` (проверка повторов платформы: паузы 5 и 30 секунд) |
+| `answerDelayMs` | 3000 | Пауза между подтверждением приёма и ответом продавца |
+| `repeatDelayMs` | 0 | При `duplicate`: пауза перед вторым ответом |
+| `keysDelta` | 0 | Ключей в ответе на столько больше (меньше) заказанного: платформа должна ответить 422 |
+| `errorCode` | `cannot_issue` | Причина при `error`: `out_of_stock`, `cannot_issue`, `other` |
+
+`webhook` (уведомление о заказе): `failFirst` (0; первые N попыток отказывают, -1 все), `failure` (`status`: ответ `failStatus`, 500 по умолчанию; `drop`: обрыв соединения), `delayMs` (пауза перед ответом, проверка тайм-аута отправителя). Дубли отсекаются по `eventId`: повтор получает 200 `{"status":"duplicate"}`, число попыток и дублей видно в `GET /admin/sellers/<slug>/webhooks`.
+
+Режим запроса фиксируется при первом принятом подтверждении: повтор того же `requestId` (платформа не получила 202) второго ответа не порождает. Ключи, которые заглушка «выдумала», одинаковы при повторах и видны в `answers[].keys` записи запроса: сценарий сверяет их с письмом покупателя. В тело запроса платформа не должна класть персональных данных: лишние поля попадают в `extraFields`, проверка стенда ждёт там пустой список.
+
 ## Команды управления (порт 8444)
 
 | Команда | Что делает |
@@ -83,6 +104,10 @@
 | `GET /admin/emails[?to=&sender=&subject=]`, `GET /admin/emails/:id` | Письма (число ключей видно в тексте) |
 | `POST /admin/emails/:id/status` | Прислать статус письма: `{"status":"delivered"}` |
 | `GET /admin/sms[?to=&all=1]`, `POST /admin/sms/:id/status` | «Телефон» (доставленные SMS с кодом), статус SMS |
+| `GET /admin/sellers`, `PUT/DELETE /admin/sellers/:slug` | Подключённые продавцы без секретов; подключить (`{"secret":"...","apiKey":"dgm_...","previousSecret":"..."}`, `previousSecret` оставляет действующим и прежний секрет), забыть |
+| `GET /admin/sellers/:slug/requests[?requestId=&orderNumber=]` | Принятые запросы выдачи: попытки, исходы, лишние поля, ответы заглушки платформе (вид, код HTTP, тип проблемы, ключи) |
+| `GET /admin/sellers/:slug/webhooks[?type=&eventId=]`, `GET /admin/sellers/:slug/rejected` | Принятые webhook (по событиям) и каждая попытка с исходом; отвергнутые вызовы с причиной (`bad_signature`, `stale`, `missing`, `invalid_body`) |
+| `POST /admin/sellers/:slug/requests/:requestId/answer` | Ответ продавца по команде: `keys`, `error`, `count`, `extra` (лишнее поле тела), `repeat`; без полей те же ключи, что в режиме `answer` (поздний ответ после окна, ответ вне режима) |
 
 Командам платежа и статуса можно передать переопределения для одного вызова: `timestamp`, `badSignature`, `repeat`, `parallel`, `timestampOffsetSeconds`, `amountDelta`, `unknownPayment`, `retries`, `send`.
 
@@ -96,7 +121,7 @@ curl --cacert secrets/tls_ca.crt -X POST https://localhost:18444/admin/payments/
 
 ## Настройка (переменные окружения)
 
-`STUBS_API_PORT` (8443), `STUBS_ADMIN_PORT` (8444), `STUBS_SMTP_PORT` (1025), `STUBS_PUBLIC_URL` (издатель VK ID и основа адресов по умолчанию), `STUBS_PAYMENT_PUBLIC_URL` (основа адреса страницы оплаты `payUrl`, которую открывает браузер покупателя: в Compose это `DGM_PUBLIC_ORIGIN`, то есть шлюз платформы, маршрут `/payment/pay`; по умолчанию равна `STUBS_PUBLIC_URL`), `STUBS_TLS_CERT_FILE` / `STUBS_TLS_KEY_FILE` / `STUBS_TLS_CA_FILE` (без них процесс слушает обычный HTTP, так работают модульные тесты), пути к секретам `PAYMENT_GATEWAY_KEY_FILE`, `PAYMENT_WEBHOOK_SECRET_FILE`, `DELIVERY_EMAIL_KEY_FILE`, `DELIVERY_WEBHOOK_SECRET_FILE`, `PLATFORM_EMAIL_KEY_FILE`, `PLATFORM_SMS_KEY_FILE`, `PLATFORM_WEBHOOK_SECRET_FILE`, адреса вебхуков `STUBS_PAYMENT_WEBHOOK_URL`, `STUBS_DELIVERY_EMAIL_WEBHOOK_URL`, `STUBS_PLATFORM_EMAIL_WEBHOOK_URL`, `STUBS_PLATFORM_SMS_WEBHOOK_URL`. Секреты читаются из файлов, значений в окружении нет.
+`STUBS_API_PORT` (8443), `STUBS_ADMIN_PORT` (8444), `STUBS_SMTP_PORT` (1025), `STUBS_PUBLIC_URL` (издатель VK ID и основа адресов по умолчанию), `STUBS_PAYMENT_PUBLIC_URL` (основа адреса страницы оплаты `payUrl`, которую открывает браузер покупателя: в Compose это `DGM_PUBLIC_ORIGIN`, то есть шлюз платформы, маршрут `/payment/pay`; по умолчанию равна `STUBS_PUBLIC_URL`), `STUBS_TLS_CERT_FILE` / `STUBS_TLS_KEY_FILE` / `STUBS_TLS_CA_FILE` (без них процесс слушает обычный HTTP, так работают модульные тесты), пути к секретам `PAYMENT_GATEWAY_KEY_FILE`, `PAYMENT_WEBHOOK_SECRET_FILE`, `DELIVERY_EMAIL_KEY_FILE`, `DELIVERY_WEBHOOK_SECRET_FILE`, `PLATFORM_EMAIL_KEY_FILE`, `PLATFORM_SMS_KEY_FILE`, `PLATFORM_WEBHOOK_SECRET_FILE`, адреса вебхуков `STUBS_PAYMENT_WEBHOOK_URL`, `STUBS_DELIVERY_EMAIL_WEBHOOK_URL`, `STUBS_PLATFORM_EMAIL_WEBHOOK_URL`, `STUBS_PLATFORM_SMS_WEBHOOK_URL`, адрес шлюза для ответов «системы продавца» `STUBS_GATEWAY_URL` (в Compose `https://api-gateway:8443`; пусто: ответы не отправляются, это видно в записи запроса). Секреты читаются из файлов, значений в окружении нет.
 
 ## Тесты
 

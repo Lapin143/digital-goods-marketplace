@@ -1,6 +1,6 @@
 // Общий контекст приложения: конфигурация, состояние, часы, планировщик задержек и отправитель вебхуков.
 import { createState } from './state.mjs';
-import { createWebhookSender, httpRequest } from './webhook.mjs';
+import { createWebhookSender, httpCall, httpRequest } from './webhook.mjs';
 
 export function createApp(config, deps = {}) {
   const clock = deps.clock ?? { now: () => new Date() };
@@ -12,6 +12,9 @@ export function createApp(config, deps = {}) {
     request: deps.request ?? httpRequest(config),
     pause: deps.pause,
   });
+
+  /** Исходящий вызов с разбором ответа (заглушка продавца отвечает шлюзу платформы). */
+  const call = deps.call ?? httpCall(config);
 
   const pending = new Set();
 
@@ -36,5 +39,5 @@ export function createApp(config, deps = {}) {
     while (pending.size) await Promise.all([...pending]);
   }
 
-  return { config, clock, state, webhooks, schedule, idle };
+  return { config, clock, state, webhooks, call, schedule, idle };
 }

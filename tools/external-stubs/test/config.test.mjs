@@ -44,6 +44,11 @@ test('порты и адреса вебхуков берутся из окруж
   assert.equal(c.paymentPublicUrl, 'https://h:1', 'без STUBS_PAYMENT_PUBLIC_URL страница оплаты строится от STUBS_PUBLIC_URL');
 });
 
+test('адрес шлюза для ответов «системы продавца»: без слэша в конце, по умолчанию пуст', () => {
+  assert.equal(loadConfig({ ...secretVars }, read).gatewayUrl, '');
+  assert.equal(loadConfig({ ...secretVars, STUBS_GATEWAY_URL: 'https://api-gateway:8443/' }, read).gatewayUrl, 'https://api-gateway:8443');
+});
+
 test('адрес страницы оплаты для браузера задаётся отдельно от издателя VK ID (Р-136)', () => {
   const c = loadConfig({ ...secretVars, STUBS_PUBLIC_URL: 'https://external-stubs:8443', STUBS_PAYMENT_PUBLIC_URL: 'https://localhost:8443/' }, read);
   assert.equal(c.publicUrl, 'https://external-stubs:8443');
