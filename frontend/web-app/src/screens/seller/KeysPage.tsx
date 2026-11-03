@@ -47,8 +47,12 @@ function StockPanel({ productId }: { productId: string }) {
         <dd>{stock.reserved}</dd>
         <dt>{t('keys.stock.issued')}</dt>
         <dd>{stock.issued}</dd>
-        <dt>{t('keys.stock.poolSize')}</dt>
-        <dd>{t('keys.stock.ofLimit', { size: stock.poolSize, limit: stock.poolLimit })}</dd>
+        {stock.poolSize !== undefined && stock.poolLimit !== undefined ? (
+          <>
+            <dt>{t('keys.stock.poolSize')}</dt>
+            <dd>{t('keys.stock.ofLimit', { size: stock.poolSize, limit: stock.poolLimit })}</dd>
+          </>
+        ) : null}
         {stock.updatedAt ? (
           <>
             <dt>{t('keys.stock.updatedAt')}</dt>

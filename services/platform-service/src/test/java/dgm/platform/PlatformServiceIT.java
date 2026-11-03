@@ -2249,13 +2249,13 @@ class PlatformServiceIT {
     @Tag("TC-806")
     @Test
     @Order(46)
-    void listShowsAllFifteenParametersAndAChangeReachesTheJournalAndTheCompactedTopic() throws Exception {
+    void listShowsAllSixteenParametersAndAChangeReachesTheJournalAndTheCompactedTopic() throws Exception {
         KeycloakStub.User admin = newAdmin();
         Response list = get(admin.id, PARAMETERS);
         assertEquals(200, list.status(), list.body());
         assertEquals("no-store", list.header("Cache-Control"));
         List<?> items = (List<?>) list.json().get("items");
-        assertEquals(15, items.size(), "параметры R1");
+        assertEquals(16, items.size(), "параметры R1 и срез 1 R2");
         for (Object item : items) {
             assertEquals(Set.of("key", "description", "unit", "value", "defaultValue", "minValue", "maxValue", "version", "updatedAt", "updatedBy"),
                     ((Map<?, ?>) item).keySet());
@@ -2416,18 +2416,18 @@ class PlatformServiceIT {
     @Test
     @Order(49)
     void startReissuesEveryParameterToTheCompactedTopicAndASecondInstanceYieldsTheLock() throws Exception {
-        assertEquals(15, count("select count(distinct aggregate_id) from public.outbox where event_type = 'config.changed'"),
+        assertEquals(16, count("select count(distinct aggregate_id) from public.outbox where event_type = 'config.changed'"),
                 "при старте значения всех параметров ушли в Outbox событием config.changed");
         for (String key : List.of(RESERVE_TTL, SESSION_TTL)) {
             assertFalse(deadLetters("platform.config", key, 1, Duration.ofSeconds(90)).isEmpty(), "в теме есть значение " + key);
         }
         int before = count("select count(*) from public.outbox where event_type = 'config.changed'");
 
-        assertEquals(15, parameters.reissue(), "повторное переиздание отправляет все значения снова");
+        assertEquals(16, parameters.reissue(), "повторное переиздание отправляет все значения снова");
 
-        assertEquals(before + 15, count("select count(*) from public.outbox where event_type = 'config.changed'"));
+        assertEquals(before + 16, count("select count(*) from public.outbox where event_type = 'config.changed'"));
         List<Integer> races = Concurrent.race(4, index -> parameters.reissue());
-        assertTrue(races.stream().allMatch(done -> done == 0 || done == 15), "проход либо сделан целиком, либо уступил блокировку: " + races);
+        assertTrue(races.stream().allMatch(done -> done == 0 || done == 16), "проход либо сделан целиком, либо уступил блокировку: " + races);
     }
 
     // ---- обращения покупателя (шаг 9 среза 3) ----
