@@ -44,6 +44,7 @@
     {"name": "platform_webhook_secret", "kind": "key32", "readers": ["platform-service", "external-stubs"], "purpose": "Подпись статусов писем и SMS"},
     {"name": "platform_audit_hmac", "kind": "key32", "readers": ["platform-service"], "purpose": "Хеши персональных полей в журнале аудита (ADR-014)"},
     {"name": "platform_otp_pepper", "kind": "key32", "readers": ["platform-service"], "purpose": "HMAC кодов подтверждения в Redis (ADR-010)"},
+    {"name": "seller_webhook_master", "kind": "key32", "readers": ["catalog-service", "delivery-service", "platform-service"], "purpose": "Мастер-секрет, из которого считаются секреты подписи запросов и webhook для каждого продавца (ADR-028, Р-187)"},
 
     {"name": "db_postgres_admin", "kind": "password", "readers": ["postgres"], "purpose": "Администратор PostgreSQL, только инициализация баз и ролей"},
     {"name": "db_migrator_catalog", "kind": "password", "readers": ["catalog-service", "postgres"], "purpose": "Роль миграций Flyway базы catalog_db"},

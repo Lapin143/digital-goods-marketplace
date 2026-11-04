@@ -385,6 +385,7 @@ services:
       - db_app_seller_onboarding
       - db_migrator_catalog
       - redis_catalog
+      - seller_webhook_master
       - storage_catalog
     healthcheck:
       <<: *service-health
@@ -519,6 +520,7 @@ services:
       - db_migrator_delivery
       - delivery_email_key
       - delivery_webhook_secret
+      - seller_webhook_master
     healthcheck:
       <<: *service-health
 
@@ -565,6 +567,7 @@ services:
       - platform_sms_key
       - platform_webhook_secret
       - redis_platform
+      - seller_webhook_master
     healthcheck:
       <<: *service-health
 
@@ -936,6 +939,8 @@ secrets:
     file: ${DGM_SECRETS_DIR:-./secrets}/platform_audit_hmac
   platform_otp_pepper:
     file: ${DGM_SECRETS_DIR:-./secrets}/platform_otp_pepper
+  seller_webhook_master:
+    file: ${DGM_SECRETS_DIR:-./secrets}/seller_webhook_master
   db_postgres_admin:
     file: ${DGM_SECRETS_DIR:-./secrets}/db_postgres_admin
   db_migrator_catalog:

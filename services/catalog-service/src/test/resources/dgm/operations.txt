@@ -43,8 +43,8 @@ rejectProduct                  done
 createApiKey                       done
 listApiKeys                        done
 revokeApiKey                       done
-getSellerIntegration               p5s1
-setSellerIntegration               p5s1
-rotateSellerIntegrationSecret      p5s1
+getSellerIntegration               done
+setSellerIntegration               done
+rotateSellerIntegrationSecret      done
 checkApiKey                        done
-getSellerEndpoint                  p5s1
+getSellerEndpoint                  done
