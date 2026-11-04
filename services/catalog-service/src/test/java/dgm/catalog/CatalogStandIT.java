@@ -52,6 +52,9 @@ abstract class CatalogStandIT {
         // Redis набора infra с хоста: отладочный порт, пользователь ACL catalog (кэш карточек витрины)
         registry.add("dgm.redis.host", () -> env("DGM_REDIS_HOST", "localhost"));
         registry.add("dgm.redis.port", () -> env("DGM_REDIS_PORT", "16379"));
+        // Защита адреса системы продавца (ADR-028, правило 7): стенд освобождает от проверки диапазонов только имя localhost, чтобы тест мог
+        // сохранить адрес вида https://localhost:8443/…; адреса 127.0.0.1, частные и метаданных облака остаются закрытыми
+        registry.add("dgm.seller-endpoint.allow", () -> "localhost");
         // Задание контроля сроков в тестах запускают вручную: фоновый запуск мешал бы подсчёту помеченных заявок
         registry.add("dgm.moderation.deadline-initial-delay", () -> "PT24H");
         registry.add("dgm.moderation.deadline-interval", () -> "PT24H");
