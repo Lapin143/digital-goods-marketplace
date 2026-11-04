@@ -22,8 +22,10 @@
   параметр IdempotencyKey     idempotent = true: заголовок обязателен, повтор получает прежний ответ (ADR-006); нужны bearerJwt или mutualTls
   x-module: <имя>             module = модуль базы сервиса, в транзакции которого работает операция (по умолчанию модуль Outbox)
 Что не описано в OpenAPI, закрыто: фильтр отвечает 404 (deny-by-default).
-Операции релиза R2 (x-release: R2) в таблицу шлюза не попадают, пока шаг 5 среза 1 Ф5 не научит шлюз видам входа по ключу и новым группам лимитов:
-у операций R1 с двумя схемами (загрузка пулов, остаток, чтение товаров) шлюз остаётся на токене, поэтому файл шлюза от шага 2 не меняется.
+Операции релиза R2 попадают в таблицу шлюза с шага 5 среза 1 Ф5, когда шлюз научился видам входа по ключу (X-Api-Key) и группам лимитов
+seller.api и seller-upload (Р-188). Вид входа маршрута (поле auth): token (только bearerJwt), api-key (только sellerApiKey: токен на
+нём не принимается), token-or-api-key (обе схемы: токен или ключ, но не оба сразу). У операций со схемой sellerApiKey в таблице есть
+sellerApi = true и keyLimit: группа лимита для вызова по ключу.
 
 Шлюз (шаг 13) получает свою таблицу services/api-gateway/src/main/resources/dgm/gateway-routes.json: все внешние маршруты шести
 сервисов (внутренние с mutualTls в неё не входят, снаружи они недоступны) плюс сервис-получатель и группа ограничения частоты:
@@ -32,6 +34,8 @@
   order-create POST оформления заказа (ADR-021: 10 в минуту на пользователя)
   account      область account.manage; seller-apply область seller.apply; seller область seller.catalog
   staff        области staff.*; buyer остальные маршруты покупателя
+  seller.api   вызов по ключу: 600 в минуту на ключ (Р-188); сюда идут чистые операции ключа и вызовы по ключу операций с двумя входами
+  seller-upload загрузка пулов (uploadKeyBatch, uploadKeyFile), и по токену, и по ключу: 6 в час на продавца, лимит общий для кабинета и API
 Числа групп лежат в application.yml шлюза (dgm.gateway.limits), тест шлюза проверяет, что у каждой группы из файла они заданы.
 Маршруты вне OpenAPI (веб-интерфейс, /files, /auth, /vkid) описаны в коде шлюза по таблице ADR-021.
 Нужен PyYAML (tools/docs-checks/requirements.txt).
@@ -157,12 +161,19 @@ GATEWAY_COMMENT = ('СОЗДАН СКРИПТОМ tools/docs-checks/gen_routes.p
                    'Чего нет в этом файле (и в правилах веб-интерфейса, /files, /auth, /vkid), шлюз закрывает ответом 404.')
 
 
+UPLOAD_OPERATIONS = ('uploadKeyBatch', 'uploadKeyFile')
+
+
 def limit_group(operation_id, auth, scopes):
-    """Группа ограничения частоты по таблице маршрутов ADR-021."""
+    """Группа ограничения частоты по таблице маршрутов ADR-021: для вызова по токену (у публичных и вебхуков по адресу)."""
     if auth == 'webhook':
         return 'webhook'
     if auth == 'public':
         return 'public'
+    if operation_id in UPLOAD_OPERATIONS:
+        return 'seller-upload'
+    if auth == 'api-key':
+        return 'seller.api'
     if operation_id == 'createOrder':
         return 'order-create'
     if 'account.manage' in scopes:
@@ -189,12 +200,17 @@ def build_gateway():
                 item = rule(service, path, method, op, spec['paths'][path].get('parameters'))
                 if item['callers']:
                     continue          # внутренний вызов по mTLS: через шлюз не ходит
-                if op.get('x-release') == 'R2':
-                    continue          # R2: шлюз получает маршрут на шаге 5 среза 1 Ф5 (виды входа по ключу, группы лимитов)
                 kinds = {scheme for alternative in op['security'] for scheme in alternative}
-                auth = 'token' if 'bearerJwt' in kinds else 'webhook' if 'webhookSignature' in kinds else 'public'
+                if 'sellerApiKey' in kinds:
+                    auth = 'token-or-api-key' if 'bearerJwt' in kinds else 'api-key'
+                else:
+                    auth = 'token' if 'bearerJwt' in kinds else 'webhook' if 'webhookSignature' in kinds else 'public'
                 entry = {'method': item['method'], 'path': path, 'operationId': item['operationId'], 'service': service, 'auth': auth,
                          'limit': limit_group(item['operationId'], auth, item['scopes']), 'scopes': item['scopes'], 'roles': item['roles']}
+                if auth in ('api-key', 'token-or-api-key'):
+                    # Вызов по ключу считается в своей группе: загрузка пулов в общей для токена и ключа, остальное в seller.api
+                    entry['keyLimit'] = 'seller-upload' if item['operationId'] in UPLOAD_OPERATIONS else 'seller.api'
+                    entry['sellerApi'] = True
                 if 'smsSession' in item:
                     entry['smsSession'] = 'denied'
                 routes.append(entry)

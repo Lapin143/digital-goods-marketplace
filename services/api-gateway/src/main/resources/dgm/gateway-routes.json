@@ -112,6 +112,23 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/seller-api/delivery-requests/{requestId}/answer",
+      "operationId": "respondSellerDelivery",
+      "service": "delivery-service",
+      "auth": "api-key",
+      "limit": "seller.api",
+      "scopes": [
+        "seller.api"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "keyLimit": "seller.api",
+      "sellerApi": true,
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/seller-applications",
       "operationId": "createSellerApplication",
       "service": "catalog-service",
@@ -217,8 +234,8 @@
     },
     {
       "method": "GET",
-      "path": "/api/v1/seller/products",
-      "operationId": "listSellerProducts",
+      "path": "/api/v1/seller/api-keys",
+      "operationId": "listApiKeys",
       "service": "catalog-service",
       "auth": "token",
       "limit": "seller",
@@ -228,6 +245,115 @@
       "roles": [
         "seller"
       ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller/api-keys",
+      "operationId": "createApiKey",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "seller",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller/api-keys/{apiKeyId}/revocation",
+      "operationId": "revokeApiKey",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "seller",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/seller/integration",
+      "operationId": "getSellerIntegration",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "seller",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/seller/integration",
+      "operationId": "setSellerIntegration",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "seller",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller/integration/secret-rotation",
+      "operationId": "rotateSellerIntegrationSecret",
+      "service": "catalog-service",
+      "auth": "token",
+      "limit": "seller",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/seller/orders",
+      "operationId": "listSellerOrders",
+      "service": "order-service",
+      "auth": "token-or-api-key",
+      "limit": "seller",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "keyLimit": "seller.api",
+      "sellerApi": true,
+      "smsSession": "denied"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/seller/products",
+      "operationId": "listSellerProducts",
+      "service": "catalog-service",
+      "auth": "token-or-api-key",
+      "limit": "seller",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "keyLimit": "seller.api",
+      "sellerApi": true,
       "smsSession": "denied"
     },
     {
@@ -250,7 +376,7 @@
       "path": "/api/v1/seller/products/{productId}",
       "operationId": "getSellerProduct",
       "service": "catalog-service",
-      "auth": "token",
+      "auth": "token-or-api-key",
       "limit": "seller",
       "scopes": [
         "seller.catalog"
@@ -258,6 +384,8 @@
       "roles": [
         "seller"
       ],
+      "keyLimit": "seller.api",
+      "sellerApi": true,
       "smsSession": "denied"
     },
     {
@@ -273,6 +401,23 @@
       "roles": [
         "seller"
       ],
+      "smsSession": "denied"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/seller/products/{productId}/api-stock",
+      "operationId": "setApiStock",
+      "service": "inventory-service",
+      "auth": "token-or-api-key",
+      "limit": "seller",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "keyLimit": "seller.api",
+      "sellerApi": true,
       "smsSession": "denied"
     },
     {
@@ -295,14 +440,16 @@
       "path": "/api/v1/seller/products/{productId}/key-batches",
       "operationId": "uploadKeyBatch",
       "service": "inventory-service",
-      "auth": "token",
-      "limit": "seller",
+      "auth": "token-or-api-key",
+      "limit": "seller-upload",
       "scopes": [
         "seller.catalog"
       ],
       "roles": [
         "seller"
       ],
+      "keyLimit": "seller-upload",
+      "sellerApi": true,
       "smsSession": "denied"
     },
     {
@@ -310,14 +457,16 @@
       "path": "/api/v1/seller/products/{productId}/key-files",
       "operationId": "uploadKeyFile",
       "service": "inventory-service",
-      "auth": "token",
-      "limit": "seller",
+      "auth": "token-or-api-key",
+      "limit": "seller-upload",
       "scopes": [
         "seller.catalog"
       ],
       "roles": [
         "seller"
       ],
+      "keyLimit": "seller-upload",
+      "sellerApi": true,
       "smsSession": "denied"
     },
     {
@@ -340,6 +489,23 @@
       "path": "/api/v1/seller/products/{productId}/stock",
       "operationId": "getProductStock",
       "service": "inventory-service",
+      "auth": "token-or-api-key",
+      "limit": "seller",
+      "scopes": [
+        "seller.catalog"
+      ],
+      "roles": [
+        "seller"
+      ],
+      "keyLimit": "seller.api",
+      "sellerApi": true,
+      "smsSession": "denied"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/seller/products/{productId}/submit",
+      "operationId": "submitSellerProduct",
+      "service": "catalog-service",
       "auth": "token",
       "limit": "seller",
       "scopes": [
@@ -351,10 +517,10 @@
       "smsSession": "denied"
     },
     {
-      "method": "POST",
-      "path": "/api/v1/seller/products/{productId}/submit",
-      "operationId": "submitSellerProduct",
-      "service": "catalog-service",
+      "method": "GET",
+      "path": "/api/v1/seller/webhook-deliveries",
+      "operationId": "listWebhookDeliveries",
+      "service": "platform-service",
       "auth": "token",
       "limit": "seller",
       "scopes": [

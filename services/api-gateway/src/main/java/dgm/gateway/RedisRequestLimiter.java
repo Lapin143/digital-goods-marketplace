@@ -8,10 +8,12 @@ import reactor.core.publisher.Mono;
 
 /**
  * Распределённый лимит на {@link RedisRateLimiter} Spring Cloud Gateway: «корзина токенов» в Redis, один скрипт Lua на запрос
- * (ADR-021). Лимиты заданы в запросах в минуту, а корзина считает токены в секунду целым числом, поэтому запрос стоит
- * {@code 60 / НОД(лимит, 60)} токенов, а корзина пополняется на {@code лимит / НОД(лимит, 60)} токенов в секунду: 10 запросов в
- * минуту это 6 токенов за запрос при 1 токене в секунду. Ключи Redis: {@code request_rate_limiter.{группа|ключ}.*}, их разрешает ACL
- * пользователя {@code gateway}.
+ * (ADR-021). Корзина считает токены в секунду целым числом, а лимиты заданы в запросах за период (минуту или час, Р-188), поэтому
+ * запрос стоит {@code период / НОД(лимит, период)} токенов, а корзина пополняется на {@code лимит / НОД(лимит, период)} токенов в
+ * секунду: 10 запросов в минуту это 6 токенов за запрос при 1 токене в секунду, 6 загрузок в час это 600 токенов за запрос при
+ * 1 токене в секунду (одна загрузка возвращается за 10 минут). Ключи Redis: {@code request_rate_limiter.{группа|ключ}.*}, их
+ * разрешает ACL пользователя {@code gateway}. Имя группы с точкой ({@code seller.api}) приводится к виду с дефисом
+ * ({@link GatewayProperties#configKey(String)}): так группа записана в настройках.
  */
 public final class RedisRequestLimiter implements RequestLimiter {
 
@@ -21,33 +23,36 @@ public final class RedisRequestLimiter implements RequestLimiter {
     public RedisRequestLimiter(RedisRateLimiter delegate, Map<String, GatewayProperties.Limit> limits) {
         this.delegate = delegate;
         limits.forEach((group, limit) -> {
+            String name = GatewayProperties.configKey(group);
             RedisRateLimiter.Config config = tokens(limit);
-            configs.put(group, config);
-            delegate.getConfig().put(group, config);
+            configs.put(name, config);
+            delegate.getConfig().put(name, config);
         });
     }
 
     /** Настройки корзины для лимита группы. */
     static RedisRateLimiter.Config tokens(GatewayProperties.Limit limit) {
-        int perMinute = limit.getPerMinute();
-        if (perMinute <= 0 || limit.getBurst() <= 0) {
-            throw new IllegalArgumentException("Лимит должен быть положительным: " + perMinute + " в минуту, запас " + limit.getBurst());
+        int count = limit.requestsPerPeriod();
+        int period = limit.periodSeconds();
+        if (count <= 0 || limit.getBurst() <= 0) {
+            throw new IllegalArgumentException("Лимит должен быть положительным: " + count + " за " + period + " с, запас " + limit.getBurst());
         }
-        int divisor = gcd(perMinute, 60);
-        int cost = 60 / divisor;
+        int divisor = gcd(count, period);
+        int cost = period / divisor;
         return new RedisRateLimiter.Config()
-                .setReplenishRate(perMinute / divisor)
+                .setReplenishRate(count / divisor)
                 .setRequestedTokens(cost)
                 .setBurstCapacity((long) limit.getBurst() * cost);
     }
 
     @Override
     public Mono<Decision> check(String group, String key) {
-        RedisRateLimiter.Config config = configs.get(group);
+        String name = GatewayProperties.configKey(group);
+        RedisRateLimiter.Config config = configs.get(name);
         if (config == null) {
             return Mono.error(new IllegalStateException("Для группы лимита " + group + " нет настроек"));
         }
-        return delegate.isAllowed(group, group + "|" + key).map(response -> decision(response, config));
+        return delegate.isAllowed(name, name + "|" + key).map(response -> decision(response, config));
     }
 
     /**

@@ -1,6 +1,8 @@
 package dgm.gateway;
 
+import dgm.kit.client.PeerClient;
 import dgm.kit.probe.ReadinessProbe;
+import dgm.kit.retry.Sleeper;
 import dgm.kit.security.JwtDecoders;
 import dgm.kit.security.JwtSettings;
 import dgm.kit.time.Clocks;
@@ -12,6 +14,7 @@ import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.SslHandler;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 import javax.net.ssl.SSLEngine;
@@ -93,10 +96,17 @@ class GatewayConfiguration {
         return new TokenVerifier(decoder);
     }
 
+    /** Проверка API-ключа продавца (ADR-027): память в Redis и вызов {@code checkApiKey}; в тестах оба заменяются своими. */
     @Bean
-    EntryFilter entryFilter(RouteTable routes, TokenVerifier tokens, RequestLimiter limiter, GatewayProperties properties,
-            ObjectProvider<MeterRegistry> meters, @Value("${management.server.port:-1}") int managementPort) {
-        return new EntryFilter(routes, tokens, limiter, properties, meters.getIfAvailable(SimpleMeterRegistry::new), Clocks.system(),
+    ApiKeyVerifier apiKeyVerifier(ApiKeyCache cache, ApiKeyVerifier.CatalogCheck catalog, GatewayProperties properties,
+            ObjectProvider<MeterRegistry> meters) {
+        return new ApiKeyVerifier(cache, catalog, properties, meters.getIfAvailable(SimpleMeterRegistry::new), Clocks.system());
+    }
+
+    @Bean
+    EntryFilter entryFilter(RouteTable routes, TokenVerifier tokens, ApiKeyVerifier keys, RequestLimiter limiter,
+            GatewayProperties properties, ObjectProvider<MeterRegistry> meters, @Value("${management.server.port:-1}") int managementPort) {
+        return new EntryFilter(routes, tokens, keys, limiter, properties, meters.getIfAvailable(SimpleMeterRegistry::new), Clocks.system(),
                 managementPort);
     }
 
@@ -129,6 +139,31 @@ class GatewayConfiguration {
     @Profile("!notls")
     RequestLimiter redisRequestLimiter(RedisRateLimiter delegate, GatewayProperties properties) {
         return new RedisRequestLimiter(delegate, properties.getLimits());
+    }
+
+    /** Память о проверенных ключах в Redis: записи {@code apikey:<SHA-256>} со сроком жизни (ACL пользователя {@code gateway}). */
+    @Bean
+    @Profile("!notls")
+    ApiKeyCache apiKeyCache(ReactiveStringRedisTemplate redis) {
+        return new RedisApiKeyCache(redis);
+    }
+
+    /**
+     * Вызов {@code checkApiKey} у {@code catalog-service} клиентом каркаса: mTLS с сертификатом шлюза (CN {@code api-gateway}, только
+     * ему каталог разрешает эту операцию), одна попытка за {@code api-key-check-timeout}, предохранитель и метрики {@code dgm_client_*}.
+     */
+    @Bean
+    @Profile("!notls")
+    ApiKeyVerifier.CatalogCheck catalogKeyCheck(SslBundles bundles, GatewayProperties properties, ObjectProvider<MeterRegistry> meters) {
+        String base = properties.getUpstreams().get("catalog-service");
+        if (base == null || base.isBlank()) {
+            throw new IllegalStateException("Не задан адрес catalog-service (dgm.gateway.upstreams.catalog-service): без него нельзя проверять API-ключи");
+        }
+        Duration timeout = properties.getApiKeyCheckTimeout();
+        PeerClient.Settings settings = PeerClient.Settings.of("catalog-service", URI.create(base)).withTimeouts(timeout, timeout);
+        PeerClient client = new PeerClient(settings, bundles.getBundle(BUNDLE).createSslContext(), Clocks.system(), Sleeper.SYSTEM,
+                meters.getIfAvailable(SimpleMeterRegistry::new));
+        return new CatalogKeyCheck(client);
     }
 
     /** Проверка подписи токенов по ключам Keycloak: ключи грузятся лениво по TLS с нашим центром, поэтому шлюз стартует без Keycloak. */

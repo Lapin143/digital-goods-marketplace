@@ -38,11 +38,14 @@ import reactor.core.publisher.Mono;
  *   <li>сквозной идентификатор: {@code traceparent} и {@code X-Correlation-Id} входящего запроса или новые, в каждом ответе;
  *   <li>путь: недопустимые символы дают 400, маршрута нет в таблице (в том числе {@code /internal/**}) дают 404;
  *   <li>размер тела по {@code Content-Length}: 2 МБ, у вебхуков 64 КБ (413);
- *   <li>токен там, где он нужен: подпись, срок, издатель, адресат (401, ключи Keycloak недоступны: 503), затем области маршрута,
- *       второй фактор ролей продавца и сотрудников, запрет сессии по SMS (403). Роль и владельца ресурса проверяет сервис;
- *   <li>лимит частоты: пользователь из токена, иначе IP; при превышении 429 и {@code Retry-After}; если Redis не отвечает, запрос
- *       пропускается и считается в метрике (отказ открытым);
- *   <li>внешние заголовки с внутренним смыслом удаляются, токен идёт сервису без изменений.
+ *   <li>личность там, где она нужна. Токен: подпись, срок, издатель, адресат (401, ключи Keycloak недоступны: 503), затем области
+ *       маршрута, второй фактор ролей продавца и сотрудников, запрет сессии по SMS (403). API-ключ продавца в {@code X-Api-Key}
+ *       (маршруты с {@code x-seller-api}, ADR-027): формат, память в Redis, {@code checkApiKey} у каталога, профиль продавца
+ *       одобрен (401, 403, каталог недоступен: 503). Токен и ключ вместе дают 400. Роль и владельца ресурса проверяет сервис;
+ *   <li>лимит частоты: у вызова по токену пользователь из токена, у вызова по ключу ключ или продавец (по группе), у остальных IP;
+ *       при превышении 429 и {@code Retry-After}; если Redis не отвечает, запрос пропускается и считается в метрике (отказ открытым);
+ *   <li>внешние заголовки с внутренним смыслом удаляются, в том числе {@code X-Seller-Id}, {@code X-Auth-Kind} и {@code X-Api-Key}:
+ *       личность по ключу сервису передаёт только шлюз, после проверки. Токен идёт сервису без изменений.
  * </ol>
  */
 public final class EntryFilter implements WebFilter, Ordered {
@@ -56,9 +59,24 @@ public final class EntryFilter implements WebFilter, Ordered {
     static final String TRACEPARENT = "traceparent";
     static final String CORRELATION_ID = "X-Correlation-Id";
 
-    /** Заголовки, которые клиент присылать не вправе: личность и адрес источника выставляет шлюз, а не клиент. */
-    private static final List<String> NOT_FROM_CLIENT = List.of("X-Seller-Id", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto",
-            "X-Forwarded-Port", "X-Forwarded-Prefix", "Forwarded", "X-Real-IP");
+    /** Заголовок с API-ключом продавца (схема {@code sellerApiKey} контракта). */
+    static final String API_KEY_HEADER = "X-Api-Key";
+
+    /**
+     * Личность по ключу, которую шлюз передаёт сервису (ADR-027, п. 4): те же имена и значение, что читает {@code GatewayIdentity}
+     * каркаса. Класс каркаса здесь не подключается: он написан под сервлеты, а в сборке шлюза Servlet API нет. Совпадение имён держат два
+     * теста: шлюза ({@code EntryFilterApiKeyTest}) и каркаса ({@code GatewayIdentityTest}), каждый закрепляет те же литералы со своей стороны.
+     */
+    static final String SELLER_ID_HEADER = "X-Seller-Id";
+    static final String AUTH_KIND_HEADER = "X-Auth-Kind";
+    static final String AUTH_KIND_API_KEY = "api-key";
+
+    /**
+     * Заголовки, которые клиент присылать не вправе: личность и адрес источника выставляет шлюз, а не клиент. Значение ключа сервис не
+     * получает вовсе: ему достаточно личности, которую шлюз передаёт после проверки.
+     */
+    private static final List<String> NOT_FROM_CLIENT = List.of(SELLER_ID_HEADER, AUTH_KIND_HEADER, API_KEY_HEADER, "X-Forwarded-For",
+            "X-Forwarded-Host", "X-Forwarded-Proto", "X-Forwarded-Port", "X-Forwarded-Prefix", "Forwarded", "X-Real-IP");
 
     private static final Duration LOG_PERIOD = Duration.ofSeconds(30);
     private static final Logger LOG = LoggerFactory.getLogger(EntryFilter.class);
@@ -73,6 +91,7 @@ public final class EntryFilter implements WebFilter, Ordered {
 
     private final RouteTable routes;
     private final TokenVerifier tokens;
+    private final ApiKeyVerifier keys;
     private final RequestLimiter limiter;
     private final GatewayProperties properties;
     private final MeterRegistry meters;
@@ -84,10 +103,11 @@ public final class EntryFilter implements WebFilter, Ordered {
      * @param managementPort порт управления (метрики и здоровье, mTLS) или не больше нуля, если отдельного порта нет: запросы к нему шлюз
      *                       не трогает, потому что фильтры основного контекста WebFlux действуют и на дочернем контексте управления
      */
-    public EntryFilter(RouteTable routes, TokenVerifier tokens, RequestLimiter limiter, GatewayProperties properties, MeterRegistry meters,
-            Clock clock, int managementPort) {
+    public EntryFilter(RouteTable routes, TokenVerifier tokens, ApiKeyVerifier keys, RequestLimiter limiter, GatewayProperties properties,
+            MeterRegistry meters, Clock clock, int managementPort) {
         this.routes = routes;
         this.tokens = tokens;
+        this.keys = keys;
         this.limiter = limiter;
         this.properties = properties;
         this.meters = meters;
@@ -145,8 +165,22 @@ public final class EntryFilter implements WebFilter, Ordered {
                     "payload_too_large");
         }
         exchange.getAttributes().put(TARGET, target);
-        if (!target.requiresToken()) {
-            return limited(exchange, chain, target, null, trace);
+        if (!target.requiresAuth()) {
+            return limited(exchange, chain, target, Identity.ANONYMOUS, trace);
+        }
+        List<String> keyValues = headers.get(API_KEY_HEADER);
+        boolean hasKey = keyValues != null && !keyValues.isEmpty();
+        if (hasKey && (keyValues.size() > 1 || headers.getFirst(HttpHeaders.AUTHORIZATION) != null)) {
+            // Две личности в одном запросе: что из них верно, шлюз не угадывает (в сервисе та же проверка, но отказ даёт 401)
+            return reject(exchange, trace, ProblemType.BAD_REQUEST, "Передайте токен или API-ключ, но не оба сразу.", Map.of(),
+                    "ambiguous_identity");
+        }
+        if (target.acceptsKey() && hasKey) {
+            return byKey(exchange, chain, target, keyValues.get(0), trace);
+        }
+        if (!target.acceptsToken()) {
+            return reject(exchange, trace, ProblemType.UNAUTHENTICATED, "Нужен API-ключ продавца в заголовке " + API_KEY_HEADER + ".", Map.of(),
+                    "unauthenticated");
         }
         String token = bearer(headers.getFirst(HttpHeaders.AUTHORIZATION));
         if (token == null) {
@@ -166,8 +200,44 @@ public final class EntryFilter implements WebFilter, Ordered {
             if (denial.isPresent()) {
                 return reject(exchange, trace, denial.get().type(), denial.get().detail(), Map.of(), "forbidden");
             }
-            return limited(exchange, chain, target, user, trace);
+            return limited(exchange, chain, target, Identity.ofUser(user), trace);
         });
+    }
+
+    /**
+     * Вход по API-ключу. Области токена здесь не нужны: ключу достаточно того, что маршрут помечен {@code x-seller-api} (сервис проверяет
+     * это же и роль). Ответ на неизвестный, отозванный и испорченный ключ один (401 без подсказки), статус профиля это отдельный
+     * отказ (403), потому что держатель действующего ключа вправе знать, что дело в профиле.
+     */
+    private Mono<Void> byKey(ServerWebExchange exchange, WebFilterChain chain, RouteTable.Target target, String value, TraceContext trace) {
+        return keys.verify(value, trace).flatMap(verdict -> switch (verdict) {
+            case ApiKeyVerifier.Verdict.Accepted accepted -> limited(exchange, chain, target, Identity.ofKey(accepted), trace);
+            case ApiKeyVerifier.Verdict.Rejected rejected -> rejected.reason() == ApiKeyVerifier.Reason.SELLER_NOT_APPROVED
+                    ? reject(exchange, trace, ProblemType.FORBIDDEN, "Профиль продавца не одобрен, работа по API-ключу недоступна.", Map.of(),
+                            "seller_not_approved")
+                    : reject(exchange, trace, ProblemType.UNAUTHENTICATED, "API-ключ недействителен.", Map.of(), "unauthenticated");
+            case ApiKeyVerifier.Verdict.Unavailable unavailable -> reject(exchange, trace, ProblemType.DEPENDENCY_UNAVAILABLE,
+                    "Проверка API-ключа временно недоступна.", Map.of("Retry-After", "5"), "api_key_unavailable");
+        });
+    }
+
+    /** Кто вызывает: пользователь по токену, ключ продавца или никто (открытые маршруты). */
+    private record Identity(AuthenticatedUser user, ApiKeyVerifier.Verdict.Accepted key) {
+
+        static final Identity ANONYMOUS = new Identity(null, null);
+
+        static Identity ofUser(AuthenticatedUser user) {
+            return new Identity(user, null);
+        }
+
+        static Identity ofKey(ApiKeyVerifier.Verdict.Accepted key) {
+            return new Identity(null, key);
+        }
+
+        /** Профиль продавца: claim {@code seller_id} токена или продавец ключа; {@code null}, если личности нет или профиля у неё нет. */
+        String sellerId() {
+            return key != null ? key.sellerId() : user != null ? user.sellerId() : null;
+        }
     }
 
     private boolean isManagement(ServerHttpRequest request) {
@@ -191,14 +261,16 @@ public final class EntryFilter implements WebFilter, Ordered {
         return Optional.empty();
     }
 
-    private Mono<Void> limited(ServerWebExchange exchange, WebFilterChain chain, RouteTable.Target target, AuthenticatedUser user,
+    private Mono<Void> limited(ServerWebExchange exchange, WebFilterChain chain, RouteTable.Target target, Identity identity,
             TraceContext trace) {
-        GatewayProperties.Limit limit = properties.getLimits().get(target.limit());
+        // Вызов по ключу считается в своей группе (seller.api, а у загрузки пулов в общей с кабинетом seller-upload, Р-188)
+        String group = identity.key() != null ? target.keyLimit() : target.limit();
+        GatewayProperties.Limit limit = properties.limit(group);
         if (limit == null) {
-            return Mono.error(new IllegalStateException("Для группы лимита " + target.limit() + " нет настроек"));
+            return Mono.error(new IllegalStateException("Для группы лимита " + group + " нет настроек"));
         }
-        String key = limit.perUser() && user != null ? "u:" + user.subject() : "ip:" + clientAddress(exchange.getRequest());
-        return limiter.check(target.limit(), key)
+        String key = counterKey(limit, identity, exchange.getRequest());
+        return limiter.check(group, key)
                 .timeout(properties.getLimiterTimeout())
                 .onErrorResume(e -> {
                     lastLimiterError = e.getClass().getSimpleName() + ": " + e.getMessage();
@@ -206,14 +278,32 @@ public final class EntryFilter implements WebFilter, Ordered {
                 })
                 .flatMap(decision -> {
                     if (decision.failOpen()) {
-                        noteFailOpen(target.limit());
+                        noteFailOpen(group);
                     }
                     if (!decision.allowed()) {
                         return reject(exchange, trace, ProblemType.RATE_LIMITED, "Слишком много запросов, повторите позже.",
                                 Map.of("Retry-After", Integer.toString(decision.retryAfterSeconds())), "rate_limited");
                     }
-                    return forward(exchange, chain, trace);
+                    return forward(exchange, chain, trace, identity.key());
                 });
+    }
+
+    /**
+     * Ключ счётчика по настройке группы. Префиксы разные, чтобы значения разных видов не совпали: {@code ip:}, {@code u:} (пользователь
+     * токена), {@code k:} (ключ), {@code s:} (профиль продавца, общий для токена и ключа). Нет нужной личности: счёт идёт по IP.
+     */
+    private static String counterKey(GatewayProperties.Limit limit, Identity identity, ServerHttpRequest request) {
+        String subject = identity.user() != null ? identity.user().subject() : null;
+        return switch (limit.getKey()) {
+            case "api-key" -> identity.key() != null ? "k:" + identity.key().apiKeyId() : fallback(subject, request);
+            case "seller" -> identity.sellerId() != null ? "s:" + identity.sellerId() : fallback(subject, request);
+            case "user" -> fallback(subject, request);
+            default -> "ip:" + clientAddress(request);
+        };
+    }
+
+    private static String fallback(String subject, ServerHttpRequest request) {
+        return subject != null ? "u:" + subject : "ip:" + clientAddress(request);
     }
 
     private void noteFailOpen(String group) {
@@ -231,7 +321,8 @@ public final class EntryFilter implements WebFilter, Ordered {
      * и {@code X-Forwarded-*} затем выставляет Spring Cloud Gateway ({@code XForwardedHeadersFilter}, включён свойством
      * {@code trusted-proxies}): он видит уже очищенный запрос, поэтому клиентским значениям не верит никто.
      */
-    private static Mono<Void> forward(ServerWebExchange exchange, WebFilterChain chain, TraceContext trace) {
+    private static Mono<Void> forward(ServerWebExchange exchange, WebFilterChain chain, TraceContext trace,
+            ApiKeyVerifier.Verdict.Accepted apiKey) {
         boolean toStorage = exchange.getAttributes().get(TARGET) instanceof RouteTable.Target target && "object-storage".equals(target.service());
         ServerHttpRequest sanitized = exchange.getRequest().mutate().headers(h -> {
             for (String name : NOT_FROM_CLIENT) {
@@ -242,6 +333,11 @@ public final class EntryFilter implements WebFilter, Ordered {
                 // вместе с подписью в адресе хранилище отвергает как два способа входа сразу
                 h.remove(HttpHeaders.AUTHORIZATION);
                 h.remove(HttpHeaders.COOKIE);
+            }
+            if (apiKey != null) {
+                // Личность по проверенному ключу: сервис верит этим заголовкам только от шлюза (сертификат api-gateway, Р-186)
+                h.set(SELLER_ID_HEADER, apiKey.sellerId());
+                h.set(AUTH_KIND_HEADER, AUTH_KIND_API_KEY);
             }
             h.set(TRACEPARENT, trace.traceparent());
             h.set(CORRELATION_ID, trace.correlationId());

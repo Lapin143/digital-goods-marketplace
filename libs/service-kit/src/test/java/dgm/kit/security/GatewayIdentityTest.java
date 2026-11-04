@@ -10,6 +10,7 @@ import dgm.kit.testing.TestCertificates;
 import java.security.cert.X509Certificate;
 import java.util.List;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 
@@ -89,5 +90,18 @@ class GatewayIdentityTest {
     void identifierIsNormalizedAndSurroundingSpacesAreTolerated() {
         assertEquals(SELLER, GatewayIdentity.resolve(request(gateway, SELLER.toUpperCase(java.util.Locale.ROOT), "api-key"), KEY_ROUTE).sellerId());
         assertEquals(SELLER, GatewayIdentity.resolve(request(gateway, " " + SELLER + " ", "api-key"), KEY_ROUTE).sellerId());
+    }
+
+    /**
+     * У шлюза в jar нет Servlet API, поэтому он не может взять имена из этого класса и держит свои литералы ({@code EntryFilter}). Здесь те
+     * же литералы закреплены с другой стороны: если одна сторона изменится без другой, упадёт тест той стороны, которая менялась.
+     */
+    @Test
+    @Tag("TC-958")
+    void theNamesAreTheSameLiteralsThatTheGatewayPutsOnTheRequest() {
+        assertEquals("api-gateway", GatewayIdentity.GATEWAY_CALLER);
+        assertEquals("X-Seller-Id", GatewayIdentity.SELLER_ID_HEADER);
+        assertEquals("X-Auth-Kind", GatewayIdentity.AUTH_KIND_HEADER);
+        assertEquals("api-key", GatewayIdentity.AUTH_KIND_API_KEY);
     }
 }

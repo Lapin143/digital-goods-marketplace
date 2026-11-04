@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -57,6 +58,13 @@ class GatewayProxyTest {
     private static final Upstream STORAGE = Upstream.start();
     private static final int DEAD_PORT = freePort();     // порт, на котором никто не слушает: «сервис не запущен»
     private static final TestLimiter LIMITER = new TestLimiter();
+    private static final FakeKeyCache KEY_CACHE = new FakeKeyCache(Clocks.system());
+    private static final FakeCatalog KEY_CATALOG = new FakeCatalog();
+
+    /** Образец значения API-ключа и продавец, которому он выпущен (настоящего ключа среди них нет). */
+    private static final String SAMPLE = "dgm_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwd";
+    private static final String SELLER = "0199e0a0-0000-7000-8000-000000000101";
+    private static final String KEY_ID = "0199e0a0-0000-7000-8000-000000000901";
 
     private static final HttpClient CLIENT = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
@@ -84,6 +92,17 @@ class GatewayProxyTest {
         RequestLimiter testLimiter() {
             return LIMITER;
         }
+
+        /** Память о ключах и каталог заменены заглушками: Redis, mTLS и catalog-service в этот тест не входят (их проверяет стенд). */
+        @Bean
+        ApiKeyCache testKeyCache() {
+            return KEY_CACHE;
+        }
+
+        @Bean
+        ApiKeyVerifier.CatalogCheck testKeyCatalog() {
+            return KEY_CATALOG;
+        }
     }
 
     @Autowired
@@ -97,6 +116,8 @@ class GatewayProxyTest {
         CATALOG.seen.clear();
         ORDERS.seen.clear();
         STORAGE.seen.clear();
+        KEY_CACHE.clear();
+        KEY_CATALOG.reset();
         LIMITER.next = RequestLimiter.Decision.allow();
     }
 
@@ -269,6 +290,61 @@ class GatewayProxyTest {
     }
 
     @Test
+    @Tag("TC-955")
+    void aKeyCallIsProxiedWithTheIdentityOfTheSellerAndWithoutTheKey() throws Exception {
+        KEY_CATALOG.issue(SAMPLE, KEY_ID, SELLER, "approved");
+        HttpResponse<String> response = call("GET", "/api/v1/seller/orders", "X-Api-Key", SAMPLE, "X-Seller-Id", "spoofed", "X-Auth-Kind", "spoofed");
+
+        assertEquals(200, response.statusCode());
+        assertEquals(1, ORDERS.seen.size());
+        Upstream.Seen seen = ORDERS.seen.get(0);
+        assertEquals(SELLER, seen.headers().getFirst("X-Seller-Id"), "личность продавца выставил шлюз по проверенному ключу, а не клиент");
+        assertEquals("api-key", seen.headers().getFirst("X-Auth-Kind"));
+        assertNull(seen.headers().getFirst("X-Api-Key"), "значение ключа сервис не получает");
+        assertNull(seen.headers().getFirst("Authorization"));
+        assertFalse(response.headers().map().toString().contains(SAMPLE), "значение ключа в ответ не попадает");
+        assertEquals(List.of(ApiKeyVerifier.hash(SAMPLE)), KEY_CATALOG.hashes, "каталогу ушёл хеш, а не значение");
+    }
+
+    @Test
+    @Tag("TC-958")
+    void aTokenCallToTheSameRouteGetsNoIdentityHeaders() throws Exception {
+        String header = bearer(TOKENS.token().scopes("seller.catalog").roles("seller").amr("pwd", "otp"));
+        HttpResponse<String> response = call("GET", "/api/v1/seller/orders", "Authorization", header, "X-Seller-Id", "spoofed");
+
+        assertEquals(200, response.statusCode());
+        Upstream.Seen seen = ORDERS.seen.get(0);
+        assertEquals(header, seen.headers().getFirst("Authorization"));
+        assertNull(seen.headers().getFirst("X-Seller-Id"));
+        assertNull(seen.headers().getFirst("X-Auth-Kind"));
+        assertEquals(0, KEY_CATALOG.calls.get(), "токен каталогу ключей не нужен");
+    }
+
+    @Test
+    @Tag("TC-955")
+    void anUnknownKeyAndAKeyWithATokenNeverReachTheService() throws Exception {
+        HttpResponse<String> unknown = call("GET", "/api/v1/seller/orders", "X-Api-Key", SAMPLE);
+        assertEquals(401, unknown.statusCode());
+        assertEquals("unauthenticated", Json.parseObject(unknown.body()).get("code"));
+
+        HttpResponse<String> both = call("GET", "/api/v1/seller/orders", "X-Api-Key", SAMPLE, "Authorization",
+                bearer(TOKENS.token().scopes("seller.catalog").roles("seller").amr("pwd", "otp")));
+        assertEquals(400, both.statusCode());
+        assertTrue(ORDERS.seen.isEmpty());
+    }
+
+    @Test
+    @Tag("TC-957")
+    void aDeniedLimitOfTheKeyGroupGives429WithRetryAfterAndNothingIsForwarded() throws Exception {
+        KEY_CATALOG.issue(SAMPLE, KEY_ID, SELLER, "approved");
+        LIMITER.next = RequestLimiter.Decision.deny(7);
+        HttpResponse<String> response = call("GET", "/api/v1/seller/orders", "X-Api-Key", SAMPLE);
+        assertEquals(429, response.statusCode());
+        assertEquals("7", response.headers().firstValue("Retry-After").orElse(null));
+        assertTrue(ORDERS.seen.isEmpty());
+    }
+
+    @Test
     void missingScopeIsRejectedByTheGateway() throws Exception {
         HttpResponse<String> response = call("POST", "/api/v1/orders", "Authorization", bearer(TOKENS.token().scopes("orders.read")));
         assertEquals(403, response.statusCode());
@@ -327,10 +403,11 @@ class GatewayProxyTest {
         for (RouteRule rule : table.rules()) {
             RouteTable.Target target = table.target(rule.operationId()).orElseThrow();
             assertTrue(properties.getUpstreams().containsKey(target.service()), rule.operationId() + ": нет адреса сервиса " + target.service());
-            assertTrue(properties.getLimits().containsKey(target.limit()), rule.operationId() + ": нет лимита группы " + target.limit());
+            assertTrue(properties.limit(target.limit()) != null, rule.operationId() + ": нет лимита группы " + target.limit());
+            assertTrue(properties.limit(target.keyLimit()) != null, rule.operationId() + ": нет лимита группы " + target.keyLimit() + " для ключа");
         }
         for (String group : List.of("web", "files", "auth")) {
-            assertTrue(properties.getLimits().containsKey(group), "нет лимита группы " + group + " для маршрутов вне OpenAPI");
+            assertTrue(properties.limit(group) != null, "нет лимита группы " + group + " для маршрутов вне OpenAPI");
         }
         for (String upstream : List.of("keycloak", "object-storage", "web-app", "external-stubs")) {
             assertTrue(properties.getUpstreams().containsKey(upstream), "нет адреса " + upstream);
@@ -345,6 +422,14 @@ class GatewayProxyTest {
         assertTrue(properties.getLimits().get("order-create").perUser());
         assertEquals(300, properties.getLimits().get("webhook").getPerMinute());
         assertEquals(30, properties.getLimits().get("auth").getPerMinute());
+        // Р-188: вызов по ключу 600 в минуту на ключ, загрузка пулов 6 в час на продавца
+        assertEquals(600, properties.limit("seller.api").getPerMinute());
+        assertEquals("api-key", properties.limit("seller.api").getKey());
+        assertEquals(6, properties.limit("seller-upload").getPerHour());
+        assertEquals(6, properties.limit("seller-upload").getBurst());
+        assertEquals("seller", properties.limit("seller-upload").getKey());
+        assertEquals(30, properties.getApiKeyCacheSeconds());
+        assertEquals(5, properties.getApiKeyNegativeCacheSeconds());
         assertEquals(Duration.ofMillis(200), properties.getLimiterTimeout());
         assertEquals(2 * 1024 * 1024, properties.getMaxBody().toBytes());
         assertEquals(64 * 1024, properties.getWebhookMaxBody().toBytes());

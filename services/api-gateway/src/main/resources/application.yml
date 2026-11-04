@@ -64,6 +64,11 @@ dgm:
     connect-timeout: 2s
     response-timeout: 15s
     limiter-timeout: 200ms
+    # API-ключ продавца (ADR-027): сколько секунд шлюз помнит, что ключ действителен (отзыв действует не позже этого срока), сколько помнит
+    # отказ (не больше первого срока) и сколько ждёт checkApiKey у catalog-service. На стенде CI срок памяти 2 секунды
+    api-key-cache-seconds: 30
+    api-key-negative-cache-seconds: 5
+    api-key-check-timeout: 2s
     # Группы лимитов (ADR-021): per-minute запросов в минуту, burst запас (пик), key ip или user (пользователь из токена)
     limits:
       public: {per-minute: 60, burst: 120, key: ip}
@@ -77,6 +82,11 @@ dgm:
       seller-apply: {per-minute: 30, burst: 30, key: user}
       seller: {per-minute: 60, burst: 60, key: user}
       staff: {per-minute: 120, burst: 120, key: user}
+      # Р-188. Группа seller.api таблицы маршрутов записана здесь с дефисом: точка в ключе словаря Spring значит вложенность
+      # (GatewayProperties.limit находит группу по обоим написаниям). Вызов по ключу: 600 в минуту на ключ. Загрузка пулов:
+      # 6 в час на профиль продавца, общие для токена кабинета и ключа (корзина: 6 запросов запаса, возврат одного за 10 минут)
+      seller-api: {per-minute: 600, burst: 600, key: api-key}
+      seller-upload: {per-hour: 6, burst: 6, key: seller}
 
 management:
   endpoints:

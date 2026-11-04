@@ -54,11 +54,15 @@ class EntryFilterTest {
     private final GatewayProperties properties = properties();
     private final ScriptedLimiter limiter = new ScriptedLimiter();
     private final RouteTable routes = RouteTable.fromClasspath("dgm/gateway-routes.json", UPSTREAMS);
+    private final FakeKeyCache keyCache = new FakeKeyCache(clock);
+    private final FakeCatalog catalog = new FakeCatalog();
+    private final ApiKeyVerifier keys = new ApiKeyVerifier(keyCache, catalog, properties, meters, clock);
     private JwtDecoder decoder = JwtDecoders.forPublicKey(tokens.publicKey(), new JwtSettings(TestTokens.ISSUER, null), clock);
 
     // ---------------------------------------------------------------------------------------------------- обвязка
 
-    private static GatewayProperties properties() {
+    /** Настройки шлюза для тестов фильтра: группы лимитов как в application.yml (числа в этих тестах не используются). */
+    static GatewayProperties properties() {
         GatewayProperties p = new GatewayProperties();
         for (String group : List.of("public", "web", "files", "auth", "webhook")) {
             p.getLimits().put(group, limit("ip"));
@@ -66,11 +70,17 @@ class EntryFilterTest {
         for (String group : List.of("buyer", "order-create", "account", "seller-apply", "seller", "staff")) {
             p.getLimits().put(group, limit("user"));
         }
+        // Группа seller.api таблицы маршрутов записана в настройках с дефисом (GatewayProperties.limit), загрузка пулов считается на продавца
+        p.getLimits().put("seller-api", limit("api-key"));
+        GatewayProperties.Limit upload = limit("seller");
+        upload.setPerHour(6);
+        upload.setBurst(6);
+        p.getLimits().put("seller-upload", upload);
         p.setLimiterTimeout(Duration.ofMillis(50));
         return p;
     }
 
-    private static GatewayProperties.Limit limit(String key) {
+    static GatewayProperties.Limit limit(String key) {
         GatewayProperties.Limit limit = new GatewayProperties.Limit();
         limit.setKey(key);
         return limit;
@@ -90,7 +100,7 @@ class EntryFilterTest {
     }
 
     private EntryFilter filter(int managementPort) {
-        return new EntryFilter(routes, new TokenVerifier(decoder), limiter, properties, meters, clock, managementPort);
+        return new EntryFilter(routes, new TokenVerifier(decoder), keys, limiter, properties, meters, clock, managementPort);
     }
 
     private record Result(MockServerWebExchange exchange, ServerWebExchange forwarded) {

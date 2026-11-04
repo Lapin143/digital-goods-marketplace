@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Map;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.cloud.gateway.filter.ratelimit.RateLimiter;
 import org.springframework.cloud.gateway.filter.ratelimit.RedisRateLimiter;
@@ -44,6 +45,62 @@ class RedisRequestLimiterTest {
             double requests = 60.0 * config.getReplenishRate() / config.getRequestedTokens();
             assertEquals(perMinute, requests, 1e-9, "за минуту корзина пополняется ровно на лимит запросов");
         }
+    }
+
+    private static GatewayProperties.Limit hourly(int perHour, int burst) {
+        GatewayProperties.Limit limit = new GatewayProperties.Limit();
+        limit.setPerHour(perHour);
+        limit.setBurst(burst);
+        return limit;
+    }
+
+    @Test
+    @Tag("TC-957")
+    void hourlyLimitsAreConvertedToWholeTokensPerSecond() {
+        // 6 загрузок в час (Р-188): запрос стоит 600 токенов при 1 токене в секунду, запас 6 запросов, одна загрузка возвращается за 10 минут
+        RedisRateLimiter.Config upload = RedisRequestLimiter.tokens(hourly(6, 6));
+        assertEquals(1, upload.getReplenishRate());
+        assertEquals(600, upload.getRequestedTokens());
+        assertEquals(3600, upload.getBurstCapacity());
+        // Стенд CI: 3 загрузки в час
+        RedisRateLimiter.Config stand = RedisRequestLimiter.tokens(hourly(3, 3));
+        assertEquals(1, stand.getReplenishRate());
+        assertEquals(1200, stand.getRequestedTokens());
+        assertEquals(3600, stand.getBurstCapacity());
+        // Вызов по ключу: 600 в минуту, стенд 20 в минуту
+        assertBucket(600, 600, 10, 1, 600);
+        assertBucket(20, 20, 1, 3, 60);
+    }
+
+    @Test
+    @Tag("TC-957")
+    void throughputInOneHourEqualsTheLimit() {
+        for (int perHour : new int[] {1, 3, 6, 7, 60, 100, 3600}) {
+            RedisRateLimiter.Config config = RedisRequestLimiter.tokens(hourly(perHour, perHour));
+            double requests = 3600.0 * config.getReplenishRate() / config.getRequestedTokens();
+            assertEquals(perHour, requests, 1e-9, "за час корзина пополняется ровно на лимит запросов");
+        }
+    }
+
+    @Test
+    @Tag("TC-957")
+    void anExhaustedUploadBucketTellsToWaitForTheNextToken() {
+        RedisRateLimiter.Config config = RedisRequestLimiter.tokens(hourly(6, 6));
+        assertEquals(600, RedisRequestLimiter.decision(response(false, "0"), config).retryAfterSeconds(), "пусто: ждать возврата целой загрузки, 10 минут");
+        assertEquals(150, RedisRequestLimiter.decision(response(false, "450"), config).retryAfterSeconds());
+        assertTrue(RedisRequestLimiter.decision(response(true, "3000"), config).allowed());
+    }
+
+    @Test
+    @Tag("TC-957")
+    void aPerHourSettingWinsOverTheDefaultPerMinuteOne() {
+        GatewayProperties.Limit both = hourly(6, 6);
+        assertEquals(60, both.getPerMinute(), "значение по умолчанию остаётся, но не используется");
+        assertEquals(6, both.requestsPerPeriod());
+        assertEquals(3600, both.periodSeconds());
+        GatewayProperties.Limit minute = limit(600, 600);
+        assertEquals(600, minute.requestsPerPeriod());
+        assertEquals(60, minute.periodSeconds());
     }
 
     @Test

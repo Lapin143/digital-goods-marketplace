@@ -52,4 +52,15 @@ class GatewayArchitectureTest {
                     "org.springframework.web.client..", "java.net.http..")
             .because("запросы к сервисам пересылает только Spring Cloud Gateway: свои вызовы шлюза (например, проверка API-ключа R2) добавляются осознанно")
             .allowEmptyShould(true);
+
+    /**
+     * Единственный собственный вызов шлюза к соседу: {@code checkApiKey} у catalog-service (ADR-027). Клиент каркаса подключают только
+     * {@code CatalogKeyCheck} и конфигурация, которая его создаёт. Новый собственный вызов шлюза это решение для ADR, а не побочная правка.
+     */
+    @ArchTest
+    static final ArchRule onlyTheKeyCheckUsesThePeerClient = noClasses().that().resideInAPackage("dgm.gateway..")
+            .and().haveNameNotMatching("dgm\\.gateway\\.(CatalogKeyCheck|GatewayConfiguration)(\\$.*)?")
+            .should().dependOnClassesThat().resideInAPackage("dgm.kit.client..")
+            .because("единственный собственный вызов шлюза к сервису это checkApiKey (ADR-027)")
+            .allowEmptyShould(true);
 }

@@ -25,27 +25,52 @@ import java.util.Set;
  */
 public final class RouteTable {
 
-    /** Как маршрут защищён: открыт, подпись проверяет сервис (вебхук) или нужен токен. */
+    /**
+     * Как маршрут защищён: открыт, подпись проверяет сервис (вебхук), нужен токен, нужен API-ключ продавца либо подходит любое из двух
+     * (но не оба сразу, ADR-027).
+     */
     public enum Kind {
-        PUBLIC, WEBHOOK, TOKEN
+        PUBLIC, WEBHOOK, TOKEN, API_KEY, TOKEN_OR_API_KEY;
+
+        /** Вид из поля {@code auth} таблицы маршрутов: {@code token-or-api-key} это {@link #TOKEN_OR_API_KEY}. */
+        static Kind parse(String auth) {
+            return valueOf(auth.toUpperCase(Locale.ROOT).replace('-', '_'));
+        }
     }
 
     /**
      * Куда идёт запрос.
      *
-     * @param service сервис или система-получатель (ключ {@code dgm.gateway.upstreams})
-     * @param kind    способ защиты
-     * @param limit   группа лимита частоты
-     * @param rule    правило маршрута из OpenAPI, у маршрутов вне OpenAPI {@code null}
+     * @param service  сервис или система-получатель (ключ {@code dgm.gateway.upstreams})
+     * @param kind     способ защиты
+     * @param limit    группа лимита частоты (для вызова по токену, у публичных маршрутов по адресу)
+     * @param keyLimit группа лимита для вызова по API-ключу; у маршрутов без входа по ключу совпадает с {@code limit}
+     * @param rule     правило маршрута из OpenAPI, у маршрутов вне OpenAPI {@code null}
      */
-    public record Target(String service, Kind kind, String limit, RouteRule rule) {
+    public record Target(String service, Kind kind, String limit, String keyLimit, RouteRule rule) {
 
-        public boolean requiresToken() {
-            return kind == Kind.TOKEN;
+        /** Маршрут вне OpenAPI и маршрут без входа по ключу: группа для ключа та же, что для токена. */
+        public Target(String service, Kind kind, String limit, RouteRule rule) {
+            this(service, kind, limit, limit, rule);
+        }
+
+        /** Нужна проверка личности: токен, ключ или любое из двух. */
+        public boolean requiresAuth() {
+            return kind == Kind.TOKEN || kind == Kind.API_KEY || kind == Kind.TOKEN_OR_API_KEY;
+        }
+
+        /** Токен пользователя здесь принимается. */
+        public boolean acceptsToken() {
+            return kind == Kind.TOKEN || kind == Kind.TOKEN_OR_API_KEY;
+        }
+
+        /** API-ключ продавца здесь принимается. */
+        public boolean acceptsKey() {
+            return kind == Kind.API_KEY || kind == Kind.TOKEN_OR_API_KEY;
         }
     }
 
-    private record Extra(String service, Kind kind, String limit) {
+    private record Extra(String service, Kind kind, String limit, String keyLimit) {
     }
 
     private record Prefix(String path, String service, String limit, Set<String> methods) {
@@ -102,8 +127,13 @@ public final class RouteTable {
                 throw new IllegalArgumentException("Маршрут должен быть объектом");
             }
             String operation = String.valueOf(raw.get("operationId"));
-            Kind kind = Kind.valueOf(String.valueOf(raw.get("auth")).toUpperCase(Locale.ROOT));
-            extras.put(operation, new Extra(String.valueOf(raw.get("service")), kind, String.valueOf(raw.get("limit"))));
+            Kind kind = Kind.parse(String.valueOf(raw.get("auth")));
+            String limit = String.valueOf(raw.get("limit"));
+            String keyLimit = raw.get("keyLimit") == null ? limit : String.valueOf(raw.get("keyLimit"));
+            if ((kind == Kind.API_KEY || kind == Kind.TOKEN_OR_API_KEY) != (raw.get("keyLimit") != null)) {
+                throw new IllegalArgumentException("Маршрут " + operation + ": keyLimit должен быть у маршрутов со входом по ключу и только у них");
+            }
+            extras.put(operation, new Extra(String.valueOf(raw.get("service")), kind, limit, keyLimit));
         }
         return new RouteTable(policy, Map.copyOf(extras), upstreams);
     }
@@ -120,7 +150,7 @@ public final class RouteTable {
             return Optional.empty();
         }
         return policy.rules().stream().filter(r -> r.operationId().equals(operationId)).findFirst()
-                .map(rule -> new Target(extra.service(), extra.kind(), extra.limit(), rule));
+                .map(rule -> new Target(extra.service(), extra.kind(), extra.limit(), extra.keyLimit(), rule));
     }
 
     /** Куда направить запрос; пусто, если маршрута нет и запрос закрывается ответом 404. Путь без строки запроса. */
@@ -133,7 +163,7 @@ public final class RouteTable {
         if (isUnder(path, "/api")) {
             return policy.match(verb, path).map(rule -> {
                 Extra extra = byOperation.get(rule.operationId());
-                return new Target(extra.service(), extra.kind(), extra.limit(), rule);
+                return new Target(extra.service(), extra.kind(), extra.limit(), extra.keyLimit(), rule);
             });
         }
         if (isUnder(path, "/auth")) {

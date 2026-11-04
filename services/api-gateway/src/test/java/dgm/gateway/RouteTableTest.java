@@ -2,11 +2,13 @@ package dgm.gateway;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dgm.kit.route.RouteRule;
 import java.util.Optional;
 import java.util.Set;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Таблица маршрутов шлюза: что открыто, что закрыто и куда идёт запрос (ADR-021). Проверяется настоящая таблица, созданная из OpenAPI. */
@@ -43,7 +45,7 @@ class RouteTableTest {
         assertEquals("catalog-service", t.service());
         assertEquals(RouteTable.Kind.PUBLIC, t.kind());
         assertEquals("public", t.limit());
-        assertFalse(t.requiresToken());
+        assertFalse(t.requiresAuth());
         assertEquals("catalog-service", found("GET", "/api/v1/products/0199e0a0-0000-4000-8000-000000000001").service());
     }
 
@@ -51,7 +53,7 @@ class RouteTableTest {
     void protectedRouteNeedsTokenAndCarriesRule() {
         RouteTable.Target t = found("POST", "/api/v1/orders");
         assertEquals("order-service", t.service());
-        assertTrue(t.requiresToken());
+        assertTrue(t.requiresAuth());
         assertEquals("order-create", t.limit());
         assertEquals(java.util.List.of("orders.create"), t.rule().scopes());
         assertTrue(t.rule().smsSessionDenied());
@@ -64,7 +66,7 @@ class RouteTableTest {
         assertEquals("payment-service", t.service());
         assertEquals(RouteTable.Kind.WEBHOOK, t.kind());
         assertEquals("webhook", t.limit());
-        assertFalse(t.requiresToken());
+        assertFalse(t.requiresAuth());
     }
 
     @Test
@@ -152,5 +154,96 @@ class RouteTableTest {
         assertTrue(api.resolve("GET", "/").isEmpty(), "без web-app веб-интерфейса нет");
         assertTrue(api.resolve("GET", "/auth/realms/dgm").isEmpty(), "без keycloak /auth закрыт: путь не уходит в веб-интерфейс");
         assertTrue(api.resolve("GET", "/api/v1/products").isPresent());
+    }
+
+    // ---------------------------------------------------------------------------------------------------- R2: вход по API-ключу
+
+    @Test
+    @Tag("TC-955")
+    void routesWithTheKeySchemeAreOpenToKeyAndTokenOrToKeyOnly() {
+        RouteTable.Target stock = found("GET", "/api/v1/seller/products/0199e0a0-0000-4000-8000-000000000001/stock");
+        assertEquals(RouteTable.Kind.TOKEN_OR_API_KEY, stock.kind());
+        assertTrue(stock.acceptsKey());
+        assertTrue(stock.acceptsToken());
+        assertTrue(stock.requiresAuth());
+        assertTrue(stock.rule().sellerApi());
+        assertEquals("seller", stock.limit(), "по токену группа кабинета");
+        assertEquals("seller.api", stock.keyLimit(), "по ключу группа ключа (Р-188)");
+
+        RouteTable.Target answer = found("POST", "/api/v1/seller-api/delivery-requests/0199e0a0-0000-7000-8000-000000000a01/answer");
+        assertEquals(RouteTable.Kind.API_KEY, answer.kind());
+        assertTrue(answer.acceptsKey());
+        assertFalse(answer.acceptsToken(), "на маршруте только для ключа токен пользователя не принимается");
+        assertEquals("seller.api", answer.limit());
+        assertEquals("delivery-service", answer.service());
+    }
+
+    @Test
+    @Tag("TC-955")
+    void cabinetOperationsStayOnTheTokenOnly() {
+        for (String[] route : new String[][] {{"POST", "/api/v1/seller/api-keys"}, {"GET", "/api/v1/seller/api-keys"},
+                {"POST", "/api/v1/seller/api-keys/0199e0a0-0000-7000-8000-000000000901/revocation"}, {"GET", "/api/v1/seller/integration"},
+                {"PUT", "/api/v1/seller/integration"}, {"POST", "/api/v1/seller/integration/secret-rotation"},
+                {"GET", "/api/v1/seller/webhook-deliveries"}}) {
+            RouteTable.Target target = found(route[0], route[1]);
+            assertEquals(RouteTable.Kind.TOKEN, target.kind(), route[1]);
+            assertFalse(target.acceptsKey(), route[1] + ": ключом эту операцию вызвать нельзя");
+            assertEquals(target.limit(), target.keyLimit(), route[1]);
+        }
+    }
+
+    @Test
+    @Tag("TC-957")
+    void uploadsShareOneLimitGroupWhateverTheLogin() {
+        for (String path : new String[] {"/api/v1/seller/products/0199e0a0-0000-4000-8000-000000000001/key-batches",
+                "/api/v1/seller/products/0199e0a0-0000-4000-8000-000000000001/key-files"}) {
+            RouteTable.Target target = found("POST", path);
+            assertEquals("seller-upload", target.limit(), path);
+            assertEquals("seller-upload", target.keyLimit(), path + ": ключ и токен в одной группе, счёт по продавцу");
+            assertEquals("inventory-service", target.service());
+        }
+    }
+
+    @Test
+    @Tag("TC-955")
+    void everyRouteWithAKeyHasAKeyGroupAndAPolicyFlagAndOnlyThoseRoutes() {
+        for (RouteRule rule : table.rules()) {
+            RouteTable.Target target = table.target(rule.operationId()).orElseThrow();
+            assertEquals(target.acceptsKey(), rule.sellerApi(), rule.operationId() + ": x-seller-api и вход по ключу совпадают");
+            if (target.acceptsKey()) {
+                assertTrue(java.util.List.of("seller.api", "seller-upload").contains(target.keyLimit()), rule.operationId() + ": " + target.keyLimit());
+            } else {
+                assertEquals(target.limit(), target.keyLimit(), rule.operationId());
+            }
+        }
+    }
+
+    @Test
+    @Tag("TC-955")
+    void theGatewayCheckOfAKeyIsInternalAndNotReachableFromOutside() {
+        closed("POST", "/internal/v1/api-keys/check");
+        closed("POST", "/api/v1/api-keys/check");
+    }
+
+    @Test
+    void theAuthFieldOfTheTableIsReadWithDashes() {
+        assertEquals(RouteTable.Kind.TOKEN_OR_API_KEY, RouteTable.Kind.parse("token-or-api-key"));
+        assertEquals(RouteTable.Kind.API_KEY, RouteTable.Kind.parse("api-key"));
+        assertEquals(RouteTable.Kind.TOKEN, RouteTable.Kind.parse("token"));
+        assertThrows(IllegalArgumentException.class, () -> RouteTable.Kind.parse("apikey"));
+    }
+
+    @Test
+    void aKeyGroupOnARouteWithoutTheKeyLoginIsATableError() {
+        String broken = "{\"routes\":[{\"method\":\"GET\",\"path\":\"/api/v1/x\",\"operationId\":\"x\",\"service\":\"catalog-service\","
+                + "\"auth\":\"token\",\"limit\":\"seller\",\"keyLimit\":\"seller.api\",\"scopes\":[\"seller.catalog\"],\"roles\":[\"seller\"]}]}";
+        assertThrows(IllegalArgumentException.class, () -> RouteTable.fromJson(broken, ALL));
+    }
+
+    @Test
+    void aKeyRouteWithoutAKeyGroupIsATableError() {
+        String broken = "{\"routes\":[{\"method\":\"GET\",\"path\":\"/api/v1/x\",\"operationId\":\"x\",\"service\":\"catalog-service\","
+                + "\"auth\":\"token-or-api-key\",\"limit\":\"seller\",\"scopes\":[\"seller.catalog\"],\"roles\":[\"seller\"],\"sellerApi\":true}]}";
+        assertThrows(IllegalArgumentException.class, () -> RouteTable.fromJson(broken, ALL));
     }
 }
