@@ -39,6 +39,12 @@ public final class IdempotencyFilter extends OncePerRequestFilter {
 
     public static final String KEY_HEADER = "Idempotency-Key";
     public static final String REPLAYED_HEADER = "Idempotency-Replayed";
+    /**
+     * Атрибут запроса: тело ответа, которое охранник сохранит для повтора вместо настоящего (JSON-строка). Клиент первого запроса получает
+     * настоящий ответ целиком, повтор получает сохранённое. Так операция, которая показывает секрет один раз (выпуск API-ключа, Р-198),
+     * не оставляет его в таблице ключей идемпотентности. Действует только на успешный (2xx) ответ.
+     */
+    public static final String REPLAY_BODY_ATTRIBUTE = IdempotencyFilter.class.getName() + ".replayBody";
     /** Заголовки первого ответа, которые повтор воспроизводит. */
     static final String[] REPLAYED_HEADERS = {"Location", "ETag"};
 
@@ -100,7 +106,7 @@ public final class IdempotencyFilter extends OncePerRequestFilter {
                 } catch (IOException | ServletException e) {
                     throw new ChainFailure(e);
                 }
-                return capture(wrapper);
+                return capture(wrapper, cached);
             };
             IdempotencyGuard guard = guards.apply(rule);
             // Операция с вызовами соседей идёт без общей транзакции: каждый её шаг фиксируется сам (Р-150)
@@ -132,10 +138,13 @@ public final class IdempotencyFilter extends OncePerRequestFilter {
         throw new IllegalStateException("У маршрута с Idempotency-Key нет ни пользователя, ни вызывающего сервиса: ключу не к чему привязаться");
     }
 
-    private static StoredResponse capture(ContentCachingResponseWrapper wrapper) {
+    private static StoredResponse capture(ContentCachingResponseWrapper wrapper, HttpServletRequest request) {
         int status = wrapper.getStatus();
         byte[] content = wrapper.getContentAsByteArray();
         String body = content.length == 0 ? null : new String(content, StandardCharsets.UTF_8);
+        if (status >= 200 && status < 300 && request.getAttribute(REPLAY_BODY_ATTRIBUTE) instanceof String replayBody) {
+            body = replayBody;
+        }
         Map<String, String> headers = new LinkedHashMap<>();
         for (String name : REPLAYED_HEADERS) {
             String value = wrapper.getHeader(name);

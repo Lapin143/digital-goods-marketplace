@@ -24,6 +24,16 @@ class SellersConfigurationTest {
     }
 
     @Test
+    void theApiKeyRandomSourceGivesTheRequestedNumberOfDifferentBytes() {
+        dgm.catalog.sellers.apikey.domain.ApiKeyValues.RandomBytes random = configuration.apiKeyRandom();
+        byte[] first = random.next(30);
+        byte[] second = random.next(30);
+        assertEquals(30, first.length);
+        assertEquals(30, second.length);
+        org.junit.jupiter.api.Assertions.assertFalse(java.util.Arrays.equals(first, second));
+    }
+
+    @Test
     void withoutPropertiesTheDocumentedDefaultsApply() {
         SellerSettings settings = sellers(new MockEnvironment());
         assertEquals(SellerSettings.defaults(), settings);

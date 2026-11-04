@@ -149,11 +149,11 @@
 | – | FT-9.3 Заявка на вывод от 1 000 ₽ | US-2.6, US-10.3, US-10.4 | BPMN-06, SM-04, SM-05, SM-10, SM-11 | События: `withdrawal.created`, `withdrawal.paid`, `withdrawal.rejected`. Операций нет: контракт R2 пишется перед релизом. | | |
 | – | FT-9.4 Неизменяемый журнал баланса | US-10.1, US-10.3, US-10.5, US-10.6 | BPMN-05, BPMN-06, SM-01, SM-10, SM-11 | События: `order.issued`, `order.refunded`, `withdrawal.paid`. Операций нет: контракт R2 пишется перед релизом. | | |
 | BG-04 | FT-9.5 Комиссия не взимается при возврате | US-9.5, US-10.6 | BPMN-05, SM-01, SM-02, SM-09, SM-11 | События: `order.refunded`. Операций нет: контракт R2 пишется перед релизом. | | |
-| BG-02 | FT-10.0 Выпуск и отзыв API-ключа продавца | US-11.1 | – (процесс R2, в Ф1 не моделируется (US-11.1)) | Операции: `createApiKey`, `listApiKeys`, `revokeApiKey`, `checkApiKey`. События: `api-key.issued`, `api-key.revoked`. Контракт R2 готов (Ф5, срез 1, шаг 2), реализация в работе. | | |
+| BG-02 | FT-10.0 Выпуск и отзыв API-ключа продавца | US-11.1 | – (процесс R2, в Ф1 не моделируется (US-11.1)) | Операции: `createApiKey`, `listApiKeys`, `revokeApiKey`, `checkApiKey`. События: `api-key.issued`, `api-key.revoked`. Контракт R2 готов (Ф5, срез 1, шаг 2), реализация в работе. | TC-950, TC-951, TC-952, TC-953 | `libs/service-kit`, `services/catalog-service` |
 | BG-02 | FT-10.1 API продавца: загрузка пулов, список заказов | US-11.2 | BPMN-03, SM-03 | Операции: `listSellerOrders`. Загрузка пулов по ключу это операции загрузки R1 со второй схемой безопасности. Контракт R2 готов (Ф5, срез 1, шаг 2), реализация в работе. | | |
 | BG-02 | FT-10.2 API продавца: ответ на запрос выдачи | US-11.3 | SM-01, SM-08 | Операции: `getSellerIntegration`, `setSellerIntegration`, `rotateSellerIntegrationSecret`, `getSellerEndpoint`, `respondSellerDelivery`. События: `delivery.seller-timeout`. Контракт R2 готов (Ф5, срез 1, шаг 2), реализация в работе. | | |
 | BG-02 | FT-10.3 Webhook-уведомления продавцу | US-9.1, US-11.4 | BPMN-05, SM-09 | Операции: `listWebhookDeliveries`. События: `dispute.opened`. Контракт среза 1 готов (Ф5, шаг 2), споры добавит срез 2. | | |
-| – | NFT-3.4 API-ключи как хеш, показ один раз (R2) | US-11.1 | – (процесс R2, в Ф1 не моделируется (US-11.1), проверка по методике) | События: `api-key.issued`, `api-key.revoked`. Операций нет: контракт R2 пишется перед релизом. | | |
+| – | NFT-3.4 API-ключи как хеш, показ один раз (R2) | US-11.1 | – (процесс R2, в Ф1 не моделируется (US-11.1), проверка по методике) | События: `api-key.issued`, `api-key.revoked`. Операций нет: контракт R2 пишется перед релизом. | TC-950, TC-951, TC-952, TC-953 | `libs/service-kit`, `services/catalog-service` |
 
 ### 3.2. Релиз R3 (3)
 

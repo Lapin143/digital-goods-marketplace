@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Данные события {@code audit.recorded}: набор полей по схеме AsyncAPI, проверки значений и сквозной идентификатор из контекста. */
@@ -103,6 +104,27 @@ class AuditRecordsTest {
     @Test
     void systemActionMayHaveNoAddress() {
         assertEquals("", record("system", "user.role_assigned", "", oneChange()).get("actorIp"));
+    }
+
+    @Test
+    @Tag("TC-950")
+    void sellerActionCarriesNoAddressAndTheSellerRole() {
+        Map<String, Object> data = AuditRecords.sellerAction(AT, ACTOR, "seller.api_key_issued", "api-key", "0199e0a0-0000-7000-8000-000000000901",
+                List.of(AuditRecords.change("status", null, "active")));
+        assertEquals(SCHEMA_FIELDS, data.keySet());
+        assertEquals("seller", data.get("actorRole"));
+        assertEquals("", data.get("actorIp"));
+        assertEquals(false, data.get("actorIpHashed"));
+        assertEquals("seller.api_key_issued", data.get("action"));
+        assertEquals("api-key", data.get("objectType"));
+    }
+
+    @Test
+    @Tag("TC-950")
+    void sellerActionNeedsChangesAndKeepsTheOtherRules() {
+        assertThrows(IllegalArgumentException.class, () -> AuditRecords.sellerAction(AT, ACTOR, "seller.api_key_issued", "api-key", "1", List.of()));
+        assertThrows(IllegalArgumentException.class, () -> AuditRecords.sellerAction(AT, ACTOR, "seller.api-key.issued", "api-key", "1", oneChange()));
+        assertThrows(IllegalArgumentException.class, () -> AuditRecords.sellerAction(AT, ACTOR, "seller.api_key_issued", "API KEY", "1", oneChange()));
     }
 
     @Test

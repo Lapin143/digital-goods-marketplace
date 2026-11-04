@@ -18,8 +18,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -46,6 +48,8 @@ class IdempotencyFilterTest {
     private final List<String> seenBodies = new ArrayList<>();
     private int status;
     private String responseBody;
+    /** Тело для повтора, которое цепочка кладёт в атрибут запроса; {@code null}: атрибута нет. */
+    private String replayBody;
 
     @BeforeEach
     void setUp() {
@@ -57,6 +61,7 @@ class IdempotencyFilterTest {
         runs = new AtomicInteger();
         status = 201;
         responseBody = "{\"id\":\"42\"}";
+        replayBody = null;
     }
 
     /** Цепочка после фильтра: читает тело и отвечает заданным кодом. */
@@ -64,6 +69,9 @@ class IdempotencyFilterTest {
         return (request, response) -> {
             runs.incrementAndGet();
             seenBodies.add(new String(request.getInputStream().readAllBytes(), StandardCharsets.UTF_8));
+            if (replayBody != null) {
+                request.setAttribute(IdempotencyFilter.REPLAY_BODY_ATTRIBUTE, replayBody);
+            }
             HttpServletResponse http = (HttpServletResponse) response;
             http.setStatus(status);
             if (status < 300) {
@@ -176,6 +184,40 @@ class IdempotencyFilterTest {
         assertEquals("/api/v1/orders/42", second.getHeader("Location"));
         assertEquals("\"1\"", second.getHeader("ETag"));
         assertTrue(second.getContentType().startsWith("application/json"));
+    }
+
+    /** Р-198: клиент первого запроса видит секрет, а в таблице ключей и в повторе его нет. */
+    @Test
+    @Tag("TC-950")
+    void aSubstituteBodyIsWhatTheStoreKeepsAndTheRepeatReplaysWhileTheFirstClientGetsTheRealOne() throws Exception {
+        responseBody = "{\"value\":\"dgm_secret\",\"shownOnce\":true}";
+        replayBody = "{\"shownOnce\":true}";
+        MockHttpServletResponse first = send(ORDER, REQUEST_UUID, "{\"name\":\"a\"}", "u1", null);
+        assertEquals(201, first.getStatus());
+        assertEquals("{\"value\":\"dgm_secret\",\"shownOnce\":true}", first.getContentAsString());
+
+        IdempotencyStore.Entry stored = store.find("u1", UUID.fromString(REQUEST_UUID)).orElseThrow();
+        assertEquals("{\"shownOnce\":true}", stored.response().body());
+        assertTrue(!stored.response().body().contains("dgm_secret"));
+
+        responseBody = "{\"value\":\"dgm_another\"}";
+        MockHttpServletResponse repeat = send(ORDER, REQUEST_UUID, "{\"name\":\"a\"}", "u1", null);
+        assertEquals(1, runs.get());
+        assertEquals("true", repeat.getHeader("Idempotency-Replayed"));
+        assertEquals("{\"shownOnce\":true}", repeat.getContentAsString());
+        assertEquals("/api/v1/orders/42", repeat.getHeader("Location"));
+    }
+
+    @Test
+    @Tag("TC-950")
+    void aSubstituteBodyDoesNotChangeAnErrorResponse() throws Exception {
+        status = 409;
+        responseBody = "{\"code\":\"api-key-limit\"}";
+        replayBody = "{\"shownOnce\":true}";
+        MockHttpServletResponse failed = send(ORDER, REQUEST_UUID, "{}", "u1", null);
+        assertEquals(409, failed.getStatus());
+        assertEquals("{\"code\":\"api-key-limit\"}", failed.getContentAsString());
+        assertEquals(0, store.size());
     }
 
     @Test

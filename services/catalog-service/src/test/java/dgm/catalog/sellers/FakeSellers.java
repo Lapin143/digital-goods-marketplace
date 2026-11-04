@@ -28,6 +28,7 @@ public final class FakeSellers implements SellerRepository {
 
     private final Map<UUID, SellerProfile> profiles = new LinkedHashMap<>();
     private final Map<UUID, List<SellerDocument>> documents = new LinkedHashMap<>();
+    private final java.util.Set<UUID> lockedById = new java.util.HashSet<>();
     /** Следующая вставка профиля проиграет гонку: вернёт {@code false}, как при нарушении уникальности user_id. */
     public boolean loseNextInsertRace;
     /** Вставка документа падает, как при сбое базы после записи файла. */
@@ -83,7 +84,13 @@ public final class FakeSellers implements SellerRepository {
 
     @Override
     public Optional<SellerProfile> lockById(UUID sellerId) {
+        lockedById.add(sellerId);
         return findById(sellerId);
+    }
+
+    /** Блокировалась ли строка профиля {@link #lockById}: для проверки, что решение «посчитал и вставил» принято под блокировкой. */
+    public boolean wasLockedById(UUID sellerId) {
+        return lockedById.contains(sellerId);
     }
 
     @Override
