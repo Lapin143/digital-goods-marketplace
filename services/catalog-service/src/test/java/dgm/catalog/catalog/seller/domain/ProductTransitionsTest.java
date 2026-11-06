@@ -78,7 +78,14 @@ class ProductTransitionsTest {
     @Test
     void createRefusesAFormWithViolations() {
         assertThrows(IllegalArgumentException.class, () -> Product.create(id(1), SELLER, withTitle(form(), ""), T0));
-        assertThrows(IllegalArgumentException.class, () -> Product.create(id(1), SELLER, withIssuance(form(), IssuanceMethod.SELLER_API), T0));
+        assertThrows(IllegalArgumentException.class, () -> Product.create(id(1), SELLER, withPrice(form(), 0), T0));
+    }
+
+    @Test
+    void createAcceptsAnApiProductAndKeepsItInDraft() {
+        Product api = Product.create(id(1), SELLER, withIssuance(form(), IssuanceMethod.SELLER_API), T0);
+        assertEquals(IssuanceMethod.SELLER_API, api.form().issuanceMethod());
+        assertEquals(ProductStatus.DRAFT, api.status());
     }
 
     // ------------------------------------------------------------------ T2, T5, T11: отправка на модерацию

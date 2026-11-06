@@ -395,6 +395,23 @@ class IntegrationServiceTest {
     }
 
     @Test
+    @Tag("TC-332")
+    void theCatalogModuleSeesAnActiveConnectionExactlyWhenTheInternalAddressIsGiven() {
+        assertFalse(service.hasActive(seller.id()), "подключения ещё нет");
+        connect(URL);
+        assertTrue(service.hasActive(seller.id()));
+
+        service.set(seller.id(), ACTOR, 1, new IntegrationForm(URL, IntegrationStatus.DISABLED));
+        assertFalse(service.hasActive(seller.id()), "отключено, адрес сохранён");
+
+        service.set(seller.id(), ACTOR, 2, new IntegrationForm(URL, IntegrationStatus.ACTIVE));
+        assertTrue(service.hasActive(seller.id()));
+        sellers.put(FakeSellers.profile(ACTOR, SellerStatus.BLOCKED, FakeSellers.completeForm(), T0));
+        assertFalse(service.hasActive(seller.id()), "заблокированный продавец");
+        assertFalse(service.hasActive(UUID.randomUUID()), "чужой идентификатор");
+    }
+
+    @Test
     void theCabinetReadReturnsTheConnectionOrNothingAndNeverTheSecret() {
         assertEquals(Optional.empty(), service.get(seller.id()));
         connect(URL);

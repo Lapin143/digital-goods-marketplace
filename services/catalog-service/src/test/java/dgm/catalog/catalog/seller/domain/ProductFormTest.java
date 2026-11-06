@@ -86,8 +86,10 @@ class ProductFormTest {
     }
 
     @Test
-    void sellerApiIsNotAvailableInThisRelease() {
-        assertEquals("unknown_value", code(withIssuance(form(), IssuanceMethod.SELLER_API), "/issuanceMethod"));
+    @Tag("TC-330")
+    void bothIssuanceMethodsAreAcceptedAndAMissingOneIsRequired() {
+        assertEquals(List.of(), pointers(withIssuance(form(), IssuanceMethod.SELLER_API)));
+        assertEquals(List.of(), pointers(withIssuance(form(), IssuanceMethod.KEY_POOL)));
         assertEquals("required", code(withIssuance(form(), null), "/issuanceMethod"));
         assertEquals("required", code(withType(form(), null), "/productType"));
     }

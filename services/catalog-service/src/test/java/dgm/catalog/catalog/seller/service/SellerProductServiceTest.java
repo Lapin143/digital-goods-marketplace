@@ -22,6 +22,7 @@ import dgm.catalog.catalog.domain.ProductPage;
 import dgm.catalog.catalog.domain.ProductSettings;
 import dgm.catalog.catalog.domain.ProductStatus;
 import dgm.catalog.catalog.seller.FakeApprovedSellers;
+import dgm.catalog.catalog.seller.FakeSellerIntegrations;
 import dgm.catalog.catalog.seller.FakeSellerProducts;
 import dgm.kit.problem.ProblemException;
 import dgm.kit.problem.ProblemType;
@@ -51,6 +52,7 @@ class SellerProductServiceTest {
     private FakeCatalogTransaction transaction;
     private final MemoryCache memory = new MemoryCache();
     private FakeApprovedSellers sellers;
+    private final FakeSellerIntegrations integrations = new FakeSellerIntegrations();
     private SellerProductService service;
 
     @BeforeEach
@@ -59,7 +61,7 @@ class SellerProductServiceTest {
         products = new FakeSellerProducts();
         transaction = new FakeCatalogTransaction();
         sellers = new FakeApprovedSellers().approve(SELLER).approve(OTHER_SELLER);
-        service = new SellerProductService(products, transaction, sellers, clock, new ProductSettings(REVIEW), memory.cache());
+        service = new SellerProductService(products, transaction, sellers, integrations, clock, new ProductSettings(REVIEW), memory.cache());
     }
 
     private static ProblemType problem(Runnable action) {
@@ -117,7 +119,7 @@ class SellerProductServiceTest {
                 throw new IllegalStateException("база недоступна");
             }
         };
-        SellerProductService failing = new SellerProductService(broken, transaction, sellers, clock, new ProductSettings(REVIEW), memory.cache());
+        SellerProductService failing = new SellerProductService(broken, transaction, sellers, integrations, clock, new ProductSettings(REVIEW), memory.cache());
         assertThrows(IllegalStateException.class, () -> failing.create(SELLER, form()));
         assertEquals(List.of(), transaction.published());
     }
@@ -247,7 +249,7 @@ class SellerProductServiceTest {
                 return false;
             }
         }.with(p);
-        SellerProductService racingService = new SellerProductService(racing, transaction, sellers, clock, new ProductSettings(REVIEW), memory.cache());
+        SellerProductService racingService = new SellerProductService(racing, transaction, sellers, integrations, clock, new ProductSettings(REVIEW), memory.cache());
         assertEquals(ProblemType.VERSION_CONFLICT, problem(() -> racingService.replace(SELLER, p.id(), 1, withTitle(form(), "Гонка"))));
         assertEquals(events, transaction.published().size());
     }

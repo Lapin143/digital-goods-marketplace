@@ -17,6 +17,7 @@ import dgm.catalog.catalog.cache.MemoryCache;
 import dgm.catalog.catalog.domain.ProductSettings;
 import dgm.catalog.catalog.domain.ProductStatus;
 import dgm.catalog.catalog.seller.FakeApprovedSellers;
+import dgm.catalog.catalog.seller.FakeSellerIntegrations;
 import dgm.catalog.catalog.seller.FakeSellerProducts;
 import dgm.catalog.catalog.seller.service.SellerProductService;
 import dgm.kit.json.Json;
@@ -62,6 +63,7 @@ class SellerProductControllerTest {
     private FakeSellerProducts products;
     private FakeCatalogTransaction transaction;
     private final MemoryCache memory = new MemoryCache();
+    private final FakeSellerIntegrations integrations = new FakeSellerIntegrations();
     private SellerProductController controller;
 
     @BeforeEach
@@ -70,7 +72,7 @@ class SellerProductControllerTest {
         products = new FakeSellerProducts();
         transaction = new FakeCatalogTransaction();
         FakeApprovedSellers sellers = new FakeApprovedSellers().approve(SELLER).approve(OTHER_SELLER);
-        controller = new SellerProductController(new SellerProductService(products, transaction, sellers, clock, new ProductSettings(REVIEW), memory.cache()));
+        controller = new SellerProductController(new SellerProductService(products, transaction, sellers, integrations, clock, new ProductSettings(REVIEW), memory.cache()));
     }
 
     private static MockHttpServletRequest request(String method, String uri, UUID seller) {
@@ -221,8 +223,7 @@ class SellerProductControllerTest {
     }
 
     @Test
-    void createRefusesSellerApiPriceZeroDuplicatesAndLongTitle() {
-        assertEquals(List.of("/issuanceMethod"), pointers(refused(() -> create(INPUT.replace("\"key_pool\"", "\"seller_api\"")))));
+    void createRefusesPriceZeroDuplicatesAndLongTitle() {
         assertEquals(List.of("/price/amount"), pointers(refused(() -> create(INPUT.replace("149900", "0")))));
         assertEquals(List.of("/price/amount"), pointers(refused(() -> create(INPUT.replace("149900", "9007199254740992")))));
         assertEquals(List.of("/price/amount"), pointers(refused(() -> create(INPUT.replace("149900", "123456789012345678901234567890")))));
@@ -393,5 +394,61 @@ class SellerProductControllerTest {
         Map<String, Object> rejected = body(controller.get(id(1).toString(), request("GET", BASE + "/x")));
         assertEquals("Описание не соответствует товару.", rejected.get("rejectionReason"));
         assertNull(rejected.get("blockReason"));
+    }
+
+    // ------------------------------------------------------------------ товар с выдачей по API (R2, Р-184)
+
+    private static final String API_INPUT = INPUT.replace("\"key_pool\"", "\"seller_api\"");
+
+    @Test
+    @Tag("TC-330")
+    void createAcceptsSellerApiAndAnswers201WithTheMethod() throws IOException {
+        ResponseEntity<String> response = create(API_INPUT);
+        assertEquals(201, response.getStatusCode().value());
+        assertEquals("seller_api", body(response).get("issuanceMethod"));
+        assertEquals("draft", body(response).get("status"));
+        assertEquals(Set.of("productId", "sellerId", "title", "description", "productType", "platform", "activationRegions", "price",
+                "issuanceMethod", "status", "rejectionReason", "blockReason", "submittedAt", "reviewDeadlineAt", "version", "createdAt", "updatedAt"),
+                body(response).keySet());
+        assertEquals(0, integrations.checks(), "создание и правка черновика подключения не требуют");
+    }
+
+    @Test
+    @Tag("TC-331")
+    void replaceRefusesAnotherIssuanceMethodWith422ImmutableInBothDirections() throws IOException {
+        UUID keyPool = UUID.fromString((String) body(create(INPUT)).get("productId"));
+        UUID api = UUID.fromString((String) body(create(API_INPUT)).get("productId"));
+        for (ProblemException e : List.of(refused(() -> replace(keyPool, "\"1\"", API_INPUT)), refused(() -> replace(api, "\"1\"", INPUT)))) {
+            assertEquals(ProblemType.VALIDATION_FAILED, e.type());
+            assertEquals(List.of("/issuanceMethod"), pointers(e));
+            assertEquals("immutable", errors(e).get(0).get("code"));
+        }
+        assertEquals(1, products.row(keyPool).version(), "отказ ничего не записал");
+        assertEquals(1, products.row(api).version());
+    }
+
+    @Test
+    @Tag("TC-331")
+    void replaceOfAnApiProductWithTheSameMethodAndANewPriceWorks() throws IOException {
+        UUID api = UUID.fromString((String) body(create(API_INPUT)).get("productId"));
+        ResponseEntity<String> saved = replace(api, "\"1\"", API_INPUT.replace("149900", "129900"));
+        assertEquals(200, saved.getStatusCode().value());
+        assertEquals("seller_api", body(saved).get("issuanceMethod"));
+        assertEquals("\"2\"", saved.getHeaders().getETag());
+    }
+
+    @Test
+    @Tag("TC-332")
+    void submitOfAnApiProductAnswers409IntegrationRequiredUntilTheSystemIsConnected() throws IOException {
+        UUID api = UUID.fromString((String) body(create(API_INPUT)).get("productId"));
+        String url = BASE + "/" + api + "/submit";
+        ProblemException e = refused(() -> controller.submit(api.toString(), request("POST", url)));
+        assertEquals(ProblemType.INTEGRATION_REQUIRED, e.type());
+        assertEquals(409, e.type().status());
+        assertEquals("draft", products.row(api).status().code());
+
+        integrations.connect(SELLER);
+        ResponseEntity<String> submitted = controller.submit(api.toString(), request("POST", url));
+        assertEquals("on_moderation", body(submitted).get("status"));
     }
 }

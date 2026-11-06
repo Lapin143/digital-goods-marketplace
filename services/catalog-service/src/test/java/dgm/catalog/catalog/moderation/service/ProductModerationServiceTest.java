@@ -6,6 +6,7 @@ import static dgm.catalog.catalog.seller.Products.T0;
 import static dgm.catalog.catalog.seller.Products.form;
 import static dgm.catalog.catalog.seller.Products.id;
 import static dgm.catalog.catalog.seller.Products.in;
+import static dgm.catalog.catalog.seller.Products.withIssuance;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -15,10 +16,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import dgm.catalog.catalog.FakeCatalogTransaction;
 import dgm.catalog.catalog.FakeCatalogTransaction.Published;
 import dgm.catalog.catalog.cache.MemoryCache;
+import dgm.catalog.catalog.domain.IssuanceMethod;
 import dgm.catalog.catalog.domain.ModerationQueuePage;
 import dgm.catalog.catalog.domain.Moderator;
 import dgm.catalog.catalog.domain.Product;
 import dgm.catalog.catalog.domain.ProductStatus;
+import dgm.catalog.catalog.seller.FakeSellerIntegrations;
 import dgm.catalog.catalog.seller.FakeSellerProducts;
 import dgm.kit.problem.ProblemException;
 import dgm.kit.problem.ProblemType;
@@ -55,6 +58,7 @@ class ProductModerationServiceTest {
     private FakeSellerProducts products;
     private FakeCatalogTransaction transaction;
     private MemoryCache memory;
+    private final FakeSellerIntegrations integrations = new FakeSellerIntegrations();
     private ProductModerationService service;
 
     @BeforeEach
@@ -63,7 +67,7 @@ class ProductModerationServiceTest {
         products = new FakeSellerProducts();
         transaction = new FakeCatalogTransaction();
         memory = new MemoryCache();
-        service = new ProductModerationService(products, transaction, memory.cache(), clock);
+        service = new ProductModerationService(products, transaction, memory.cache(), integrations, clock);
     }
 
     private static ProblemException refused(Runnable action) {
@@ -133,6 +137,89 @@ class ProductModerationServiceTest {
         assertEquals("published", e.extensions().get("currentStatus"));
         assertEquals(events, transaction.published().size());
         assertEquals(3, products.row(id(1)).version());
+    }
+
+    // ---------------------------------------------------------------- товар с выдачей по API (R2, Р-184, Р-187)
+
+    private static Product queuedApi(int n) {
+        Product base = queued(n, T0);
+        return new Product(base.id(), base.sellerId(), withIssuance(base.form(), IssuanceMethod.SELLER_API), null, null, null, null,
+                base.submittedAt(), base.reviewDeadlineAt(), null, null, ProductStatus.ON_MODERATION, 2, T0, T0);
+    }
+
+    @Test
+    @Tag("TC-332")
+    void approveOfAnApiProductWithoutAnIntegrationIsRefusedAndWritesNothing() {
+        products.with(queuedApi(1));
+        ProblemException e = refused(() -> service.approve(MODERATOR, id(1)));
+        assertEquals(ProblemType.INTEGRATION_REQUIRED, e.type());
+        assertEquals(ProductStatus.ON_MODERATION, products.row(id(1)).status());
+        assertEquals(2, products.row(id(1)).version());
+        assertEquals(List.of(), transaction.published(), "ни решения, ни аудита");
+        assertEquals(0, transaction.afterCommitRuns());
+    }
+
+    @Test
+    @Tag("TC-332")
+    void approveOfAnApiProductWithAnActiveIntegrationPublishesIt() {
+        products.with(queuedApi(1));
+        integrations.connect(SELLER);
+        assertEquals(ProductStatus.PUBLISHED, service.approve(MODERATOR, id(1)).status());
+        assertEquals(2, transaction.published().size());
+    }
+
+    @Test
+    @Tag("TC-332")
+    void theModeratorCanStillRejectOrBlockAnApiProductWithoutAnIntegration() {
+        products.with(queuedApi(1), queuedApi(2));
+        assertEquals(ProductStatus.REJECTED, service.reject(MODERATOR, id(1), "Подключите систему продавца и отправьте товар заново").status());
+        integrations.connect(SELLER);
+        service.approve(MODERATOR, id(2));
+        integrations.disconnect(SELLER);
+        assertEquals(ProductStatus.BLOCKED, service.block(MODERATOR, id(2), "Система продавца не отвечает").status());
+    }
+
+    @Test
+    @Tag("TC-332")
+    void anAlreadyDecidedApiProductGetsStateConflictNotIntegrationRequired() {
+        products.with(queuedApi(1));
+        integrations.connect(SELLER);
+        service.approve(MODERATOR, id(1));
+        integrations.disconnect(SELLER);
+        int checks = integrations.checks();
+        assertEquals(ProblemType.STATE_CONFLICT, refused(() -> service.approve(MODERATOR, id(1))).type());
+        assertEquals(checks, integrations.checks(), "решённый товар подключения не спрашивает");
+    }
+
+    @Test
+    @Tag("TC-332")
+    void aKeyPoolProductAndAMissingOneNeverAskForTheIntegration() {
+        products.with(queued(1, T0));
+        assertEquals(ProductStatus.PUBLISHED, service.approve(MODERATOR, id(1)).status());
+        assertEquals(ProblemType.NOT_FOUND, refused(() -> service.approve(MODERATOR, id(9))).type());
+        assertEquals(0, integrations.checks());
+    }
+
+    @Test
+    @Tag("TC-332")
+    void aDraftApiProductDoesNotExistForTheModeratorAndNeverAsksForTheIntegration() {
+        Product draft = in(id(1), SELLER, withIssuance(form(), IssuanceMethod.SELLER_API), ProductStatus.DRAFT, 1, T0);
+        products.with(draft);
+        assertEquals(ProblemType.NOT_FOUND, refused(() -> service.approve(MODERATOR, id(1))).type());
+        assertEquals(0, integrations.checks());
+    }
+
+    @Test
+    @Tag("TC-332")
+    void theIntegrationIsAskedBeforeTheDecisionTransactionStarts() {
+        products.with(queuedApi(1));
+        int before = transaction.executions();
+        integrations.connect(SELLER).onCheck(() -> {
+            // чтение товара для проверки идёт отдельной короткой транзакцией, транзакция решения ещё не началась
+            assertEquals(before + 1, transaction.executions());
+        });
+        service.approve(MODERATOR, id(1));
+        assertEquals(before + 2, transaction.executions());
     }
 
     // ---------------------------------------------------------------- отклонить
@@ -213,7 +300,7 @@ class ProductModerationServiceTest {
                 return false;
             }
         }.with(queued(1, T0));
-        ProductModerationService racingService = new ProductModerationService(racing, transaction, memory.cache(), clock);
+        ProductModerationService racingService = new ProductModerationService(racing, transaction, memory.cache(), integrations, clock);
         assertEquals(ProblemType.STATE_CONFLICT, refused(() -> racingService.approve(MODERATOR, id(1))).type());
         assertTrue(transaction.published().isEmpty());
         assertEquals(0, transaction.afterCommitRuns());

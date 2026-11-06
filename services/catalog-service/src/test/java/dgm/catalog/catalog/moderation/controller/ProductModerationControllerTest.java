@@ -6,6 +6,7 @@ import static dgm.catalog.catalog.seller.Products.T0;
 import static dgm.catalog.catalog.seller.Products.form;
 import static dgm.catalog.catalog.seller.Products.id;
 import static dgm.catalog.catalog.seller.Products.in;
+import static dgm.catalog.catalog.seller.Products.withIssuance;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -14,9 +15,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dgm.catalog.catalog.FakeCatalogTransaction;
 import dgm.catalog.catalog.cache.MemoryCache;
+import dgm.catalog.catalog.domain.IssuanceMethod;
 import dgm.catalog.catalog.domain.Product;
 import dgm.catalog.catalog.domain.ProductStatus;
 import dgm.catalog.catalog.moderation.service.ProductModerationService;
+import dgm.catalog.catalog.seller.FakeSellerIntegrations;
 import dgm.catalog.catalog.seller.FakeSellerProducts;
 import dgm.kit.json.Json;
 import dgm.kit.problem.ProblemException;
@@ -57,6 +60,7 @@ class ProductModerationControllerTest {
     private ManualClock clock;
     private FakeSellerProducts products;
     private FakeCatalogTransaction transaction;
+    private final FakeSellerIntegrations integrations = new FakeSellerIntegrations();
     private ProductModerationController controller;
 
     @BeforeEach
@@ -64,7 +68,7 @@ class ProductModerationControllerTest {
         clock = new ManualClock(T0.plus(Duration.ofHours(1)));
         products = new FakeSellerProducts();
         transaction = new FakeCatalogTransaction();
-        controller = new ProductModerationController(new ProductModerationService(products, transaction, new MemoryCache().cache(), clock));
+        controller = new ProductModerationController(new ProductModerationService(products, transaction, new MemoryCache().cache(), integrations, clock));
     }
 
     private static MockHttpServletRequest request(String method, String uri) {
@@ -182,6 +186,23 @@ class ProductModerationControllerTest {
     }
 
     // ---------------------------------------------------------------- решения
+
+    @Test
+    @Tag("TC-332")
+    void approveOfAnApiProductWithoutAnIntegrationAnswers409IntegrationRequiredAndLeavesItOnModeration() {
+        Product base = queued(1, T0);
+        products.with(new Product(base.id(), base.sellerId(), withIssuance(form(), IssuanceMethod.SELLER_API), null, null, null, null,
+                base.submittedAt(), base.reviewDeadlineAt(), null, null, ProductStatus.ON_MODERATION, 2, T0, T0));
+        ProblemException e = refused(() -> controller.approve(id(1).toString(), request("POST", BASE + "/" + id(1) + "/approve")));
+        assertEquals(ProblemType.INTEGRATION_REQUIRED, e.type());
+        assertEquals(ProductStatus.ON_MODERATION, products.row(id(1)).status());
+        assertEquals(List.of(), transaction.published());
+
+        integrations.connect(SELLER);
+        ResponseEntity<String> response = controller.approve(id(1).toString(), request("POST", BASE + "/" + id(1) + "/approve"));
+        assertEquals("published", body(response).get("status"));
+        assertEquals("seller_api", body(response).get("issuanceMethod"));
+    }
 
     @Test
     void approveReturnsThePublishedProduct() {

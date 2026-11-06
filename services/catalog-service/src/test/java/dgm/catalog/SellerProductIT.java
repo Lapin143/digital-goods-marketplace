@@ -250,7 +250,7 @@ class SellerProductIT extends CatalogStandIT {
         assertEquals("validation-failed", code(empty));
         assertEquals(7, ((List<?>) empty.json().get("errors")).size());
 
-        assertEquals(422, create(seller, INPUT.replace("\"key_pool\"", "\"seller_api\"")).status());
+        assertEquals(422, create(seller, INPUT.replace("\"key_pool\"", "\"telepathy\"")).status(), "неизвестный способ выдачи; seller_api с R2 допустим (ApiProductIT)");
         assertEquals(422, create(seller, INPUT.replace("149900", "0")).status());
         assertEquals(422, create(seller, INPUT.replace("\"RUB\"", "\"USD\"")).status());
         assertEquals(415, gateway.request("POST", BASE, "text/plain", INPUT.getBytes(java.nio.charset.StandardCharsets.UTF_8),

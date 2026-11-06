@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import dgm.catalog.catalog.FakeProducts;
 import dgm.catalog.catalog.domain.ProductCard;
+import dgm.catalog.catalog.seller.FakeSellerIntegrations;
 import dgm.catalog.catalog.service.ProductCardService;
 import dgm.kit.problem.ProblemAdvice;
 import java.util.UUID;
@@ -29,7 +30,11 @@ class ProductCardControllerTest {
 
     @BeforeEach
     void setUp() {
-        mvc = MockMvcBuilders.standaloneSetup(new ProductCardController(new ProductCardService(new FakeProducts().withCard(CARD))))
+        mvc = mvcFor(CARD, new FakeSellerIntegrations());
+    }
+
+    private static MockMvc mvcFor(ProductCard card, FakeSellerIntegrations integrations) {
+        return MockMvcBuilders.standaloneSetup(new ProductCardController(new ProductCardService(new FakeProducts().withCard(card), integrations)))
                 .setControllerAdvice(new ProblemAdvice()).build();
     }
 
@@ -46,6 +51,21 @@ class ProductCardControllerTest {
                 .andExpect(jsonPath("$.price.currency").value("RUB"))
                 .andExpect(jsonPath("$.issuanceMethod").value("key"))
                 .andExpect(jsonPath("$.productType").value("game_key"));
+    }
+
+    /** Шаг 9 Ф5, находка F5-16: опубликованный товар по API без действующего подключения для заказов «заблокирован», с подключением виден как есть. */
+    @Test
+    void aPublishedApiProductReadsAsBlockedWhileTheSellersSystemIsNotConnected() throws Exception {
+        ProductCard api = new ProductCard(PRODUCT, CARD.sellerId(), "Игра", "published", 149_900L, "RUB", "seller_api", "game_key");
+        FakeSellerIntegrations integrations = new FakeSellerIntegrations();
+
+        mvcFor(api, integrations).perform(get("/internal/v1/products/" + PRODUCT))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("blocked"))
+                .andExpect(jsonPath("$.issuanceMethod").value("seller_api"));
+        mvcFor(api, integrations.connect(CARD.sellerId())).perform(get("/internal/v1/products/" + PRODUCT))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("published"));
     }
 
     @Test
