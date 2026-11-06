@@ -25,6 +25,7 @@
 import base64
 import json
 import os
+import re
 import subprocess
 import sys
 import uuid
@@ -70,11 +71,22 @@ def needles(values):
     return result
 
 
+def find_at(haystack, needle):
+    """Положение значения в тексте или -1. Значение из одних цифр (шестизначный код подтверждения) считается найденным только как отдельное
+    число, то есть без цифры слева и справа: журнал полон меток времени с девятью знаками долей секунды (`…05.987089387Z`), и любой код
+    встретился бы в них примерно в одном прогоне из ста (запуск CI 42276547602, F5-14). Код, записанный в журнал как `code=870893`,
+    по-прежнему находится; код внутри длинной цифровой строки не находится, и это принятое ограничение. Остальные значения ищутся как подстрока."""
+    if needle.isdigit():
+        match = re.search(r'(?<!\d)%s(?!\d)' % re.escape(needle), haystack)
+        return match.start() if match else -1
+    return haystack.find(needle)
+
+
 def leaks(haystack, wanted):
     """Найденные строки с куском окружения (для сообщения); сами значения в итог не выводятся, они одноразовые."""
     found = []
     for needle in wanted:
-        at = haystack.find(needle)
+        at = find_at(haystack, needle)
         if at >= 0:
             found.append('%s… в «%s»' % (needle[:24], haystack[max(0, at - 60):at + 60].replace('\n', ' ')))
     return found

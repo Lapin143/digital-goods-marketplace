@@ -338,7 +338,7 @@ class SimpleOperator:
 
 
 def leaked(texts, needles):
-    return [n for n in needles if n and any(n in t for t in texts)]
+    return [n for n in needles if n and any(C.find_at(t, n) >= 0 for t in texts)]
 
 
 def journal_by(ctx, **query):
