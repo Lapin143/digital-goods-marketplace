@@ -25,6 +25,13 @@ LABEL org.opencontainers.image.title="${SERVICE}" \
 RUN groupadd --gid 10001 app \
  && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin app
 
+# Исправления пакетов Ubuntu, которые вышли позже базового образа (ST-14, versions.md, раздел 4): образ Temurin обновляется раз в неделю-две, а
+# сканер находит HIGH с готовым исправлением раньше (6 ноября 2026: apt 2.8.3, CVE-2026-109518, исправление в 2.8.4ubuntu0.1). Обновляются только
+# пакеты apt: слой остаётся маленьким, а остальное содержимое образа остаётся таким, как собрал его поставщик. Списки пакетов удаляются в том же слое.
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends --only-upgrade apt libapt-pkg6.0t64 \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /application
 COPY --from=extract /build/extracted/dependencies/ ./
 COPY --from=extract /build/extracted/spring-boot-loader/ ./

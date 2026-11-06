@@ -98,7 +98,7 @@ class ApiKeyControllerTest {
         return request;
     }
 
-    private ResponseEntity<String> create(String name) throws IOException {
+    private ResponseEntity<byte[]> create(String name) throws IOException {
         return controller.create(json("POST", BASE, Json.write(Map.of("name", name))));
     }
 
@@ -121,8 +121,10 @@ class ApiKeyControllerTest {
         return checkController.check(request);
     }
 
-    private static Map<String, Object> body(ResponseEntity<String> response) {
-        return Json.parseObject(response.getBody());
+    /** Тело ответа как объект: ответ выпуска отдаётся байтами (значение ключа не должно попасть в журнал Spring), остальные строкой. */
+    private static Map<String, Object> body(ResponseEntity<?> response) {
+        Object body = response.getBody();
+        return Json.parseObject(body instanceof byte[] bytes ? new String(bytes, StandardCharsets.UTF_8) : (String) body);
     }
 
     @SuppressWarnings("unchecked")
@@ -144,7 +146,7 @@ class ApiKeyControllerTest {
 
     @Test
     void createAnswers201WithTheValueShownOnceNoStoreAndTheLocation() throws Exception {
-        ResponseEntity<String> response = create("Склад");
+        ResponseEntity<byte[]> response = create("Склад");
         assertEquals(201, response.getStatusCode().value());
         assertEquals("no-store", response.getHeaders().getCacheControl());
         assertEquals(BASE, response.getHeaders().getLocation().toString());
@@ -166,7 +168,7 @@ class ApiKeyControllerTest {
     @Test
     void createLeavesTheIdempotencyGuardABodyWithoutTheValueForTheReplay() throws Exception {
         MockHttpServletRequest request = json("POST", BASE, "{\"name\":\"Склад\"}");
-        ResponseEntity<String> response = controller.create(request);
+        ResponseEntity<byte[]> response = controller.create(request);
         String value = (String) body(response).get("value");
 
         Object replay = request.getAttribute(IdempotencyFilter.REPLAY_BODY_ATTRIBUTE);

@@ -330,8 +330,13 @@ class IntegrationIT extends CatalogStandIT {
         assertEquals(404, delivery.get(path).status(), "подключение отключено");
         assertEquals(200, save(seller, "\"2\"", Json.write(Map.of("endpointUrl", URL, "status", "active"))).status());
         assertEquals(200, delivery.get(path).status());
-        db.update("update seller_onboarding.seller_profile set status = 'blocked' where id = ?", seller.sellerId);
-        assertEquals(404, delivery.get(path).status(), "профиль продавца заблокирован");
+
+        // R1 блокировки продавца не знает: переходы T8 и T9 придут в R2 миграцией, и из «одобрен» триггер никуда не пускает. Поэтому
+        // профиль без одобрения берём готовым: подключение вставлено строкой в обход кабинета (кабинет не одобренному продавцу его не даёт)
+        Seller pending = new Seller(false);
+        db.update("insert into seller_onboarding.seller_integration (seller_id, endpoint_url) values (?, ?)", pending.sellerId, URL);
+        assertEquals(404, delivery.get("/internal/v1/sellers/" + pending.sellerId + "/integration").status(), "профиль продавца не одобрен");
+        assertEquals(200, delivery.get(path).status(), "контроль: у одобренного продавца с тем же подключением ответ 200");
     }
 
     // ---------------------------------------------------------------- TC-960: аудит

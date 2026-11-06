@@ -52,7 +52,7 @@ public class ApiKeyController {
     }
 
     @PostMapping(BASE)
-    public ResponseEntity<String> create(HttpServletRequest request) throws IOException {
+    public ResponseEntity<byte[]> create(HttpServletRequest request) throws IOException {
         AuthenticatedUser user = CurrentUser.of(request);
         UUID sellerId = CurrentUser.sellerId(user);
         UUID actorId = CurrentUser.id(user);
@@ -60,8 +60,11 @@ public class ApiKeyController {
         IssuedKey issued = service.issue(sellerId, actorId, form);
         // Р-198: клиент первого запроса видит значение, а охранник идемпотентности сохраняет для повтора ответ без него
         request.setAttribute(IdempotencyFilter.REPLAY_BODY_ATTRIBUTE, Json.write(ApiKeyViews.issued(issued.key(), null)));
+        // Тело отдаётся байтами: для строки Spring на уровне DEBUG печатает в журнал первые сто знаков тела («Writing [...]»), а на TRACE всё
+        // тело целиком. У байтов в журнал попадает только их адрес в памяти, значение ключа туда не доходит ни на каком уровне
         return ResponseEntity.status(HttpStatus.CREATED).contentType(JSON).header(HttpHeaders.CACHE_CONTROL, "no-store")
-                .header(HttpHeaders.LOCATION, BASE).body(Json.write(ApiKeyViews.issued(issued.key(), issued.value())));
+                .header(HttpHeaders.LOCATION, BASE)
+                .body(Json.write(ApiKeyViews.issued(issued.key(), issued.value())).getBytes(StandardCharsets.UTF_8));
     }
 
     @GetMapping(BASE)

@@ -54,7 +54,7 @@ public class IntegrationController {
     }
 
     @PutMapping(BASE)
-    public ResponseEntity<String> set(HttpServletRequest request) throws IOException {
+    public ResponseEntity<byte[]> set(HttpServletRequest request) throws IOException {
         AuthenticatedUser user = CurrentUser.of(request);
         UUID sellerId = CurrentUser.sellerId(user);
         UUID actorId = CurrentUser.id(user);
@@ -62,18 +62,21 @@ public class IntegrationController {
         long expectedVersion = IfMatch.version(request);
         IntegrationForm form = IntegrationForms.read(request);
         SavedIntegration saved = service.set(sellerId, actorId, expectedVersion, form);
+        // Ответ с секретом отдаётся байтами: для строки Spring печатает в журнал на DEBUG первые сто знаков тела, на TRACE всё тело
         return ResponseEntity.ok().contentType(JSON).header(HttpHeaders.CACHE_CONTROL, "no-store")
-                .header(HttpHeaders.ETAG, IfMatch.etag(saved.integration().version())).body(Json.write(IntegrationViews.saved(saved)));
+                .header(HttpHeaders.ETAG, IfMatch.etag(saved.integration().version()))
+                .body(Json.write(IntegrationViews.saved(saved)).getBytes(StandardCharsets.UTF_8));
     }
 
     @PostMapping(BASE + "/secret-rotation")
-    public ResponseEntity<String> rotate(HttpServletRequest request) {
+    public ResponseEntity<byte[]> rotate(HttpServletRequest request) {
         AuthenticatedUser user = CurrentUser.of(request);
         UUID sellerId = CurrentUser.sellerId(user);
         UUID actorId = CurrentUser.id(user);
         RotatedSecret rotated = service.rotate(sellerId, actorId);
         // Р-198: клиент первого запроса видит секрет, а охранник идемпотентности сохраняет для повтора ответ без него
         request.setAttribute(IdempotencyFilter.REPLAY_BODY_ATTRIBUTE, Json.write(IntegrationViews.rotation(rotated.secretVersion(), null)));
-        return ResponseEntity.ok().contentType(JSON).header(HttpHeaders.CACHE_CONTROL, "no-store").body(Json.write(IntegrationViews.rotation(rotated)));
+        return ResponseEntity.ok().contentType(JSON).header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .body(Json.write(IntegrationViews.rotation(rotated)).getBytes(StandardCharsets.UTF_8));
     }
 }

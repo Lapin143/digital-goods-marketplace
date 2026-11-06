@@ -104,7 +104,7 @@ class IntegrationControllerTest {
         return request;
     }
 
-    private ResponseEntity<String> save(String ifMatch, String body) throws Exception {
+    private ResponseEntity<byte[]> save(String ifMatch, String body) throws Exception {
         return controller.set(put(ifMatch, body));
     }
 
@@ -112,8 +112,10 @@ class IntegrationControllerTest {
         return Json.write(Map.of("endpointUrl", url));
     }
 
-    private static Map<String, Object> body(ResponseEntity<String> response) {
-        return Json.parseObject(response.getBody());
+    /** Тело ответа как объект: ответы с секретом (сохранение, смена) отдаются байтами, чтобы Spring не печатал их в журнал, остальные строкой. */
+    private static Map<String, Object> body(ResponseEntity<?> response) {
+        Object body = response.getBody();
+        return Json.parseObject(body instanceof byte[] bytes ? new String(bytes, StandardCharsets.UTF_8) : (String) body);
     }
 
     @SuppressWarnings("unchecked")
@@ -168,7 +170,7 @@ class IntegrationControllerTest {
 
     @Test
     void theFirstSaveAnswers200WithTheSecretAndTheEtagOfTheNewVersion() throws Exception {
-        ResponseEntity<String> response = save("\"0\"", bodyOf(URL));
+        ResponseEntity<byte[]> response = save("\"0\"", bodyOf(URL));
         assertEquals(200, response.getStatusCode().value());
         assertEquals("no-store", response.getHeaders().getCacheControl());
         assertEquals("\"1\"", response.getHeaders().getETag());
@@ -184,7 +186,7 @@ class IntegrationControllerTest {
     @Test
     void laterSavesHaveNoSecretFieldAndTheEtagGrows() throws Exception {
         save("\"0\"", bodyOf(URL));
-        ResponseEntity<String> response = save("\"1\"", Json.write(Map.of("endpointUrl", "https://other.seller.example/dgm", "status", "disabled")));
+        ResponseEntity<byte[]> response = save("\"1\"", Json.write(Map.of("endpointUrl", "https://other.seller.example/dgm", "status", "disabled")));
         assertEquals("\"2\"", response.getHeaders().getETag());
         Map<String, Object> saved = body(response);
         assertEquals(Set.of("integration"), saved.keySet());
@@ -251,7 +253,7 @@ class IntegrationControllerTest {
     void rotationAnswers200WithTheNewSecretOnceAndLeavesTheIdempotencyGuardABodyWithoutIt() throws Exception {
         save("\"0\"", bodyOf(URL));
         MockHttpServletRequest request = sellerRequest("POST", BASE + "/secret-rotation");
-        ResponseEntity<String> response = controller.rotate(request);
+        ResponseEntity<byte[]> response = controller.rotate(request);
 
         assertEquals(200, response.getStatusCode().value());
         assertEquals("no-store", response.getHeaders().getCacheControl());
