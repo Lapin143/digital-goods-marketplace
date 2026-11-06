@@ -22,6 +22,7 @@ import java.util.function.Supplier;
 public final class FakePool {
 
     final Products products = new Products();
+    final dgm.inventory.inventory.stock.FakeApiStock apiStock = new dgm.inventory.inventory.stock.FakeApiStock();
     final Keys keys = new Keys();
     final DataKeys dataKeys = new DataKeys();
     final Transaction transaction = new Transaction();

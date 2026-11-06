@@ -140,14 +140,12 @@ class ReservationServiceTest {
     }
 
     @Test
-    void anUnknownUnpublishedOrNonPoolProductIsRefused() {
+    void anUnknownOrUnpublishedProductIsRefused() {
         assertEquals(ProblemType.NOT_FOUND, refused(() -> service.reserve(ORDER, UUID.randomUUID(), 1)).type());
         stock.products.rows.put(PRODUCT, new ProductCopy(PRODUCT, SELLER, "key_pool", "blocked", 1));
         ProblemException blocked = refused(() -> service.reserve(ORDER, PRODUCT, 1));
         assertEquals(ProblemType.PRODUCT_UNAVAILABLE, blocked.type());
         assertEquals("blocked", blocked.extensions().get("currentStatus"));
-        stock.products.rows.put(PRODUCT, new ProductCopy(PRODUCT, SELLER, "seller_api", "published", 1));
-        assertEquals(ProblemType.STATE_CONFLICT, refused(() -> service.reserve(ORDER, PRODUCT, 1)).type());
         assertTrue(stock.reservations.rows.isEmpty());
     }
 

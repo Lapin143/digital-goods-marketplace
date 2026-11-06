@@ -22,9 +22,19 @@ public record ProductCopy(UUID productId, UUID sellerId, String issuanceMethod, 
         return sellerId.equals(seller);
     }
 
-    /** Товар можно резервировать под заказ: выдача из пула ключей и статус «опубликован». */
+    /** Выдача из пула ключей (R1). */
     public boolean keyPool() {
         return "key_pool".equals(issuanceMethod);
+    }
+
+    /** Выдача по API (R2, Р-183): пула ключей нет, остаток это число в {@code inventory.api_stock}. */
+    public boolean sellerApi() {
+        return "seller_api".equals(issuanceMethod);
+    }
+
+    /** Остаток по API можно править: выдача по API и статус не блокирован и не в архиве (как для загрузки в пул). */
+    public boolean acceptsApiStock() {
+        return sellerApi() && UPLOAD_STATUSES.contains(status);
     }
 
     public boolean published() {

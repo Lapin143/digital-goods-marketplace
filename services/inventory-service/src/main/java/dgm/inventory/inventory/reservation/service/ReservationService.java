@@ -8,6 +8,8 @@ import dgm.inventory.inventory.reservation.domain.ReservationSettings;
 import dgm.inventory.inventory.reservation.repository.ReservationRepository;
 import dgm.inventory.inventory.service.InventoryTransaction;
 import dgm.inventory.inventory.service.StockPublisher;
+import dgm.inventory.inventory.stock.domain.ApiStock;
+import dgm.inventory.inventory.stock.repository.ApiStockRepository;
 import dgm.kit.id.Uuids;
 import dgm.kit.problem.ProblemException;
 import dgm.kit.problem.ProblemType;
@@ -40,6 +42,11 @@ import org.springframework.stereotype.Component;
  *       резерв уже снят (поздняя оплата), в той же транзакции берутся свободные ключи и создаётся новый резерв сразу использованным;
  *       ключей не хватило: 409 {@code insufficient-stock}, ничего не создаётся и не меняется.
  * </ul>
+ *
+ * <p>Товар с выдачей по API (R2, ADR-008) резервируется по количеству: вместо ключей пула условный {@code UPDATE api_stock … WHERE quantity >=
+ * :n}, а при снятии количество возвращается после условного перехода резерва «если активен», поэтому повтор события его не прибавит дважды.
+ * Подтверждение такого резерва ключей не привязывает (ключ придёт от продавца, Р-190). Отмена заказа после оплаты (SM-08/T5, Р-192) снимает
+ * использованный резерв товара по API и возвращает количество: у товара с пулом выданные ключи в оборот не возвращаются (INV-04).
  *
  * <p>Таймер в Redis ставится после фиксации и убирается после фиксации; ошибка Redis бизнес-действие не ломает (источник истины база),
  * её считает метрика {@code reservation_timer_errors_total}.
@@ -94,6 +101,7 @@ public final class ReservationService {
     private final ProductCopyRepository products;
     private final ReservationRepository reservations;
     private final KeyRepository keys;
+    private final ApiStockRepository apiStock;
     private final StockPublisher stockEvents;
     private final InventoryTransaction transaction;
     private final ExpiryQueue queue;
@@ -101,11 +109,13 @@ public final class ReservationService {
     private final Clock clock;
     private final MeterRegistry meters;
 
-    public ReservationService(ProductCopyRepository products, ReservationRepository reservations, KeyRepository keys, StockPublisher stockEvents,
-                              InventoryTransaction transaction, ExpiryQueue queue, ReservationSettings settings, Clock clock, MeterRegistry meters) {
+    public ReservationService(ProductCopyRepository products, ReservationRepository reservations, KeyRepository keys, ApiStockRepository apiStock,
+                              StockPublisher stockEvents, InventoryTransaction transaction, ExpiryQueue queue, ReservationSettings settings, Clock clock,
+                              MeterRegistry meters) {
         this.products = products;
         this.reservations = reservations;
         this.keys = keys;
+        this.apiStock = apiStock;
         this.stockEvents = stockEvents;
         this.transaction = transaction;
         this.queue = queue;
@@ -118,15 +128,12 @@ public final class ReservationService {
      * Резервирует {@code quantity} ключей товара за заказом (SM-08/T1, SM-03/T2).
      *
      * @throws ProblemException 404 нет такого товара; 409 {@code product-unavailable} товар не опубликован, {@code state-conflict} у заказа
-     *                          уже есть активный или использованный резерв или товар не из пула, {@code insufficient-stock} свободных
-     *                          ключей меньше заказанного (с полем {@code available})
+     *                          уже есть активный или использованный резерв, {@code insufficient-stock} свободных ключей (у товара по API
+     *                          остатка) меньше заказанного (с полем {@code available})
      */
     public Reservation reserve(UUID orderId, UUID productId, int quantity) {
         Reservation created = transaction.execute(() -> {
             ProductCopy product = products.lock(productId).orElseThrow(() -> new ProblemException(ProblemType.NOT_FOUND, "Товар не найден."));
-            if (!product.keyPool()) {
-                throw new ProblemException(ProblemType.STATE_CONFLICT, "Выдача этого товара не из пула ключей, резерв не создаётся.");
-            }
             if (!product.published()) {
                 throw new ProblemException(ProblemType.PRODUCT_UNAVAILABLE, "Товар сейчас недоступен для покупки.",
                         Map.of("currentStatus", product.status()), Map.of());
@@ -136,20 +143,10 @@ public final class ReservationService {
                 throw new ProblemException(ProblemType.STATE_CONFLICT, "У заказа уже есть резерв ключей.",
                         Map.of("currentStatus", latest.get().status()), Map.of());
             }
-            int available = freeKeys(productId);
-            if (available < quantity) {
-                throw new ProblemException(ProblemType.INSUFFICIENT_STOCK, "Свободных ключей меньше заказанного количества.",
-                        Map.of("available", available), Map.of());
-            }
             Instant now = clock.instant();
             Reservation reservation = new Reservation(Uuids.v7(clock), orderId, productId, quantity, Reservation.ACTIVE, now.plus(settings.ttl()), null);
-            reservations.insert(reservation, now);
-            List<UUID> picked = keys.reserveFree(productId, quantity, orderId, reservation.id());
-            if (picked.size() != quantity) {
-                // Под блокировкой строки товара такого не бывает; откат важнее частичного резерва (INV-05)
-                throw new IllegalStateException("Закреплено ключей " + picked.size() + " вместо " + quantity + ", резерв откатывается");
-            }
-            stockEvents.publish(productId, available - quantity);
+            int remaining = hold(product, reservation, now);
+            stockEvents.publish(productId, remaining);
             transaction.afterCommit(() -> schedule(reservation));
             return reservation;
         });
@@ -168,7 +165,7 @@ public final class ReservationService {
                 transaction.afterCommit(() -> unschedule(reservationId));
                 return Expiry.GONE;
             }
-            products.lock(current.get().productId());
+            ProductCopy product = lockedProduct(current.get().productId());
             Optional<Reservation> released = reservations.releaseIfDue(reservationId, clock.instant());
             if (released.isEmpty()) {
                 // Пока ждали блокировку товара, резерв могли снять или использовать
@@ -179,8 +176,7 @@ public final class ReservationService {
                 return stillActive ? Expiry.NOT_DUE : Expiry.GONE;
             }
             Reservation reservation = released.get();
-            keys.releaseByReservation(reservation.id());
-            stockEvents.publish(reservation.productId(), freeKeys(reservation.productId()));
+            stockEvents.publish(reservation.productId(), restore(product, reservation));
             Map<String, Object> data = eventData(reservation);
             data.put("expiredBy", by.code());
             transaction.publish(TOPIC, AGGREGATE, reservation.orderId().toString(), RESERVATION_EXPIRED, SCHEMA_VERSION, data);
@@ -195,7 +191,8 @@ public final class ReservationService {
 
     /**
      * Снимает активный резерв заказа по причине {@code payment_declined} или {@code order_cancelled} (SM-08/T4, T6; SM-03/T3).
-     * Резерв заказа уже снят (срок истёк) или использован: ничего не меняется.
+     * Резерв заказа уже снят (срок истёк) или использован: ничего не меняется, кроме одного случая: использованный резерв товара по API при
+     * отмене заказа (причина {@code order_cancelled}) снимается и возвращает количество (SM-08/T5, Р-192). Ключи, выданные из пула, в оборот не возвращаются (INV-04).
      *
      * @return снятый резерв; пусто, если снимать было нечего
      */
@@ -203,16 +200,16 @@ public final class ReservationService {
         Optional<Reservation> result = transaction.<Optional<Reservation>>execute(() -> {
             Optional<Reservation> active = reservations.activeByOrder(orderId);
             if (active.isEmpty()) {
-                return Optional.empty();
+                // Использованный резерв снимает только отмена заказа; отказ платежа к оплаченному заказу не относится (SM-08/T5)
+                return Reservation.ORDER_CANCELLED.equals(reason) ? releaseUsed(orderId) : Optional.empty();
             }
-            products.lock(active.get().productId());
+            ProductCopy product = lockedProduct(active.get().productId());
             Optional<Reservation> released = reservations.release(active.get().id(), reason, clock.instant());
             if (released.isEmpty()) {
                 return Optional.empty();
             }
             Reservation reservation = released.get();
-            keys.releaseByReservation(reservation.id());
-            stockEvents.publish(reservation.productId(), freeKeys(reservation.productId()));
+            stockEvents.publish(reservation.productId(), restore(product, reservation));
             Map<String, Object> data = eventData(reservation);
             data.put("reason", reason);
             transaction.publish(TOPIC, AGGREGATE, reservation.orderId().toString(), RESERVATION_RELEASED, SCHEMA_VERSION, data);
@@ -235,7 +232,7 @@ public final class ReservationService {
      */
     public Confirmation confirm(UUID orderId, UUID productId, int quantity) {
         return transaction.execute(() -> {
-            products.lock(productId).orElseThrow(() -> new ProblemException(ProblemType.NOT_FOUND, "Товар не найден."));
+            ProductCopy product = products.lock(productId).orElseThrow(() -> new ProblemException(ProblemType.NOT_FOUND, "Товар не найден."));
             Reservation latest = reservations.latestByOrder(orderId)
                     .orElseThrow(() -> new ProblemException(ProblemType.NOT_FOUND, "Резерв этого заказа не найден."));
             if (!latest.productId().equals(productId) || latest.quantity() != quantity) {
@@ -248,8 +245,11 @@ public final class ReservationService {
             if (latest.isActive()) {
                 Reservation used = reservations.markUsed(latest.id(), now)
                         .orElseThrow(() -> new IllegalStateException("Активный резерв " + latest.id() + " не удалось использовать под блокировкой товара"));
-                issue(used, now);
-                stockEvents.publish(productId, freeKeys(productId));
+                if (!product.sellerApi()) {
+                    // У товара по API ключей нет, а остаток уже вычтен при резерве: ни выдачи, ни события остатка (ключ придёт от продавца)
+                    issue(used, now);
+                    stockEvents.publish(productId, freeKeys(productId));
+                }
                 transaction.afterCommit(() -> {
                     unschedule(used.id());
                     meters.counter("reservations_confirmed_total", "reReserved", "false").increment();
@@ -257,24 +257,94 @@ public final class ReservationService {
                 return new Confirmation(used, false);
             }
             // Резерв снят (срок истёк или заказ отменён), а оплата пришла: оплаченный заказ получает ключи, если они ещё свободны
-            int available = freeKeys(productId);
-            if (available < quantity) {
-                throw new ProblemException(ProblemType.INSUFFICIENT_STOCK, "Свободных ключей меньше заказанного количества.",
-                        Map.of("available", available), Map.of());
-            }
             Reservation fresh = new Reservation(Uuids.v7(clock), orderId, productId, quantity, Reservation.ACTIVE, now.plus(settings.ttl()), null);
-            reservations.insert(fresh, now);
-            List<UUID> picked = keys.reserveFree(productId, quantity, orderId, fresh.id());
-            if (picked.size() != quantity) {
-                throw new IllegalStateException("Закреплено ключей " + picked.size() + " вместо " + quantity + ", поздняя оплата откатывается");
-            }
+            int remaining = hold(product, fresh, now);
             Reservation used = reservations.markUsed(fresh.id(), now)
                     .orElseThrow(() -> new IllegalStateException("Новый резерв " + fresh.id() + " не удалось использовать"));
-            issue(used, now);
-            stockEvents.publish(productId, available - quantity);
+            if (!product.sellerApi()) {
+                issue(used, now);
+            }
+            stockEvents.publish(productId, remaining);
             transaction.afterCommit(() -> meters.counter("reservations_confirmed_total", "reReserved", "true").increment());
             return new Confirmation(used, true);
         });
+    }
+
+    /**
+     * Закрепляет за новым резервом количество товара и записывает резерв (INV-05: всё заказанное количество или ничего). У товара с пулом
+     * закрепляются свободные ключи, у товара по API уменьшается остаток условным {@code UPDATE … WHERE quantity >= :n} (ADR-008).
+     *
+     * @return остаток после закрепления (для {@code stock.changed})
+     * @throws ProblemException 409 {@code insufficient-stock} с полем {@code available}, если остатка меньше заказанного
+     */
+    private int hold(ProductCopy product, Reservation reservation, Instant now) {
+        UUID productId = product.productId();
+        int quantity = reservation.quantity();
+        if (product.sellerApi()) {
+            ApiStock after = apiStock.take(productId, quantity).orElseThrow(() -> insufficient(apiStock.find(productId).map(ApiStock::quantity).orElse(0)));
+            reservations.insert(reservation, now);
+            return after.quantity();
+        }
+        int available = freeKeys(productId);
+        if (available < quantity) {
+            throw insufficient(available);
+        }
+        reservations.insert(reservation, now);
+        List<UUID> picked = keys.reserveFree(productId, quantity, reservation.orderId(), reservation.id());
+        if (picked.size() != quantity) {
+            // Под блокировкой строки товара такого не бывает; откат важнее частичного резерва (INV-05)
+            throw new IllegalStateException("Закреплено ключей " + picked.size() + " вместо " + quantity + ", резерв откатывается");
+        }
+        return available - quantity;
+    }
+
+    /**
+     * Возвращает количество снятого резерва в остаток: ключи пула становятся свободными, у товара по API остаток растёт на количество резерва.
+     * Вызывается после условного перехода резерва, поэтому повторное событие количество не прибавит.
+     *
+     * @return остаток после возврата (для {@code stock.changed})
+     */
+    private int restore(ProductCopy product, Reservation reservation) {
+        if (product.sellerApi()) {
+            return apiStock.give(product.productId(), reservation.quantity()).quantity();
+        }
+        keys.releaseByReservation(reservation.id());
+        return freeKeys(product.productId());
+    }
+
+    /**
+     * SM-08/T5: отмена заказа, резерв которого уже использован. Только для товара по API и только пока резерв использован; выданные ключи
+     * пула не возвращаются (INV-04), для них и для заказа без резерва результат пустой.
+     */
+    private Optional<Reservation> releaseUsed(UUID orderId) {
+        Optional<Reservation> latest = reservations.latestByOrder(orderId).filter(Reservation::isUsed);
+        if (latest.isEmpty()) {
+            return Optional.empty();
+        }
+        ProductCopy product = lockedProduct(latest.get().productId());
+        if (!product.sellerApi()) {
+            return Optional.empty();
+        }
+        Optional<Reservation> released = reservations.releaseUsed(latest.get().id(), Reservation.ORDER_CANCELLED, clock.instant());
+        if (released.isEmpty()) {
+            return Optional.empty();
+        }
+        Reservation reservation = released.get();
+        stockEvents.publish(reservation.productId(), restore(product, reservation));
+        Map<String, Object> data = eventData(reservation);
+        data.put("reason", Reservation.ORDER_CANCELLED);
+        transaction.publish(TOPIC, AGGREGATE, reservation.orderId().toString(), RESERVATION_RELEASED, SCHEMA_VERSION, data);
+        return Optional.of(reservation);
+    }
+
+    /** Строка товара под блокировкой; резерв без копии товара невозможен (внешний ключ), поэтому её отсутствие это сбой. */
+    private ProductCopy lockedProduct(UUID productId) {
+        return products.lock(productId).orElseThrow(() -> new IllegalStateException("Копии товара " + productId + " нет, хотя на неё ссылается резерв"));
+    }
+
+    private static ProblemException insufficient(int available) {
+        return new ProblemException(ProblemType.INSUFFICIENT_STOCK, "Свободных ключей меньше заказанного количества.",
+                Map.of("available", available), Map.of());
     }
 
     /** Ключи резерва становятся выданными; их ровно столько, сколько в резерве, иначе транзакция откатывается (INV-05). */

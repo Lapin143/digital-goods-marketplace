@@ -2,6 +2,7 @@ package dgm.inventory.inventory.keys;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -17,6 +18,7 @@ import dgm.inventory.inventory.keys.service.DataKeys;
 import dgm.inventory.inventory.keys.service.KeyPoolService;
 import dgm.inventory.inventory.registry.ProductCopy;
 import dgm.inventory.inventory.service.StockPublisher;
+import dgm.inventory.inventory.stock.domain.ApiStock;
 import dgm.kit.problem.ProblemException;
 import dgm.kit.problem.ProblemType;
 import dgm.kit.secret.SecretValue;
@@ -38,6 +40,7 @@ class KeyPoolServiceTest {
 
     private static final UUID SELLER = UUID.fromString("0199e0a0-0000-4000-8000-0000000000b1");
     private static final UUID PRODUCT = UUID.fromString("0199e0a0-0000-7000-8000-000000000201");
+    private static final UUID API_PRODUCT = UUID.fromString("0199e0a0-0000-7000-8000-0000000002a2");
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-10-17T12:00:00.123Z"), ZoneOffset.UTC);
 
     private final SecureRandom random = new SecureRandom();
@@ -50,7 +53,7 @@ class KeyPoolServiceTest {
     void setUp() {
         pool = new FakePool();
         pool.products.rows.put(PRODUCT, new ProductCopy(PRODUCT, SELLER, "key_pool", "draft", 1));
-        service = new KeyPoolService(pool.products, pool.keys, new DataKeys(pool.dataKeys, cipher), cipher, hasher, pool.transaction,
+        service = new KeyPoolService(pool.products, pool.keys, pool.apiStock, new DataKeys(pool.dataKeys, cipher), cipher, hasher, pool.transaction,
                 new StockPublisher(pool.products, pool.transaction, CLOCK), CLOCK);
     }
 
@@ -173,8 +176,6 @@ class KeyPoolServiceTest {
             assertEquals(ProblemType.STATE_CONFLICT, e.type(), status);
             assertEquals(status, e.extensions().get("currentStatus"));
         }
-        pool.products.rows.put(PRODUCT, new ProductCopy(PRODUCT, SELLER, "seller_api", "published", 1));
-        assertEquals(ProblemType.STATE_CONFLICT, refused(() -> service.upload(SELLER, PRODUCT, List.of("Z-1"))).type());
         assertEquals(4, pool.keys.stored(PRODUCT));
     }
 
@@ -223,5 +224,49 @@ class KeyPoolServiceTest {
         assertEquals(15, stock.poolSize());
         assertEquals(KeyBatch.POOL_LIMIT, stock.poolLimit());
         assertEquals(CLOCK.instant(), stock.updatedAt());
+        assertFalse(stock.sellerApi(), "у товара с пулом способа выдачи и версии остатка в ответе нет");
+        assertNull(stock.issuanceMethod());
+        assertNull(stock.version());
+    }
+
+    @Tag("TC-415")
+    @Test
+    void aProductWithApiIssuanceTakesNoKeysAndNothingIsStoredOrPublished() {
+        pool.products.rows.put(API_PRODUCT, new ProductCopy(API_PRODUCT, SELLER, "seller_api", "published", 1));
+        ProblemException e = refused(() -> service.upload(SELLER, API_PRODUCT, List.of("A-1")));
+        assertEquals(ProblemType.ISSUANCE_METHOD_MISMATCH, e.type());
+        assertEquals(0, pool.keys.stored(API_PRODUCT));
+        assertTrue(pool.transaction.events.isEmpty());
+        pool.products.rows.put(API_PRODUCT, new ProductCopy(API_PRODUCT, SELLER, "seller_api", "blocked", 1));
+        assertEquals(ProblemType.ISSUANCE_METHOD_MISMATCH, refused(() -> service.upload(SELLER, API_PRODUCT, List.of("A-1"))).type(),
+                "способ выдачи называется раньше статуса");
+    }
+
+    @Tag("TC-415")
+    @Test
+    void aBlockedPoolProductStillSaysStateConflictNotMismatch() {
+        pool.products.rows.put(PRODUCT, new ProductCopy(PRODUCT, SELLER, "key_pool", "blocked", 1));
+        assertEquals(ProblemType.STATE_CONFLICT, refused(() -> service.upload(SELLER, PRODUCT, List.of("A-1"))).type());
+    }
+
+    @Tag("TC-416")
+    @Test
+    void stockOfAnApiProductIsTheSellersQuantityWithReservedAndPaidUnitsAndTheVersion() {
+        pool.products.rows.put(API_PRODUCT, new ProductCopy(API_PRODUCT, SELLER, "seller_api", "published", 1));
+        pool.apiStock.rows.put(API_PRODUCT, new ApiStock(API_PRODUCT, 87, 6, Instant.parse("2026-11-06T09:30:00Z")));
+        pool.apiStock.units = status -> "active".equals(status) ? 3 : 10;
+        StockInfo stock = service.stock(SELLER, API_PRODUCT);
+        assertEquals(new StockInfo(API_PRODUCT, 87, 3, 10, 0, Instant.parse("2026-11-06T09:30:00Z"), "seller_api", 6), stock);
+        assertTrue(stock.sellerApi());
+        assertEquals(0, pool.keys.stored(API_PRODUCT));
+    }
+
+    @Tag("TC-416")
+    @Test
+    void stockOfAnApiProductWithoutARowYetIsZeroAtVersionOne() {
+        pool.products.rows.put(API_PRODUCT, new ProductCopy(API_PRODUCT, SELLER, "seller_api", "draft", 1));
+        StockInfo stock = service.stock(SELLER, API_PRODUCT);
+        assertEquals(new StockInfo(API_PRODUCT, 0, 0, 0, 0, CLOCK.instant(), "seller_api", 1), stock);
+        assertTrue(pool.apiStock.rows.isEmpty(), "чтение строку не создаёт");
     }
 }

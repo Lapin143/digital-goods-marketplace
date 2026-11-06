@@ -70,6 +70,12 @@ public final class JdbcReservationRepository implements ReservationRepository {
     }
 
     @Override
+    public Optional<Reservation> releaseUsed(UUID id, String reason, Instant at) {
+        return jdbc.query("update inventory.reservation set status = 'released', release_reason = ?, released_at = ? "
+                + "where id = ? and status = 'used' returning " + COLUMNS, MAPPER, reason, time(at), id).stream().findFirst();
+    }
+
+    @Override
     public List<UUID> overdue(Instant dueBefore, int limit) {
         return jdbc.query("select id from inventory.reservation where status = 'active' and expires_at <= ? order by expires_at, id limit ?",
                 (rs, row) -> rs.getObject("id", UUID.class), time(dueBefore), limit);

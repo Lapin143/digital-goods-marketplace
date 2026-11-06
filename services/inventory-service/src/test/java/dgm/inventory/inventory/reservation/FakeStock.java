@@ -10,6 +10,7 @@ import dgm.inventory.inventory.reservation.service.ExpiryQueue;
 import dgm.inventory.inventory.reservation.service.ReservationService;
 import dgm.inventory.inventory.service.InventoryTransaction;
 import dgm.inventory.inventory.service.StockPublisher;
+import dgm.inventory.inventory.stock.FakeApiStock;
 import dgm.kit.time.ManualClock;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Instant;
@@ -28,25 +29,36 @@ import java.util.function.Supplier;
  * {@code free → reserved → free}, версия остатка растёт на единицу при каждом изменении пула, события и отложенные действия
  * появляются только после успешного завершения транзакции (при исключении всё отбрасывается, как откат).
  */
-final class FakeStock {
+public final class FakeStock {
 
     static final UUID PRODUCT = UUID.fromString("0199e0a0-0000-7000-8000-000000000201");
+    /** Товар с выдачей по API (R2): остаток в {@link #apiStock}, ключей нет. */
+    static final UUID API_PRODUCT = UUID.fromString("0199e0a0-0000-7000-8000-0000000002a2");
     static final UUID SELLER = UUID.fromString("0199e0a0-0000-4000-8000-0000000000b1");
     static final Instant START = Instant.parse("2026-10-17T12:00:00Z");
 
     final ManualClock clock = new ManualClock(START);
-    final Products products = new Products();
+    public final Products products = new Products();
     final Reservations reservations = new Reservations();
     final Keys keys = new Keys();
+    final FakeApiStock apiStock = new FakeApiStock();
     final Queue queue = new Queue();
-    final Tx transaction = new Tx();
+    public final Tx transaction = new Tx();
     final SimpleMeterRegistry meters = new SimpleMeterRegistry();
     final ReservationService service;
 
     FakeStock(ReservationSettings settings) {
         products.rows.put(PRODUCT, new ProductCopy(PRODUCT, SELLER, "key_pool", "published", 1));
-        service = new ReservationService(products, reservations, keys, new StockPublisher(products, transaction, clock), transaction, queue,
-                settings, clock, meters);
+        products.rows.put(API_PRODUCT, new ProductCopy(API_PRODUCT, SELLER, "seller_api", "published", 1));
+        apiStock.units = status -> reservations.rows.values().stream()
+                .filter(r -> r.productId().equals(API_PRODUCT) && r.status().equals(status)).mapToInt(Reservation::quantity).sum();
+        service = new ReservationService(products, reservations, keys, apiStock, new StockPublisher(products, transaction, clock), transaction,
+                queue, settings, clock, meters);
+    }
+
+    /** Остаток товара по API: строка создана (как по событию каталога), количество задано. */
+    void apiQuantity(int quantity) {
+        apiStock.rows.put(API_PRODUCT, new dgm.inventory.inventory.stock.domain.ApiStock(API_PRODUCT, quantity, 1, START));
     }
 
     /** Версия остатка товара: сколько раз менялся пул. */
@@ -58,10 +70,10 @@ final class FakeStock {
         return transaction.events.stream().filter(e -> e.type().equals(type)).toList();
     }
 
-    static final class Products implements ProductCopyRepository {
-        final Map<UUID, ProductCopy> rows = new HashMap<>();
+    public static final class Products implements ProductCopyRepository {
+        public final Map<UUID, ProductCopy> rows = new HashMap<>();
         final Map<UUID, Long> versions = new HashMap<>();
-        final List<UUID> locked = new ArrayList<>();
+        public final List<UUID> locked = new ArrayList<>();
 
         @Override
         public Optional<ProductCopy> find(UUID productId) {
@@ -147,6 +159,15 @@ final class FakeStock {
                 return Optional.empty();
             }
             return Optional.of(replace(r, Reservation.USED, null));
+        }
+
+        @Override
+        public Optional<Reservation> releaseUsed(UUID id, String reason, Instant at) {
+            Reservation r = rows.get(id);
+            if (r == null || !r.isUsed()) {
+                return Optional.empty();
+            }
+            return Optional.of(replace(r, Reservation.RELEASED, reason));
         }
 
         @Override
@@ -312,11 +333,11 @@ final class FakeStock {
         }
     }
 
-    static final class Tx implements InventoryTransaction {
-        record Event(String topic, String aggregateType, String aggregateId, String type, int schemaVersion, Map<String, Object> data) {
+    public static final class Tx implements InventoryTransaction {
+        public record Event(String topic, String aggregateType, String aggregateId, String type, int schemaVersion, Map<String, Object> data) {
         }
 
-        final List<Event> events = new ArrayList<>();
+        public final List<Event> events = new ArrayList<>();
         private List<Event> pending;
         private List<Runnable> after;
 

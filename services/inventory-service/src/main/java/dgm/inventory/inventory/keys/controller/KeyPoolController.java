@@ -66,9 +66,15 @@ public class KeyPoolController {
         body.put("available", info.available());
         body.put("reserved", info.reserved());
         body.put("issued", info.issued());
-        body.put("poolSize", info.poolSize());
-        body.put("poolLimit", info.poolLimit());
+        if (!info.sellerApi()) {
+            body.put("poolSize", info.poolSize());
+            body.put("poolLimit", info.poolLimit());
+        }
         body.put("updatedAt", Timestamps.format(info.updatedAt()));
+        if (info.sellerApi()) {
+            body.put("issuanceMethod", info.issuanceMethod());
+            body.put("version", info.version());
+        }
         return ResponseEntity.ok().contentType(JSON).header(HttpHeaders.CACHE_CONTROL, "no-store").body(Json.write(body));
     }
 

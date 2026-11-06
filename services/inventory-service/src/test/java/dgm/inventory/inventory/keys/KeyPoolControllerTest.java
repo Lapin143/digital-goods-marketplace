@@ -14,6 +14,7 @@ import dgm.inventory.inventory.keys.service.DataKeys;
 import dgm.inventory.inventory.keys.service.KeyPoolService;
 import dgm.inventory.inventory.registry.ProductCopy;
 import dgm.inventory.inventory.service.StockPublisher;
+import dgm.inventory.inventory.stock.domain.ApiStock;
 import dgm.kit.json.Json;
 import dgm.kit.problem.ProblemException;
 import dgm.kit.problem.ProblemType;
@@ -54,7 +55,7 @@ class KeyPoolControllerTest {
         pool = new FakePool();
         pool.products.rows.put(PRODUCT, new ProductCopy(PRODUCT, SELLER, "key_pool", "draft", 1));
         KeyHasher hasher = new KeyHasher("0123456789abcdef0123456789abcdef".getBytes(StandardCharsets.US_ASCII));
-        controller = new KeyPoolController(new KeyPoolService(pool.products, pool.keys, new DataKeys(pool.dataKeys, cipher), cipher, hasher,
+        controller = new KeyPoolController(new KeyPoolService(pool.products, pool.keys, pool.apiStock, new DataKeys(pool.dataKeys, cipher), cipher, hasher,
                 pool.transaction, new StockPublisher(pool.products, pool.transaction, CLOCK), CLOCK));
     }
 
@@ -236,5 +237,39 @@ class KeyPoolControllerTest {
         assertEquals("2026-10-17T12:00:00.123Z", body.get("updatedAt"));
         assertNull(response.getHeaders().getETag());
         assertTrue(response.getHeaders().getContentType().toString().startsWith("application/json"));
+    }
+
+    @Tag("TC-416")
+    @Test
+    void stockOfAnApiProductHasTheVersionAndTheMethodAndNoPoolFields() throws IOException {
+        UUID apiProduct = UUID.fromString("0199e0a0-0000-7000-8000-0000000002a2");
+        pool.products.rows.put(apiProduct, new ProductCopy(apiProduct, SELLER, "seller_api", "published", 1));
+        pool.apiStock.rows.put(apiProduct, new ApiStock(apiProduct, 87, 6, Instant.parse("2026-11-06T09:30:00.500Z")));
+        pool.apiStock.units = status -> "active".equals(status) ? 3 : 10;
+        String uri = "/api/v1/seller/products/" + apiProduct + "/stock";
+        ResponseEntity<String> response = controller.stock(apiProduct.toString(), request("GET", uri, SELLER, null, null));
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals("no-store", response.getHeaders().getCacheControl());
+        Map<String, Object> body = Json.parseObject(response.getBody());
+        assertEquals(Set.of("productId", "available", "reserved", "issued", "updatedAt", "issuanceMethod", "version"), body.keySet());
+        assertEquals(87, body.get("available"));
+        assertEquals(3, body.get("reserved"));
+        assertEquals(10, body.get("issued"));
+        assertEquals("seller_api", body.get("issuanceMethod"));
+        assertEquals(6, body.get("version"));
+        assertEquals("2026-11-06T09:30:00.500Z", body.get("updatedAt"));
+    }
+
+    @Tag("TC-415")
+    @Test
+    void uploadingKeysToAnApiProductIs409WithTheMismatchType() {
+        UUID apiProduct = UUID.fromString("0199e0a0-0000-7000-8000-0000000002a2");
+        pool.products.rows.put(apiProduct, new ProductCopy(apiProduct, SELLER, "seller_api", "published", 1));
+        MockHttpServletRequest request = request("POST", "/api/v1/seller/products/" + apiProduct + "/key-batches", SELLER, "application/json",
+                "{\"keys\":[\"A-1\"]}".getBytes(StandardCharsets.UTF_8));
+        assertEquals(ProblemType.ISSUANCE_METHOD_MISMATCH, refused(() -> controller.uploadBatch(apiProduct.toString(), request)).type());
+        MockHttpServletRequest file = request("POST", "/api/v1/seller/products/" + apiProduct + "/key-files", SELLER, "text/csv", "A-1\n".getBytes(StandardCharsets.UTF_8));
+        assertEquals(ProblemType.ISSUANCE_METHOD_MISMATCH, refused(() -> controller.uploadFile(apiProduct.toString(), file)).type());
+        assertEquals(0, pool.keys.stored(apiProduct));
     }
 }

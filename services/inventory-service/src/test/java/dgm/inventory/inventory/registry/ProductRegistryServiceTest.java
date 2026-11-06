@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dgm.inventory.inventory.stock.FakeApiStock;
+import dgm.inventory.inventory.stock.domain.ApiStock;
 import dgm.kit.events.EventEnvelope;
 import dgm.kit.events.FatalEventException;
 import dgm.kit.events.HandleResult;
@@ -61,13 +63,18 @@ class ProductRegistryServiceTest {
             return true;
         }
     };
-    private final ProductRegistryService service = new ProductRegistryService(repository);
+    private final FakeApiStock apiStock = new FakeApiStock();
+    private final ProductRegistryService service = new ProductRegistryService(repository, apiStock);
 
     private static Map<String, Object> data(String status, Object version) {
+        return data("key_pool", status, version);
+    }
+
+    private static Map<String, Object> data(String issuanceMethod, String status, Object version) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("productId", PRODUCT.toString());
         data.put("sellerId", SELLER.toString());
-        data.put("issuanceMethod", "key_pool");
+        data.put("issuanceMethod", issuanceMethod);
         data.put("status", status);
         data.put("version", version);
         return data;
@@ -130,6 +137,58 @@ class ProductRegistryServiceTest {
         assertFalse(e.getMessage().contains("секретное"), "сообщение называет поле, не значение");
         assertThrows(FatalEventException.class, () -> service.apply(event("seller.approved", data("draft", 1))));
         assertEquals(Map.of(), rows);
+    }
+
+    @Tag("TC-415")
+    @Test
+    void anApiProductGetsAnEmptyStockRowTogetherWithItsCopy() {
+        assertTrue(service.apply(event("product.created", data("seller_api", "draft", 1))).applied());
+        assertEquals(new ProductCopy(PRODUCT, SELLER, "seller_api", "draft", 1), rows.get(PRODUCT));
+        assertEquals(1, apiStock.rows.size());
+        ApiStock row = apiStock.rows.get(PRODUCT);
+        assertEquals(0, row.quantity(), "до правки продавцом заказать нечего (INV-09)");
+        assertEquals(1, row.version());
+        assertEquals(Instant.parse("2026-10-17T12:00:00Z"), row.updatedAt(), "время строки это время события");
+    }
+
+    @Tag("TC-415")
+    @Test
+    void laterEventsOfAnApiProductKeepTheQuantityTheSellerSet() {
+        service.apply(event("product.created", data("seller_api", "draft", 1)));
+        apiStock.rows.put(PRODUCT, new ApiStock(PRODUCT, 25, 4, Instant.parse("2026-10-18T09:00:00Z")));
+        assertTrue(service.apply(event("product.updated", data("seller_api", "on_moderation", 2))).applied());
+        assertTrue(service.apply(event("product.published", Map.of("productId", PRODUCT.toString()))).applied());
+        assertEquals(25, apiStock.quantity(PRODUCT));
+        assertEquals(4, apiStock.version(PRODUCT));
+        assertEquals("published", rows.get(PRODUCT).status());
+    }
+
+    @Tag("TC-415")
+    @Test
+    void aKeyPoolProductAndAStaleEventCreateNoStockRow() {
+        service.apply(event("product.created", data("key_pool", "draft", 2)));
+        assertTrue(apiStock.rows.isEmpty(), "у товара с пулом остатка по API нет");
+        HandleResult stale = service.apply(event("product.updated", data("seller_api", "draft", 1)));
+        assertFalse(stale.applied());
+        assertTrue(apiStock.rows.isEmpty(), "устаревшее событие строку не создаёт");
+        assertEquals("key_pool", rows.get(PRODUCT).issuanceMethod());
+    }
+
+    @Test
+    void theCopyKnowsWhoOwnsItAndWhenItAcceptsKeysOrApiStock() {
+        ProductCopy api = new ProductCopy(PRODUCT, SELLER, "seller_api", "published", 1);
+        assertTrue(api.sellerApi());
+        assertFalse(api.keyPool());
+        assertTrue(api.acceptsApiStock());
+        for (String status : new String[] {"draft", "on_moderation", "rejected"}) {
+            assertTrue(new ProductCopy(PRODUCT, SELLER, "seller_api", status, 1).acceptsApiStock(), status);
+        }
+        assertFalse(new ProductCopy(PRODUCT, SELLER, "seller_api", "blocked", 1).acceptsApiStock());
+        assertFalse(new ProductCopy(PRODUCT, SELLER, "seller_api", "archived", 1).acceptsApiStock());
+        ProductCopy pool = new ProductCopy(PRODUCT, SELLER, "key_pool", "published", 1);
+        assertFalse(pool.sellerApi());
+        assertTrue(pool.keyPool());
+        assertFalse(pool.acceptsApiStock(), "товару с пулом остаток по API не задают");
     }
 
     @Test

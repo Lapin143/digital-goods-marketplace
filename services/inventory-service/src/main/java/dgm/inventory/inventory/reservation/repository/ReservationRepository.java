@@ -47,6 +47,14 @@ public interface ReservationRepository {
      */
     Optional<Reservation> markUsed(UUID id, Instant at);
 
+    /**
+     * Снимает использованный резерв товара по API при отмене заказа (SM-08/T5, Р-192): {@code UPDATE … SET status = 'released', release_reason = ?
+     * WHERE id = ? AND status = 'used' RETURNING …}. Триггер базы допускает переход только для товара по API и пока ключ не выдан.
+     *
+     * @return снятый резерв; пусто, если он уже не использован
+     */
+    Optional<Reservation> releaseUsed(UUID id, String reason, Instant at);
+
     /** Идентификаторы активных резервов, срок которых вышел не позже {@code dueBefore}, по возрастанию срока (сверка). */
     List<UUID> overdue(Instant dueBefore, int limit);
 

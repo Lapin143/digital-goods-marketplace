@@ -12,6 +12,8 @@ import dgm.inventory.inventory.registry.ProductCopy;
 import dgm.inventory.inventory.registry.ProductCopyRepository;
 import dgm.inventory.inventory.service.InventoryTransaction;
 import dgm.inventory.inventory.service.StockPublisher;
+import dgm.inventory.inventory.stock.domain.ApiStock;
+import dgm.inventory.inventory.stock.repository.ApiStockRepository;
 import dgm.kit.id.Uuids;
 import dgm.kit.problem.ProblemException;
 import dgm.kit.problem.ProblemType;
@@ -44,6 +46,7 @@ public final class KeyPoolService {
 
     private final ProductCopyRepository products;
     private final KeyRepository keys;
+    private final ApiStockRepository apiStock;
     private final DataKeys dataKeys;
     private final KeyCipher cipher;
     private final KeyHasher hasher;
@@ -51,10 +54,11 @@ public final class KeyPoolService {
     private final StockPublisher stockEvents;
     private final Clock clock;
 
-    public KeyPoolService(ProductCopyRepository products, KeyRepository keys, DataKeys dataKeys, KeyCipher cipher, KeyHasher hasher,
-                          InventoryTransaction transaction, StockPublisher stockEvents, Clock clock) {
+    public KeyPoolService(ProductCopyRepository products, KeyRepository keys, ApiStockRepository apiStock, DataKeys dataKeys, KeyCipher cipher,
+                          KeyHasher hasher, InventoryTransaction transaction, StockPublisher stockEvents, Clock clock) {
         this.products = products;
         this.keys = keys;
+        this.apiStock = apiStock;
         this.dataKeys = dataKeys;
         this.cipher = cipher;
         this.hasher = hasher;
@@ -67,9 +71,14 @@ public final class KeyPoolService {
     public UploadReport upload(UUID sellerId, UUID productId, List<String> lines) {
         return transaction.execute(() -> {
             ProductCopy product = products.lock(productId).filter(p -> p.ownedBy(sellerId)).orElseThrow(KeyPoolService::notFound);
+            if (!product.keyPool()) {
+                // У товара с выдачей по API пула нет: ключ платформа запрашивает у продавца после оплаты (Р-184, U22)
+                throw new ProblemException(ProblemType.ISSUANCE_METHOD_MISMATCH,
+                        "Ключи загружаются только в товар со способом выдачи «пул»; у товара «по API» остаток задаёт продавец.");
+            }
             if (!product.acceptsKeys()) {
                 throw new ProblemException(ProblemType.STATE_CONFLICT,
-                        "Ключи можно загружать только в товар со способом выдачи «пул» не в статусе «заблокирован» и «архив».",
+                        "Ключи можно загружать только в товар не в статусе «заблокирован» и «архив».",
                         Map.of("currentStatus", product.status()), Map.of());
             }
             KeyBatch.Prepared prepared = KeyBatch.prepare(productId, lines, hasher);
@@ -110,12 +119,21 @@ public final class KeyPoolService {
         });
     }
 
-    /** Остаток своего товара: свободные, зарезервированные и выданные ключи (US-4.5). */
+    /**
+     * Остаток своего товара (US-4.5, US-4.7). У товара с пулом это свободные, зарезервированные и выданные ключи. У товара с выдачей по API
+     * пула нет: {@code available} это остаток по API, {@code reserved} число единиц в активных резервах, {@code issued} число единиц в
+     * использованных (оплачены, ключ запрашивается у продавца), а версия записи нужна для {@code If-Match} в {@code setApiStock}.
+     */
     public StockInfo stock(UUID sellerId, UUID productId) {
-        products.find(productId).filter(p -> p.ownedBy(sellerId)).orElseThrow(KeyPoolService::notFound);
+        ProductCopy product = products.find(productId).filter(p -> p.ownedBy(sellerId)).orElseThrow(KeyPoolService::notFound);
+        if (product.sellerApi()) {
+            ApiStock current = apiStock.find(productId).orElseGet(() -> new ApiStock(productId, 0, 1, clock.instant()));
+            return StockInfo.api(productId, current.quantity(), apiStock.activeUnits(productId), apiStock.usedUnits(productId), current.version(),
+                    current.updatedAt());
+        }
         Map<String, Integer> counts = keys.countByStatus(productId);
         return new StockInfo(productId, counts.getOrDefault("free", 0), counts.getOrDefault("reserved", 0), counts.getOrDefault("issued", 0),
-                KeyBatch.POOL_LIMIT, clock.instant());
+                KeyBatch.POOL_LIMIT, clock.instant(), null, null);
     }
 
     private static int poolSize(Map<String, Integer> counts) {
