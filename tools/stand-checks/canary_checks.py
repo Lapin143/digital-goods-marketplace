@@ -45,11 +45,11 @@ STOREFRONT = '/api/v1/products'
 # поэтому группа catalog-service и её смещения не затрагиваются; смещения не сохраняются.
 KAFKA_TOPIC = r"""
 D=/tmp/c; mkdir -p $D
-cat /s/tls_catalog-service.key /s/tls_catalog-service.crt > $D/ks.pem
+cat /s/tls_@PRINCIPAL@.key /s/tls_@PRINCIPAL@.crt > $D/ks.pem
 printf 'security.protocol=SSL\nssl.truststore.type=PEM\nssl.truststore.location=/s/tls_ca.crt\nssl.keystore.type=PEM\nssl.keystore.location=%s\ndefault.api.timeout.ms=15000\nrequest.timeout.ms=10000\n' $D/ks.pem > $D/c.properties
 export KAFKA_HEAP_OPTS=-Xmx128m LOG_DIR=/tmp/l
-for p in 0 1 2; do
-  /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:9093 --consumer.config $D/c.properties --topic inventory.events \
+for p in @PARTITIONS@; do
+  /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:9093 --consumer.config $D/c.properties --topic @TOPIC@ \
     --partition $p --offset earliest --timeout-ms 8000 --consumer-property enable.auto.commit=false \
     --property print.key=true --property print.headers=true --property print.partition=true
 done
@@ -89,12 +89,15 @@ def compose_logs():
     return r.stdout + r.stderr
 
 
-def kafka_events():
+def kafka_events(topic='inventory.events', principal='catalog-service', partitions='0 1 2'):
+    """Тема целиком: читает principal по своим ACL (infra/kafka/topics.sh), разделы перечислены через пробел. По умолчанию inventory.events
+    (шаг 15 Ф4); шаг 7 Ф5 читает так же catalog.events и audit.events (seller_api_checks.py)."""
     out = sh(G.COMPOSE + ['config', '--images']).stdout
     image = next((l for l in out.split() if l.startswith('apache/kafka:')), None)
     if not image:
         return None, 'образ Kafka не найден в compose.yaml'
-    cmd = ['docker', 'run', '--rm', '--network', 'dgm_data', '-v', '%s:/s:ro' % os.path.abspath(G.SECRETS), '--entrypoint', 'bash', '-u', '0:0', image, '-c', KAFKA_TOPIC]
+    cmd = ['docker', 'run', '--rm', '--network', 'dgm_data', '-v', '%s:/s:ro' % os.path.abspath(G.SECRETS), '--entrypoint', 'bash', '-u', '0:0', image, '-c',
+           KAFKA_TOPIC.replace('@PRINCIPAL@', principal).replace('@PARTITIONS@', partitions).replace('@TOPIC@', topic)]
     r = sh(cmd, timeout=240)
     return r.stdout, (r.stderr or '')[-300:]
 
@@ -118,8 +121,8 @@ def copy_state(product_id):
     return parts[0], int(parts[1])
 
 
-def database_dump():
-    r = sh(G.COMPOSE + ['exec', '-T', 'postgres', 'pg_dump', '-U', 'postgres', '-d', 'inventory_db', '--column-inserts', '--no-owner'], timeout=240)
+def database_dump(database='inventory_db'):
+    r = sh(G.COMPOSE + ['exec', '-T', 'postgres', 'pg_dump', '-U', 'postgres', '-d', database, '--column-inserts', '--no-owner'], timeout=240)
     return r.stdout, (r.stderr or '')[-300:]
 
 

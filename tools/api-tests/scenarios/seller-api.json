@@ -1,0 +1,388 @@
+{
+  "id": "SAPI-01",
+  "title": "API-ключ продавца и подключение системы продавца: ключ не открывает операции кабинета, неизвестный и испорченный ключ получают один отказ, роли без права получают 403 (TC-950, TC-955, TC-958; ST-02)",
+  "steps": [
+    {
+      "name": "TC-955. Ключ на операции кабинета, выпуск ключа: 401 (у операции нет схемы sellerApiKey, F5-1), значения ключа в ответе нет",
+      "op": "createApiKey",
+      "as": "guest",
+      "expect": 401,
+      "body": {
+        "name": "Склад"
+      },
+      "headers": {
+        "X-Api-Key": "{{unknownKey}}"
+      },
+      "set": {
+        "unknownKey": "dgm_NewmanSellerApiKeyDoesNotExist0000000000"
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        },
+        {
+          "bodyNotContains": "dgm_NewmanSellerApiKeyDoesNotExist0000000000"
+        }
+      ]
+    },
+    {
+      "name": "TC-955. Ключ на операции кабинета, список ключей: 401 (у операции нет схемы sellerApiKey, F5-1), значения ключа в ответе нет",
+      "op": "listApiKeys",
+      "as": "guest",
+      "expect": 401,
+      "headers": {
+        "X-Api-Key": "{{unknownKey}}"
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        },
+        {
+          "bodyNotContains": "dgm_NewmanSellerApiKeyDoesNotExist0000000000"
+        }
+      ]
+    },
+    {
+      "name": "TC-955. Ключ на операции кабинета, отзыв ключа: 401 (у операции нет схемы sellerApiKey, F5-1), значения ключа в ответе нет",
+      "op": "revokeApiKey",
+      "as": "guest",
+      "expect": 401,
+      "path": {
+        "apiKeyId": "00000000-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "X-Api-Key": "{{unknownKey}}"
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        },
+        {
+          "bodyNotContains": "dgm_NewmanSellerApiKeyDoesNotExist0000000000"
+        }
+      ]
+    },
+    {
+      "name": "TC-955. Ключ на операции кабинета, чтение подключения: 401 (у операции нет схемы sellerApiKey, F5-1), значения ключа в ответе нет",
+      "op": "getSellerIntegration",
+      "as": "guest",
+      "expect": 401,
+      "headers": {
+        "X-Api-Key": "{{unknownKey}}"
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        },
+        {
+          "bodyNotContains": "dgm_NewmanSellerApiKeyDoesNotExist0000000000"
+        }
+      ]
+    },
+    {
+      "name": "TC-955. Ключ на операции кабинета, сохранение подключения: 401 (у операции нет схемы sellerApiKey, F5-1), значения ключа в ответе нет",
+      "op": "setSellerIntegration",
+      "as": "guest",
+      "expect": 401,
+      "headers": {
+        "X-Api-Key": "{{unknownKey}}",
+        "If-Match": "\"0\""
+      },
+      "body": {
+        "endpointUrl": "https://seller.example/dgm"
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        },
+        {
+          "bodyNotContains": "dgm_NewmanSellerApiKeyDoesNotExist0000000000"
+        }
+      ]
+    },
+    {
+      "name": "TC-955. Ключ на операции кабинета, смена секрета подписи: 401 (у операции нет схемы sellerApiKey, F5-1), значения ключа в ответе нет",
+      "op": "rotateSellerIntegrationSecret",
+      "as": "guest",
+      "expect": 401,
+      "headers": {
+        "X-Api-Key": "{{unknownKey}}"
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        },
+        {
+          "bodyNotContains": "dgm_NewmanSellerApiKeyDoesNotExist0000000000"
+        }
+      ]
+    },
+    {
+      "name": "TC-955. Неизвестный ключ, остаток товара: 401, значения ключа в ответе нет",
+      "op": "getProductStock",
+      "as": "guest",
+      "expect": 401,
+      "path": {
+        "productId": "00000000-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "X-Api-Key": "{{unknownKey}}"
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        },
+        {
+          "bodyNotContains": "dgm_NewmanSellerApiKeyDoesNotExist0000000000"
+        }
+      ]
+    },
+    {
+      "name": "TC-955. Неизвестный ключ, загрузка ключей: 401, значения ключа и загруженного в ответе нет",
+      "op": "uploadKeyBatch",
+      "as": "guest",
+      "expect": 401,
+      "path": {
+        "productId": "00000000-0000-4000-8000-000000000000"
+      },
+      "body": {
+        "keys": [
+          "NEWMAN-SAPI-1"
+        ]
+      },
+      "headers": {
+        "X-Api-Key": "{{unknownKey}}"
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        },
+        {
+          "bodyNotContains": "dgm_NewmanSellerApiKeyDoesNotExist0000000000"
+        },
+        {
+          "bodyNotContains": "NEWMAN-SAPI-1"
+        }
+      ]
+    },
+    {
+      "name": "TC-955. Неизвестный ключ, карточка товара: 401, значения ключа в ответе нет",
+      "op": "getSellerProduct",
+      "as": "guest",
+      "expect": 401,
+      "path": {
+        "productId": "00000000-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "X-Api-Key": "{{unknownKey}}"
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        },
+        {
+          "bodyNotContains": "dgm_NewmanSellerApiKeyDoesNotExist0000000000"
+        }
+      ]
+    },
+    {
+      "name": "TC-955. Неизвестный ключ, список товаров: 401, значения ключа в ответе нет",
+      "op": "listSellerProducts",
+      "as": "guest",
+      "expect": 401,
+      "headers": {
+        "X-Api-Key": "{{unknownKey}}"
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        },
+        {
+          "bodyNotContains": "dgm_NewmanSellerApiKeyDoesNotExist0000000000"
+        }
+      ]
+    },
+    {
+      "name": "TC-955. Испорченный ключ (короткий): 401",
+      "op": "getProductStock",
+      "as": "guest",
+      "expect": 401,
+      "path": {
+        "productId": "00000000-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "X-Api-Key": "dgm_short"
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    },
+    {
+      "name": "TC-955. Токен вместе с ключом: 400, шлюз не угадывает, кто вызывает",
+      "op": "getProductStock",
+      "as": "seller",
+      "expect": 400,
+      "path": {
+        "productId": "00000000-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "X-Api-Key": "{{unknownKey}}"
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        },
+        {
+          "bodyNotContains": "dgm_NewmanSellerApiKeyDoesNotExist0000000000"
+        }
+      ]
+    },
+    {
+      "name": "TC-958. Подменённые X-Seller-Id и X-Auth-Kind без ключа и токена: 401, личностью не становятся",
+      "op": "getProductStock",
+      "as": "guest",
+      "expect": 401,
+      "path": {
+        "productId": "00000000-0000-4000-8000-000000000000"
+      },
+      "headers": {
+        "X-Seller-Id": "0199e0a0-0000-7000-8000-0000000000a9",
+        "X-Auth-Kind": "api-key"
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    },
+    {
+      "name": "TC-950. Покупатель, операция createApiKey: 403",
+      "op": "createApiKey",
+      "as": "buyer",
+      "expect": 403,
+      "body": {
+        "name": "Склад"
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    },
+    {
+      "name": "TC-950. Продавец без профиля, операция createApiKey: 403",
+      "op": "createApiKey",
+      "as": "seller",
+      "expect": 403,
+      "body": {
+        "name": "Склад"
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    },
+    {
+      "name": "TC-950. Оператор поддержки, операция listApiKeys: 403",
+      "op": "listApiKeys",
+      "as": "support-operator",
+      "expect": 403,
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    },
+    {
+      "name": "TC-950. Модератор, операция revokeApiKey: 403",
+      "op": "revokeApiKey",
+      "as": "moderator",
+      "expect": 403,
+      "path": {
+        "apiKeyId": "00000000-0000-4000-8000-000000000000"
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    },
+    {
+      "name": "TC-950. Администратор, операция getSellerIntegration: 403",
+      "op": "getSellerIntegration",
+      "as": "admin",
+      "expect": 403,
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    },
+    {
+      "name": "TC-950. Покупатель, операция setSellerIntegration: 403",
+      "op": "setSellerIntegration",
+      "as": "buyer",
+      "expect": 403,
+      "headers": {
+        "If-Match": "\"0\""
+      },
+      "body": {
+        "endpointUrl": "https://seller.example/dgm"
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    },
+    {
+      "name": "TC-950. Оператор поддержки, операция rotateSellerIntegrationSecret: 403",
+      "op": "rotateSellerIntegrationSecret",
+      "as": "support-operator",
+      "expect": 403,
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    },
+    {
+      "name": "TC-950. Гость, операция createApiKey: 401",
+      "op": "createApiKey",
+      "as": "guest",
+      "expect": 401,
+      "body": {
+        "name": "Склад"
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    }
+  ]
+}

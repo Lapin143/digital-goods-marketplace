@@ -45,6 +45,10 @@ VER = os.path.join(L.OPS_DIR, 'versions.md')
 
 R1_PROFILES = ['infra', 'stubs', 'auth', 'gateway', 'purchase', 'sellers', 'platform', 'storage']
 FAST_TIME = r'\$\{DGM_FAST_TIME:\+,?fast-time\}'   # единственная допустимая запись профиля fast-time в окружении сервиса
+# Стендовый список имён, освобождённых от проверки внутренних адресов у адреса системы продавца (ADR-028, правило 7): одна допустимая запись,
+# и только у сервисов, которые принимают адрес (catalog-service) или вызывают его (delivery-service)
+SELLER_ENDPOINT_ALLOW = '${DGM_SELLER_ENDPOINT_ALLOW-external-stubs:8443}'
+SELLER_ENDPOINT_SERVICES = {'catalog-service', 'delivery-service'}
 FAST_TIME_SERVICES = {'inventory-service', 'order-service', 'payment-service', 'delivery-service'}   # профиль включается ими (Р-147)
 ONE_SHOT = {'kafka-init', 'storage-init'}     # завершаются сами, проверки готовности нет
 # Образы без оболочки и wget (distroless): проверку готовности Docker задать нечем, готовность проверяет make obs-check по /ready
@@ -324,6 +328,14 @@ def main():
             rep.err(w, 'профиль fast-time записан в SPRING_PROFILES_ACTIVE напрямую («%s»): он включается только через ${DGM_FAST_TIME:+fast-time}, иначе попадёт на сервер' % profiles_env)
         if alias in FAST_TIME_SERVICES and not re.search(FAST_TIME, profiles_env):
             rep.err(w, 'нет ${DGM_FAST_TIME:+fast-time} в SPRING_PROFILES_ACTIVE: сервис с application-fast-time.yml обязан включать профиль переменной (Р-147)')
+        # список разрешённых имён адреса системы продавца: одна запись, только у своих сервисов, у каталога обязательна (стенд без неё не подключит заглушку)
+        allow = env.get('DGM_SELLER_ENDPOINT_ALLOW')
+        if allow is not None and alias not in SELLER_ENDPOINT_SERVICES:
+            rep.err(w, 'DGM_SELLER_ENDPOINT_ALLOW задана у сервиса, который адрес системы продавца не принимает и не вызывает (ADR-028, правило 7)')
+        elif allow is not None and str(allow) != SELLER_ENDPOINT_ALLOW:
+            rep.err(w, 'DGM_SELLER_ENDPOINT_ALLOW должна быть записана как «%s» (имя и порт заглушки, на сервере переменная пустая), а не «%s» (ADR-028, правило 7)' % (SELLER_ENDPOINT_ALLOW, allow))
+        if alias == 'catalog-service' and allow is None:
+            rep.err(w, 'нет DGM_SELLER_ENDPOINT_ALLOW: стенд не сможет подключить заглушку системы продавца (ADR-028, правило 7)')
         if alias in JAVA_SERVICES:
             fast_file = os.path.join(L.REPO, 'services', alias, 'src', 'main', 'resources', 'application-fast-time.yml')
             if re.search(FAST_TIME, profiles_env) and not os.path.exists(fast_file):
@@ -470,6 +482,8 @@ def main():
         for line in L.read(env_example).split('\n'):
             if 'DGM_FAST_TIME' in line and not line.lstrip().startswith('#'):
                 rep.err('.env.example', 'образец настроек задаёт DGM_FAST_TIME: ускоренные сроки не должны попасть на сервер (Р-147)')
+            if re.match(r'\s*DGM_SELLER_ENDPOINT_ALLOW\s*=\s*\S', line):
+                rep.err('.env.example', 'образец настроек задаёт непустой DGM_SELLER_ENDPOINT_ALLOW: на сервере защита адреса системы продавца действует без исключений (ADR-028, правило 7)')
     wf_dir = os.path.join(L.REPO, '.github', 'workflows')
     for name in sorted(os.listdir(wf_dir)) if os.path.isdir(wf_dir) else []:
         if not name.endswith(('.yml', '.yaml')):

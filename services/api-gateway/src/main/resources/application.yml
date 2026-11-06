@@ -65,7 +65,7 @@ dgm:
     response-timeout: 15s
     limiter-timeout: 200ms
     # API-ключ продавца (ADR-027): сколько секунд шлюз помнит, что ключ действителен (отзыв действует не позже этого срока), сколько помнит
-    # отказ (не больше первого срока) и сколько ждёт checkApiKey у catalog-service. На стенде CI срок памяти 2 секунды
+    # отказ (не больше первого срока) и сколько ждёт checkApiKey у catalog-service. Стенд срок не сокращает: проверка отзыва (seller_api_checks.py) идёт на настоящих 30 секундах
     api-key-cache-seconds: 30
     api-key-negative-cache-seconds: 5
     api-key-check-timeout: 2s

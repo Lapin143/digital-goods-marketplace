@@ -373,6 +373,10 @@ services:
       DGM_STORAGE_PUBLIC_BASE_URL: ${DGM_PUBLIC_ORIGIN:-https://localhost:8443}/files
       # Тестовые данные ходячего скелета (миграции db/testdata). На сервере переменная пустая: DGM_SPRING_PROFILES=
       SPRING_PROFILES_ACTIVE: ${DGM_SPRING_PROFILES-testdata}
+      # Подключение системы продавца (ADR-028, правило 7): защита адреса от SSRF отвергает внутренние адреса, а заглушка системы продавца живёт во
+      # внутренней сети стенда. Имя и порт заглушки освобождены только от проверки диапазонов адресов (https, порт и остальные правила действуют).
+      # Настоящий сервер без заглушек задаёт пустое значение: DGM_SELLER_ENDPOINT_ALLOW=
+      DGM_SELLER_ENDPOINT_ALLOW: ${DGM_SELLER_ENDPOINT_ALLOW-external-stubs:8443}
       # Куча 224 МБ из лимита 384 МБ: с клиентом Redis и обработчиком событий пик в CI вырос до 322 МБ (92% от 352 МБ), memory-budget.md
       JAVA_TOOL_OPTIONS: -Xmx224m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED
     tmpfs:

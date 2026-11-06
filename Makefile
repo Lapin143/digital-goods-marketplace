@@ -212,6 +212,10 @@ sellers-check: ## Проверить заявку продавца сквозь 
 seller-approval-check: ## Проверить решения модератора и роль продавца сквозь стенд: отказ и пауза, доработка, одобрение, роль и TOTP в Keycloak, токен с seller_id, запрет кабинета без второго фактора, роль вручную не назначается, товар от заявки до витрины (К2: модерация, кэш, поиск), загрузка ключей и канарейка ST-01 (журналы, тема inventory.events, дамп базы) (набор full, DEBUG=1, make keycloak-users)
 	$(KC_ENV) python3 tools/stand-checks/seller_approval_checks.py
 
+.PHONY: seller-api-check
+seller-api-check: ## Проверить API-ключи продавца и шлюз сквозь стенд: выпуск, вызов по ключу, чужое, лимиты 6 в час и 600 в минуту, отзыв, подключение адреса и секрет, канарейка (набор full, DEBUG=1, make keycloak-users; ~6 минут)
+	$(KC_ENV) python3 tools/stand-checks/seller_api_checks.py
+
 .PHONY: orders-check
 orders-check: ## Проверить заказ и оплату сквозь стенд (К5): оформление через шлюз, платёжная сессия, повтор с тем же ключом, оплата на странице заглушки, нехватка ключей, телефон не подтверждён, шлюз не открыл сессию, отказ и истечение сессии (набор full с ускоренными сроками: make fast-up DEBUG=1, make keycloak-users)
 	$(KC_ENV) python3 tools/stand-checks/orders_checks.py

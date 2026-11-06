@@ -50,9 +50,9 @@
 | Уровень | L3 |
 | Тип | API |
 | Приоритет | Высокий |
-| Автоматизация | JUnit; JUnit на стенде |
+| Автоматизация | JUnit; JUnit на стенде; Newman; Python на стенде |
 | Тег в коде | TC-950 |
-| Где в коде | `libs/service-kit/src/test/java/dgm/kit/idempotency/IdempotencyFilterTest.java`, `libs/service-kit/src/test/java/dgm/kit/outbox/AuditRecordsTest.java`, `services/catalog-service/src/test/java/dgm/catalog/ApiKeyIT.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/controller/ApiKeyControllerTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/domain/ApiKeyTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/domain/ApiKeyValuesTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/service/ApiKeyServiceTest.java` |
+| Где в коде | `libs/service-kit/src/test/java/dgm/kit/idempotency/IdempotencyFilterTest.java`, `libs/service-kit/src/test/java/dgm/kit/outbox/AuditRecordsTest.java`, `services/catalog-service/src/test/java/dgm/catalog/ApiKeyIT.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/controller/ApiKeyControllerTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/domain/ApiKeyTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/domain/ApiKeyValuesTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/service/ApiKeyServiceTest.java`, `tools/stand-checks/seller_api_checks.py`, `tools/api-tests/scenarios/seller-api.json` |
 
 **Предусловия.** Продавец одобрен (профиль `approved`), токен с областью `seller.catalog`, ролью `seller`, вторым фактором (`amr` содержит `otp`) и claim `seller_id`. Запрос идёт с `Idempotency-Key`. Источник случайных байт в модульных тестах подставной, на стенде настоящий `SecureRandom`.
 
@@ -67,6 +67,8 @@
 
 **Ожидаемый результат.** Шаг 1: `201`, `Cache-Control: no-store`, `Location` указывает на `/api/v1/seller/api-keys`; тело состоит из `apiKey`, `value` и `shownOnce: true`; `value` имеет вид `dgm_` и 40 знаков, отпечаток в `apiKey` равен первым восьми знакам после префикса, статус `active`, `revokedAt` пуст; в таблице одна строка, `key_hash` равен SHA-256 значения и занимает ровно 32 байта; столбцы таблицы это `id`, `seller_id`, `name`, `key_hash`, `fingerprint`, `status`, `created_at`, `revoked_at`, столбца со значением нет (INV-41). Шаг 2: `201` с заголовком `Idempotency-Replayed: true`, в теле только `apiKey` и `shownOnce` (значения нет, Р-198), тот же ключ, вторая строка не создана, событие `api-key.issued` одно. Шаг 3: событие `api-key.issued` содержит только `apiKeyId` и `sellerId`; запись аудита: действие `seller.api_key_issued`, роль `seller`, исполнитель это пользователь, объект `api-key` с идентификатором ключа, пустой `actorIp`, изменения «статус: пусто → active» и «отпечаток: пусто → отпечаток»; ни имени, ни хеша, ни значения в них нет. Шаг 4: список идёт от новых к старым, значений ключей в нём нет, курсор из `page.nextCursor` даёт следующую страницу без повторов, на последней странице `nextCursor` пуст. Шаг 5 и 6: значения и хеши ведут себя по описанию, подмена тела выдаётся только повтору.
 
+**На стенде** (`make seller-api-check`). Два одобренных продавца с TOTP; ключ выпущен токеном кабинета. Значение (`dgm_` и 40 знаков) есть в ответе ровно один раз, отпечаток равен первым восьми знакам после префикса; повтор по тому же `Idempotency-Key` даёт `Idempotency-Replayed: true`, тот же `id` и ни значения, ни поля `value`; список ключей не содержит ни значения, ни его части. Через Newman (`seller-api.json`): покупатель, продавец без профиля, оператор поддержки, модератор, администратор и гость на операциях ключа и подключения получают `403` или `401`.
+
 ### TC-951. Отзыв ключа: статус «отозван», повтор отзыва ничего не меняет, чужой и несуществующий ключ неотличимы, шлюз перестаёт принимать ключ
 
 | Поле | Содержание |
@@ -77,9 +79,9 @@
 | Уровень | L3 |
 | Тип | API |
 | Приоритет | Высокий |
-| Автоматизация | JUnit; JUnit на стенде |
+| Автоматизация | JUnit; JUnit на стенде; Python на стенде |
 | Тег в коде | TC-951 |
-| Где в коде | `services/catalog-service/src/test/java/dgm/catalog/ApiKeyIT.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/controller/ApiKeyControllerTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/domain/ApiKeyTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/service/ApiKeyServiceTest.java` |
+| Где в коде | `services/catalog-service/src/test/java/dgm/catalog/ApiKeyIT.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/controller/ApiKeyControllerTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/domain/ApiKeyTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/service/ApiKeyServiceTest.java`, `tools/stand-checks/seller_api_checks.py` |
 
 **Предусловия.** Два одобренных продавца. У первого выпущен ключ, его значение известно тесту. Вызов проверки идёт с сертификатом `api-gateway`.
 
@@ -94,6 +96,8 @@
 7. Модульно: отзыв необратим и сохраняет остальные поля, повторный отзыв возвращает то же состояние и прежнюю дату, статусы и их коды, блокировка строки ключа при отзыве, проверка несёт статус профиля продавца, заблокированный продавец не отзывает ключи через кабинет.
 
 **Ожидаемый результат.** Шаг 1: `200`, `valid: true`, `apiKeyId`, `sellerId` и `sellerStatus: approved`. Шаг 2: отзыв отвечает `200`, статус `revoked`, `revokedAt` заполнен; в таблице статус `revoked` и `revoked_at` не пуст; повторная проверка отвечает `valid: false`, а `apiKeyId`, `sellerId` и `sellerStatus` равны `null`. Шаг 3: `200`, `revokedAt` прежний. Шаг 4: событие `api-key.revoked` одно, записей аудита две (`seller.api_key_issued`, `seller.api_key_revoked`; у второй изменение «статус: active → revoked»); фильтры дают ровно этот ключ в отозванных и пустой список действующих. Шаг 5: во всех трёх случаях `404 not-found`, один и тот же текст; ключ остаётся `active`, события отзыва нет, в списке второго продавца чужого ключа нет. Шаг 6: неизвестный и отозванный ключ дают один и тот же ответ без причины (`valid: false`); чужой сервис получает `403`, тело не того вида `422 validation-failed`, хеш в тексте ошибки не повторяется. Шаг 7: поведение по описанию.
+
+**На стенде** (`make seller-api-check`). Отзыв: `200`, статус `revoked`, `revokedAt`, значения нет; повторный отзыв даёт ту же дату; чужой идентификатор ключа и несуществующий неразличимы (`404` и один и тот же ответ), а чужой ключ продолжает работать; список со статусом `revoked` содержит ключ.
 
 ### TC-952. Предел пяти ключей: шестой при гонке получает 409, отзыв освобождает место; неодобренный продавец, токен без области или без второго фактора и сам ключ ключей выпускать не могут
 
@@ -132,9 +136,9 @@
 | Уровень | L7 |
 | Тип | безопасность |
 | Приоритет | Высокий |
-| Автоматизация | JUnit; JUnit на стенде |
+| Автоматизация | JUnit; JUnit на стенде; Python на стенде |
 | Тег в коде | TC-953 |
-| Где в коде | `libs/service-kit/src/test/java/dgm/kit/log/RedactionTest.java`, `services/catalog-service/src/test/java/dgm/catalog/ApiKeyIT.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/controller/ApiKeyControllerTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/domain/ApiKeyTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/domain/ApiKeyValuesTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/service/ApiKeyServiceTest.java` |
+| Где в коде | `libs/service-kit/src/test/java/dgm/kit/log/RedactionTest.java`, `services/catalog-service/src/test/java/dgm/catalog/ApiKeyIT.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/controller/ApiKeyControllerTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/domain/ApiKeyTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/domain/ApiKeyValuesTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/apikey/service/ApiKeyServiceTest.java`, `tools/stand-checks/seller_api_checks.py` |
 
 **Предусловия.** Одобренный продавец. Уровни журнала сервиса на время теста подняты: `dgm` и `org.springframework.jdbc` TRACE, `org.springframework.web`, `org.springframework.security` и `org.springframework.transaction` DEBUG (журнал показывает значения параметров SQL); к корневому журналу подключён перехватчик событий.
 
@@ -148,6 +152,8 @@
 
 **Ожидаемый результат.** Шаг 2: значение и его часть не найдены нигде (ноль мест), хеш в телах событий не найден; контроль: ответ выпуска в таблице идемпотентности есть и содержит идентификатор ключа. Шаг 3: `422 validation-failed`, значение в ответе не повторено. Шаг 4: контроль: события журнала есть и среди них запись журнала доступа с идентификатором отзываемого ключа; значения и его части без префикса нет ни в одном событии. Шаг 5: ни одна из проверенных строк значения не содержит; печать `IssuedKey` скрывает значение; маска ведёт себя по описанию. Схема таблицы без столбца для значения проверена в TC-950, ограничения (`ck_api_key_key_hash`, `uq_api_key_key_hash`) проверяет `tools/docs-checks/check_datamodel.py` (INV-41).
 
+**На стенде** (`make seller-api-check`). Значения пяти ключей, оба секрета подписи и мастер-секрет ищутся (как есть, в hex и в Base64, обычном и для адресов) в ответах API (кроме трёх мест, где значение показано по замыслу), в журналах всех контейнеров, в темах `catalog.events` и `audit.events` и в дампе `catalog_db`; не находятся нигде. Контроли, без которых пустой результат ничего не доказывал бы: идентификатор запроса в журнале `inventory-service`, события выпуска и записи аудита в темах, у каждого ключа строка в дампе с SHA-256 значения (INV-41), таблица идемпотентности с телами ответов без значения.
+
 ### TC-954. Подключение системы продавца, адрес: сохранение по `If-Match`, секрет показывается один раз; `http`, `localhost`, частные и служебные адреса, имя, которое резолвится во внутренний адрес, учётные данные, фрагмент, чужой порт и слишком длинный адрес получают один и тот же ответ 422; неодобренный продавец это 403
 
 | Поле | Содержание |
@@ -158,9 +164,9 @@
 | Уровень | L7 |
 | Тип | безопасность |
 | Приоритет | Высокий |
-| Автоматизация | JUnit; JUnit на стенде |
+| Автоматизация | JUnit; JUnit на стенде; Python на стенде |
 | Тег в коде | TC-954 |
-| Где в коде | `services/catalog-service/src/test/java/dgm/catalog/IntegrationIT.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/integration/IntegrationConfigurationTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/integration/IntegrationRoutesTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/integration/controller/IntegrationControllerTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/integration/service/IntegrationServiceTest.java` |
+| Где в коде | `services/catalog-service/src/test/java/dgm/catalog/IntegrationIT.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/integration/IntegrationConfigurationTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/integration/IntegrationRoutesTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/integration/controller/IntegrationControllerTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/integration/service/IntegrationServiceTest.java`, `tools/stand-checks/seller_api_checks.py` |
 
 **Предусловия.** Одобренный продавец (профиль `approved`), токен с областью `seller.catalog`, ролью `seller`, вторым фактором и claim `seller_id`. Продавцы с профилем «черновик», «на проверке», «возвращена», «отклонена» и «заблокирован». В модульных тестах имена резолвятся подставным распознавателем (адреса задаёт тест: `loop.seller.example` это loopback, `internal.seller.example` частный адрес, `mixed.seller.example` один внешний и один внутренний, `metadata.seller.example` адрес метаданных облака, `unknown.seller.example` не резолвится), на стенде работает настоящий DNS, а стендовый список `dgm.seller-endpoint.allow=localhost` освобождает от проверки диапазонов только имя `localhost` (Р-179). Решение Р-187: адрес `https`, до 300 символов, без учётных данных и фрагмента, порт 443 или 8443, проверка адреса идёт до транзакции (имя не резолвится под блокировкой базы).
 
@@ -175,6 +181,8 @@
 
 **Ожидаемый результат.** Шаг 1: до сохранения `200`, `ETag: "0"`, `endpointUrl` пуст, версия 0, строк в таблице нет; сохранение отвечает `200` с `Cache-Control: no-store`, `ETag: "1"` и телом из двух полей, `integration` и `secret` (64 знака, строчные шестнадцатеричные); в таблице одна строка, адрес как отправлен, версия секрета 1, версия записи 1, статус `active`; столбцы таблицы это `seller_id`, `endpoint_url`, `secret_version`, `status`, `version`, `created_at`, `updated_at`, столбца для секрета нет; повторное чтение секрета не содержит. Шаг 2: во всех случаях `422 endpoint-not-allowed`, текст `detail` один и тот же и не повторяет адрес (по ответу нельзя понять, какой признак сработал), в таблице ничего не появилось, записи аудита нет. Шаг 3: `422 validation-failed` с указанием поля (`/endpointUrl`: `required`, `invalid_format`, `too_long`; `/status`: `unknown_value`, `invalid_format`; `/secret`: `unknown_value`): адрес длиннее 2048 знаков это ошибка проверки формы, а адрес от 301 до 2048 знаков уже отказ шага 2; тело не JSON и массив `400`, другой или пустой `Content-Type` `415`; пробелы по краям адреса отбрасываются до проверки; в таблице ничего. Шаг 4: без `If-Match` `428`, версия не того вида `400`, старая версия и повтор первого сохранения `412 version-conflict` (второй строки и второго показа секрета нет); сохранение с актуальной версией даёт `200`, новый `ETag` (`"2"`) и тело без секрета; тот же адрес и статус с актуальной версией ничего не меняют, версия прежняя и записи аудита нет; подключение можно отключить и снова включить, секрет при этом не показывается. Шаг 5: `403 forbidden` на чтение, сохранение и смену у всех неодобренных, имя не резолвится (в модульном тесте распознаватель не вызван), строк в таблице нет; без токена `401`. Шаг 6: по описанию.
 
+**На стенде** (`make seller-api-check`). Адрес заглушки `https://external-stubs:8443/seller/…` сохраняется по `If-Match` (на стенде имя и порт заглушки внесены в `DGM_SELLER_ENDPOINT_ALLOW`, на сервере список пуст); без `If-Match` `428`, устаревшая версия `412`; девять запрещённых адресов (http, порт управления заглушки 8444, loopback по имени и по числу, служебный диапазон, внутреннее имя сети стенда, логин в адресе, фрагмент, имя, которое не находится) дают `422 endpoint-not-allowed` с одним текстом без адреса; прежнее подключение не меняется.
+
 ### TC-955. Шлюз, проверка ключа: действующий ключ одобренного продавца проходит, неизвестный и отозванный получают один ответ 401, значение чужого формата не доходит до соседей, ключ рядом с токеном это 400, продавец не «одобрен» это 403, каталог недоступен это 503
 
 | Поле | Содержание |
@@ -185,9 +193,9 @@
 | Уровень | L3 |
 | Тип | API |
 | Приоритет | Высокий |
-| Автоматизация | JUnit |
+| Автоматизация | JUnit; Newman; Python на стенде |
 | Тег в коде | TC-955 |
-| Где в коде | `services/api-gateway/src/test/java/dgm/gateway/ApiKeyVerifierTest.java`, `services/api-gateway/src/test/java/dgm/gateway/CatalogKeyCheckTest.java`, `services/api-gateway/src/test/java/dgm/gateway/EntryFilterApiKeyTest.java`, `services/api-gateway/src/test/java/dgm/gateway/GatewayProxyTest.java`, `services/api-gateway/src/test/java/dgm/gateway/RouteTableTest.java` |
+| Где в коде | `services/api-gateway/src/test/java/dgm/gateway/ApiKeyVerifierTest.java`, `services/api-gateway/src/test/java/dgm/gateway/CatalogKeyCheckTest.java`, `services/api-gateway/src/test/java/dgm/gateway/EntryFilterApiKeyTest.java`, `services/api-gateway/src/test/java/dgm/gateway/GatewayProxyTest.java`, `services/api-gateway/src/test/java/dgm/gateway/RouteTableTest.java`, `tools/stand-checks/seller_api_checks.py`, `tools/api-tests/scenarios/seller-api.json` |
 
 **Предусловия.** Настоящая таблица маршрутов шлюза (`dgm/gateway-routes.json`, создана из OpenAPI), настоящий `EntryFilter` и `ApiKeyVerifier`. Каталог и память шлюза подставные (`FakeCatalog`, `FakeKeyCache`), часы ручные; в `GatewayProxyTest` шлюз поднят целиком с Redis-подменой и подставными сервисами. Образцы значений ключа составлены из счётных байт и настоящих ключей не содержат; SHA-256 первого образца посчитан отдельно (`sha256sum`), а не кодом шлюза.
 
@@ -207,6 +215,8 @@
 
 **Ожидаемый результат.** Шаг 1: ключ проходит, сервис получает `X-Seller-Id` продавца и `X-Auth-Kind: api-key`, а `X-Api-Key` и `Authorization` ему не передаются; каталогу уходит SHA-256 (64 знака), а не значение; токен проходит без обращения к каталогу; запрос без заголовков `401 unauthenticated`. Шаг 2: ключ проходит, токен на таком маршруте `401 unauthenticated`, без заголовков `401`; каталог спрашивали один раз. Шаг 3: `401 unauthenticated`, каталог, память и счётчик лимита не затронуты (ключ там, где он не принимается, не проверяется). Шаг 4: во всех случаях `400 bad-request` до любой проверки, метрика `ambiguous_identity` растёт на каждый такой запрос. Шаг 5: `401 unauthenticated`, ни каталог, ни память, ни счётчик лимита не затронуты. Шаг 6: неизвестный и отозванный ключ получают один и тот же ответ (`401`, одинаковые `status`, `code`, `title`, `detail`, без `WWW-Authenticate`). Шаг 7: `403 forbidden`, метрика `seller_not_approved` растёт на каждый статус, лимит не тратится (решает шлюз, сервис статуса профиля не знает). Шаг 8: `503 dependency-unavailable` с `Retry-After: 5`, итог «не удалось проверить» в память не попадает; ответ каталога без продавца это тоже сбой проверки, а не отказ держателю ключа. Шаги 9 и 10: по описанию; неизвестный ключ и ключ с токеном до сервиса не доходят. Шаг 11: ни значения, ни его части без префикса нигде нет (память содержит хеш и идентификаторы).
 
+**На стенде** (`make seller-api-check`). По ключу работают остаток, карточка, список товаров и загрузка своего продавца; чужой товар по ключу, по токену и несуществующий товар дают один и тот же `404`; неизвестный, короткий, чужого вида и без префикса ключи дают один и тот же `401`; токен вместе с ключом `400`; шесть операций кабинета по ключу `401`, и следов нет (число ключей и подключение прежние). Через Newman (`seller-api.json`): то же для ключа, которого нет, на шести операциях кабинета и четырёх операциях с ключом.
+
 ### TC-956. Шлюз, память о проверенных ключах: тысяча запросов дают один вызов каталога, отзыв действует не позже срока памяти (30 секунд), отказ помнится 5 секунд, недоступные Redis и каталог не останавливают проверку
 
 | Поле | Содержание |
@@ -217,9 +227,9 @@
 | Уровень | L3 |
 | Тип | API |
 | Приоритет | Высокий |
-| Автоматизация | JUnit |
+| Автоматизация | JUnit; Python на стенде |
 | Тег в коде | TC-956 |
-| Где в коде | `services/api-gateway/src/test/java/dgm/gateway/ApiKeyVerifierTest.java`, `services/api-gateway/src/test/java/dgm/gateway/EntryFilterApiKeyTest.java`, `services/api-gateway/src/test/java/dgm/gateway/GatewayPropertiesTest.java`, `services/api-gateway/src/test/java/dgm/gateway/RedisApiKeyCacheTest.java` |
+| Где в коде | `services/api-gateway/src/test/java/dgm/gateway/ApiKeyVerifierTest.java`, `services/api-gateway/src/test/java/dgm/gateway/EntryFilterApiKeyTest.java`, `services/api-gateway/src/test/java/dgm/gateway/GatewayPropertiesTest.java`, `services/api-gateway/src/test/java/dgm/gateway/RedisApiKeyCacheTest.java`, `tools/stand-checks/seller_api_checks.py` |
 
 **Предусловия.** Как в TC-955. Сроки памяти по умолчанию: 30 секунд для действующего ключа и 5 секунд для отказа (настройки `dgm.gateway.api-key-cache-seconds` и `api-key-negative-cache-seconds`). Шлюз не подписан на события отзыва (ADR-027), поэтому граница срока и есть то, что обещает продукт: отозванный ключ перестаёт работать не позже срока памяти.
 
@@ -229,12 +239,14 @@
 2. Отозвать ключ, через 29 секунд отправить запрос, ещё через секунду отправить ещё один.
 3. Отправить запрос с неизвестным ключом, выпустить ключ, через 4 секунды отправить запрос, ещё через секунду отправить ещё один.
 4. Профиль продавца «заблокирован», затем «одобрен»: повторить запросы через 4 и 5 секунд.
-5. Стенд со сроком памяти 2 секунды (`api-key-cache-seconds: 2`): запрос, отзыв, ожидание 2 секунд, запрос.
+5. Модульно, срок памяти 2 секунды (`api-key-cache-seconds: 2`): запрос, отзыв, ожидание 2 секунд, запрос. На стенде срок настоящий (30 секунд): отзыв и опрос раз в секунду до `401`.
 6. Остановить каталог: запрос с ключом из памяти, запрос с новым ключом; подождать конец срока и повторить; вернуть каталог.
 7. Сделать недоступными чтение и запись памяти (Redis) и отправить два запроса подряд.
 8. Модульно: несколько запросов с одним новым значением ждут один ответ каталога, а после доставки ответ в памяти запроса не остаётся (следующая проверка спрашивает заново); сроки памяти берутся из настроек и не опускаются ниже секунды; запись в Redis хранит итог и идентификаторы ключа и продавца, но не значение; проверка, которая не удалась, не записывается; запись, которая не разбирается, это промах (решает каталог); записи лежат под префиксом `apikey:`, который разрешает пользователю `gateway` ACL Redis (`infra/redis/entrypoint.sh`).
 
-**Ожидаемый результат.** Шаг 1: все запросы проходят, каталог вызван один раз, срок записи 30 секунд. Шаг 2: через 29 секунд ключ ещё работает (каталог не спрашивали), через 30 секунд `401`, каталог вызван второй раз. Шаг 3: срок записи об отказе 5 секунд; через 4 секунды отказ из памяти, каталог не нагружается, через 5 секунд ключ проходит. Шаг 4: отказ по статусу помнится так же 5 секунд, на шестой секунде профиль «одобрен» принят. Шаг 5: через 2 секунды после отзыва `401`, отказ не помнится дольше успеха. Шаг 6: ключ из памяти проходит, новый ключ `503`; после конца срока и без каталога `503`; вернулся каталог: проверка работает. Шаг 7: оба запроса проходят, каталог вызван дважды, метрика сбоев памяти `get` и `put` растёт по числу обращений. Шаг 8: по описанию.
+**Ожидаемый результат.** Шаг 1: все запросы проходят, каталог вызван один раз, срок записи 30 секунд. Шаг 2: через 29 секунд ключ ещё работает (каталог не спрашивали), через 30 секунд `401`, каталог вызван второй раз. Шаг 3: срок записи об отказе 5 секунд; через 4 секунды отказ из памяти, каталог не нагружается, через 5 секунд ключ проходит. Шаг 4: отказ по статусу помнится так же 5 секунд, на шестой секунде профиль «одобрен» принят. Шаг 5: при сроке 2 секунды через 2 секунды после отзыва `401`, отказ не помнится дольше успеха; на стенде `401` не позже 36 секунд после отзыва. Шаг 6: ключ из памяти проходит, новый ключ `503`; после конца срока и без каталога `503`; вернулся каталог: проверка работает. Шаг 7: оба запроса проходят, каталог вызван дважды, метрика сбоев памяти `get` и `put` растёт по числу обращений. Шаг 8: по описанию.
+
+**На стенде** (`make seller-api-check`). Срок памяти настоящий, 30 секунд (сокращённого стенда нет, F5-13): после отзыва ключ опрашивается раз в секунду рядом с долгим поиском канарейки, `401` наступает не позже 36 секунд после отзыва, ответ равен ответу на неизвестный ключ, отказ держится.
 
 ### TC-957. Шлюз, лимиты: `seller.api` 600 в минуту на ключ, `seller-upload` 6 в час на профиль продавца, общий для кабинета и API; 429 с `Retry-After`; недоступный Redis пропускает запрос и пишет метрику
 
@@ -246,9 +258,9 @@
 | Уровень | L3 |
 | Тип | API |
 | Приоритет | Высокий |
-| Автоматизация | JUnit |
+| Автоматизация | JUnit; Python на стенде |
 | Тег в коде | TC-957 |
-| Где в коде | `services/api-gateway/src/test/java/dgm/gateway/EntryFilterApiKeyTest.java`, `services/api-gateway/src/test/java/dgm/gateway/GatewayPropertiesTest.java`, `services/api-gateway/src/test/java/dgm/gateway/GatewayProxyTest.java`, `services/api-gateway/src/test/java/dgm/gateway/RedisRequestLimiterTest.java`, `services/api-gateway/src/test/java/dgm/gateway/RouteTableTest.java` |
+| Где в коде | `services/api-gateway/src/test/java/dgm/gateway/EntryFilterApiKeyTest.java`, `services/api-gateway/src/test/java/dgm/gateway/GatewayPropertiesTest.java`, `services/api-gateway/src/test/java/dgm/gateway/GatewayProxyTest.java`, `services/api-gateway/src/test/java/dgm/gateway/RedisRequestLimiterTest.java`, `services/api-gateway/src/test/java/dgm/gateway/RouteTableTest.java`, `tools/stand-checks/seller_api_checks.py` |
 
 **Предусловия.** Ограничитель шлюза подставной (записывает группу и ключ счётчика, ответ задаётся) или настоящий пересчёт корзины в `RedisRequestLimiter` без Redis. Решение Р-188: группа `seller.api` 600 запросов в минуту, счёт по идентификатору ключа; группа `seller-upload` 6 загрузок в час, счёт по профилю продавца. Точка в имени группы таблицы маршрутов в настройках Spring записывается тире (`seller-api`), потому что имя группы с точкой Spring разрезал бы на части.
 
@@ -263,6 +275,8 @@
 
 **Ожидаемый результат.** Шаг 1: вызов по ключу считается в группе `seller.api` по идентификатору ключа, вызов по токену в группе кабинета `seller` по пользователю; маршрут только для ключа считается по ключу. Шаг 2: и ключ, и токен считаются в `seller-upload` по профилю продавца (`s:<sellerId>`), поэтому кабинет и API делят один лимит; у токена без профиля счёт идёт по пользователю и с ключом не пересекается. Шаг 3: `429 rate-limited` с `Retry-After` из ответа ограничителя на загрузку ключом, на загрузку токеном и на остаток по ключу, метрика `rate_limited` растёт на каждый отказ, запрос сервису не передаётся. Шаг 4: запросы проходят (отказ открытым, ADR-021), метрика `dgm.gateway.ratelimit.failopen` растёт по группам `seller-upload` и `seller.api`. Шаг 5: `429` с `Retry-After: 7`, сервис ничего не получил. Шаг 6: по описанию.
 
+**На стенде** (`make seller-api-check`). Загрузки: шесть принятых (ключ, токен и файл по очереди, остаток растёт общим счётом), седьмая `429` с `Retry-After` от 1 до 600 секунд; другой продавец загружает свободно, чтение остатка работает. Вызовы по ключу: обстрел одного ключа (850 запросов) принимает от 500 до 600 плюс пополнение, остальные `429` с `Retry-After`; соседний ключ того же продавца и токен кабинета не затронуты; после паузы по `Retry-After` ключ снова работает. Значения лимитов настоящие, а не стендовые (F5-12: запас загрузок общий с канарейкой пула, поэтому проверка ведёт своих продавцов).
+
 ### TC-958. Шлюз, заголовки личности: `X-Seller-Id` и `X-Auth-Kind` из внешнего запроса удаляются на любом маршруте, по ключу их ставит только шлюз, вызов по токену их не получает
 
 | Поле | Содержание |
@@ -273,9 +287,9 @@
 | Уровень | L7 |
 | Тип | безопасность |
 | Приоритет | Высокий |
-| Автоматизация | JUnit |
+| Автоматизация | JUnit; Newman; Python на стенде |
 | Тег в коде | TC-958 |
-| Где в коде | `libs/service-kit/src/test/java/dgm/kit/security/GatewayIdentityTest.java`, `services/api-gateway/src/test/java/dgm/gateway/EntryFilterApiKeyTest.java`, `services/api-gateway/src/test/java/dgm/gateway/GatewayProxyTest.java` |
+| Где в коде | `libs/service-kit/src/test/java/dgm/kit/security/GatewayIdentityTest.java`, `services/api-gateway/src/test/java/dgm/gateway/EntryFilterApiKeyTest.java`, `services/api-gateway/src/test/java/dgm/gateway/GatewayProxyTest.java`, `tools/stand-checks/seller_api_checks.py`, `tools/api-tests/scenarios/seller-api.json` |
 
 **Предусловия.** Как в TC-955. Сервисы принимают `X-Seller-Id` и `X-Auth-Kind: api-key` только от сертификата `api-gateway` и только на маршрутах с `x-seller-api` (ADR-027, Р-186), поэтому единственное место, где подделку заголовка можно остановить заранее, это шлюз.
 
@@ -288,6 +302,8 @@
 
 **Ожидаемый результат.** Шаг 1: запрос проходит, сервис не получает ни `X-Seller-Id`, ни `X-Auth-Kind`, ни `X-Api-Key`. Шаг 2: запрос проходит, сервис получает `X-Seller-Id` продавца, которому принадлежит ключ (не подделанный), и `X-Auth-Kind: api-key`. Шаг 3: сервис получает токен без изменений, `X-Seller-Id` и `X-Auth-Kind` нет. Шаг 4: имена `X-Seller-Id`, `X-Auth-Kind`, значение `api-key` и `X-Api-Key` на стороне шлюза равны литералам, а литералы `GatewayIdentity` (имя шлюза `api-gateway`, оба заголовка, вид входа `api-key`) равны тем же значениям; расхождение одной стороны роняет её тест.
 
+**На стенде** (`make seller-api-check`). Подменённые `X-Seller-Id` и `X-Auth-Kind` не меняют, кто вызывает: по ключу и по токену чужой товар остаётся `404`, свой `200`. Через Newman (`seller-api.json`): те же заголовки без ключа и токена дают `401`.
+
 ### TC-959. Подключение системы продавца, секрет подписи: производный и нигде не хранится, смена увеличивает версию и обезличивает прежний секрет сразу, повтор по тому же `Idempotency-Key` и следующий `PUT` секрета не возвращают, внутренний адрес открыт только `delivery-service` и `platform-service`
 
 | Поле | Содержание |
@@ -298,9 +314,9 @@
 | Уровень | L3 |
 | Тип | API |
 | Приоритет | Высокий |
-| Автоматизация | JUnit; JUnit на стенде |
+| Автоматизация | JUnit; JUnit на стенде; Python на стенде |
 | Тег в коде | TC-959 |
-| Где в коде | `services/catalog-service/src/test/java/dgm/catalog/IntegrationIT.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/integration/IntegrationConfigurationTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/integration/IntegrationRoutesTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/integration/controller/IntegrationControllerTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/integration/crypto/IntegrationSecretsTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/integration/service/IntegrationServiceTest.java` |
+| Где в коде | `services/catalog-service/src/test/java/dgm/catalog/IntegrationIT.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/integration/IntegrationConfigurationTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/integration/IntegrationRoutesTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/integration/controller/IntegrationControllerTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/integration/crypto/IntegrationSecretsTest.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/integration/service/IntegrationServiceTest.java`, `tools/stand-checks/seller_api_checks.py` |
 
 **Предусловия.** Как в TC-954; у продавца есть подключение. Секрет подписи считается так (Р-187): `HMAC-SHA-256(seller_webhook_master, "seller-integration|<идентификатор продавца>|<версия секрета>")` в шестнадцатеричной записи, в хранилище его нет. Контрольные значения (два продавца, две версии) посчитаны отдельно и те же записаны в тесте `SellerSecretsTest` каркаса, поэтому три сервиса получают один и тот же секрет. На стенде мастер-секрет лежит в каталоге секретов (`make secrets`), в модульных тестах подставлен значением из одного теста. Вызовы внутреннего адреса идут с сертификатом `delivery-service`, `platform-service` и `api-gateway`.
 
@@ -309,11 +325,13 @@
 1. Сохранить адрес (первое подключение) и запомнить секрет. Сменить секрет (`POST /api/v1/seller/integration/secret-rotation`, `Idempotency-Key`), запомнить новый. Повторить смену с тем же `Idempotency-Key`. Сохранить другой адрес с актуальной версией записи.
 2. Модульно: подписать тело прежним секретом (версия 1), сменить секрет и проверить подпись `WebhookSignature.verify` по секрету версии 2; затем подписать новым и проверить тем же способом.
 3. Сменить секрет у продавца без подключения, без `Idempotency-Key`, у отключённого подключения.
-4. Прочитать внутренний адрес (`GET /internal/v1/sellers/{sellerId}/integration`) от `delivery-service` и `platform-service`, от `api-gateway`; для продавца без подключения, с отключённым подключением, с заблокированным профилем и с идентификатором не того вида.
+4. Прочитать внутренний адрес (`GET /internal/v1/sellers/{sellerId}/integration`) от `delivery-service` и `platform-service`, от `api-gateway`; для продавца без подключения, с отключённым подключением, с профилем не «одобрен» (на стенде строка подключения вставлена в обход кабинета: R1 блокировки продавца не знает, переходы T8 и T9 придут в R2, и из «одобрен» триггер никуда не пускает; модульно статусы профиля перебираются все) и с идентификатором не того вида.
 5. Модульно: секрет двух продавцов и двух версий различаются между собой; число знаков и алфавит секрета; каждое из трёх входных значений меняет результат; мастер-секрет переживает много чтений (разрушается только производная копия); версия меньше 1 и слишком короткий мастер отвергаются; сервис не запускается без мастер-секрета или с коротким.
 6. Найти оба секрета в строке подключения, в Outbox (тело и заголовки) и в ответах таблицы идемпотентности.
 
-**Ожидаемый результат.** Шаг 1: смена даёт `200`, `Cache-Control: no-store`, тело из `secretVersion` 2, `secret` (64 знака, не равен первому) и `shownOnce: true`; повтор по тому же ключу даёт `200` с `Idempotency-Replayed: true`, в теле только `secretVersion` и `shownOnce` (секрета нет, Р-198), записей аудита смены одна; в таблице версия секрета 2 и версия записи 2; следующее сохранение адреса секрета не показывает и оставляет версию секрета второй. Шаг 2: подпись, посчитанная прежним секретом, после смены не проходит (наложения нет, Р-187), подпись по новой версии проходит. Шаг 3: смена без подключения `409 state-conflict` (и записи, и аудита нет, и тело для повтора не подставляется), без `Idempotency-Key` `400`, отключённое подключение секрет менять может. Шаг 4: `200` и четыре поля (`sellerId`, `endpointUrl`, `status`, `secretVersion`) для обоих вызывающих сервисов, секрета нет; `api-gateway` получает `403`; нет подключения, оно отключено, профиль заблокирован или идентификатор не того вида: один и тот же `404`. Шаг 5: по описанию. Шаг 6: ни одного места (ноль строк) по каждому из двух секретов; контроль: тот же поиск находит адрес в строке подключения.
+**Ожидаемый результат.** Шаг 1: смена даёт `200`, `Cache-Control: no-store`, тело из `secretVersion` 2, `secret` (64 знака, не равен первому) и `shownOnce: true`; повтор по тому же ключу даёт `200` с `Idempotency-Replayed: true`, в теле только `secretVersion` и `shownOnce` (секрета нет, Р-198), записей аудита смены одна; в таблице версия секрета 2 и версия записи 2; следующее сохранение адреса секрета не показывает и оставляет версию секрета второй. Шаг 2: подпись, посчитанная прежним секретом, после смены не проходит (наложения нет, Р-187), подпись по новой версии проходит. Шаг 3: смена без подключения `409 state-conflict` (и записи, и аудита нет, и тело для повтора не подставляется), без `Idempotency-Key` `400`, отключённое подключение секрет менять может. Шаг 4: `200` и четыре поля (`sellerId`, `endpointUrl`, `status`, `secretVersion`) для обоих вызывающих сервисов, секрета нет; `api-gateway` получает `403`; нет подключения, оно отключено, профиль не одобрен или идентификатор не того вида: один и тот же `404`. Шаг 5: по описанию. Шаг 6: ни одного места (ноль строк) по каждому из двух секретов; контроль: тот же поиск находит адрес в строке подключения.
+
+**На стенде** (`make seller-api-check`). Секрет первой версии равен HMAC-SHA-256 мастер-секрета стенда (файл `secrets/seller_webhook_master`) от «seller-integration|продавец|1», проверка считает его заново; смена даёт версию 2 и секрет, равный расчёту для версии 2, прежний ему не равен; повтор смены по тому же `Idempotency-Key` без секрета и без роста версии; чтение подключения секрета не содержит. Расчёт проверки совпадает с известными ответами Java (`test_seller_api_checks.py`).
 
 ### TC-960. Подключение системы продавца, аудит: версии, статусы и хеши хоста и пути вместо адреса, ни секрета, ни адреса в Outbox, секретов нет в журнале сервиса, сбой аудита отменяет действие
 
@@ -325,9 +343,9 @@
 | Уровень | L7 |
 | Тип | безопасность |
 | Приоритет | Высокий |
-| Автоматизация | JUnit; JUnit на стенде |
+| Автоматизация | JUnit; JUnit на стенде; Python на стенде |
 | Тег в коде | TC-960 |
-| Где в коде | `services/catalog-service/src/test/java/dgm/catalog/IntegrationIT.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/integration/service/IntegrationServiceTest.java` |
+| Где в коде | `services/catalog-service/src/test/java/dgm/catalog/IntegrationIT.java`, `services/catalog-service/src/test/java/dgm/catalog/sellers/integration/service/IntegrationServiceTest.java`, `tools/stand-checks/seller_api_checks.py` |
 
 **Предусловия.** Одобренный продавец; адрес `https://localhost:8443/dgm/hook?token=in-path-token` (в пути лежит токен, как у многих систем продавцов). Запись аудита (`audit.recorded`) попадает в Outbox в той же транзакции, что и действие (INV-43). Уровни журнала сервиса на время теста подняты: `dgm` и `org.springframework.jdbc` TRACE, `org.springframework.web`, `org.springframework.security` и `org.springframework.transaction` DEBUG; к корневому журналу подключён перехватчик событий. Адрес лежит в таблице открытым (его читает платформа), поэтому журнал JDBC его показать может: поиск по журналу ищет только секреты.
 
@@ -336,10 +354,13 @@
 1. Сохранить адрес и сменить секрет; прочитать записи аудита `seller.integration_set` и `seller.integration_secret_rotated` продавца в Outbox.
 2. Модульно: сохранить только новый путь, только новый хост, только новый статус (отключение); сохранить то же состояние ещё раз.
 3. Искать оба секрета, адрес целиком, имя хоста, часть пути и токен из пути в теле и заголовках Outbox продавца.
-4. Просмотреть каждое событие журнала сервиса, собранное за шаги 1 и 3: имя журнала, сообщение, поля MDC и цепочку исключений; искать оба секрета.
+4. Просмотреть каждое событие журнала сервиса, собранное за шаги 1 и 3: имя журнала, сообщение, поля MDC и цепочку исключений; искать оба секрета. Ответы с секретом (сохранение и смена) отдаются байтами: для строки Spring печатает на DEBUG первые сто знаков тела («Writing [...]»), а ответ смены секрета укладывается в них целиком (первый запуск шага 6 в CI это поймал, F5-9).
 5. Модульно: запись аудита не может быть записана (сбой подмены Outbox): действие отменяется, строка подключения не меняется, секрет не выдаётся; доменных событий у подключения нет, только записи аудита.
 
 **Ожидаемый результат.** Шаг 1: запись `seller.integration_set` одна, роль `seller`, исполнитель это пользователь, объект `seller-integration` с идентификатором продавца, `actorIp` пуст; изменения по порядку: `endpointHost` (хеш SHA-256 хоста), `endpointPath` (хеш SHA-256 пути вместе с запросом), `status`, `secretVersion`; запись `seller.integration_secret_rotated` одна, изменение одно: версия секрета 1 → 2, повтор по тому же `Idempotency-Key` записи не добавил. Шаг 2: запись несёт только изменившуюся часть (путь, хост или статус), то же состояние записи не пишет совсем. Шаг 3: ни секретов, ни адреса, ни хоста, ни части пути, ни токена в Outbox нет (ноль строк по каждому образцу; контроль: записи аудита из шага 1 найдены). Шаг 4: контроль: события журнала есть, и среди них запись журнала доступа с идентификатором продавца; секретов нет ни в одном событии. Журнал при этом может содержать адрес (его параметр виден в журнале JDBC на уровне TRACE), поэтому адрес в поиск не входит. Шаг 5: по описанию. Хеши хоста и пути позволяют увидеть, что адрес менялся, и не хранят сам адрес (в пути у многих систем продавцов лежит токен).
+
+**На стенде** (`make seller-api-check`). В теме `audit.events` запись `seller.integration_set` несёт SHA-256 хоста и пути вместо адреса (контроль: хеши есть, имени хоста и пути нет); записи `seller.integration_secret_rotated`, `seller.api_key_issued` и `seller.api_key_revoked` на месте; ни секретов, ни адреса, ни значений ключей нет в темах `catalog.events` и `audit.events` и в журналах контейнеров.
+
 
 ## 4. Резерв номеров
 

@@ -62,6 +62,9 @@ PY
     healthcheck:" "      - redis_gateway
       - db_keycloak
     healthcheck:" "секрет db_keycloak"
+    mutate "список разрешённых имён адреса продавца записан другим значением" "      DGM_SELLER_ENDPOINT_ALLOW: \${DGM_SELLER_ENDPOINT_ALLOW-external-stubs:8443}" "      DGM_SELLER_ENDPOINT_ALLOW: localhost" "должна быть записана как"
+    mutate "список разрешённых имён адреса продавца убран у каталога" "      DGM_SELLER_ENDPOINT_ALLOW: \${DGM_SELLER_ENDPOINT_ALLOW-external-stubs:8443}
+" "" "нет DGM_SELLER_ENDPOINT_ALLOW"
     mutate "профиль fast-time записан в окружение сервиса напрямую" "      SPRING_PROFILES_ACTIVE: \${DGM_SPRING_PROFILES-testdata}\${DGM_FAST_TIME:+,fast-time}" "      SPRING_PROFILES_ACTIVE: \${DGM_SPRING_PROFILES-testdata},fast-time" "записан в SPRING_PROFILES_ACTIVE напрямую"
     mutate "сервис с файлом fast-time не включает профиль переменной" "      SPRING_PROFILES_ACTIVE: \${DGM_FAST_TIME:+fast-time}
     tmpfs:
