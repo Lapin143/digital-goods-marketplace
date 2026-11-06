@@ -10,6 +10,7 @@ import dgm.catalog.catalog.seller.repository.SellerProductRepository;
 import dgm.catalog.catalog.service.CatalogTransaction;
 import dgm.catalog.catalog.service.ProductEvents;
 import dgm.catalog.sellers.api.ApprovedSellers;
+import dgm.catalog.sellers.api.SellerIntegrations;
 import dgm.kit.id.Uuids;
 import dgm.kit.problem.ProblemException;
 import dgm.kit.problem.ProblemType;
@@ -35,15 +36,17 @@ public final class SellerProductService {
     private final SellerProductRepository repository;
     private final CatalogTransaction transaction;
     private final ApprovedSellers sellers;
+    private final SellerIntegrations integrations;
     private final Clock clock;
     private final ProductSettings settings;
     private final ProductCache cache;
 
-    public SellerProductService(SellerProductRepository repository, CatalogTransaction transaction, ApprovedSellers sellers, Clock clock,
-                                ProductSettings settings, ProductCache cache) {
+    public SellerProductService(SellerProductRepository repository, CatalogTransaction transaction, ApprovedSellers sellers,
+                                SellerIntegrations integrations, Clock clock, ProductSettings settings, ProductCache cache) {
         this.repository = repository;
         this.transaction = transaction;
         this.sellers = sellers;
+        this.integrations = integrations;
         this.clock = clock;
         this.settings = settings;
         this.cache = cache;
@@ -96,9 +99,15 @@ public final class SellerProductService {
         });
     }
 
-    /** SM-04/T2, T5, T11: товар встаёт в очередь модератора, срок проверки идёт от этой подачи. */
+    /**
+     * SM-04/T2, T5, T11: товар встаёт в очередь модератора, срок проверки идёт от этой подачи. Товар с выдачей по API (R2) подаётся, только
+     * пока у продавца действует подключение системы: иначе 409 {@code integration-required}. Подключение проверяется до транзакции, как и
+     * одобрение профиля (соседний модуль не держит соединение транзакции каталога), и только если статус позволяет подачу: товар на
+     * модерации или в архиве получает {@code state-conflict}, а не отказ про подключение.
+     */
     public Product submit(UUID sellerId, UUID productId) {
         requireApproved(sellerId);
+        requireIntegration(sellerId, productId);
         return transaction.execute(() -> {
             Product current = lockOwned(sellerId, productId);
             Product submitted = current.submit(clock.instant(), settings.reviewPeriod());
@@ -127,6 +136,13 @@ public final class SellerProductService {
             save(restored, current.version(), List.of("status"));
             return restored;
         });
+    }
+
+    private void requireIntegration(UUID sellerId, UUID productId) {
+        Optional<Product> product = repository.find(sellerId, productId).filter(p -> p.sellerApi() && p.submittable());
+        if (product.isPresent() && !integrations.hasActive(sellerId)) {
+            throw Product.integrationRequired();
+        }
     }
 
     private Product lockOwned(UUID sellerId, UUID productId) {

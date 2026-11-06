@@ -29,7 +29,7 @@ public record ProductForm(String title, String description, ProductType productT
         activationRegions = activationRegions == null ? null : List.copyOf(activationRegions);
     }
 
-    /** Нарушения правил полей: пустые, слишком длинные, не того формата, неизвестный в этом релизе способ выдачи. */
+    /** Нарушения правил полей: пустые, слишком длинные, не того формата. Способ выдачи {@code key_pool} и {@code seller_api} допустимы оба (R2, Р-184). */
     public List<FieldViolation> violations() {
         List<FieldViolation> found = new ArrayList<>();
         text(found, "/title", title, MAX_TITLE);
@@ -46,8 +46,6 @@ public record ProductForm(String title, String description, ProductType productT
         }
         if (issuanceMethod == null) {
             found.add(new FieldViolation("/issuanceMethod", "required", "Поле обязательно."));
-        } else if (!issuanceMethod.availableInRelease()) {
-            found.add(new FieldViolation("/issuanceMethod", "unknown_value", "В этом релизе доступна только выдача из пула ключей: key_pool."));
         }
         return found;
     }
@@ -81,7 +79,7 @@ public record ProductForm(String title, String description, ProductType productT
 
     /**
      * Правка названия, описания или типа снимает опубликованный товар с витрины и возвращает на модерацию (SM-04/T6): модератор
-     * проверял именно этот текст. Цена, платформа, регион и способ выдачи на модерацию не влияют (T7).
+     * проверял именно этот текст. Цена, платформа и регион на модерацию не влияют (T7); способ выдачи после создания не меняется.
      */
     public static boolean needsModeration(List<String> changedFields) {
         return changedFields.contains("title") || changedFields.contains("description") || changedFields.contains("productType");

@@ -1,5 +1,6 @@
 package dgm.catalog.sellers.integration.service;
 
+import dgm.catalog.sellers.api.SellerIntegrations;
 import dgm.catalog.sellers.domain.FieldViolation;
 import dgm.catalog.sellers.domain.SellerProfile;
 import dgm.catalog.sellers.domain.SellerStatus;
@@ -47,7 +48,7 @@ import org.springframework.stereotype.Component;
  * секрет и не адрес.
  */
 @Component
-public final class IntegrationService {
+public final class IntegrationService implements SellerIntegrations {
 
     /** Один общий текст отказа: по нему нельзя понять, какой признак адреса сработал (Р-187). */
     static final String NOT_ALLOWED = "Адрес системы продавца не прошёл проверку: нужен https, внутренние адреса и посторонние порты не допускаются.";
@@ -150,6 +151,12 @@ public final class IntegrationService {
             }
             return integrations.find(sellerId).filter(SellerIntegration::active);
         });
+    }
+
+    /** Для модуля каталога: товар с выдачей по API можно публиковать и продавать, пока подключение действует (то же условие, что у {@link #activeEndpoint}). */
+    @Override
+    public boolean hasActive(UUID sellerId) {
+        return activeEndpoint(sellerId).isPresent();
     }
 
     /**

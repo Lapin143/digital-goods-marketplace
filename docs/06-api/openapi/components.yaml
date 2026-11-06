@@ -286,6 +286,7 @@ components:
           - role-managed-by-system
           - issuance-method-mismatch
           - api-key-limit
+          - integration-required
           - request-expired
           - request-already-answered
           - version-conflict
@@ -521,6 +522,46 @@ components:
                 status: 409
                 detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
                 code: request-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+    E409StateConflictRequestInProgressIntegrationRequired:
+      description: Действие недоступно в этом статусе; Запрос уже выполняется; Нужно подключение системы продавца
+      headers:
+        X-Correlation-Id:
+          $ref: '#/components/headers/CorrelationId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          examples:
+            state-conflict:
+              summary: Действие недоступно в этом статусе
+              value:
+                type: https://api.marketplace.example/problems/state-conflict
+                title: Действие недоступно в этом статусе
+                status: 409
+                detail: Действие недоступно в текущем статусе объекта.
+                code: state-conflict
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+                currentStatus: created
+            request-in-progress:
+              summary: Запрос уже выполняется
+              value:
+                type: https://api.marketplace.example/problems/request-in-progress
+                title: Запрос уже выполняется
+                status: 409
+                detail: Запрос с этим Idempotency-Key ещё выполняется, повторите с тем же ключом.
+                code: request-in-progress
+                correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
+            integration-required:
+              summary: Нужно подключение системы продавца
+              value:
+                type: https://api.marketplace.example/problems/integration-required
+                title: Нужно подключение системы продавца
+                status: 409
+                detail: Товар с выдачей по API публикуется, когда у продавца подключена система и подключение действует.
+                code: integration-required
                 correlationId: 6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b
     E415UnsupportedMediaType:
       description: Неподдерживаемый тип

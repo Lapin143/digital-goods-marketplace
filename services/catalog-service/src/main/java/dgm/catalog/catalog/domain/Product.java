@@ -45,13 +45,17 @@ public record Product(UUID id, UUID sellerId, ProductForm form, String rejection
     /**
      * Правка полей ({@code PUT} заменяет все). Черновик, отклонённый и заблокированный по решению модератора товар сохраняют правку и
      * остаются в своём статусе. Опубликованный: название, описание или тип возвращают его на модерацию, срок проверки идёт заново (T6);
-     * цена, платформа, регион и способ выдачи статус не меняют (T7). Правка без отличий ничего не меняет: версия и событие не нужны.
+     * цена, платформа и регион статус не меняют (T7); способ выдачи не меняется вовсе (422 {@code immutable}). Правка без отличий ничего не меняет: версия и событие не нужны.
      *
-     * @throws ProblemException {@code state-conflict}, если товар на модерации, в архиве или заблокирован вместе с продавцом
+     * @throws ProblemException {@code state-conflict}, если товар на модерации, в архиве или заблокирован вместе с продавцом;
+     *                          {@code validation-failed} (поле {@code /issuanceMethod}, код {@code immutable}), если форма меняет способ выдачи
      */
     public Edited replace(ProductForm next, Instant now, Duration reviewPeriod) {
         requireEditable();
         requireValid(next);
+        if (next.issuanceMethod() != form.issuanceMethod()) {
+            throw immutableIssuanceMethod();
+        }
         List<String> changed = new ArrayList<>(form.differences(next));
         if (changed.isEmpty()) {
             return new Edited(this, List.of());
@@ -76,8 +80,7 @@ public record Product(UUID id, UUID sellerId, ProductForm form, String rejection
      * от этой подачи. Повторная отправка товара на модерации срок не сбрасывает и даёт отказ.
      */
     public Product submit(Instant now, Duration reviewPeriod) {
-        boolean allowed = status == ProductStatus.DRAFT || status == ProductStatus.REJECTED || moderatorBlocked();
-        if (!allowed) {
+        if (!submittable()) {
             throw stateConflict();
         }
         return new Product(id, sellerId, form, null, null, null, null, now, now.plus(reviewPeriod), null, publishedAt,
@@ -146,6 +149,16 @@ public record Product(UUID id, UUID sellerId, ProductForm form, String rejection
         }
     }
 
+    /** Товар можно отправить на модерацию: черновик (T2), отклонённый (T5) или заблокированный модератором (T11). */
+    public boolean submittable() {
+        return status == ProductStatus.DRAFT || status == ProductStatus.REJECTED || moderatorBlocked();
+    }
+
+    /** Товар с выдачей по запросу к системе продавца (R2): публикуется и продаётся, пока у продавца действует подключение. */
+    public boolean sellerApi() {
+        return form.issuanceMethod() == IssuanceMethod.SELLER_API;
+    }
+
     /** Блокировка по решению модератора: продавец может исправить товар и отправить заново (T11). */
     public boolean moderatorBlocked() {
         return status == ProductStatus.BLOCKED && blockReason == BlockReason.MODERATOR_DECISION;
@@ -164,6 +177,22 @@ public record Product(UUID id, UUID sellerId, ProductForm form, String rejection
         Map<String, Object> extensions = new LinkedHashMap<>();
         extensions.put("currentStatus", status.code());
         return new ProblemException(ProblemType.STATE_CONFLICT, "Действие недоступно в текущем статусе товара.", extensions, Map.of());
+    }
+
+    /** 409 {@code integration-required}: товар с выдачей по API не публикуется без действующего подключения системы продавца (Р-184, Р-187). */
+    public static ProblemException integrationRequired() {
+        return new ProblemException(ProblemType.INTEGRATION_REQUIRED,
+                "Товар с выдачей по API публикуется, когда у продавца подключена система и подключение действует.");
+    }
+
+    /** 422 с одной ошибкой поля: способ выдачи задаётся при создании и не меняется (Р-184). */
+    private static ProblemException immutableIssuanceMethod() {
+        Map<String, Object> error = new LinkedHashMap<>();
+        error.put("pointer", "/issuanceMethod");
+        error.put("code", "immutable");
+        error.put("detail", "Способ выдачи задаётся при создании товара и не меняется.");
+        return new ProblemException(ProblemType.VALIDATION_FAILED, "Данные не прошли проверку, подробности в поле errors.",
+                Map.of("errors", List.of(error)), Map.of());
     }
 
     private static void requireValid(ProductForm form) {

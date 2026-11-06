@@ -39,6 +39,7 @@ public enum ProblemType {
     ROLE_MANAGED_BY_SYSTEM("role-managed-by-system", 409, "Роль управляется системой"),
     ISSUANCE_METHOD_MISMATCH("issuance-method-mismatch", 409, "Способ выдачи не подходит"),
     API_KEY_LIMIT("api-key-limit", 409, "Достигнут предел API-ключей"),
+    INTEGRATION_REQUIRED("integration-required", 409, "Нужно подключение системы продавца"),
     REQUEST_EXPIRED("request-expired", 409, "Срок ответа истёк"),
     REQUEST_ALREADY_ANSWERED("request-already-answered", 409, "Запрос уже получил ответ"),
     VERSION_CONFLICT("version-conflict", 412, "Ресурс изменился"),

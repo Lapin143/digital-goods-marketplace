@@ -3,7 +3,7 @@ package dgm.catalog.catalog.domain;
 import java.util.Arrays;
 import java.util.Optional;
 
-/** Способ выдачи. В R1 доступен только пул ключей; выдача через API продавца придёт в R2 (FT-4.0). */
+/** Способ выдачи: пул ключей (R1) или выдача по запросу к системе продавца (R2, Р-184). Задаётся при создании товара и не меняется. */
 public enum IssuanceMethod {
     KEY_POOL("key_pool"),
     SELLER_API("seller_api");
@@ -16,11 +16,6 @@ public enum IssuanceMethod {
 
     public String code() {
         return code;
-    }
-
-    /** Способ можно выбрать в текущем релизе. */
-    public boolean availableInRelease() {
-        return this == KEY_POOL;
     }
 
     public static IssuanceMethod fromCode(String code) {

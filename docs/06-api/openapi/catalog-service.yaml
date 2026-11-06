@@ -1357,7 +1357,7 @@ paths:
       operationId: submitSellerProduct
       summary: Отправить товар на модерацию
       description: |-
-        Переводит товар в `on_moderation` из `draft` (T2), `rejected` (T5) или `blocked` по решению модератора (T11). Срок проверки 3 суток отсчитывается заново, поля до решения менять нельзя. Ключи в пуле не обязательны (US-3.2). Повторная отправка товара, уже находящегося на модерации, срок не сбрасывает и даёт 409.
+        Переводит товар в `on_moderation` из `draft` (T2), `rejected` (T5) или `blocked` по решению модератора (T11). Срок проверки 3 суток отсчитывается заново, поля до решения менять нельзя. Ключи в пуле не обязательны (US-3.2). Товар с выдачей по API (R2) отправляется, только когда у продавца действует подключение системы (`getSellerIntegration`: адрес задан, статус `active`), иначе 409 `integration-required`. Повторная отправка товара, уже находящегося на модерации, срок не сбрасывает и даёт 409.
 
         Матрица прав: OP-21. Истории: US-3.2.
       tags:
@@ -1428,7 +1428,7 @@ paths:
         '404':
           $ref: components.yaml#/components/responses/E404NotFound
         '409':
-          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressIntegrationRequired
         '422':
           $ref: components.yaml#/components/responses/E422IdempotencyKeyReuse
         '429':
@@ -1740,7 +1740,7 @@ paths:
       operationId: approveProduct
       summary: Одобрить товар
       description: |-
-        Переводит товар из `on_moderation` в `published` (T3), товар появляется на витрине. Публикуется `product.published`, продавцу уходит письмо, решение пишется в журнал аудита. Если товар уже решён другим модератором, 409.
+        Переводит товар из `on_moderation` в `published` (T3), товар появляется на витрине. Публикуется `product.published`, продавцу уходит письмо, решение пишется в журнал аудита. Если товар уже решён другим модератором, 409. Товар с выдачей по API не публикуется без действующего подключения системы продавца: 409 `integration-required`, товар остаётся на модерации, модератор может отклонить его с причиной.
 
         Матрица прав: OP-23. Истории: US-3.3.
       tags:
@@ -1810,7 +1810,7 @@ paths:
         '404':
           $ref: components.yaml#/components/responses/E404NotFound
         '409':
-          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgress
+          $ref: components.yaml#/components/responses/E409StateConflictRequestInProgressIntegrationRequired
         '422':
           $ref: components.yaml#/components/responses/E422IdempotencyKeyReuse
         '429':
@@ -2197,7 +2197,7 @@ paths:
       operationId: getProductCard
       summary: Карточка товара для заказа (внутренний)
       description: |-
-        Возвращает статус, цену, продавца и способ выдачи. Вызывает только `order-service` при оформлении заказа, ответ за 500 мс (SEQ-01, шаги 4 и 5). Товар не найден даёт 404, решение о доступности (опубликован, не заблокирован) принимает вызывающий по полю `status`.
+        Возвращает статус, цену, продавца и способ выдачи. Вызывает только `order-service` при оформлении заказа, ответ за 500 мс (SEQ-01, шаги 4 и 5). Товар не найден даёт 404, решение о доступности (опубликован, не заблокирован) принимает вызывающий по полю `status`. У опубликованного товара с выдачей по API при отсутствии действующего подключения системы продавца поле `status` равно `blocked`: платформа не может запросить у продавца ключ, и заказ не оформляется (R2, Р-184).
 
         Матрица прав: OP-50. Истории: US-5.1.
       tags:
