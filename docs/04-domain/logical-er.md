@@ -220,6 +220,7 @@ erDiagram
         number commission_rate_bp "ставка комиссии в базисных пунктах на момент оформления"
         text delivery_address "снимок адреса доставки"
         enum delivery_channel "канал доставки"
+        enum delivery_method "способ выдачи, снимок со способа выдачи товара, не меняется"
         datetime reserve_until "срок резерва, копия"
         datetime session_until "срок платёжной сессии"
         text payment_session_url "адрес платёжной сессии для повторного перехода"
@@ -227,6 +228,7 @@ erDiagram
         datetime created_at "дата создания"
         datetime paid_at "дата оплаты"
         datetime issued_at "дата первой выдачи"
+        datetime refunded_at "дата возврата"
         status status "SM-01"
     }
     PAYMENT["Платёж"] {

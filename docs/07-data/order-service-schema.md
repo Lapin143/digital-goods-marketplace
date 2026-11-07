@@ -41,6 +41,8 @@ erDiagram
         int version
         timestamptz created_at
         timestamptz updated_at
+        text issuance_method
+        timestamptz refunded_at
     }
 ```
 
@@ -93,6 +95,8 @@ erDiagram
 | `version` | `integer` | да | `1` | Версия строки, увеличивается при каждом изменении |
 | `created_at` | `timestamp with time zone` | да | `now()` | Дата создания заказа |
 | `updated_at` | `timestamp with time zone` | да | `now()` | Последнее изменение |
+| `issuance_method` | `text` | да | `'key_pool'::text` | Способ выдачи товара на момент оформления (снимок из карточки каталога, Р-190): key_pool или seller_api. Не меняется, как и остальные снимки заказа |
+| `refunded_at` | `timestamp with time zone` | нет |  | Когда заказ стал refunded (T8): деньги вернулись покупателю. Пусто у остальных статусов |
 
 **Ограничения**
 
@@ -111,11 +115,13 @@ erDiagram
 | `ck_orders_delivery_address_len` | проверка | `CHECK (((char_length(delivery_address) >= 3) AND (char_length(delivery_address) <= 254)))` |
 | `ck_orders_delivery_channel` | проверка | `CHECK ((delivery_channel = 'email'::text))` |
 | `ck_orders_early_state` | проверка | `CHECK (((status <> ALL (ARRAY['created'::text, 'awaiting_payment'::text])) OR ((paid_at IS NULL) AND (issued_at IS NULL) AND (cancel_reason IS NULL))))` |
+| `ck_orders_issuance_method` | проверка | `CHECK ((issuance_method = ANY (ARRAY['key_pool'::text, 'seller_api'::text])))` |
 | `ck_orders_issued_at` | проверка | `CHECK (((status <> 'issued'::text) OR (issued_at IS NOT NULL)))` |
 | `ck_orders_paid_at` | проверка | `CHECK (((status <> ALL (ARRAY['paid'::text, 'issued'::text])) OR (paid_at IS NOT NULL)))` |
 | `ck_orders_payment_session_url_len` | проверка | `CHECK (((char_length(payment_session_url) >= 1) AND (char_length(payment_session_url) <= 2048)))` |
 | `ck_orders_product_title_len` | проверка | `CHECK (((char_length(product_title) >= 1) AND (char_length(product_title) <= 200)))` |
 | `ck_orders_quantity` | проверка | `CHECK (((quantity >= 1) AND (quantity <= 10)))` |
+| `ck_orders_refunded_at` | проверка | `CHECK (((refunded_at IS NULL) OR (status = 'refunded'::text)))` |
 | `ck_orders_status` | проверка | `CHECK ((status = ANY (ARRAY['created'::text, 'awaiting_payment'::text, 'paid'::text, 'issued'::text, 'cancelled'::text, 'refunded'::text])))` |
 | `ck_orders_unit_price` | проверка | `CHECK (((unit_price > 0) AND (unit_price <= '9007199254740991'::bigint)))` |
 | `ck_orders_version` | проверка | `CHECK ((version >= 1))` |

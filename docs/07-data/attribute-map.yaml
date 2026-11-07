@@ -160,6 +160,7 @@ entities:
       commission_rate_bp: commission_rate_bp
       delivery_address: delivery_address
       delivery_channel: delivery_channel
+      delivery_method: issuance_method
       reserve_until: reserve_until
       session_until: session_until
       payment_session_url: payment_session_url
@@ -167,6 +168,7 @@ entities:
       created_at: created_at
       paid_at: paid_at
       issued_at: issued_at
+      refunded_at: refunded_at
       status: status
     technical:
       currency: Валюта суммы, в R1 только RUB (conventions 4.3)

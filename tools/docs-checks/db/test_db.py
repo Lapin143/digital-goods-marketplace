@@ -1212,6 +1212,24 @@ def t_order_t10():
     assert c.scalar("select count(*) from pg_indexes where schemaname = 'orders' and indexname = 'ix_orders_seller_id'") == '1'
 
 
+@test('orders (R2): способ выдачи key_pool или seller_api и не меняется, время возврата только у refunded', 'Р-189, Р-190, INV-12')
+def t_order_r2_columns():
+    c = conn('order_db')
+    oid = new_order(c)
+    assert c.scalar("select issuance_method from orders.orders where id = %s" % q(oid)) == 'key_pool', 'у заказа без указания способа key_pool'
+    raises(c, "update orders.orders set issuance_method = 'seller_api' where id = %s" % q(oid), '23514', 'ck_orders_snapshot_immutable')
+    api = new_order(c, extra_cols=', issuance_method', extra_vals=", 'seller_api'")
+    assert c.scalar("select issuance_method from orders.orders where id = %s" % q(api)) == 'seller_api'
+    raises(c, ORD_INS % (', issuance_method', q(uid()), q(uid()), q(uid()), q(uid()), 1, 14999, 14999, 200, 300, ", 'file'"), '23514', 'ck_orders_issuance_method')
+    # время возврата ставится только у refunded
+    raises(c, "update orders.orders set refunded_at = now() where id = %s" % q(api), '23514', 'ck_orders_refunded_at')
+    ok(c, "update orders.orders set status = 'cancelled', cancel_reason = 'system_error' where id = %s" % q(api))
+    raises(c, "update orders.orders set refunded_at = now() where id = %s" % q(api), '23514', 'ck_orders_refunded_at')
+    ok(c, "update orders.orders set status = 'refunded', refunded_at = now() where id = %s" % q(api))
+    assert c.scalar("select refunded_at is not null from orders.orders where id = %s" % q(api)) == 't'
+    assert c.scalar("select issuance_method from orders.orders where id = %s" % q(api)) == 'seller_api', 'способ остался после смены статусов'
+
+
 @test('webhook_delivery: одно событие одно уведомление, нет персональных данных, не больше шести попыток, поля состояния согласованы', 'INV-44, Р-193')
 def t_webhook_delivery():
     c = conn('platform_db')
