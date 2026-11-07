@@ -27,6 +27,9 @@ import org.springframework.transaction.support.TransactionOperations;
  */
 public final class FakeOrderStore implements OrderStore, OrderTransaction {
 
+    /** Время возврата, которое ставит «база» (в боевом хранилище это {@code now()}). */
+    public static final Instant REFUNDED_AT = Instant.parse("2026-11-07T12:00:00Z");
+
     /** Событие, записанное в Outbox. */
     public record Published(String topic, String aggregateType, String aggregateId, String eventType, int schemaVersion, Map<String, Object> data) {
     }
@@ -187,7 +190,7 @@ public final class FakeOrderStore implements OrderStore, OrderTransaction {
             throw new IllegalStateException("Заказ " + o.id() + " уже есть");
         }
         orders.put(o.id(), new StoredOrder(o.id(), nextNumber++, o.buyerId(), o.sellerId(), o.productId(), o.productTitle(), o.quantity(), o.unitPrice(),
-                o.amount(), o.commission(), o.currency(), OrderStatus.CREATED, null, o.deliveryAddress(), null, null, null, o.createdAt(), null, null));
+                o.amount(), o.commission(), o.currency(), OrderStatus.CREATED, null, o.deliveryAddress(), null, null, null, o.createdAt(), null, null, o.issuanceMethod(), null));
     }
 
     @Override
@@ -211,7 +214,7 @@ public final class FakeOrderStore implements OrderStore, OrderTransaction {
         }
         orders.put(orderId, new StoredOrder(o.id(), o.number(), o.buyerId(), o.sellerId(), o.productId(), o.productTitle(), o.quantity(), o.unitPrice(),
                 o.amount(), o.commission(), o.currency(), OrderStatus.AWAITING_PAYMENT, null, o.deliveryAddress(), reserveUntil, sessionUntil,
-                paymentSessionUrl, o.createdAt(), null, null));
+                paymentSessionUrl, o.createdAt(), null, null, o.issuanceMethod(), null));
         return true;
     }
 
@@ -224,7 +227,7 @@ public final class FakeOrderStore implements OrderStore, OrderTransaction {
         }
         orders.put(orderId, new StoredOrder(o.id(), o.number(), o.buyerId(), o.sellerId(), o.productId(), o.productTitle(), o.quantity(), o.unitPrice(),
                 o.amount(), o.commission(), o.currency(), OrderStatus.CANCELLED, reason, o.deliveryAddress(), o.reserveUntil(), o.sessionUntil(),
-                o.paymentSessionUrl(), o.createdAt(), o.paidAt(), o.issuedAt()));
+                o.paymentSessionUrl(), o.createdAt(), o.paidAt(), o.issuedAt(), o.issuanceMethod(), o.refundedAt()));
         return true;
     }
 
@@ -246,7 +249,7 @@ public final class FakeOrderStore implements OrderStore, OrderTransaction {
         if (o == null || !OrderStatus.CANCELLED.equals(o.status())) {
             return false;
         }
-        orders.put(orderId, changed(o, OrderStatus.REFUNDED, o.cancelReason(), o.deliveryAddress(), o.paidAt(), o.issuedAt()));
+        orders.put(orderId, changed(o, OrderStatus.REFUNDED, o.cancelReason(), o.deliveryAddress(), o.paidAt(), o.issuedAt(), REFUNDED_AT));
         return true;
     }
 
@@ -292,9 +295,14 @@ public final class FakeOrderStore implements OrderStore, OrderTransaction {
     }
 
     private static StoredOrder changed(StoredOrder o, String status, String cancelReason, String address, Instant paidAt, Instant issuedAt) {
+        return changed(o, status, cancelReason, address, paidAt, issuedAt, o.refundedAt());
+    }
+
+    private static StoredOrder changed(StoredOrder o, String status, String cancelReason, String address, Instant paidAt, Instant issuedAt,
+                                       Instant refundedAt) {
         return new StoredOrder(o.id(), o.number(), o.buyerId(), o.sellerId(), o.productId(), o.productTitle(), o.quantity(), o.unitPrice(), o.amount(),
                 o.commission(), o.currency(), status, cancelReason, address, o.reserveUntil(), o.sessionUntil(), o.paymentSessionUrl(), o.createdAt(), paidAt,
-                issuedAt);
+                issuedAt, o.issuanceMethod(), refundedAt);
     }
 
     private void requireTransaction() {

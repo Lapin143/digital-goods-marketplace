@@ -17,6 +17,7 @@ import dgm.order.orders.client.PaymentClient;
 import dgm.order.orders.client.PaymentClient.Opened;
 import dgm.order.orders.client.PaymentClient.SessionResult;
 import dgm.order.orders.domain.CancelReason;
+import dgm.order.orders.domain.IssuanceMethod;
 import dgm.order.orders.domain.NewOrder;
 import dgm.order.orders.domain.OrderPricing;
 import dgm.order.orders.domain.OrderStatus;
@@ -63,7 +64,6 @@ public final class SagaOrchestrator {
     static final Duration SESSION_MARGIN = Duration.ofSeconds(1);
 
     static final String PUBLISHED = "published";
-    static final String KEY_POOL = "key_pool";
     static final String RUB = "RUB";
 
     private final CatalogClient catalog;
@@ -101,7 +101,7 @@ public final class SagaOrchestrator {
         }
         long commission = OrderPricing.commission(amount, settings.commissionRateBp());
         NewOrder draft = new NewOrder(Uuids.v7(clock), buyerId, card.sellerId(), productId, card.title(), quantity, card.price(), amount,
-                settings.commissionRateBp(), commission, RUB, email, clock.instant());
+                settings.commissionRateBp(), commission, RUB, email, card.issuanceMethod(), clock.instant());
         StoredOrder order = transitions.place(draft);
 
         Reserved reserved = reserve(order);
@@ -125,7 +125,7 @@ public final class SagaOrchestrator {
         } catch (DependencyUnavailableException e) {
             throw reject("catalog-unavailable", dependencyUnavailable());
         }
-        if (card.isEmpty() || !PUBLISHED.equals(card.get().status()) || !KEY_POOL.equals(card.get().issuanceMethod())
+        if (card.isEmpty() || !PUBLISHED.equals(card.get().status()) || !IssuanceMethod.isKnown(card.get().issuanceMethod())
                 || !RUB.equals(card.get().currency())) {
             throw reject("product-unavailable", productUnavailable());
         }
@@ -204,6 +204,10 @@ public final class SagaOrchestrator {
         if (OrderStatus.CANCELLED.equals(status) && CancelReason.PAYMENT_DECLINED.equals(order.cancelReason())) {
             return anomaly("payment-declined-order", orderId);
         }
+        if (OrderStatus.CANCELLED.equals(status) && CancelReason.SELLER_API_TIMEOUT.equals(order.cancelReason())) {
+            // Заказ уже оплачен и отменён из-за молчания продавца: деньги возвращаются, второе подтверждение платежа ключей не резервирует
+            return anomaly("seller-timeout-order", orderId);
+        }
         ConfirmResult confirm;
         try {
             confirm = inventory.confirm(order.id(), order.productId(), order.quantity());
@@ -264,6 +268,26 @@ public final class SagaOrchestrator {
     /** {@code delivery.accepted}: провайдер принял письмо. «Оплачен» в «выдан» (T9), один раз за жизнь заказа; повтор для «выдан» игнорируется. */
     public SagaOutcome deliveryAccepted(UUID orderId, UUID deliveryId, Instant acceptedAt) {
         return transitions.issue(orderId, deliveryId, acceptedAt).isPresent() ? SagaOutcome.applied() : SagaOutcome.ignored("order-not-paid");
+    }
+
+    /**
+     * {@code delivery.seller-timeout}: система продавца не ответила на запрос ключа в срок (Р-190). Заказ товара по API «оплачен» в «отменён»
+     * (T10), в Outbox уходят {@code order.cancelled} и команда на возврат всей суммы. Запоздавшее событие (заказ уже «выдан» или отменён) и повтор
+     * игнорируются: второго эффекта нет (INV-06, INV-15). Событие для заказа с ключами из пула, это ошибка отправителя: заказ не меняется.
+     */
+    public SagaOutcome sellerTimeout(UUID orderId) {
+        Optional<StoredOrder> order = transitions.find(orderId);
+        if (order.isEmpty()) {
+            meters.counter("seller_timeout_anomalies_total", "kind", "unknown-order").increment();
+            LOG.error("Событие о молчании продавца по неизвестному заказу {}", orderId);
+            return SagaOutcome.ignored("unknown-order");
+        }
+        if (!order.get().isSellerApi()) {
+            meters.counter("seller_timeout_anomalies_total", "kind", "not-seller-api").increment();
+            LOG.error("Событие о молчании продавца по заказу {}, который выдаётся не по API", orderId);
+            return SagaOutcome.ignored("not-seller-api-order");
+        }
+        return transitions.cancelSellerTimeout(orderId).isPresent() ? SagaOutcome.applied() : SagaOutcome.ignored("order-not-paid");
     }
 
     /** Подтверждение платежа, которое не должно было прийти для заказа в таком статусе: заказ не меняется, метрика и ошибка в журнале. */

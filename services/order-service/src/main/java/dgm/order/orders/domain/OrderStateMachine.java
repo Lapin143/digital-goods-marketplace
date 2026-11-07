@@ -18,8 +18,8 @@ import java.util.Set;
 
 /**
  * Таблица переходов заказа SM-01 (T1 – T12). Переход T1 (создание) это вставка строки в статусе «создан», поэтому в таблице его нет.
- * T10 («оплачен» в «отменён») и T11 («выдан» в «возвращён») относятся к R2: в коде они описаны как запрещённые, чтобы их нельзя было
- * выполнить по ошибке, а триггер базы {@code trg_orders_status_transition} в R1 их тоже не пропускает.
+ * T10 («оплачен» в «отменён», причина «система продавца не ответила в срок») выполняется с шага 11 Ф5. T11 («выдан» в «возвращён» по решению
+ * спора) относится к следующему срезу: в коде он описан как запрещённый, чтобы его нельзя было выполнить по ошибке.
  *
  * <p>Переходы «создан в отменён» и «ожидает оплаты в отменён» различаются причиной отмены: T3 (нет ключей) и T12 (платёжная сессия не
  * открылась, системная ошибка); T5 (шлюз отклонил) и T6 (резерв истёк).
@@ -39,7 +39,7 @@ public final class OrderStateMachine {
         }
     }
 
-    private static final List<Transition> R1 = List.of(
+    private static final List<Transition> ALLOWED = List.of(
             new Transition("T2", CREATED, AWAITING_PAYMENT, Set.of()),
             new Transition("T3", CREATED, CANCELLED, Set.of(OUT_OF_STOCK)),
             new Transition("T12", CREATED, CANCELLED, Set.of(PAYMENT_SESSION_FAILED, SYSTEM_ERROR)),
@@ -48,34 +48,34 @@ public final class OrderStateMachine {
             new Transition("T6", AWAITING_PAYMENT, CANCELLED, Set.of(RESERVATION_EXPIRED)),
             new Transition("T7", CANCELLED, PAID, Set.of()),
             new Transition("T8", CANCELLED, REFUNDED, Set.of()),
-            new Transition("T9", PAID, ISSUED, Set.of()));
+            new Transition("T9", PAID, ISSUED, Set.of()),
+            new Transition("T10", PAID, CANCELLED, Set.of(CancelReason.SELLER_API_TIMEOUT)));
 
-    /** Переходы R2: в таблице есть, выполнить их нельзя. */
-    private static final List<Transition> R2 = List.of(
-            new Transition("T10", PAID, CANCELLED, Set.of(CancelReason.SELLER_API_TIMEOUT)),
+    /** Переходы, которые код ещё не выполняет: в таблице есть, выполнить их нельзя. */
+    private static final List<Transition> LATER = List.of(
             new Transition("T11", ISSUED, REFUNDED, Set.of()));
 
     private OrderStateMachine() {
     }
 
-    /** Все разрешённые в R1 переходы. */
+    /** Все переходы, которые код выполняет (T1 – T10, без T1). */
     public static List<Transition> allowed() {
-        return R1;
+        return ALLOWED;
     }
 
-    /** Переходы R2, которые код не выполняет. */
+    /** Переходы, которые код пока не выполняет (T11). */
     public static List<Transition> later() {
-        return R2;
+        return LATER;
     }
 
     /**
      * Разрешённый переход между статусами. Для отмены нужна причина: она выбирает T3 или T12, T5 или T6. Для остальных переходов причина
      * не нужна и игнорируется.
      *
-     * @return переход или пусто, если в R1 такого перехода нет
+     * @return переход или пусто, если такого разрешённого перехода нет
      */
     public static Optional<Transition> find(String from, String to, String reason) {
-        for (Transition t : R1) {
+        for (Transition t : ALLOWED) {
             if (t.from().equals(from) && t.to().equals(to) && (!t.isCancellation() || (reason != null && t.reasons().contains(reason)))) {
                 return Optional.of(t);
             }
@@ -86,11 +86,11 @@ public final class OrderStateMachine {
     /** Как {@link #find}, но недопустимый переход это ошибка программиста: {@link IllegalStateException}. */
     public static Transition require(String from, String to, String reason) {
         return find(from, to, reason).orElseThrow(() -> new IllegalStateException(
-                "Переход заказа «" + from + "» в «" + to + "»" + (reason == null ? "" : " с причиной «" + reason + "»") + " в R1 не предусмотрен"));
+                "Переход заказа «" + from + "» в «" + to + "»" + (reason == null ? "" : " с причиной «" + reason + "»") + " не предусмотрен"));
     }
 
-    /** Переход разрешён только в R2 (T10, T11). */
+    /** Переход описан в SM-01, но код его ещё не выполняет (T11). */
     public static boolean isLater(String from, String to) {
-        return R2.stream().anyMatch(t -> t.from().equals(from) && t.to().equals(to));
+        return LATER.stream().anyMatch(t -> t.from().equals(from) && t.to().equals(to));
     }
 }

@@ -4,6 +4,8 @@ import dgm.kit.boot.ModuleDatabases;
 import dgm.order.orders.domain.Order;
 import dgm.order.orders.domain.OrderFilter;
 import dgm.order.orders.domain.OrderSession;
+import dgm.order.orders.domain.SellerOrder;
+import dgm.order.orders.domain.SellerOrderFilter;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -20,7 +22,7 @@ import org.springframework.stereotype.Component;
 /**
  * Заказы в PostgreSQL. История и карточка заказа покупателя (читатель истории, {@code history-reader}) читаются под ролью {@code app_orders_read}: у неё
  * только {@code SELECT} на {@code orders.orders}, своё ограничение 2 соединения и свой пул, запись база отвергает (ADR-017, Р-163). Запрос истории
- * опирается на индекс {@code ix_orders_buyer_id (buyer_id, created_at desc, id desc)}. Проходы сторожа заказов это не история: они читают под ролью
+ * опирается на индекс {@code ix_orders_buyer_id (buyer_id, created_at desc, id desc)}. Заказы продавца (OP-100) читаются тем же читателем. Проходы сторожа заказов это не история: они читают под ролью
  * {@code app_orders}, как и записывающая часть сервиса.
  */
 @Component
@@ -31,6 +33,10 @@ public final class JdbcOrderRepository implements OrderRepository {
 
     private static final String COLUMNS = "id, number, product_id, product_title, quantity, unit_price, amount, currency, status, "
             + "cancel_reason, delivery_channel, delivery_address, reserve_until, session_until, created_at, paid_at, issued_at";
+
+    /** Столбцы заказа продавца: покупателя, e-mail и адреса доставки среди них нет (INV-44). */
+    private static final String SELLER_COLUMNS = "id, number, product_id, product_title, quantity, unit_price, amount, commission, currency, status, "
+            + "cancel_reason, issuance_method, created_at, paid_at, issued_at, refunded_at";
 
     /** Читатель истории: роль только на чтение. */
     private final JdbcTemplate history;
@@ -47,26 +53,45 @@ public final class JdbcOrderRepository implements OrderRepository {
         StringBuilder sql = new StringBuilder("select " + COLUMNS + " from orders.orders where buyer_id = ?");
         List<Object> args = new ArrayList<>();
         args.add(f.buyerId());
-        f.statuses().ifPresent(statuses -> {
-            sql.append(" and status in (").append(String.join(", ", Collections.nCopies(statuses.size(), "?"))).append(')');
-            args.addAll(statuses);
+        return history.query(page(sql, args, f.statuses(), f.createdFrom(), f.createdTo(), f.after(), f.limit()), (rs, row) -> map(rs), args.toArray());
+    }
+
+    /**
+     * Продавец в условии задан всегда, а столбцы покупателя, его e-mail и адреса доставки в выборке нет (INV-44). Запрос опирается на индекс
+     * {@code ix_orders_seller_id (seller_id, created_at desc, id desc)}.
+     */
+    @Override
+    public List<SellerOrder> findBySeller(SellerOrderFilter f) {
+        StringBuilder sql = new StringBuilder("select " + SELLER_COLUMNS + " from orders.orders where seller_id = ?");
+        List<Object> args = new ArrayList<>();
+        args.add(f.sellerId());
+        return history.query(page(sql, args, f.statuses(), f.createdFrom(), f.createdTo(), f.after(), f.limit()), (rs, row) -> mapSeller(rs),
+                args.toArray());
+    }
+
+    /** Общая часть выборок истории: фильтры, порядок «новые выше», курсор и размер страницы с запасом в одну строку. Владелец уже в {@code sql}. */
+    private static String page(StringBuilder sql, List<Object> args, Optional<List<String>> statuses, Optional<Instant> createdFrom,
+                               Optional<Instant> createdTo, Optional<OrderFilter.After> after, int limit) {
+        statuses.ifPresent(list -> {
+            sql.append(" and status in (").append(String.join(", ", Collections.nCopies(list.size(), "?"))).append(')');
+            args.addAll(list);
         });
-        f.createdFrom().ifPresent(from -> {
+        createdFrom.ifPresent(from -> {
             sql.append(" and created_at >= ?");
             args.add(utc(from));
         });
-        f.createdTo().ifPresent(to -> {
+        createdTo.ifPresent(to -> {
             sql.append(" and created_at < ?");
             args.add(utc(to));
         });
-        f.after().ifPresent(after -> {
+        after.ifPresent(position -> {
             sql.append(" and (created_at, id) < (?, ?)");
-            args.add(utc(after.createdAt()));
-            args.add(after.id());
+            args.add(utc(position.createdAt()));
+            args.add(position.id());
         });
         sql.append(" order by created_at desc, id desc limit ?");
-        args.add(f.limit() + 1);
-        return history.query(sql.toString(), (rs, row) -> map(rs), args.toArray());
+        args.add(limit + 1);
+        return sql.toString();
     }
 
     @Override
@@ -114,6 +139,26 @@ public final class JdbcOrderRepository implements OrderRepository {
                 instant(rs, "created_at").orElseThrow(),
                 instant(rs, "paid_at"),
                 instant(rs, "issued_at"));
+    }
+
+    private static SellerOrder mapSeller(ResultSet rs) throws SQLException {
+        return new SellerOrder(
+                rs.getObject("id", UUID.class),
+                rs.getLong("number"),
+                rs.getObject("product_id", UUID.class),
+                rs.getString("product_title"),
+                rs.getInt("quantity"),
+                rs.getLong("unit_price"),
+                rs.getLong("amount"),
+                rs.getLong("commission"),
+                rs.getString("currency").trim(),
+                rs.getString("status"),
+                Optional.ofNullable(rs.getString("cancel_reason")),
+                rs.getString("issuance_method"),
+                instant(rs, "created_at").orElseThrow(),
+                instant(rs, "paid_at"),
+                instant(rs, "issued_at"),
+                instant(rs, "refunded_at"));
     }
 
     private static Optional<Instant> instant(ResultSet rs, String column) throws SQLException {

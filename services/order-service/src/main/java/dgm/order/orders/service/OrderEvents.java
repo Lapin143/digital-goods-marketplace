@@ -43,7 +43,7 @@ final class OrderEvents {
         return data;
     }
 
-    /** {@code order.cancelled}: SM-01/T3, T5, T6, T12. По нему {@code inventory-service} снимает активный резерв. */
+    /** {@code order.cancelled}: SM-01/T3, T5, T6, T10, T12. По нему {@code inventory-service} снимает активный резерв (при T10 возвращает остаток товара по API). */
     static Map<String, Object> cancelled(StoredOrder o, String reason) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("orderId", o.id().toString());
@@ -56,7 +56,8 @@ final class OrderEvents {
 
     /**
      * {@code order.paid}: SM-01/T4 и T7. Единственное событие с адресом доставки (персональные данные): «Выдача» отправляет ключ без запроса в
-     * «Заказы». {@code latePayment}: оплата пришла после отмены и ключи резервировались заново.
+     * «Заказы». {@code latePayment}: оплата пришла после отмены и ключи резервировались заново. {@code issuanceMethod}: способ выдачи из снимка заказа,
+     * по нему «Выдача» выбирает ветку: ключи из пула или запрос к системе продавца (Р-190).
      */
     static Map<String, Object> paid(StoredOrder o, boolean latePayment) {
         Map<String, Object> delivery = new LinkedHashMap<>();
@@ -74,6 +75,7 @@ final class OrderEvents {
         data.put("commission", money(o.commission(), o.currency()));
         data.put("paidAt", Timestamps.format(o.paidAt()));
         data.put("latePayment", latePayment);
+        data.put("issuanceMethod", o.issuanceMethod());
         data.put("delivery", delivery);
         return data;
     }

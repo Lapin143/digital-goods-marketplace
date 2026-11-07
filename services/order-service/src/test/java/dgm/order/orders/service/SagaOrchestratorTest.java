@@ -24,6 +24,7 @@ import dgm.order.orders.client.PaymentClient.Opened;
 import dgm.order.orders.client.PaymentClient.Refused;
 import dgm.order.orders.client.PaymentClient.SessionResult;
 import dgm.order.orders.domain.CancelReason;
+import dgm.order.orders.domain.IssuanceMethod;
 import dgm.order.orders.domain.OrderPricing;
 import dgm.order.orders.domain.OrderStatus;
 import dgm.order.orders.domain.StoredOrder;
@@ -377,8 +378,10 @@ class SagaOrchestratorTest {
                 Optional.empty(),
                 Optional.of(new ProductCard(PRODUCT, SELLER, "Игра", "blocked", 100_00, "RUB", "key_pool")),
                 Optional.of(new ProductCard(PRODUCT, SELLER, "Игра", "draft", 100_00, "RUB", "key_pool")),
-                Optional.of(new ProductCard(PRODUCT, SELLER, "Игра", "published", 100_00, "RUB", "seller_api")),
-                Optional.of(new ProductCard(PRODUCT, SELLER, "Игра", "published", 100_00, "USD", "key_pool")));
+                Optional.of(new ProductCard(PRODUCT, SELLER, "Игра", "published", 100_00, "RUB", "file")),
+                Optional.of(new ProductCard(PRODUCT, SELLER, "Игра", "published", 100_00, "RUB", null)),
+                Optional.of(new ProductCard(PRODUCT, SELLER, "Игра", "published", 100_00, "USD", "key_pool")),
+                Optional.of(new ProductCard(PRODUCT, SELLER, "Игра", "published", 100_00, "USD", "seller_api")));
         for (Optional<ProductCard> card : cards) {
             catalog.card = card;
 
@@ -498,5 +501,100 @@ class SagaOrchestratorTest {
         assertEquals(6, store.all().size());
         assertNotNull(order.paymentSessionUrl());
         assertTrue(store.all().stream().filter(o -> OrderStatus.CANCELLED.equals(o.status())).count() == 5);
+    }
+
+    // ------------------------------------------------------------------------------------------------ TC-531: товар по API
+
+    @Tag("TC-531")
+    @Test
+    void anOrderForAnApiProductIsPlacedLikeAnyOtherAndRemembersTheMethodOfTheProduct() {
+        catalog.card = Optional.of(new ProductCard(PRODUCT, SELLER, "Лунная тропа: доступ по API", "published", 149_900, "RUB", "seller_api"));
+
+        StoredOrder order = saga.create(BUYER, EMAIL, PRODUCT, 2);
+
+        assertEquals(OrderStatus.AWAITING_PAYMENT, order.status());
+        assertEquals(IssuanceMethod.SELLER_API, order.issuanceMethod());
+        assertEquals(1, inventory.orders.size(), "резерв по количеству делает сервис остатков, ключей у товара по API нет");
+        assertEquals(List.of(2), inventory.quantities);
+        assertEquals(1, payments.orders.size());
+        assertEquals(List.of("order.created"), store.events().stream().map(FakeOrderStore.Published::eventType).toList());
+    }
+
+    @Tag("TC-531")
+    @Test
+    void anOrderForAKeyPoolProductRemembersItsMethodToo() {
+        StoredOrder order = saga.create(BUYER, EMAIL, PRODUCT, 1);
+
+        assertEquals(IssuanceMethod.KEY_POOL, order.issuanceMethod());
+        assertEquals(IssuanceMethod.KEY_POOL, only().issuanceMethod());
+    }
+
+    // ------------------------------------------------------------------------------------------------ TC-532: молчание продавца
+
+    private StoredOrder paidOrder(int n, String issuanceMethod) {
+        UUID id = UUID.fromString(String.format("0199e0a0-0000-7000-8000-%012d", 300 + n));
+        StoredOrder order = new StoredOrder(id, 1000L + n, BUYER, SELLER, PRODUCT, "Игра", 1, 100_00, 100_00, 2_00, "RUB", OrderStatus.PAID, null, EMAIL,
+                null, null, null, T0, T0, null, issuanceMethod, null);
+        store.seed(order);
+        return order;
+    }
+
+    @Tag("TC-532")
+    @Test
+    void theTimeoutOfTheSellerCancelsAPaidApiOrderAndAsksForTheRefund() {
+        StoredOrder order = paidOrder(1, IssuanceMethod.SELLER_API);
+
+        SagaOutcome outcome = saga.sellerTimeout(order.id());
+
+        assertEquals(SagaOutcome.Kind.APPLIED, outcome.kind());
+        assertEquals(OrderStatus.CANCELLED, store.get(order.id()).status());
+        assertEquals(CancelReason.SELLER_API_TIMEOUT, store.get(order.id()).cancelReason());
+        assertEquals(List.of("order.cancelled", "order.refund-requested"), store.events().stream().map(FakeOrderStore.Published::eventType).toList());
+    }
+
+    @Tag("TC-532")
+    @Test
+    void aSecondTimeoutOfTheSameOrderIsIgnoredWithoutASecondRefund() {
+        StoredOrder order = paidOrder(1, IssuanceMethod.SELLER_API);
+        saga.sellerTimeout(order.id());
+
+        SagaOutcome again = saga.sellerTimeout(order.id());
+
+        assertEquals(SagaOutcome.Kind.IGNORED, again.kind());
+        assertEquals("order-not-paid", again.reason());
+        assertEquals(1, store.events("order.refund-requested").size());
+    }
+
+    @Tag("TC-532")
+    @Test
+    void aTimeoutOfAnIssuedOrderIsLateAndChangesNothing() {
+        StoredOrder order = paidOrder(1, IssuanceMethod.SELLER_API);
+        transitions.issue(order.id(), UUID.randomUUID(), T0);
+        int events = store.events().size();
+
+        SagaOutcome outcome = saga.sellerTimeout(order.id());
+
+        assertEquals(SagaOutcome.Kind.IGNORED, outcome.kind());
+        assertEquals("order-not-paid", outcome.reason());
+        assertEquals(OrderStatus.ISSUED, store.get(order.id()).status());
+        assertEquals(events, store.events().size());
+    }
+
+    @Tag("TC-532")
+    @Test
+    void aTimeoutOfAKeyPoolOrderOrOfAnUnknownOrderIsAnAnomalyAndChangesNothing() {
+        StoredOrder pool = paidOrder(1, IssuanceMethod.KEY_POOL);
+
+        SagaOutcome notApi = saga.sellerTimeout(pool.id());
+        SagaOutcome unknown = saga.sellerTimeout(UUID.randomUUID());
+
+        assertEquals(SagaOutcome.Kind.IGNORED, notApi.kind());
+        assertEquals("not-seller-api-order", notApi.reason());
+        assertEquals(SagaOutcome.Kind.IGNORED, unknown.kind());
+        assertEquals("unknown-order", unknown.reason());
+        assertEquals(OrderStatus.PAID, store.get(pool.id()).status());
+        assertEquals(0, store.events().size());
+        assertEquals(1.0, count("seller_timeout_anomalies_total", "kind", "not-seller-api"));
+        assertEquals(1.0, count("seller_timeout_anomalies_total", "kind", "unknown-order"));
     }
 }

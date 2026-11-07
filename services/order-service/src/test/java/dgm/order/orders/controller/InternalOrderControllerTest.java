@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import dgm.kit.json.Json;
 import dgm.kit.problem.ProblemAdvice;
 import dgm.kit.time.ManualClock;
+import dgm.order.orders.domain.IssuanceMethod;
 import dgm.order.orders.domain.OrderStatus;
 import dgm.order.orders.domain.StoredOrder;
 import dgm.order.orders.service.DeliveryAddressService;
@@ -51,7 +52,7 @@ class InternalOrderControllerTest {
 
     private static StoredOrder order(UUID id, long number, String status) {
         return new StoredOrder(id, number, BUYER, SELLER, PRODUCT, "Игра", 1, 100_00, 100_00, 2_00, "RUB", status, null, "buyer@mail.example", null, null,
-                null, T0, T0, OrderStatus.ISSUED.equals(status) ? T0 : null);
+                null, T0, T0, OrderStatus.ISSUED.equals(status) ? T0 : null, IssuanceMethod.KEY_POOL, null);
     }
 
     @BeforeEach

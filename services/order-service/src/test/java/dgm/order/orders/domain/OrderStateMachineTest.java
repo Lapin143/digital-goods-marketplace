@@ -27,9 +27,9 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
- * SM-01: девять переходов R1 находятся по статусам и причине, причина выбирает между T3 и T12, T5 и T6, остальные пары из тридцати шести
- * запрещены, T10 и T11 (R2) в коде описаны как запрещённые. Множество разрешённых пар совпадает с триггером базы
- * {@code trg_orders_status_transition}.
+ * SM-01: десять переходов (T2 – T10) находятся по статусам и причине, причина выбирает между T3 и T12, T5 и T6, остальные пары из тридцати шести
+ * запрещены, T10 разрешён только из «оплачен» и только с причиной {@code seller_api_timeout}, T11 в коде описан как запрещённый. Множество разрешённых
+ * пар совпадает с триггером базы {@code trg_orders_status_transition}.
  */
 @Tag("TC-510")
 class OrderStateMachineTest {
@@ -39,8 +39,9 @@ class OrderStateMachineTest {
     }
 
     @Test
-    void theTableHoldsTheNineTransitionsOfRelease1InTheOrderOfTheDiagram() {
-        assertEquals(List.of("T2", "T3", "T12", "T4", "T5", "T6", "T7", "T8", "T9"), OrderStateMachine.allowed().stream().map(Transition::id).toList());
+    void theTableHoldsTheTenTransitionsInTheOrderOfTheDiagram() {
+        assertEquals(List.of("T2", "T3", "T12", "T4", "T5", "T6", "T7", "T8", "T9", "T10"),
+                OrderStateMachine.allowed().stream().map(Transition::id).toList());
     }
 
     @Test
@@ -55,6 +56,17 @@ class OrderStateMachineTest {
         assertEquals("T7", id(CANCELLED, PAID, null));
         assertEquals("T8", id(CANCELLED, REFUNDED, null));
         assertEquals("T9", id(PAID, ISSUED, null));
+        assertEquals("T10", id(PAID, CANCELLED, SELLER_API_TIMEOUT));
+    }
+
+    @Test
+    void theTimeoutCancellationLeavesOnlyPaidAndOnlyWithItsOwnReason() {
+        for (String wrong : new String[] {OUT_OF_STOCK, PAYMENT_DECLINED, RESERVATION_EXPIRED, PAYMENT_SESSION_FAILED, SYSTEM_ERROR, null, "other"}) {
+            assertEquals("нет", id(PAID, CANCELLED, wrong), "из «оплачен» с причиной " + wrong);
+        }
+        for (String from : List.of(CREATED, AWAITING_PAYMENT, ISSUED, CANCELLED, REFUNDED)) {
+            assertEquals("нет", id(from, CANCELLED, SELLER_API_TIMEOUT), "из «" + from + "» с причиной seller_api_timeout");
+        }
     }
 
     @Test
@@ -68,7 +80,7 @@ class OrderStateMachineTest {
     }
 
     @Test
-    void onlyTheSevenPairsOfTheDatabaseTriggerHaveATransitionWhateverTheReason() {
+    void onlyTheEightPairsOfTheDatabaseTriggerHaveATransitionWhateverTheReason() {
         List<String> statuses = List.of(CREATED, AWAITING_PAYMENT, PAID, ISSUED, CANCELLED, REFUNDED);
         Set<String> reasons = new HashSet<>(CancelReason.ALL);
         reasons.add(null);
@@ -83,7 +95,7 @@ class OrderStateMachineTest {
             }
         }
         assertEquals(Set.of("created>awaiting_payment", "created>cancelled", "awaiting_payment>paid", "awaiting_payment>cancelled", "cancelled>paid",
-                "cancelled>refunded", "paid>issued"), pairs);
+                "cancelled>refunded", "paid>issued", "paid>cancelled"), pairs);
     }
 
     @Test
@@ -98,12 +110,11 @@ class OrderStateMachineTest {
     }
 
     @Test
-    void transitionsOfRelease2AreDescribedButNeverAllowed() {
-        assertEquals(List.of("T10", "T11"), OrderStateMachine.later().stream().map(Transition::id).toList());
-        assertTrue(OrderStateMachine.isLater(PAID, CANCELLED));
+    void theRefundOfAnIssuedOrderIsDescribedButNotAllowedYet() {
+        assertEquals(List.of("T11"), OrderStateMachine.later().stream().map(Transition::id).toList());
         assertTrue(OrderStateMachine.isLater(ISSUED, REFUNDED));
+        assertFalse(OrderStateMachine.isLater(PAID, CANCELLED));
         assertFalse(OrderStateMachine.isLater(CREATED, PAID));
-        assertEquals("нет", id(PAID, CANCELLED, SELLER_API_TIMEOUT));
         assertEquals("нет", id(ISSUED, REFUNDED, null));
         for (Transition later : OrderStateMachine.later()) {
             assertFalse(OrderStateMachine.allowed().contains(later));
@@ -119,10 +130,12 @@ class OrderStateMachineTest {
 
     @Test
     void requireThrowsForAForbiddenTransitionAndNamesIt() {
-        IllegalStateException e = assertThrows(IllegalStateException.class, () -> OrderStateMachine.require(PAID, CANCELLED, SELLER_API_TIMEOUT));
-        assertTrue(e.getMessage().contains("paid"), e.getMessage());
-        assertTrue(e.getMessage().contains("cancelled"), e.getMessage());
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> OrderStateMachine.require(ISSUED, REFUNDED, null));
+        assertTrue(e.getMessage().contains("issued"), e.getMessage());
+        assertTrue(e.getMessage().contains("refunded"), e.getMessage());
         assertEquals("T4", OrderStateMachine.require(AWAITING_PAYMENT, PAID, null).id());
+        assertEquals("T10", OrderStateMachine.require(PAID, CANCELLED, SELLER_API_TIMEOUT).id());
+        assertThrows(IllegalStateException.class, () -> OrderStateMachine.require(PAID, CANCELLED, SYSTEM_ERROR));
     }
 
     @Test

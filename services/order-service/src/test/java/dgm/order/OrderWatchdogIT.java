@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import dgm.order.orders.domain.Order;
 import dgm.order.orders.domain.OrderFilter;
 import dgm.order.orders.domain.OrderSession;
+import dgm.order.orders.domain.SellerOrder;
+import dgm.order.orders.domain.SellerOrderFilter;
 import dgm.order.orders.repository.OrderRepository;
 import dgm.order.orders.service.SagaOrchestrator;
 import dgm.order.orders.watchdog.OrderWatchdog;
@@ -55,6 +57,11 @@ class OrderWatchdogIT extends OrderStandIT {
             @Override
             public List<UUID> findAwaitingReserveEndedBefore(Instant border, int limit) {
                 return repository.findAwaitingReserveEndedBefore(border, 100_000).stream().filter(mine::contains).limit(limit).toList();
+            }
+
+            @Override
+            public List<SellerOrder> findBySeller(SellerOrderFilter filter) {
+                throw new UnsupportedOperationException();
             }
 
             @Override

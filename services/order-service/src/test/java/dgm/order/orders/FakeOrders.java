@@ -3,6 +3,8 @@ package dgm.order.orders;
 import dgm.order.orders.domain.Order;
 import dgm.order.orders.domain.OrderFilter;
 import dgm.order.orders.domain.OrderSession;
+import dgm.order.orders.domain.SellerOrder;
+import dgm.order.orders.domain.SellerOrderFilter;
 import dgm.order.orders.repository.OrderRepository;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -23,7 +25,9 @@ public final class FakeOrders implements OrderRepository {
 
     private final Map<UUID, List<Order>> byBuyer = new HashMap<>();
     private final Map<UUID, Map<UUID, OrderSession>> sessions = new HashMap<>();
+    private final Map<UUID, List<SellerOrder>> bySeller = new HashMap<>();
     private OrderFilter lastFilter;
+    private SellerOrderFilter lastSellerFilter;
 
     public static UUID id(int n) {
         return UUID.fromString(String.format("00000000-0000-4000-8000-%012d", n));
@@ -32,6 +36,17 @@ public final class FakeOrders implements OrderRepository {
     public static Order order(int n, String status, Instant createdAt) {
         return new Order(id(n), 1000L + n, id(1000 + n), "Товар " + n, 1, 1_000_00L, 1_000_00L, "RUB", status, Optional.empty(), "email", "buyer@mail.example",
                 Optional.empty(), Optional.empty(), createdAt, Optional.empty(), Optional.empty());
+    }
+
+    /** Заказ глазами продавца: покупателя, e-mail и адреса в нём нет. */
+    public static SellerOrder sellerOrder(int n, String status, Instant createdAt) {
+        return new SellerOrder(id(n), 1000L + n, id(1000 + n), "Товар " + n, 1, 1_000_00L, 1_000_00L, 2_00L, "RUB", status, Optional.empty(), "key_pool",
+                createdAt, Optional.empty(), Optional.empty(), Optional.empty());
+    }
+
+    public FakeOrders withSeller(UUID seller, SellerOrder... orders) {
+        bySeller.computeIfAbsent(seller, s -> new ArrayList<>()).addAll(List.of(orders));
+        return this;
     }
 
     public FakeOrders with(UUID buyer, Order... orders) {
@@ -47,6 +62,26 @@ public final class FakeOrders implements OrderRepository {
 
     public OrderFilter lastFilter() {
         return lastFilter;
+    }
+
+    public SellerOrderFilter lastSellerFilter() {
+        return lastSellerFilter;
+    }
+
+    /** Выборка как в SQL: продавец, статусы, период, порядок «новые выше», позиция курсора, лимит с запасом в одну строку. */
+    @Override
+    public List<SellerOrder> findBySeller(SellerOrderFilter filter) {
+        lastSellerFilter = filter;
+        Comparator<SellerOrder> newestFirst = Comparator.comparing(SellerOrder::createdAt).thenComparing(SellerOrder::id).reversed();
+        return bySeller.getOrDefault(filter.sellerId(), List.of()).stream()
+                .filter(o -> filter.statuses().map(s -> s.contains(o.status())).orElse(true))
+                .filter(o -> filter.createdFrom().map(f -> !o.createdAt().isBefore(f)).orElse(true))
+                .filter(o -> filter.createdTo().map(t -> o.createdAt().isBefore(t)).orElse(true))
+                .sorted(newestFirst)
+                .filter(o -> filter.after().map(a -> o.createdAt().isBefore(a.createdAt())
+                        || (o.createdAt().equals(a.createdAt()) && o.id().compareTo(a.id()) < 0)).orElse(true))
+                .limit(filter.limit() + 1L)
+                .toList();
     }
 
     @Override

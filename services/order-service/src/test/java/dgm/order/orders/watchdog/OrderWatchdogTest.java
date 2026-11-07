@@ -9,9 +9,12 @@ import dgm.order.orders.client.CatalogClient;
 import dgm.order.orders.client.InventoryClient;
 import dgm.order.orders.client.PaymentClient;
 import dgm.order.orders.domain.CancelReason;
+import dgm.order.orders.domain.IssuanceMethod;
 import dgm.order.orders.domain.Order;
 import dgm.order.orders.domain.OrderFilter;
 import dgm.order.orders.domain.OrderSession;
+import dgm.order.orders.domain.SellerOrder;
+import dgm.order.orders.domain.SellerOrderFilter;
 import dgm.order.orders.domain.OrderStatus;
 import dgm.order.orders.domain.StoredOrder;
 import dgm.order.orders.repository.OrderRepository;
@@ -75,6 +78,11 @@ class OrderWatchdogTest {
         }
 
         @Override
+        public List<SellerOrder> findBySeller(SellerOrderFilter filter) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public List<Order> findByBuyer(OrderFilter filter) {
             throw new UnsupportedOperationException();
         }
@@ -128,7 +136,7 @@ class OrderWatchdogTest {
 
     private StoredOrder created(int n, Instant createdAt) {
         StoredOrder order = new StoredOrder(id(n), 1000L + n, BUYER, SELLER, PRODUCT, "Лунная тропа: ключ Steam", 2, 149_900, 299_800, 5_996, "RUB",
-                OrderStatus.CREATED, null, "buyer@mail.example", null, null, null, createdAt, null, null);
+                OrderStatus.CREATED, null, "buyer@mail.example", null, null, null, createdAt, null, null, IssuanceMethod.KEY_POOL, null);
         store.seed(order);
         return order;
     }
@@ -136,7 +144,7 @@ class OrderWatchdogTest {
     private StoredOrder awaiting(int n, Instant reserveUntil) {
         StoredOrder order = new StoredOrder(id(n), 1000L + n, BUYER, SELLER, PRODUCT, "Лунная тропа: ключ Steam", 2, 149_900, 299_800, 5_996, "RUB",
                 OrderStatus.AWAITING_PAYMENT, null, "buyer@mail.example", reserveUntil, reserveUntil.minus(Duration.ofMinutes(3)),
-                "https://localhost:8443/payment/pay/pay_1", reserveUntil.minus(Duration.ofMinutes(15)), null, null);
+                "https://localhost:8443/payment/pay/pay_1", reserveUntil.minus(Duration.ofMinutes(15)), null, null, IssuanceMethod.KEY_POOL, null);
         store.seed(order);
         return order;
     }
@@ -212,7 +220,7 @@ class OrderWatchdogTest {
         for (String status : List.of(OrderStatus.PAID, OrderStatus.ISSUED, OrderStatus.CANCELLED, OrderStatus.REFUNDED)) {
             int n = store.all().size() + 1;
             store.seed(new StoredOrder(id(n), 1000L + n, BUYER, SELLER, PRODUCT, "Игра", 1, 100_00, 100_00, 2_00, "RUB", status,
-                    OrderStatus.CANCELLED.equals(status) ? CancelReason.PAYMENT_DECLINED : null, "buyer@mail.example", old, old, null, old, old, old));
+                    OrderStatus.CANCELLED.equals(status) ? CancelReason.PAYMENT_DECLINED : null, "buyer@mail.example", old, old, null, old, old, old, IssuanceMethod.KEY_POOL, null));
         }
 
         assertEquals(0, watchdog.runOnce());

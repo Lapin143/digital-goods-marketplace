@@ -10,6 +10,7 @@ import dgm.kit.problem.ProblemException;
 import dgm.kit.problem.ProblemType;
 import dgm.order.orders.domain.AddressUpdate;
 import dgm.order.orders.domain.CancelReason;
+import dgm.order.orders.domain.IssuanceMethod;
 import dgm.order.orders.domain.NewOrder;
 import dgm.order.orders.domain.OrderStatus;
 import dgm.order.orders.domain.StoredOrder;
@@ -58,13 +59,19 @@ class OrderTransitionsTest {
     }
 
     private static NewOrder draft(int n, UUID buyer) {
-        return new NewOrder(id(n), buyer, SELLER, PRODUCT, "Лунная тропа: ключ Steam", 2, 149_900, 299_800, 200, 5_996, "RUB", "buyer@mail.example", T0);
+        return draft(n, buyer, IssuanceMethod.KEY_POOL);
+    }
+
+    private static NewOrder draft(int n, UUID buyer, String issuanceMethod) {
+        return new NewOrder(id(n), buyer, SELLER, PRODUCT, "Лунная тропа: ключ Steam", 2, 149_900, 299_800, 200, 5_996, "RUB", "buyer@mail.example",
+                issuanceMethod, T0);
     }
 
     private static StoredOrder existing(int n, UUID buyer, String status) {
         return new StoredOrder(id(n), 900L + n, buyer, SELLER, PRODUCT, "Игра", 1, 100_00, 100_00, 2_00, "RUB", status,
                 OrderStatus.CANCELLED.equals(status) ? CancelReason.PAYMENT_DECLINED : null, "buyer@mail.example", null, null, null, T0,
-                OrderStatus.PAID.equals(status) || OrderStatus.ISSUED.equals(status) ? T0 : null, OrderStatus.ISSUED.equals(status) ? T0 : null);
+                OrderStatus.PAID.equals(status) || OrderStatus.ISSUED.equals(status) ? T0 : null, OrderStatus.ISSUED.equals(status) ? T0 : null,
+                IssuanceMethod.KEY_POOL, null);
     }
 
     private double counter(String name, String tag, String value) {
@@ -329,7 +336,7 @@ class OrderTransitionsTest {
         StoredOrder base = existing(n, BUYER, OrderStatus.CANCELLED);
         StoredOrder order = new StoredOrder(base.id(), base.number(), base.buyerId(), base.sellerId(), base.productId(), base.productTitle(), base.quantity(),
                 base.unitPrice(), base.amount(), base.commission(), base.currency(), OrderStatus.CANCELLED, reason, base.deliveryAddress(),
-                RESERVE_UNTIL, SESSION_UNTIL, URL, base.createdAt(), null, null);
+                RESERVE_UNTIL, SESSION_UNTIL, URL, base.createdAt(), null, null, base.issuanceMethod(), null);
         store.seed(order);
         return order;
     }
@@ -359,9 +366,10 @@ class OrderTransitionsTest {
         assertEquals(1, event.schemaVersion());
         Map<String, Object> data = event.data();
         assertEquals(Set.of("orderId", "orderNumber", "buyerId", "sellerId", "productId", "productTitle", "quantity", "total", "commission", "paidAt",
-                "latePayment", "delivery"), data.keySet());
+                "latePayment", "issuanceMethod", "delivery"), data.keySet());
         assertEquals("2026-10-18T12:05:00.123Z", data.get("paidAt"));
         assertEquals(false, data.get("latePayment"));
+        assertEquals("key_pool", data.get("issuanceMethod"));
         assertEquals("Лунная тропа: ключ Steam", data.get("productTitle"));
         assertEquals(Map.of("amount", 299_800L, "currency", "RUB"), data.get("total"));
         assertEquals(Map.of("amount", 5_996L, "currency", "RUB"), data.get("commission"));
@@ -751,5 +759,168 @@ class OrderTransitionsTest {
         assertEquals("buyer@mail.example", store.get(id(1)).deliveryAddress(), "замена и событие откатываются вместе");
         assertEquals(0, store.events().size());
         assertNull(meters.find("orders_address_updated_total").counter(), "обновление не состоялось");
+    }
+
+    // ------------------------------------------------------------------------------------------------ TC-531: способ выдачи в заказе
+
+    @Tag("TC-531")
+    @Test
+    void theIssuanceMethodIsFixedWhenTheOrderIsPlacedAndSurvivesEveryTransition() {
+        StoredOrder placed = transitions.place(draft(1, BUYER, IssuanceMethod.SELLER_API));
+        assertEquals(IssuanceMethod.SELLER_API, placed.issuanceMethod());
+        assertTrue(placed.isSellerApi());
+        transitions.awaitPayment(id(1), RESERVE_UNTIL, SESSION_UNTIL, URL);
+        assertEquals(IssuanceMethod.SELLER_API, transitions.pay(id(1), PAID_AT).orElseThrow().issuanceMethod());
+        assertEquals(IssuanceMethod.SELLER_API, transitions.issue(id(1), UUID.randomUUID(), PAID_AT).orElseThrow().issuanceMethod());
+
+        StoredOrder pool = transitions.place(draft(2, BUYER));
+        assertEquals(IssuanceMethod.KEY_POOL, pool.issuanceMethod());
+        assertFalse(pool.isSellerApi());
+    }
+
+    @Tag("TC-531")
+    @Test
+    void orderPaidCarriesTheIssuanceMethodOfTheOrder() {
+        for (String method : List.of(IssuanceMethod.KEY_POOL, IssuanceMethod.SELLER_API)) {
+            int n = IssuanceMethod.KEY_POOL.equals(method) ? 1 : 2;
+            transitions.place(draft(n, BUYER, method));
+            transitions.awaitPayment(id(n), RESERVE_UNTIL, SESSION_UNTIL, URL);
+            transitions.pay(id(n), PAID_AT);
+        }
+
+        List<FakeOrderStore.Published> paid = store.events("order.paid");
+        assertEquals(2, paid.size());
+        assertEquals("key_pool", paid.get(0).data().get("issuanceMethod"));
+        assertEquals("seller_api", paid.get(1).data().get("issuanceMethod"));
+    }
+
+    // ------------------------------------------------------------------------------------------------ TC-532: T10
+
+    /** Оплаченный заказ с заданным способом выдачи. */
+    private StoredOrder paid(int n, String issuanceMethod) {
+        StoredOrder base = existing(n, BUYER, OrderStatus.PAID);
+        StoredOrder order = new StoredOrder(base.id(), base.number(), base.buyerId(), base.sellerId(), base.productId(), base.productTitle(), base.quantity(),
+                base.unitPrice(), base.amount(), base.commission(), base.currency(), OrderStatus.PAID, null, base.deliveryAddress(), RESERVE_UNTIL,
+                SESSION_UNTIL, URL, base.createdAt(), PAID_AT, null, issuanceMethod, null);
+        store.seed(order);
+        return order;
+    }
+
+    @Tag("TC-532")
+    @Test
+    void silenceOfTheSellerCancelsAPaidApiOrderAndAsksForTheRefundInOneTransaction() {
+        paid(1, IssuanceMethod.SELLER_API);
+        int before = store.transactions();
+
+        Optional<StoredOrder> cancelled = transitions.cancelSellerTimeout(id(1));
+
+        assertTrue(cancelled.isPresent());
+        assertEquals(1, store.transactions() - before, "отмена, событие отмены и команда возврата в одной транзакции");
+        assertEquals(OrderStatus.CANCELLED, cancelled.get().status());
+        assertEquals(CancelReason.SELLER_API_TIMEOUT, cancelled.get().cancelReason());
+        assertEquals(PAID_AT, cancelled.get().paidAt(), "время оплаты сохраняется: оно нужно сверке и списку продавца");
+        assertEquals(List.of("order.cancelled", "order.refund-requested"), store.events().stream().map(FakeOrderStore.Published::eventType).toList());
+        Map<String, Object> cancelledEvent = store.events("order.cancelled").get(0).data();
+        assertEquals(Set.of("orderId", "buyerId", "productId", "quantity", "cancelReason"), cancelledEvent.keySet());
+        assertEquals("seller_api_timeout", cancelledEvent.get("cancelReason"));
+        Map<String, Object> refund = store.events("order.refund-requested").get(0).data();
+        assertEquals(Set.of("orderId", "amount", "refundReason"), refund.keySet());
+        assertEquals(Map.of("amount", 100_00L, "currency", "RUB"), refund.get("amount"), "возврат всей суммы заказа");
+        assertEquals("seller_api_timeout", refund.get("refundReason"));
+        assertEquals(1.0, counter("orders_cancelled_total", "reason", "seller_api_timeout"));
+        assertEquals(1.0, counter("seller_timeouts_total", "result", "refund-requested"));
+    }
+
+    @Tag("TC-532")
+    @Test
+    void aRepeatedOrLateTimeoutChangesNothingMore() {
+        paid(1, IssuanceMethod.SELLER_API);
+        transitions.cancelSellerTimeout(id(1));
+        int events = store.events().size();
+
+        assertTrue(transitions.cancelSellerTimeout(id(1)).isEmpty(), "повтор: заказ уже отменён");
+
+        assertEquals(events, store.events().size(), "второй команды на возврат нет");
+        assertEquals(1.0, counter("orders_cancelled_total", "reason", "seller_api_timeout"));
+        assertEquals(1.0, ignored("T10", OrderStatus.CANCELLED));
+    }
+
+    @Tag("TC-532")
+    @Test
+    void aTimeoutThatArrivesAfterTheIssueLeavesTheIssuedOrderAlone() {
+        paid(1, IssuanceMethod.SELLER_API);
+        transitions.issue(id(1), UUID.randomUUID(), PAID_AT);
+        int events = store.events().size();
+
+        assertTrue(transitions.cancelSellerTimeout(id(1)).isEmpty());
+
+        assertEquals(OrderStatus.ISSUED, store.get(id(1)).status(), "из «выдан» отмены нет, возврат выданного заказа это T11 по спору");
+        assertEquals(events, store.events().size());
+        assertEquals(1.0, ignored("T10", OrderStatus.ISSUED));
+    }
+
+    @Tag("TC-532")
+    @Test
+    void onlyAnApiOrderThatIsPaidCanBeCancelledByTheTimeout() {
+        paid(1, IssuanceMethod.KEY_POOL);
+        StoredOrder refunded = existing(2, BUYER, OrderStatus.REFUNDED);
+        store.seed(new StoredOrder(refunded.id(), refunded.number(), refunded.buyerId(), refunded.sellerId(), refunded.productId(), refunded.productTitle(),
+                refunded.quantity(), refunded.unitPrice(), refunded.amount(), refunded.commission(), refunded.currency(), OrderStatus.REFUNDED,
+                CancelReason.SELLER_API_TIMEOUT, refunded.deliveryAddress(), null, null, null, T0, PAID_AT, null, IssuanceMethod.SELLER_API,
+                FakeOrderStore.REFUNDED_AT));
+        transitions.place(draft(3, BUYER, IssuanceMethod.SELLER_API));
+        transitions.place(draft(4, BUYER, IssuanceMethod.SELLER_API));
+        transitions.awaitPayment(id(4), RESERVE_UNTIL, SESSION_UNTIL, URL);
+        int events = store.events().size();
+
+        for (int n = 1; n <= 4; n++) {
+            assertTrue(transitions.cancelSellerTimeout(id(n)).isEmpty(), "заказ " + n);
+        }
+        assertTrue(transitions.cancelSellerTimeout(id(9)).isEmpty(), "неизвестный заказ");
+
+        assertEquals(OrderStatus.PAID, store.get(id(1)).status(), "заказ по ключам не ждёт продавца: событие о молчании ему не адресовано");
+        assertEquals(OrderStatus.REFUNDED, store.get(id(2)).status());
+        assertEquals(OrderStatus.CREATED, store.get(id(3)).status());
+        assertEquals(OrderStatus.AWAITING_PAYMENT, store.get(id(4)).status());
+        assertEquals(events, store.events().size());
+        assertEquals(1.0, counter("seller_timeout_anomalies_total", "kind", "not-seller-api"));
+    }
+
+    @Tag("TC-532")
+    @Test
+    void theTimeoutCancellationCannotBeAskedForOnAKeyPoolOrderThroughThePlainCancel() {
+        paid(1, IssuanceMethod.KEY_POOL);
+
+        assertTrue(transitions.cancel(id(1), CancelReason.SELLER_API_TIMEOUT).isEmpty());
+
+        assertEquals(OrderStatus.PAID, store.get(id(1)).status());
+        assertEquals(0, store.events().size());
+    }
+
+    @Tag("TC-532")
+    @Test
+    void ifTheOutboxIsDownTheTimeoutCancellationIsRolledBackWithItsEvents() {
+        paid(1, IssuanceMethod.SELLER_API);
+        store.failOnPublish();
+
+        assertThrows(IllegalStateException.class, () -> transitions.cancelSellerTimeout(id(1)));
+
+        assertEquals(OrderStatus.PAID, store.get(id(1)).status());
+        assertEquals(0, store.events().size());
+    }
+
+    @Tag("TC-532")
+    @Test
+    void theRefundOfATimedOutOrderIsT8AndKeepsTheReasonOfTheCancellation() {
+        paid(1, IssuanceMethod.SELLER_API);
+        transitions.cancelSellerTimeout(id(1));
+
+        Optional<StoredOrder> refunded = transitions.refund(id(1), "seller_api_timeout");
+
+        assertTrue(refunded.isPresent());
+        assertEquals(OrderStatus.REFUNDED, refunded.get().status());
+        assertEquals(CancelReason.SELLER_API_TIMEOUT, refunded.get().cancelReason());
+        assertEquals(FakeOrderStore.REFUNDED_AT, refunded.get().refundedAt());
+        assertEquals("seller_api_timeout", store.events("order.refunded").get(0).data().get("refundReason"));
     }
 }
