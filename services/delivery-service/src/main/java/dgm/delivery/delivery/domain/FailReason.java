@@ -12,6 +12,12 @@ public final class FailReason {
      */
     public static final String ADDRESS_REJECTED = "address_rejected";
 
+    /**
+     * Продавец с выдачей по API не ответил за срок, отказал или не подключён: письма не было (R2, ADR-028). Событие {@code delivery.failed} при этом
+     * не публикуется, исход ведёт {@code delivery.seller-timeout}.
+     */
+    public static final String SELLER_UNAVAILABLE = "seller_unavailable";
+
     private FailReason() {
     }
 }

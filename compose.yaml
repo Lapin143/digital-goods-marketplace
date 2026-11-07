@@ -516,6 +516,9 @@ services:
       <<: *service-env
       # Ускоренные сроки (профиль fast-time, time-budgets.md, раздел 5) включает только DGM_FAST_TIME=1: make fast-up и задание e2e, на сервер не попадает (Р-147, check_compose.py)
       SPRING_PROFILES_ACTIVE: ${DGM_FAST_TIME:+fast-time}
+      # Запрос ключа системе продавца (ADR-028, правило 7): защита адреса от SSRF отвергает внутренние адреса, а заглушка системы продавца живёт во
+      # внутренней сети стенда. Имя и порт заглушки освобождены только от проверки диапазонов адресов; настоящий сервер задаёт пустое значение.
+      DGM_SELLER_ENDPOINT_ALLOW: ${DGM_SELLER_ENDPOINT_ALLOW-external-stubs:8443}
     tmpfs:
       - /tmp:uid=10001,gid=10001,mode=1777,size=48m
     secrets:

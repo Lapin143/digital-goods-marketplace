@@ -1,5 +1,6 @@
 package dgm.delivery.delivery.events;
 
+import dgm.delivery.delivery.domain.SellerRequestSeed;
 import dgm.delivery.delivery.service.DeliveryIntake;
 import dgm.kit.events.EventEnvelope;
 import dgm.kit.events.EventHandler;
@@ -11,7 +12,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * {@code order.paid} (компонент {@code delivery-domain}, SM-06/T1, INV-18): заказ оплачен, в одной транзакции появляется первичная выдача «в
- * очереди» (снимок адреса, название товара и число ключей из события) и открывается контроль доставки. Отметку {@code processed_event} делает
+ * очереди» (снимок адреса, название товара и число ключей из события) и открывается контроль доставки. Для товара с выдачей по API (необязательное
+ * поле {@code issuanceMethod = seller_api}, R2) в той же транзакции создаётся и запрос ключа у системы продавца. Отметку {@code processed_event} делает
  * каркас в той же транзакции. Повтор события, в том числе под другим идентификатором, второй выдачи не создаёт: первичная выдача заказа одна.
  */
 @Component
@@ -56,6 +58,8 @@ public final class OrderPaidHandler implements EventHandler {
         int quantity = EventData.integer(event, "quantity", 1, 10);
         Instant paidAt = EventData.instant(event, "paidAt");
         String address = EventData.emailAddress(event);
-        return intake.accept(orderId, buyerId, address, title, quantity, paidAt) ? HandleResult.done() : HandleResult.ignored("delivery-exists");
+        SellerRequestSeed seller = EventData.sellerApi(event) ? new SellerRequestSeed(EventData.uuid(event, "sellerId"), EventData.uuid(event, "productId"),
+                EventData.longNumber(event, "orderNumber", 1001, Long.MAX_VALUE)) : null;
+        return intake.accept(orderId, buyerId, address, title, quantity, paidAt, seller) ? HandleResult.done() : HandleResult.ignored("delivery-exists");
     }
 }
