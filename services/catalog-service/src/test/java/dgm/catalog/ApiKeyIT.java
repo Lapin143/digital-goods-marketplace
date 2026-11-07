@@ -355,6 +355,7 @@ class ApiKeyIT extends CatalogStandIT {
 
     @Test
     @Tag("TC-952")
+    @Tag("concurrency")
     void ofSixParallelIssuesFiveSucceedAndOneGets409WithTheLimit() throws Exception {
         Seller seller = new Seller(true);
         List<Response> answers = Concurrent.race(6, index -> issue(seller, "Ключ " + index));
