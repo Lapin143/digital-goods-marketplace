@@ -79,7 +79,7 @@ flowchart LR
 %%{init: {"theme":"base","themeVariables":{"edgeLabelBackground":"#ffffff","lineColor":"#444444"},"flowchart": {"nodeSpacing": 40, "rankSpacing": 60, "curve": "basis"}}}%%
 flowchart TB
     subgraph laptop["<b>Compose-проект dgm</b> <i>[Узел: Docker Engine в WSL2 или на сервере]</i>"]
-        subgraph p-gateway["<b>Профиль gateway, 416 МБ</b>"]
+        subgraph p-gateway["<b>Профиль gateway, 448 МБ</b>"]
             api-gateway["<b>API Gateway</b><br/><i>[Контейнер: Spring Cloud Gateway]</i><br/>8443"]
             web-app["<b>Веб-интерфейс</b><br/><i>[Контейнер: nginx, React]</i><br/>8443"]
         end
@@ -91,7 +91,7 @@ flowchart TB
             payment-service["<b>Сервис платежей</b><br/><i>[Контейнер: Java, Spring Boot]</i><br/>8443"]
             delivery-service["<b>Сервис выдачи</b><br/><i>[Контейнер: Java, Spring Boot]</i><br/>8443"]
         end
-        subgraph p-sellers["<b>Профиль sellers, 704 МБ</b>"]
+        subgraph p-sellers["<b>Профиль sellers, 736 МБ</b>"]
             inventory-service["<b>Сервис остатков и ключей</b><br/><i>[Контейнер: Java, Spring Boot]</i><br/>8443"]
             catalog-service["<b>Сервис каталога</b><br/><i>[Контейнер: Java, Spring Boot]</i><br/>8443"]
         end
@@ -106,7 +106,7 @@ flowchart TB
             kafka[("<b>Брокер событий</b><br/><i>[Контейнер: Kafka KRaft]</i><br/>9093")]
             redis[("<b>Кэш и таймеры</b><br/><i>[Контейнер: Redis]</i><br/>6379")]
         end
-        subgraph p-stubs["<b>Профиль stubs, 128 МБ</b>"]
+        subgraph p-stubs["<b>Профиль stubs, 96 МБ</b>"]
             external-stubs["<b>Заглушки внешних систем</b><br/><i>[Контейнер: Node.js]</i><br/>8443, 8444, 1025"]
         end
     end

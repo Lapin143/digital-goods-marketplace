@@ -181,8 +181,8 @@ services:
         NODE_IMAGE: node:24.21.0-alpine3.24
     profiles: [stubs]
     user: "10001:10001"
-    mem_limit: 128m
-    memswap_limit: 128m
+    mem_limit: 96m
+    memswap_limit: 96m
     networks: [app]
     environment:
       STUBS_PUBLIC_URL: https://external-stubs:8443
@@ -399,8 +399,8 @@ services:
     image: dgm/inventory-service:${IMAGE_TAG:-dev}
     profiles: [sellers]
     user: "10001:10001"
-    mem_limit: 320m
-    memswap_limit: 320m
+    mem_limit: 352m
+    memswap_limit: 352m
     networks: [app, data, obs]
     depends_on:
       postgres:
@@ -418,6 +418,8 @@ services:
       DGM_KEK_ROTATE: ${DGM_KEK_ROTATE:-false}
       # Ускоренные сроки (профиль fast-time, time-budgets.md, раздел 5) включает только DGM_FAST_TIME=1: make fast-up и задание e2e, на сервер не попадает (Р-147, check_compose.py)
       SPRING_PROFILES_ACTIVE: ${DGM_FAST_TIME:+fast-time}
+      # Куча 192 МБ из лимита 352 МБ (принцип 2): пик 289 МБ занимал 90,2% прежних 320 МБ (находка F5-15, запуск 42283048579, memory-budget.md)
+      JAVA_TOOL_OPTIONS: -Xmx192m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED
     tmpfs:
       - /tmp:uid=10001,gid=10001,mode=1777,size=48m
     secrets:
@@ -584,8 +586,8 @@ services:
     image: dgm/api-gateway:${IMAGE_TAG:-dev}
     profiles: [gateway]
     user: "10001:10001"
-    mem_limit: 352m
-    memswap_limit: 352m
+    mem_limit: 384m
+    memswap_limit: 384m
     networks: [edge, app, data, obs]
     ports:
       - "8443:8443"
@@ -600,8 +602,8 @@ services:
       # с одного IP, поэтому на время замера лимит поднимается: DGM_LOAD_PUBLIC_PER_MINUTE=1000000 DGM_LOAD_PUBLIC_BURST=1000000 make up ...
       DGM_GATEWAY_LIMITS_PUBLIC_PERMINUTE: ${DGM_LOAD_PUBLIC_PER_MINUTE:-60}
       DGM_GATEWAY_LIMITS_PUBLIC_BURST: ${DGM_LOAD_PUBLIC_BURST:-120}
-      # Куча 192 МБ из лимита 352 МБ: пик 274 МБ при проверках лимитов частоты и отказов занимал 86% прежних 320 МБ (memory-measurements.md)
-      JAVA_TOOL_OPTIONS: -Xmx192m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED
+      # Куча 224 МБ из лимита 384 МБ (принцип 2: лимит равен Xmx плюс 160 МБ): пик 320 МБ занимал 90,9% прежних 352 МБ (находка F5-15, запуск 42283048579, memory-budget.md)
+      JAVA_TOOL_OPTIONS: -Xmx224m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED
     tmpfs:
       - /tmp:uid=10001,gid=10001,mode=1777,size=48m
     secrets:
