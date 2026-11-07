@@ -23,6 +23,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import javax.sql.DataSource;
 import org.apache.kafka.clients.producer.KafkaProducer;
@@ -61,6 +62,8 @@ class ApiProductIT extends CatalogStandIT {
     private static StandHttp orderService;
     private static JdbcTemplate db;
     private static KafkaProducer<String, String> inventory;
+    /** Продавцы этого класса: их товары убираются в конце, иначе опубликованные остаются на витрине и ломают проверки соседей. */
+    private static final List<UUID> SELLERS = new CopyOnWriteArrayList<>();
 
     @BeforeAll
     static void clients() {
@@ -71,9 +74,18 @@ class ApiProductIT extends CatalogStandIT {
         inventory = KafkaClients.producer(Stand.kafkaBootstrap(), Stand.kafkaSecurity("inventory-service"), "inventory-service-api-it");
     }
 
+    /**
+     * Классы каталога делят один стенд, а {@link CatalogServiceIT} ждёт на витрине ровно свои пять товаров. Товары по API здесь
+     * публикуются через одобрение, поэтому после класса они удаляются вместе со строками остатка (внешний ключ только у
+     * {@code stock_view}; триггеры удаление товара не запрещают).
+     */
     @AfterAll
     static void close() {
         inventory.close(Duration.ofSeconds(5));
+        for (UUID sellerId : SELLERS) {
+            db.update("delete from catalog.stock_view where product_id in (select id from catalog.product where seller_id = ?)", sellerId);
+            db.update("delete from catalog.product where seller_id = ?", sellerId);
+        }
     }
 
     // ---------------------------------------------------------------- помощники
@@ -93,6 +105,7 @@ class ApiProductIT extends CatalogStandIT {
             db.update("update seller_onboarding.seller_profile set status = 'approved' where id = ?", sellerId);
             auth = StandHttp.bearer(TOKENS.token().subject(userId.toString()).scopes("seller.catalog").roles("seller").amr("pwd", "otp")
                     .sellerId(sellerId.toString()).build());
+            SELLERS.add(sellerId);
         }
 
         void connect() {

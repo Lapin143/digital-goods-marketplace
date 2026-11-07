@@ -318,9 +318,10 @@ class KeyPoolIT extends KeyStandIT {
             assertEquals("state-conflict", code(refused));
             assertEquals(0, count(productId));
         }
+        // Способ выдачи seller_api ключей не принимает: с Ф5 отказ называет несоответствие способа (Р-184), а не статус товара
         Response api = batch(seller, seller.product("published", "seller_api"), "A-1");
         assertEquals(409, api.status());
-        assertEquals("state-conflict", code(api));
+        assertEquals("issuance-method-mismatch", code(api));
     }
 
     @Tag("TC-408")
