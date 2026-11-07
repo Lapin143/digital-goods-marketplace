@@ -130,6 +130,15 @@ final class Neighbours {
     }
 
     UUID product(UUID seller, String title, long price, int keys, String status) {
+        return product(seller, title, price, keys, status, "key_pool");
+    }
+
+    /** Новый опубликованный товар по API продавца: «ключей» у него нет, остаток считается по количеству (Р-183). */
+    UUID apiProduct(UUID seller, String title, long price, int quantity) {
+        return product(seller, title, price, quantity, "published", "seller_api");
+    }
+
+    UUID product(UUID seller, String title, long price, int keys, String status, String issuanceMethod) {
         UUID id = UUID.randomUUID();
         Map<String, Object> money = new LinkedHashMap<>();
         money.put("amount", price);
@@ -140,7 +149,7 @@ final class Neighbours {
         card.put("title", title);
         card.put("status", status);
         card.put("price", money);
-        card.put("issuanceMethod", "key_pool");
+        card.put("issuanceMethod", issuanceMethod);
         card.put("productType", "game_key");
         products.put(id, Json.write(card));
         stock.put(id, keys);

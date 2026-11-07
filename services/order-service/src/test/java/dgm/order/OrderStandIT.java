@@ -105,6 +105,12 @@ abstract class OrderStandIT {
         return buyerToken(buyer, "buyer-" + buyer.toString().substring(0, 8) + "@mail.example");
     }
 
+    /** Токен продавца со вторым фактором и профилем: область каталога продавца, роль продавца (OP-100). */
+    static String sellerToken(UUID sellerProfile) {
+        return TOKENS.token().subject(UUID.randomUUID().toString()).scopes("seller.catalog").roles("seller").amr("pwd", "otp")
+                .sellerId(sellerProfile.toString()).build();
+    }
+
     static String key() {
         return UUID.randomUUID().toString();
     }
@@ -151,7 +157,7 @@ abstract class OrderStandIT {
     static Map<String, Object> order(String orderId) {
         List<Map<String, Object>> rows = db.queryForList("select id, number, buyer_id, seller_id, product_id, product_title, quantity, unit_price, amount, "
                 + "commission_rate_bp, commission, currency, delivery_address, status, cancel_reason, reserve_until, session_until, payment_session_url, "
-                + "created_at, paid_at, issued_at, version from orders.orders where id = ?", UUID.fromString(orderId));
+                + "created_at, paid_at, issued_at, refunded_at, issuance_method, version from orders.orders where id = ?", UUID.fromString(orderId));
         return rows.isEmpty() ? null : rows.get(0);
     }
 

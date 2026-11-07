@@ -191,14 +191,18 @@ def check_operations(rep):
     return totals
 
 
-def parse_catalog():
-    """Из каталога событий: событие -> {'topic', 'owner', 'consumers': [(сервис, обработчик)]}, только события R1."""
+def parse_catalog(r2=False):
+    """Из каталога событий: событие -> {'topic', 'owner', 'consumers': [(сервис, обработчик)]}, только события R1 (r2=False)
+    или только события раздела «События R2» (r2=True: их потребителей код получает по шагам Ф5, шаг 11 добавил `delivery.seller-timeout`)."""
     text = L.read(EVENTS_README)
     owner_of = {}
     topics = L.find_table(text, 'Тема', 'Издатель')
     for row in (topics['rows'] if topics else []):
         owner_of[row[0].strip('`')] = row[1].strip('`')
-    r1 = text.split('### События R2')[0]
+    if r2:
+        r1 = text.split('### События R2')[1].split('### Потребители и защита от дублей')[0]
+    else:
+        r1 = text.split('### События R2')[0]
     events = {}
     topic = None
     for line in r1.split('\n'):
@@ -215,7 +219,7 @@ def parse_catalog():
         if not cell.startswith('нет'):
             for part in cell.split(';'):
                 names = re.findall(r'`([^`]+)`', part)
-                if names and 'R2' not in part:
+                if names and (r2 or 'R2' not in part):
                     consumers += [(names[0], h) for h in names[1:]]
         events[m.group(1)] = {'topic': topic, 'owner': owner_of.get(topic, ''), 'consumers': consumers}
     return events
@@ -315,6 +319,7 @@ def acl(rep):
 
 def check_events(rep):
     catalog = parse_catalog()
+    catalog_r2 = parse_catalog(r2=True)
     where = 'каталог событий'
     for e in SLICE1_EVENTS:
         if e not in catalog:
@@ -338,7 +343,7 @@ def check_events(rep):
         if listener:
             handlers[s]['config-listener'] = listener
     published = {s: published_events(s, set(catalog)) for s in LG.SERVICES}
-    stats = {'events': 0, 'consumers': 0, 'later': 0, 'unpublished': 0}
+    stats = {'events': 0, 'consumers': 0, 'later': 0, 'unpublished': 0, 'r2_consumers': 0}
     for e in SLICE1_EVENTS + SLICE2_EVENTS + SLICE3_EVENTS:
         info = catalog.get(e)
         if not info:
@@ -375,8 +380,16 @@ def check_events(rep):
         for name, entry in sorted(by_name.items()):
             for topic, e in sorted(entry['pairs']):
                 info = catalog.get(e)
-                if not info:
-                    rep.err(entry['files'][0], 'обработчик %s читает %s, а события нет в каталоге R1' % (name, e))
+                if not info and e in catalog_r2:
+                    # событие R2: обработчик есть в коде, значит каталог R2 обязан назвать его потребителем, и тема совпадает
+                    stats['r2_consumers'] += 1
+                    r2 = catalog_r2[e]
+                    if (service, name) not in r2['consumers']:
+                        rep.err(entry['files'][0], 'обработчик %s читает %s, а в разделе R2 каталога потребитель этого события не назван' % (name, e))
+                    elif r2['topic'] != topic:
+                        rep.err(entry['files'][0], 'обработчик %s читает %s из темы %s, в разделе R2 каталога тема %s' % (name, e, topic, r2['topic']))
+                elif not info:
+                    rep.err(entry['files'][0], 'обработчик %s читает %s, а события нет в каталоге R1 и в разделе R2' % (name, e))
                 elif (service, name) not in info['consumers']:
                     rep.err(entry['files'][0], 'обработчик %s читает %s, а в каталоге потребитель этого события не назван' % (name, e))
     # темы и права: издание только в темы, где сервис издатель, чтение только тем, на которые есть READ
@@ -402,8 +415,8 @@ def main():
     rep = L.Report('Документы = код')
     ops = check_operations(rep)
     ev = check_events(rep)
-    rep.fact('операций со статусом done: %d, методов контроллеров: %d; событий срезов 1 – 3: %d, из них издаётся в коде: %d; потребителей реализовано: %d, придут позже: %d'
-             % (ops['done'], ops['handlers'], ev['events'], ev['events'] - ev['unpublished'], ev['consumers'], ev['later']))
+    rep.fact('операций со статусом done: %d, методов контроллеров: %d; событий срезов 1 – 3: %d, из них издаётся в коде: %d; потребителей реализовано: %d, придут позже: %d, обработчиков событий R2: %d'
+             % (ops['done'], ops['handlers'], ev['events'], ev['events'] - ev['unpublished'], ev['consumers'], ev['later'], ev['r2_consumers']))
     return rep.finish()
 
 
