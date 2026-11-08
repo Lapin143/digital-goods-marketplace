@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -33,7 +34,7 @@ class OtpControllerTest {
         world = new OtpWorld(T0);
         world.accounts.add(BUYER, "buyer@mail.example", "buyer", T0.minusSeconds(100));
         world.accounts.confirmPhone(BUYER, "+79001234567");
-        controller = new OtpController(world.logins);
+        controller = new OtpController(world.logins, world.vkEmail);
     }
 
     private static MockHttpServletRequest post(String uri, String body) {
@@ -165,5 +166,76 @@ class OtpControllerTest {
                 errors(failure(() -> verify("{\"purpose\":\"sms_login\",\"phone\":\"+79001234567\",\"code\":\"12\"}"))));
         assertEquals(List.of("/purpose:unknown_value"),
                 errors(failure(() -> verify("{\"purpose\":\"x\",\"phone\":\"+79001234567\",\"code\":\"123456\"}"))));
+    }
+
+    // ---- цель vk_email: код из письма при входе через VK ID без адреса (Р-194, TC-140 – TC-142) ----
+
+    @Tag("TC-140")
+    @Test
+    void issueVkEmailAnswers202SendsTheMailAndVerifyAnswersVerified() throws Exception {
+        world.codes.then("654321");
+
+        ResponseEntity<String> issued = issue("{\"purpose\":\"vk_email\",\"email\":\"Guest@Mail.Example\"}");
+        ResponseEntity<String> verified = verify("{\"purpose\":\"vk_email\",\"email\":\"guest@mail.example\",\"code\":\"654321\"}");
+
+        assertEquals(202, issued.getStatusCode().value());
+        assertEquals(Map.of("accepted", true), Json.parseObject(issued.getBody()));
+        assertEquals("guest@mail.example", world.mail.loginCodes().get(0).to());
+        assertEquals(0, world.sms.count(), "SMS по этому назначению не уходит");
+        assertEquals(200, verified.getStatusCode().value());
+        assertEquals(Map.of("verified", true), Json.parseObject(verified.getBody()), "учётной записи у кода нет: возвращается только признак");
+        assertEquals("no-store", verified.getHeaders().getCacheControl());
+    }
+
+    @Tag("TC-142")
+    @Test
+    void issueVkEmailAnswersTheSameForATakenAndAFreeAddress() throws Exception {
+        world.codes.then("111111", "222222");
+
+        ResponseEntity<String> taken = issue("{\"purpose\":\"vk_email\",\"email\":\"buyer@mail.example\"}");
+        ResponseEntity<String> free = issue("{\"purpose\":\"vk_email\",\"email\":\"nobody@mail.example\"}");
+
+        assertEquals(202, taken.getStatusCode().value());
+        assertEquals(taken.getBody(), free.getBody());
+        assertEquals(taken.getHeaders().toString(), free.getHeaders().toString());
+        assertEquals(2, world.mail.loginCodes().size(), "письмо уходит на оба адреса: платформа не смотрит, занят ли адрес");
+    }
+
+    @Tag("TC-141")
+    @Test
+    void verifyVkEmailWrongCodeAnswers422WithAttemptsLeft() throws Exception {
+        world.codes.then("123456");
+        issue("{\"purpose\":\"vk_email\",\"email\":\"guest@mail.example\"}");
+
+        ProblemException wrong = failure(() -> verify("{\"purpose\":\"vk_email\",\"email\":\"guest@mail.example\",\"code\":\"000000\"}"));
+
+        assertEquals(ProblemType.OTP_INVALID, wrong.type());
+        assertEquals(4, wrong.extensions().get("attemptsLeft"));
+    }
+
+    @Test
+    void vkEmailRejectsFieldsOfTheOtherPurposeAndBadAddresses() {
+        assertEquals(List.of("/email:required"), errors(failure(() -> issue("{\"purpose\":\"vk_email\"}"))));
+        assertEquals(List.of("/email:invalid_format"), errors(failure(() -> issue("{\"purpose\":\"vk_email\",\"email\":\"not-an-address\"}"))));
+        assertEquals(List.of("/email:too_long"),
+                errors(failure(() -> issue("{\"purpose\":\"vk_email\",\"email\":\"" + "a".repeat(250) + "@mail.example\"}"))));
+        assertEquals(List.of("/phone:unknown_value"),
+                errors(failure(() -> issue("{\"purpose\":\"vk_email\",\"email\":\"guest@mail.example\",\"phone\":\"+79001234567\"}"))));
+        assertEquals(List.of("/clientIp:unknown_value"),
+                errors(failure(() -> issue("{\"purpose\":\"vk_email\",\"email\":\"guest@mail.example\",\"clientIp\":\"203.0.113.5\"}"))));
+        assertEquals(List.of("/email:unknown_value"),
+                errors(failure(() -> issue("{\"purpose\":\"sms_login\",\"phone\":\"+79001234567\",\"email\":\"guest@mail.example\"}"))));
+        assertEquals(List.of("/code:required"), errors(failure(() -> verify("{\"purpose\":\"vk_email\",\"email\":\"guest@mail.example\"}"))));
+        assertEquals(List.of("/email:unknown_value"),
+                errors(failure(() -> verify("{\"purpose\":\"sms_login\",\"phone\":\"+79001234567\",\"email\":\"guest@mail.example\",\"code\":\"123456\"}"))));
+        assertEquals(0, world.mail.loginCodes().size());
+        assertEquals(0, world.sms.count());
+    }
+
+    @Test
+    void theErrorTextsDoNotContainTheAddress() {
+        ProblemException e = failure(() -> issue("{\"purpose\":\"vk_email\",\"email\":\"guest@@mail.example\"}"));
+
+        assertTrue(!e.toString().contains("guest") && !String.valueOf(e.extensions()).contains("guest"), "адрес в ответе об ошибке");
     }
 }

@@ -1822,11 +1822,15 @@ paths:
   /internal/v1/otp-codes:
     post:
       operationId: issueOtpCode
-      summary: Отправить код входа по SMS (внутренний)
+      summary: Отправить код входа (внутренний)
       description: |-
-        Вызывается расширением Keycloak `sms-otp` на шаге ввода номера. Для номера, привязанного к учётной записи покупателя, отправляет SMS с кодом (6 цифр, 5 минут, 5 попыток). Для остальных номеров SMS не отправляется, ответ тот же (U12, FT-1.7). Лимиты: 3 за 10 минут и 10 за сутки на номер и 10 в час на IP, иначе 429 `otp-request-limited`. Если Redis недоступен, отправка запрещена: 503.
+        Вызывается расширением Keycloak `sms-otp`. Два назначения кода, у каждого свой набор полей.
 
-        Матрица прав: OP-07. Истории: US-1.7.
+        `sms_login` (шаг ввода номера, поле `phone`): для номера, привязанного к учётной записи покупателя, отправляет SMS с кодом (6 цифр, 5 минут, 5 попыток). Для остальных номеров SMS не отправляется, ответ тот же (U12, FT-1.7). Лимиты: 3 за 10 минут и 10 за сутки на номер и 10 в час на IP, иначе 429 `otp-request-limited`. Если Redis недоступен, отправка запрещена: 503.
+
+        `vk_email` (R2, шаг «запрос e-mail» в потоке VK ID, поле `email`, Р-194, F4-3): письмо с кодом (6 цифр, 5 минут, 5 попыток) уходит на введённый адрес напрямую, минуя очередь. Платформа не ищет учётную запись по адресу и не сообщает, занят он или нет: код выдаётся любому корректному адресу, ответ и время ответа одинаковы (ST-06). Перед отправкой занимается место в общем счётчике писем на адрес (`consumeEmailQuota`, 3 за 10 минут и 10 за сутки), поэтому отдельного вызова счётчика Keycloak для этого назначения не делает. Лимит исчерпан: 429 `otp-request-limited`; Redis недоступен: 503.
+
+        Матрица прав: OP-07. Истории: US-1.7, US-1.4.
       tags:
       - Коды для Keycloak
       x-matrix-id: OP-07
@@ -1892,11 +1896,13 @@ paths:
   /internal/v1/otp-verifications:
     post:
       operationId: verifyOtpCode
-      summary: Проверить код входа по SMS (внутренний)
+      summary: Проверить код входа (внутренний)
       description: |-
-        Проверяет код и гасит его атомарно. Успех возвращает `userId`. Неверный код и код для неизвестного номера дают одинаковый 422 `otp-invalid`, устаревший 422 `otp-expired`, после пятой неудачи 429 `otp-locked`. Три погашенных из-за попыток кода подряд за час закрывают вход по SMS для номера на час.
+        Проверяет код и гасит его атомарно. Для `sms_login` (поле `phone`) успех возвращает `userId`. Неверный код и код для неизвестного номера дают одинаковый 422 `otp-invalid`, устаревший 422 `otp-expired`, после пятой неудачи 429 `otp-locked`. Три погашенных из-за попыток кода подряд за час закрывают вход по SMS для номера на час.
 
-        Матрица прав: OP-07. Истории: US-1.7.
+        Для `vk_email` (R2, поле `email`, Р-194) успех возвращает `verified: true`: адрес подтверждён, учётной записи у кода нет, `userId` не возвращается. Ошибки те же: 422 `otp-invalid`, 422 `otp-expired`, 429 `otp-locked`. Код привязан к адресу: код для другого адреса или другого назначения не подходит, а выданный на адрес без запроса не существует и даёт тот же `otp-invalid`.
+
+        Матрица прав: OP-07. Истории: US-1.7, US-1.4.
       tags:
       - Коды для Keycloak
       x-matrix-id: OP-07
@@ -2815,24 +2821,27 @@ components:
       - page
     IssueOtpRequest:
       type: object
-      description: Запрос кода входа по SMS
+      description: 'Запрос кода входа. Для `sms_login` обязателен `phone`, `email` не передаётся; для `vk_email` (R2) обязателен
+        `email`, `phone` и `clientIp` не передаются. Лишнее для назначения поле это 422 `unknown_value`, как и неизвестное поле'
       properties:
         purpose:
           type: string
           description: Назначение кода. Код для одного назначения к другому не подходит
           enum:
           - sms_login
+          - vk_email
         phone:
           type: string
-          description: Номер телефона E.164, в R1 только +7
+          description: Номер телефона E.164, в R1 только +7. Только для `sms_login`
           pattern: ^\+7[0-9]{10}$
+        email:
+          $ref: components.yaml#/components/schemas/Email
         clientIp:
           type: string
-          description: IP клиента для лимита 10 запросов в час
+          description: IP клиента для лимита 10 запросов в час. Только для `sms_login`
           maxLength: 45
       required:
       - purpose
-      - phone
       additionalProperties: false
     OtpIssueAccepted:
       type: object
@@ -2846,35 +2855,41 @@ components:
       - accepted
     VerifyOtpRequest:
       type: object
-      description: Проверка кода входа по SMS
+      description: 'Проверка кода входа. Для `sms_login` обязателен `phone`, для `vk_email` (R2) обязателен `email`; поле другого
+        назначения не передаётся (422 `unknown_value`)'
       properties:
         purpose:
           type: string
           description: Назначение кода
           enum:
           - sms_login
+          - vk_email
         phone:
           type: string
-          description: Номер телефона E.164
+          description: Номер телефона E.164. Только для `sms_login`
           pattern: ^\+7[0-9]{10}$
+        email:
+          $ref: components.yaml#/components/schemas/Email
         code:
           type: string
           description: Одноразовый код из 6 цифр
           pattern: ^[0-9]{6}$
       required:
       - purpose
-      - phone
       - code
       additionalProperties: false
     OtpVerified:
       type: object
-      description: Идентификатор учётной записи покупателя, по которому Keycloak выпускает токен сессии по SMS (`amr`
-        равен `sms`, области только `orders.read` и `support.write`, 15 минут)
+      description: 'Код верен. Для `sms_login`: `userId` учётной записи покупателя, по нему Keycloak выпускает токен сессии по
+        SMS (`amr` равен `sms`, области только `orders.read` и `support.write`, 15 минут). Для `vk_email` (R2): `verified`,
+        адрес подтверждён, учётной записи у кода нет'
       properties:
         userId:
           $ref: components.yaml#/components/schemas/Id
-      required:
-      - userId
+        verified:
+          type: boolean
+          description: Только для `vk_email`, всегда `true`
+      minProperties: 1
     MailProviderNotification:
       type: object
       description: Статус письма от e-mail-провайдера (письма без ключей)

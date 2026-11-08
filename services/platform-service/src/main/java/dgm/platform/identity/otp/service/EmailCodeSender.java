@@ -13,4 +13,13 @@ public interface EmailCodeSender {
      * @throws EmailCodeSendException провайдер не принял письмо или не ответил вовремя
      */
     void send(String to, String code);
+
+    /**
+     * Письмо с кодом для входа через VK ID, когда VK ID не передал адрес (Р-194): гость назвал адрес в форме и подтверждает, что ящик его.
+     *
+     * @param to   адрес, который назвал гость, в нормализованном виде
+     * @param code одноразовый код из шести цифр
+     * @throws EmailCodeSendException провайдер не принял письмо или не ответил вовремя
+     */
+    void sendLoginCode(String to, String code);
 }

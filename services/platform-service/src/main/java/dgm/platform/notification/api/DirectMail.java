@@ -13,6 +13,9 @@ public interface DirectMail {
     /** Шаблон письма с кодом смены e-mail; параметр {@code code}. */
     String EMAIL_CHANGE_CODE = "email-change-code";
 
+    /** Шаблон письма с кодом для входа через VK ID без адреса (Р-194); параметр {@code code}. */
+    String LOGIN_EMAIL_CODE = "login-email-code";
+
     /**
      * @param to       адрес получателя
      * @param template шаблон, который разрешено отправлять напрямую

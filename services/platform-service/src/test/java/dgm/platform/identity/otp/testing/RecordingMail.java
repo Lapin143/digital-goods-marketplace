@@ -15,6 +15,7 @@ public final class RecordingMail implements EmailCodeSender {
     }
 
     private final List<Message> sent = Collections.synchronizedList(new ArrayList<>());
+    private final List<Message> loginCodes = Collections.synchronizedList(new ArrayList<>());
     private volatile boolean failing;
 
     public void failing(boolean value) {
@@ -27,6 +28,21 @@ public final class RecordingMail implements EmailCodeSender {
             throw new EmailCodeSendException("Провайдер почты ответил кодом 503");
         }
         sent.add(new Message(to, code));
+    }
+
+    @Override
+    public void sendLoginCode(String to, String code) {
+        if (failing) {
+            throw new EmailCodeSendException("Провайдер почты ответил кодом 503");
+        }
+        loginCodes.add(new Message(to, code));
+    }
+
+    /** Письма с кодом для входа через VK ID (Р-194), отдельно от писем смены e-mail. */
+    public List<Message> loginCodes() {
+        synchronized (loginCodes) {
+            return List.copyOf(loginCodes);
+        }
     }
 
     public List<Message> sent() {

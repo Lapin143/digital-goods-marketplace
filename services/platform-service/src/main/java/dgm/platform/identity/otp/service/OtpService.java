@@ -36,6 +36,8 @@ public final class OtpService {
     private static final Logger LOG = LoggerFactory.getLogger(OtpService.class);
     private static final String PREFIX = "platform:otp:";
     private static final int SMS_RETRY_AFTER_SECONDS = 30;
+    /** Метка в поле учётной записи у кода гостя из VK ID: непустое значение отличает настоящий код от приманки, учётной записи тут нет. */
+    private static final String GUEST = "guest";
 
     private final OtpStore store;
     private final OtpCrypto crypto;
@@ -249,6 +251,84 @@ public final class OtpService {
         if (purpose != OtpPurpose.EMAIL_CHANGE_PHONE && purpose != OtpPurpose.EMAIL_CHANGE_NEW_EMAIL) {
             throw new IllegalArgumentException("Назначение не относится к смене e-mail");
         }
+    }
+
+    // ---- вход через VK ID без e-mail (Р-194, F4-3, F4-1) ----
+
+    /**
+     * Занимает место в счётчике писем на адрес (F4-1, Р-194): не больше {@code otp.requests-per-10-minutes} (3) за 10 минут и
+     * {@code otp.requests-per-day} (10) за сутки, скользящие окна по хешу адреса. Счётчик общий для регистрации, сброса пароля и запроса
+     * e-mail в потоке VK ID, а также для смены e-mail по обращению (одно окно на адрес), поэтому чужой ящик нельзя засыпать письмами,
+     * чередуя шаги. Все три шага расширения Keycloak спрашивают его до отправки письма. Окна расходуются, только если оба свободны.
+     *
+     * @param step  шаг, который собирается отправить письмо ({@code register}, {@code reset}, {@code vk_email}): только метка метрики, окна общие
+     * @param email адрес, как ввёл гость: приводится к нижнему регистру без пробелов по краям
+     * @throws ProblemException 429 {@code otp-request-limited} с {@code Retry-After}; 503, если Redis недоступен (письмо без счётчика не отправляется)
+     */
+    public void consumeEmailQuota(String step, String email) {
+        OtpLimits limits = limits();
+        String target = crypto.target("email", normalizeEmail(email));
+        List<OtpStore.Window> windows = List.of(
+                OtpStore.Window.sliding(PREFIX + "rl:email:" + target + ":10m", OtpLimits.TEN_MINUTES, limits.perTenMinutes()),
+                OtpStore.Window.sliding(PREFIX + "rl:email:" + target + ":day", OtpLimits.DAY, limits.perDay()));
+        OtpStore.Admission admission = store.admit(windows, clock.instant());
+        if (!admission.allowed()) {
+            meters.counter("email_quota_total", "purpose", step, "result", "limited").increment();
+            throw limited(admission.retryAfter());
+        }
+        meters.counter("email_quota_total", "purpose", step, "result", "allowed").increment();
+    }
+
+    /**
+     * Выпускает код из письма для входа через VK ID без адреса (цель {@code vk_email}) и передаёт его на доставку. Код привязан к адресу:
+     * новый запрос по тому же адресу гасит прежний код. Счётчик писем здесь не расходуется: его занимает {@link #consumeEmailQuota} до вызова.
+     * Платформа не смотрит, занят ли адрес: письмо уходит на любой адрес, иначе ответ выдал бы наличие учётной записи (ST-06). Если доставка не
+     * удалась, запись кода удаляется.
+     *
+     * @throws ProblemException 503, если провайдер почты не принял письмо (повторить можно) или Redis недоступен
+     */
+    public void issueEmailLogin(String email, Delivery delivery) {
+        String target = crypto.target("email", normalizeEmail(email));
+        String code = codes.next();
+        String key = codeKey(OtpPurpose.VK_EMAIL, target);
+        // Запись без учётной записи погашается только как приманка (пустой «u» в скрипте), а у кода гостя учётной записи ещё нет: ставится метка
+        store.put(key, new OtpStore.Code(crypto.codeHash(OtpPurpose.VK_EMAIL, target, code), clock.instant().plus(properties.ttl()), properties.attempts(),
+                GUEST, "", ""), properties.ttl());
+        try {
+            delivery.send(code);
+            count(OtpPurpose.VK_EMAIL, "sent");
+        } catch (SmsSendException | EmailCodeSendException e) {
+            store.remove(key);
+            count(OtpPurpose.VK_EMAIL, "send_failed");
+            LOG.warn("Код для входа через VK ID не отправлен: {}", e.getMessage());
+            throw ProblemException.dependencyUnavailable("Не удалось отправить код, повторите запрос позже.", SMS_RETRY_AFTER_SECONDS);
+        }
+    }
+
+    /**
+     * Проверяет код из письма и гасит его: верный код подтверждает, что ящиком владеет тот, кто вошёл через VK ID.
+     *
+     * @throws ProblemException 422 {@code otp-invalid} (с {@code attemptsLeft}) или {@code otp-expired}; 429 {@code otp-locked} после пятой
+     *                          неудачи (код погашен); 503, если Redis недоступен
+     */
+    public void verifyEmailLogin(String email, String code) {
+        String target = crypto.target("email", normalizeEmail(email));
+        OtpStore.Redemption redemption = store.redeem(new OtpStore.Redeem(codeKey(OtpPurpose.VK_EMAIL, target),
+                crypto.codeHash(OtpPurpose.VK_EMAIL, target, code), "", Optional.empty()), clock.instant());
+        count(OtpPurpose.VK_EMAIL, "verify_" + redemption.result().name().toLowerCase(java.util.Locale.ROOT));
+        switch (redemption.result()) {
+            case VALID -> {
+            }
+            case INVALID -> throw new ProblemException(ProblemType.OTP_INVALID, "Код неверен.",
+                    Map.of("attemptsLeft", redemption.attemptsLeft()), Map.of());
+            case EXHAUSTED, LOCKED -> throw locked(properties.exhaustedRetryAfter());
+            case EXPIRED, ABSENT, OTHER -> throw expired();
+        }
+    }
+
+    /** Адрес в виде для ключей Redis и хеша: пробелы по краям убраны, буквы в нижнем регистре (так же его хранит Keycloak). */
+    public static String normalizeEmail(String email) {
+        return email.strip().toLowerCase(java.util.Locale.ROOT);
     }
 
     // ---- вход по коду из SMS ----

@@ -64,6 +64,22 @@ class DirectMailServiceTest {
         assertEquals(0.0, count("failed"));
     }
 
+    @Tag("TC-140")
+    @Test
+    void theVkLoginCodeLetterGoesTheSameWayAndIsCountedUnderItsOwnTemplate() {
+        service.send(TO, DirectMail.LOGIN_EMAIL_CODE, Map.of("code", CODE));
+
+        assertEquals(1, provider.accepted().size());
+        OutgoingEmail mail = provider.accepted().get(0);
+        assertEquals(TO, mail.to());
+        assertEquals("Код подтверждения e-mail для входа", mail.subject());
+        assertTrue(mail.text().contains(CODE), mail.text());
+        assertTrue(mail.text().contains("5 минут"), mail.text());
+        var counter = metrics.find("notification_direct_total").tag("template", DirectMail.LOGIN_EMAIL_CODE).tag("result", "sent").counter();
+        assertEquals(1.0, counter == null ? 0 : counter.count());
+        assertEquals(0.0, count("sent"), "счётчик письма смены адреса не затронут");
+    }
+
     @Test
     void aRefusalOfTheProviderGivesAnErrorWithoutAddressOrCodeAndNoRetry() {
         provider.failNext(1, "http-503", false);

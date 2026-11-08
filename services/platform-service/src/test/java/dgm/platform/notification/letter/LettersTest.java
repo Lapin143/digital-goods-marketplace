@@ -168,9 +168,35 @@ class LettersTest {
         letters.validate("email-change-code", params("code", "123456"));
     }
 
+    @Tag("TC-140")
     @Test
-    void onlyTheCodeLetterIsMarkedForDirectSending() {
-        assertEquals(Set.of("email-change-code"), letters.directOnly());
+    void loginEmailCodeLetterHasTheCodeTheLifetimeAndNoAddress() {
+        Letter letter = letters.render("login-email-code", null, params("code", "042917"));
+
+        assertEquals("Код подтверждения e-mail для входа", letter.subject());
+        assertTrue(letter.text().startsWith("Здравствуйте, пользователь!"), "получатель ещё не учётная запись, имени нет: " + letter.text());
+        assertTrue(letter.text().contains(": 042917\n"), "код с ведущим нулём не теряется: " + letter.text());
+        assertTrue(letter.text().contains("Код действует 5 минут."), letter.text());
+        assertTrue(letter.text().contains("VK ID"), letter.text());
+        assertFalse(letter.text().contains("@"), letter.text());
+        assertFalse(LEFTOVER.matcher(letter.text()).find(), "в тексте остались неподставленные поля: " + letter.text());
+    }
+
+    @Tag("TC-140")
+    @Test
+    void loginEmailCodeTakesOnlyTheSixDigitCode() {
+        for (String bad : new String[] {"12345", "1234567", "12345a", "-12345"}) {
+            InvalidNotificationException e = assertThrows(InvalidNotificationException.class, () -> letters.validate("login-email-code", params("code", bad)));
+            assertFalse(e.getMessage().contains(bad), e.getMessage());
+        }
+        assertThrows(InvalidNotificationException.class, () -> letters.validate("login-email-code", params()));
+        assertThrows(InvalidNotificationException.class, () -> letters.validate("login-email-code", params("code", "123456", "to", "a@b.example")));
+        letters.validate("login-email-code", params("code", "123456"));
+    }
+
+    @Test
+    void onlyTheCodeLettersAreMarkedForDirectSending() {
+        assertEquals(Set.of("email-change-code", "login-email-code"), letters.directOnly());
         assertTrue(letters.codes().containsAll(letters.directOnly()));
     }
 }

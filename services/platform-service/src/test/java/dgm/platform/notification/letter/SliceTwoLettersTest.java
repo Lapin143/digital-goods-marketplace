@@ -34,11 +34,11 @@ class SliceTwoLettersTest {
     }
 
     @Test
-    void theSetHoldsTheLettersOfSlicesOneAndTwoTheEmailChangeAndTheDecisionsOfSliceThree() {
+    void theSetHoldsTheLettersOfSlicesOneAndTwoTheEmailChangeTheDecisionsOfSliceThreeAndTheVkEmailCode() {
         assertEquals(Set.of("seller-approved", "seller-rejected", "seller-returned", "user-sms-login", "order-created", "order-paid",
                 "order-refunded", "payment-refund-escalated", "delivery-failed", "delivery-overdue", "email-change-code", "email-changed-new",
-                "email-changed-previous", "product-published", "product-rejected", "product-blocked", "user-deactivated"), letters.codes());
-        assertEquals(Set.of("email-change-code"), letters.directOnly(), "из очереди не уходит только письмо с кодом");
+                "email-changed-previous", "product-published", "product-rejected", "product-blocked", "user-deactivated", "login-email-code"), letters.codes());
+        assertEquals(Set.of("email-change-code", "login-email-code"), letters.directOnly(), "из очереди не уходят только письма с кодом");
         assertEquals(Set.of("email-changed-previous"), letters.toPreviousAddress(), "по прежнему адресу пишется только письмо старому ящику");
         assertEquals(Set.of("user-deactivated"), letters.toDeactivatedAccount(), "по адресу деактивированной записи пишется только письмо о деактивации");
         assertTrue(letters.codes().containsAll(letters.toPreviousAddress()));

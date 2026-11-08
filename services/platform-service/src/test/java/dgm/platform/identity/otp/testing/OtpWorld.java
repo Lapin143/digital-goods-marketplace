@@ -8,6 +8,7 @@ import dgm.platform.identity.otp.service.OtpService;
 import dgm.platform.identity.otp.service.PhoneConfirmationService;
 import dgm.platform.identity.otp.service.SmsLoginService;
 import dgm.platform.identity.otp.service.SmsStatusService;
+import dgm.platform.identity.otp.service.VkEmailCodeService;
 import dgm.platform.identity.testing.FakeIdentityProvider;
 import dgm.platform.identity.testing.FakeTransaction;
 import dgm.platform.identity.testing.InMemoryAccounts;
@@ -25,12 +26,14 @@ public final class OtpWorld {
     public final InMemoryOtpStore store;
     public final RecordingSms sms = new RecordingSms();
     public final ScriptedCodes codes = new ScriptedCodes();
+    public final RecordingMail mail = new RecordingMail();
     public final ClockedPacer pacer;
     public final SimpleMeterRegistry meters = new SimpleMeterRegistry();
     public final OtpService otp;
     public final PhoneConfirmationService confirmations;
     public final SmsLoginService logins;
     public final SmsStatusService statuses;
+    public final VkEmailCodeService vkEmail;
 
     public OtpWorld(Instant start) {
         this.clock = new ManualClock(start);
@@ -42,5 +45,6 @@ public final class OtpWorld {
         this.confirmations = new PhoneConfirmationService(accounts, keycloak, tx, otp, hasher, clock);
         this.logins = new SmsLoginService(accounts, tx, otp, pacer, OtpProperties.defaults(), clock);
         this.statuses = new SmsStatusService(store, meters);
+        this.vkEmail = new VkEmailCodeService(otp, mail);
     }
 }

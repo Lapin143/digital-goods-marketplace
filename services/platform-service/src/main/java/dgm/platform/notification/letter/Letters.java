@@ -73,6 +73,8 @@ public final class Letters {
             Map.entry("delivery-overdue", Map.of("orderId", Kind.ID, "paidAt", Kind.TIME, "threshold", Kind.SECONDS_AS_MINUTES)),
             // срез 3 (Р-169): код смены e-mail на новый адрес, уходит напрямую, минуя очередь
             Map.entry("email-change-code", Map.of("code", Kind.CODE)),
+            // R2 (Р-194): код из письма при входе через VK ID без адреса, уходит напрямую, получатель ещё не учётная запись
+            Map.entry("login-email-code", Map.of("code", Kind.CODE)),
             // срез 3 (Р-169, FT-11.0): письма о смене e-mail на новый и на прежний адрес
             Map.entry("email-changed-new", Map.of("changedAt", Kind.TIME)),
             Map.entry("email-changed-previous", Map.of("changedAt", Kind.TIME)),
@@ -84,7 +86,7 @@ public final class Letters {
             Map.entry("user-deactivated", Map.<String, Kind>of()));
 
     /** Шаблоны с одноразовым кодом: код в базу не попадает (правило 17), поэтому такое письмо уходит напрямую, а в очередь не ставится. */
-    private static final Set<String> DIRECT_ONLY = Set.of("email-change-code");
+    private static final Set<String> DIRECT_ONLY = Set.of("email-change-code", "login-email-code");
 
     /** Шаблоны, получатель которых определяется по прежнему адресу пользователя (хранится 7 суток после смены), а не по текущему. */
     private static final Set<String> TO_PREVIOUS_ADDRESS = Set.of("email-changed-previous");

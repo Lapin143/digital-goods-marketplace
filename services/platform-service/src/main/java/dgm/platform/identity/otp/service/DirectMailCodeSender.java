@@ -19,8 +19,17 @@ public final class DirectMailCodeSender implements EmailCodeSender {
 
     @Override
     public void send(String to, String code) {
+        deliver(to, DirectMail.EMAIL_CHANGE_CODE, code);
+    }
+
+    @Override
+    public void sendLoginCode(String to, String code) {
+        deliver(to, DirectMail.LOGIN_EMAIL_CODE, code);
+    }
+
+    private void deliver(String to, String template, String code) {
         try {
-            mail.send(to, DirectMail.EMAIL_CHANGE_CODE, Map.of("code", code));
+            mail.send(to, template, Map.of("code", code));
         } catch (DirectMailException | InvalidNotificationException e) {
             throw new EmailCodeSendException("Письмо с кодом не принято провайдером почты", e);
         }

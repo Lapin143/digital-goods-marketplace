@@ -36,6 +36,9 @@ final class OtpRequests {
     static final Pattern CODE = Pattern.compile("^[0-9]{6}$");
     private static final Pattern PHONE = Pattern.compile("^\\+7[0-9]{10}$");
     private static final Pattern IP = Pattern.compile("^[0-9A-Fa-f:.]{2,45}$");
+    /** Форма адреса та же, что проверяет форма Keycloak (RegistrationInput): до отправки письма. */
+    private static final Pattern EMAIL = Pattern.compile("^[^@\\s]{1,64}@[^@\\s]{1,189}\\.[^@\\s.]{2,}$");
+    private static final int EMAIL_MAX = 254;
     private static final Pattern ID = Pattern.compile("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
     private static final int IP_FIELD_MAX = 45;
 
@@ -98,6 +101,18 @@ final class OtpRequests {
         /** Номер {@code +7} и десять цифр; пусто и ошибка, если поля нет или оно не подходит. */
         Optional<PhoneNumber> phone(String name) {
             return text(name, true, PHONE, Integer.MAX_VALUE, "Номер в формате +7 и десяти цифр.").flatMap(PhoneNumber::parse);
+        }
+
+        /** Адрес e-mail не длиннее 254 символов; возвращается в нижнем регистре без пробелов по краям. */
+        Optional<String> email(String name) {
+            return text(name, true, EMAIL, EMAIL_MAX, "Адрес e-mail.").map(value -> value.strip().toLowerCase(Locale.ROOT));
+        }
+
+        /** Поле, которое этому назначению не подходит: его присутствие это ошибка, как лишнее поле. */
+        void absent(String name, String purpose) {
+            if (values.containsKey(name)) {
+                error("/" + name, "unknown_value", "Поле не используется для назначения " + purpose + ".");
+            }
         }
 
         /** Код из шести цифр. */
