@@ -18,13 +18,13 @@ public interface ReservationRepository {
     /** Последний по времени создания резерв заказа в любом статусе. */
     Optional<Reservation> latestByOrder(UUID orderId);
 
-    /** Активный резерв заказа (INV-06: не больше одного). */
     /**
      * Последний резерв заказа с блокировкой строки до конца транзакции: пока ключи продавца записываются, резерв не снимут (SM-08/T5), а снятый
      * резерв ключей не получит.
      */
     Optional<Reservation> lockLatestByOrder(UUID orderId);
 
+    /** Активный резерв заказа (INV-06: не больше одного). */
     Optional<Reservation> activeByOrder(UUID orderId);
 
     /** Создаёт активный резерв; {@code createdAt} и {@code expiresAt} задают часы сервиса. */
