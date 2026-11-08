@@ -40,6 +40,12 @@ public final class JdbcReservationRepository implements ReservationRepository {
     }
 
     @Override
+    public Optional<Reservation> lockLatestByOrder(UUID orderId) {
+        return jdbc.query("select " + COLUMNS + " from inventory.reservation where order_id = ? order by created_at desc, id desc limit 1 for update",
+                MAPPER, orderId).stream().findFirst();
+    }
+
+    @Override
     public Optional<Reservation> activeByOrder(UUID orderId) {
         return jdbc.query("select " + COLUMNS + " from inventory.reservation where order_id = ? and status = 'active'", MAPPER, orderId)
                 .stream().findFirst();

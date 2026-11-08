@@ -269,7 +269,7 @@ erDiagram
 | `attempts` | `integer` | да | `0` | Сколько раз платформа отправила запрос, от 0 до 3 (паузы 5 и 30 секунд внутри окна) |
 | `next_attempt_at` | `timestamp with time zone` | нет |  | Срок следующей отправки запроса, есть только у ещё не доставленного запроса с попытками в запасе |
 | `lease_until` | `timestamp with time zone` | нет |  | Аренда на приём ответа: ответ, начатый до конца окна, имеет право завершиться, тайм-аут запрос с арендой не трогает (Р-190) |
-| `error_code` | `text` | нет |  | Код отказа, только у failed: out_of_stock, cannot_issue, other из ответа продавца или seller_rejected, integration_disabled, integration_missing от платформы |
+| `error_code` | `text` | нет |  | Код отказа, только у failed: out_of_stock, cannot_issue, other из ответа продавца или seller_rejected, integration_disabled, integration_missing, endpoint_rejected от платформы |
 | `error_message` | `text` | нет |  | Пояснение продавца для оператора поддержки, до 500 знаков, только у failed. В журналы и события не попадает |
 | `accepted_at` | `timestamp with time zone` | нет |  | Когда продавец ответил 2xx на запрос |
 | `answered_at` | `timestamp with time zone` | нет |  | Когда ключи сохранены в inventory-service |

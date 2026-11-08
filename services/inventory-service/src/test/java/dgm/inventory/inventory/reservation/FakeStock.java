@@ -114,6 +114,11 @@ public final class FakeStock {
         }
 
         @Override
+        public Optional<Reservation> lockLatestByOrder(UUID orderId) {
+            return latestByOrder(orderId);
+        }
+
+        @Override
         public Optional<Reservation> latestByOrder(UUID orderId) {
             Reservation latest = null;
             for (Reservation r : rows.values()) {
@@ -300,6 +305,16 @@ public final class FakeStock {
         @Override
         public Set<String> insertNew(UUID productId, List<NewKey> keys) {
             throw new UnsupportedOperationException("загрузка пула проверяется в KeyPoolServiceTest");
+        }
+
+        @Override
+        public int reserveByIds(List<UUID> keyIds, UUID orderId, UUID reservationId) {
+            throw new UnsupportedOperationException("ключи продавца проверяются в SellerKeysServiceTest");
+        }
+
+        @Override
+        public Set<String> hmacsByReservation(UUID reservationId) {
+            throw new UnsupportedOperationException("ключи продавца проверяются в SellerKeysServiceTest");
         }
     }
 

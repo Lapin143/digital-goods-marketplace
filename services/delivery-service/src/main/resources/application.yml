@@ -34,6 +34,13 @@ dgm:
       initial-delay: PT30S
       min-age: PT5M
       batch: 50
+    # Запросы продавцам с выдачей по API (ADR-028): отправка и тайм-аут раз в секунду, пачка 20; значения аренд и пауз повторов заданы в коде настроек
+    seller:
+      interval: PT1S
+      timeout-interval: PT1S
+      initial-delay: PT5S
+      batch: 20
+      timeout-batch: 20
     # Контроль 30 минут от оплаты: раз в 30 секунд берутся открытые контроли, срок которых наступил (NFT-2.4)
     watch:
       interval: PT30S
@@ -45,6 +52,11 @@ dgm:
     inventory-service:
       base-url: ${DGM_INVENTORY_URL:https://inventory-service:8443}
       attempt-timeout: 2s
+      retry: 300ms
+    # Подключение продавца (адрес, статус, версия секрета) берётся у catalog-service по mTLS (OP-97, ADR-028): ответ за 1 секунду, один повтор чтения
+    catalog-service:
+      base-url: ${DGM_CATALOG_URL:https://catalog-service:8443}
+      attempt-timeout: 1s
       retry: 300ms
   # E-mail-провайдер: на стенде заглушка external-stubs (ключ API в секрете delivery_email_key), в проде адрес настоящего провайдера
   email:
@@ -58,3 +70,4 @@ dgm:
 delivery:
   retry-schedule: 10s,30s,2m,5m,10m    # паузы после неудачных попыток: шесть попыток за 17 минут 40 секунд без разброса (ADR-011)
   control-minutes: 30                  # контроль доставки от оплаты (E11, NFT-2.4)
+  seller-response-seconds: 600         # окно ответа продавца с выдачей по API от оплаты (ADR-028, границы 30 – 900)

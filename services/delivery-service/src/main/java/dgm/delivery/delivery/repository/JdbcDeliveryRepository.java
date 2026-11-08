@@ -42,9 +42,13 @@ public final class JdbcDeliveryRepository implements DeliveryRepository {
     /** Нулевой идентификатор: курсор опроса «с начала». */
     private static final UUID NIL = new UUID(0L, 0L);
 
-    /** Очередь диспетчера: выдачи «в очереди», срок которых наступил; аренда сдвигает {@code next_attempt_at} (ix_delivery_dispatch). */
+    /**
+     * Очередь диспетчера: выдачи «в очереди», срок которых наступил; аренда сдвигает {@code next_attempt_at} (ix_delivery_dispatch). Выдача по заказу с
+     * выдачей по API ждёт, пока запрос продавцу не получит ответ: условие в самом запросе выбора, а не флаг в памяти (ADR-028, шаг 12.1).
+     */
     private static final RowClaim DUE = RowClaim.on("delivery.delivery")
-            .where("status = 'queued'")
+            .where("status = 'queued' and not exists (select 1 from delivery.seller_request r where r.delivery_id = delivery.delivery.id "
+                    + "and r.status in ('requested', 'accepted'))")
             .dueColumn("next_attempt_at")
             .orderBy("next_attempt_at, id")
             .returning(QUEUED_COLUMNS)
@@ -122,6 +126,12 @@ public final class JdbcDeliveryRepository implements DeliveryRepository {
             insertAttempt(id, attemptNo, outcome, errorCode, startedAt, finishedAt);
         }
         return changed;
+    }
+
+    @Override
+    public boolean markSellerUnavailable(UUID id, String errorCode) {
+        return jdbc.update("update delivery.delivery set status = 'failed', next_attempt_at = null, fail_reason = 'seller_unavailable', last_error_code = ? "
+                + "where id = ? and status = 'queued'", errorCode, id) == 1;
     }
 
     @Override

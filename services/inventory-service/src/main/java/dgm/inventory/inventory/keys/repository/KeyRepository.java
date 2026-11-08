@@ -72,4 +72,15 @@ public interface KeyRepository {
      * @return HMAC (шестнадцатеричная запись) вставленных ключей; остальные строки это дубли в пуле
      */
     Set<String> insertNew(UUID productId, List<NewKey> keys);
+
+    /**
+     * Привязывает только что загруженные свободные ключи к заказу и его резерву: {@code free} в {@code reserved} (SM-03). Ключи товара по API
+     * приходят от продавца после оплаты и в пуле до этого не лежат (ADR-028).
+     *
+     * @return сколько ключей привязано
+     */
+    int reserveByIds(List<UUID> keyIds, UUID orderId, UUID reservationId);
+
+    /** HMAC значений (шестнадцатеричные строки) ключей резерва: по ним повтор ответа продавца отличается от другого ответа. */
+    Set<String> hmacsByReservation(UUID reservationId);
 }

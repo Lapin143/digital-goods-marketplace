@@ -51,6 +51,30 @@ final class EventData {
         throw new FatalEventException("В событии " + event.id() + " поле " + field + " не число из допустимого диапазона");
     }
 
+    /** Целое число из диапазона, без ограничения {@code int} (номер заказа). */
+    static long longNumber(EventEnvelope event, String field, long min, long max) {
+        if (event.data().get(field) instanceof Number number && number.doubleValue() == number.longValue() && number.longValue() >= min
+                && number.longValue() <= max) {
+            return number.longValue();
+        }
+        throw new FatalEventException("В событии " + event.id() + " поле " + field + " не число из допустимого диапазона");
+    }
+
+    /**
+     * Способ выдачи из необязательного поля {@code issuanceMethod}: нет поля или {@code key_pool} это выдача по ключам из пула, {@code seller_api}
+     * это выдача по запросу к системе продавца (ADR-028). Другое значение нарушает схему.
+     */
+    static boolean sellerApi(EventEnvelope event) {
+        Object method = event.data().get("issuanceMethod");
+        if (method == null || "key_pool".equals(method)) {
+            return false;
+        }
+        if ("seller_api".equals(method)) {
+            return true;
+        }
+        throw new FatalEventException("В событии " + event.id() + " поле issuanceMethod вне допустимого перечисления");
+    }
+
     /** Адрес из {@code data.delivery}: канал только почта, адрес от 3 до 254 знаков. В тексте ошибки значения адреса нет. */
     static String emailAddress(EventEnvelope event) {
         if (!(event.data().get("delivery") instanceof Map<?, ?> delivery) || !"email".equals(delivery.get("channel"))

@@ -18,6 +18,7 @@ public final class DeliveryEvents {
     public static final String FAILED = "delivery.failed";
     public static final String DELIVERED = "delivery.delivered";
     public static final String OVERDUE = "delivery.overdue";
+    public static final String SELLER_TIMEOUT = "delivery.seller-timeout";
     public static final int SCHEMA_VERSION = 1;
 
     private DeliveryEvents() {
@@ -52,6 +53,20 @@ public final class DeliveryEvents {
         data.put("orderId", orderId.toString());
         data.put("deliveryType", kind);
         data.put("deliveredAt", Timestamps.format(deliveredAt));
+        return data;
+    }
+
+    /**
+     * {@code delivery.seller-timeout} (R2, ADR-028): продавец с выдачей по API не ответил за срок ({@code reason = timeout}) или отказал
+     * ({@code seller_error}); заказ по нему отменяется (SM-01/T10) и деньги возвращаются. Значений ключей, адреса и текста отказа продавца в событии нет.
+     */
+    public static Map<String, Object> sellerTimeout(UUID deliveryId, UUID orderId, UUID sellerId, long waitedSeconds, String reason) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("deliveryId", deliveryId.toString());
+        data.put("orderId", orderId.toString());
+        data.put("sellerId", sellerId.toString());
+        data.put("waitedSeconds", Math.max(1, waitedSeconds));
+        data.put("reason", reason);
         return data;
     }
 

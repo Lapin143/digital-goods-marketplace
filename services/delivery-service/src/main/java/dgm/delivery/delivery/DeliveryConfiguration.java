@@ -4,11 +4,20 @@ import dgm.delivery.delivery.client.EmailClient;
 import dgm.delivery.delivery.client.HttpEmailClient;
 import dgm.delivery.delivery.client.KeyClient;
 import dgm.delivery.delivery.client.PeerKeyClient;
+import dgm.delivery.delivery.client.PeerSellerKeyStore;
+import dgm.delivery.delivery.client.SellerApiClient;
+import dgm.delivery.delivery.client.SellerCalls;
+import dgm.delivery.delivery.client.SellerEndpointClient;
+import dgm.delivery.delivery.client.SellerEndpoints;
+import dgm.delivery.delivery.client.SellerKeyStore;
 import dgm.delivery.delivery.client.StatusClient;
 import dgm.delivery.delivery.dispatcher.DeliveryDispatcher;
+import dgm.delivery.delivery.dispatcher.SellerRequestJob;
+import dgm.delivery.delivery.dispatcher.SellerTimeoutJob;
 import dgm.delivery.delivery.domain.DeliverySchedule;
 import dgm.delivery.delivery.letter.LetterBuilder;
 import dgm.delivery.delivery.repository.DeliveryRepository;
+import dgm.delivery.delivery.repository.SellerRequestRepository;
 import dgm.delivery.delivery.service.DeliveryIntake;
 import dgm.delivery.delivery.service.DeliveryOutcomes;
 import dgm.delivery.delivery.service.DeliveryRepeat;
@@ -16,15 +25,24 @@ import dgm.delivery.delivery.poller.StatusPoller;
 import dgm.delivery.delivery.service.DeliverySettings;
 import dgm.delivery.delivery.service.DeliveryStatuses;
 import dgm.delivery.delivery.service.DeliveryTransaction;
+import dgm.delivery.delivery.service.SellerAnswerService;
+import dgm.delivery.delivery.service.SellerRequestOutcomes;
+import dgm.delivery.delivery.service.SellerSettings;
 import dgm.delivery.delivery.service.StatusSettings;
 import dgm.delivery.delivery.watch.DeliveryWatch;
 import dgm.kit.boot.PeerClients;
 import dgm.kit.boot.SecretsDirectory;
+import dgm.kit.client.EndpointGuard;
+import dgm.kit.client.SellerCaller;
+import dgm.kit.crypto.SellerSecrets;
 import dgm.kit.tls.TlsMaterial;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.Set;
 import java.util.random.RandomGenerator;
+import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -42,6 +60,10 @@ public class DeliveryConfiguration {
 
     /** Секрет с ключом доступа к e-mail-провайдеру. */
     static final String EMAIL_KEY_SECRET = "delivery_email_key";
+    /** Мастер-секрет, из которого считаются секреты подписи запросов продавцам (ADR-028, Р-187). */
+    static final String SELLER_MASTER_SECRET = "seller_webhook_master";
+    /** Имена, освобождённые от проверки диапазонов адресов продавца: только стендовый профиль (ADR-028, правило 7). */
+    static final String SELLER_ENDPOINT_ALLOW = "dgm.seller-endpoint.allow";
 
     /** Паузы повторов: ключ {@code delivery.retry-schedule}, по умолчанию 10 с, 30 с, 2, 5, 10 минут ±20 %. */
     @Bean
@@ -86,8 +108,9 @@ public class DeliveryConfiguration {
     }
 
     @Bean
-    DeliveryIntake deliveryIntake(DeliveryRepository deliveries, DeliverySettings settings, Clock clock) {
-        return new DeliveryIntake(deliveries, settings, clock);
+    DeliveryIntake deliveryIntake(DeliveryRepository deliveries, SellerRequestRepository sellerRequests, SellerSettings sellerSettings,
+                                  DeliverySettings settings, Clock clock) {
+        return new DeliveryIntake(deliveries, sellerRequests, sellerSettings, settings, clock);
     }
 
     @Bean
@@ -123,5 +146,79 @@ public class DeliveryConfiguration {
     DeliveryDispatcher deliveryDispatcher(DeliveryRepository deliveries, KeyClient keys, LetterBuilder letters, EmailClient email, DeliveryOutcomes outcomes,
                                           DeliverySettings settings, Clock clock, MeterRegistry meters) {
         return new DeliveryDispatcher(deliveries, keys, letters, email, outcomes, settings, clock, meters);
+    }
+
+    /** Выдача по запросу к системе продавца (ADR-028, шаг 12): окно ответа {@code delivery.seller-response-seconds}, паузы и пачки заданы архитектурой. */
+    @Bean
+    SellerSettings sellerSettings(Environment environment) {
+        SellerSettings defaults = SellerSettings.defaults();
+        long responseSeconds = environment.getProperty("delivery.seller-response-seconds", Long.class, defaults.response().toSeconds());
+        return new SellerSettings(Duration.ofSeconds(responseSeconds), defaults.sendLease(), defaults.answerLease(),
+                environment.getProperty("dgm.delivery.seller.batch", Integer.class, defaults.batch()),
+                environment.getProperty("dgm.delivery.seller.timeout-batch", Integer.class, defaults.timeoutBatch()));
+    }
+
+    /** Мастер-секрет читается один раз при запуске; нет файла или он короче 16 байт, сервис не запускается. Уничтожать его нельзя: он нужен на всё время работы. */
+    @Bean
+    SellerSecrets sellerSecrets(SecretsDirectory secrets) {
+        return new SellerSecrets(secrets.read(SELLER_MASTER_SECRET));
+    }
+
+    /** Защита адреса продавца от SSRF: список разрешённых имён пуст, кроме стенда с заглушкой во внутренней сети. */
+    @Bean
+    EndpointGuard endpointGuard(Environment environment) {
+        return EndpointGuard.system(allowedNames(environment.getProperty(SELLER_ENDPOINT_ALLOW, "")));
+    }
+
+    static Set<String> allowedNames(String value) {
+        return Arrays.stream(value.split(",")).map(String::strip).filter(name -> !name.isEmpty()).collect(Collectors.toUnmodifiableSet());
+    }
+
+    /**
+     * Вызов системы продавца: проверка адреса, подпись, тайм-аут 5 секунд. Доверие к серверу продавца по центру платформы (на стенде заглушка подписана им);
+     * для продавцов с публичными сертификатами нужно доверие хранилищу JVM (ограничение стенда, F5-21).
+     */
+    @Bean
+    SellerCaller sellerCaller(EndpointGuard guard, TlsMaterial tls, Clock clock) {
+        return SellerCaller.over(guard, tls.trustOnlyContext().getSocketFactory(), clock);
+    }
+
+    @Bean
+    SellerApiClient sellerApiClient(SellerCaller caller) {
+        return new SellerApiClient(caller);
+    }
+
+    @Bean
+    SellerEndpointClient sellerEndpointClient(PeerClients peers, Clock clock) {
+        return new SellerEndpointClient(() -> peers.get(SellerEndpointClient.PEER), clock);
+    }
+
+    @Bean
+    SellerRequestOutcomes sellerRequestOutcomes(SellerRequestRepository requests, DeliveryRepository deliveries, DeliveryTransaction transaction,
+                                                SellerSettings settings, Clock clock, MeterRegistry meters) {
+        return new SellerRequestOutcomes(requests, deliveries, transaction, settings, clock, meters);
+    }
+
+    @Bean
+    SellerRequestJob sellerRequestJob(SellerRequestRepository requests, SellerEndpoints endpoints, SellerCalls api, SellerSecrets secrets,
+                                      SellerRequestOutcomes outcomes, SellerSettings settings, Clock clock) {
+        return new SellerRequestJob(requests, endpoints, api, secrets, outcomes, settings, clock);
+    }
+
+    @Bean
+    SellerTimeoutJob sellerTimeoutJob(SellerRequestOutcomes outcomes) {
+        return new SellerTimeoutJob(outcomes);
+    }
+
+    /** Передача ключей продавца в хранилище ключей ({@code inventory-service} в {@code dgm.peers}, OP-99). */
+    @Bean
+    SellerKeyStore sellerKeyStore(PeerClients peers) {
+        return new PeerSellerKeyStore(() -> peers.get(PeerSellerKeyStore.PEER));
+    }
+
+    @Bean
+    SellerAnswerService sellerAnswerService(SellerRequestRepository requests, SellerKeyStore keyStore, SellerRequestOutcomes outcomes, SellerSettings settings,
+                                            Clock clock, MeterRegistry meters) {
+        return new SellerAnswerService(requests, keyStore, outcomes, settings, clock, meters);
     }
 }

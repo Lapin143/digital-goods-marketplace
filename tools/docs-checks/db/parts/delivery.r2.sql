@@ -53,7 +53,7 @@ comment on column delivery.seller_request.deadline_at is 'Срок ответа:
 comment on column delivery.seller_request.attempts is 'Сколько раз платформа отправила запрос, от 0 до 3 (паузы 5 и 30 секунд внутри окна)';
 comment on column delivery.seller_request.next_attempt_at is 'Срок следующей отправки запроса, есть только у ещё не доставленного запроса с попытками в запасе';
 comment on column delivery.seller_request.lease_until is 'Аренда на приём ответа: ответ, начатый до конца окна, имеет право завершиться, тайм-аут запрос с арендой не трогает (Р-190)';
-comment on column delivery.seller_request.error_code is 'Код отказа, только у failed: out_of_stock, cannot_issue, other из ответа продавца или seller_rejected, integration_disabled, integration_missing от платформы';
+comment on column delivery.seller_request.error_code is 'Код отказа, только у failed: out_of_stock, cannot_issue, other из ответа продавца или seller_rejected, integration_disabled, integration_missing, endpoint_rejected от платформы';
 comment on column delivery.seller_request.error_message is 'Пояснение продавца для оператора поддержки, до 500 знаков, только у failed. В журналы и события не попадает';
 comment on column delivery.seller_request.accepted_at is 'Когда продавец ответил 2xx на запрос';
 comment on column delivery.seller_request.answered_at is 'Когда ключи сохранены в inventory-service';

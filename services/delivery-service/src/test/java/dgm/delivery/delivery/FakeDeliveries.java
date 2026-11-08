@@ -160,6 +160,19 @@ public final class FakeDeliveries implements DeliveryRepository {
     }
 
     @Override
+    public boolean markSellerUnavailable(UUID id, String errorCode) {
+        Row row = rows.get(id);
+        if (row == null || !"queued".equals(row.status)) {
+            return false;
+        }
+        row.status = "failed";
+        row.nextAttemptAt = null;
+        row.failReason = "seller_unavailable";
+        row.lastErrorCode = errorCode;
+        return true;
+    }
+
+    @Override
     public int anonymizeOpen(UUID buyerId, String replacement) {
         int changed = 0;
         for (Row row : rows.values()) {

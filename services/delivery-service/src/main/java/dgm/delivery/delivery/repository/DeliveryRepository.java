@@ -51,6 +51,14 @@ public interface DeliveryRepository {
     boolean markFailed(UUID id, int expectedAttempts, String outcome, String errorCode, String failReason, Instant startedAt, Instant finishedAt);
 
     /**
+     * Выдача по заказу с выдачей по API закрывается без письма: продавец не ответил, отказал или не подключён (R2, ADR-028). Из «в очереди»
+     * в «ошибка» с причиной {@code seller_unavailable}, попытка отправки не записывается (письма не было).
+     *
+     * @return {@code true}: выдача была в очереди и закрыта; {@code false}: у неё уже другой статус
+     */
+    boolean markSellerUnavailable(UUID id, String errorCode);
+
+    /**
      * INV-44: адрес в открытых выдачах покупателя (в очереди и отправленных) заменяется. Закрытые («доставлено», «ошибка») не меняются.
      *
      * @return сколько выдач изменено
