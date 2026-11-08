@@ -35,7 +35,7 @@ KINDS = {'JUnit', 'JUnit на стенде', 'Vitest', 'Newman', 'Python на с
 BLOCKS = ('**Предусловия.**', '**Шаги.**', '**Ожидаемый результат.**')
 HEADING = re.compile(r'^### (TC-(\d{3}))\. (.+)$', re.M)
 CODE_GLOBS = [
-    'services/*/src/test/**/*.java', 'libs/*/src/test/**/*.java', 'tools/stand-checks/*.py', 'tools/stand-checks/*.sh',
+    'services/*/src/test/**/*.java', 'libs/*/src/test/**/*.java', 'infra/keycloak/sms-otp/test/**/*.java', 'tools/stand-checks/*.py', 'tools/stand-checks/*.sh',
     'tools/api-tests/*.py', 'tools/api-tests/scenarios/*.json', 'frontend/web-app/src/**/*.test.ts', 'frontend/web-app/src/**/*.test.tsx',
 ]
 RESERVE = re.compile(r'TC-(\d{3})(?:\s*[–-]\s*TC-(\d{3}))?')
