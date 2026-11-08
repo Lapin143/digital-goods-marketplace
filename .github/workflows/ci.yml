@@ -970,8 +970,8 @@ jobs:
           set -euo pipefail
           base="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
           cd "$RUNNER_TEMP"
-          curl -sSfL -O "$base/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
-          curl -sSfL -O "$base/trivy_${TRIVY_VERSION}_checksums.txt"
+          curl -sSfL --retry 5 --retry-delay 10 --retry-all-errors -O "$base/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl -sSfL --retry 5 --retry-delay 10 --retry-all-errors -O "$base/trivy_${TRIVY_VERSION}_checksums.txt"
           sha256sum --check --ignore-missing "trivy_${TRIVY_VERSION}_checksums.txt"
           tar -xzf "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" trivy
           sudo install trivy /usr/local/bin/trivy
@@ -1360,7 +1360,7 @@ jobs:
       - name: k6
         run: |
           set -euo pipefail
-          curl -sSfL -o "$RUNNER_TEMP/k6.tar.gz" "https://github.com/grafana/k6/releases/download/v${K6_VERSION}/k6-v${K6_VERSION}-linux-amd64.tar.gz"
+          curl -sSfL --retry 5 --retry-delay 10 --retry-all-errors -o "$RUNNER_TEMP/k6.tar.gz" "https://github.com/grafana/k6/releases/download/v${K6_VERSION}/k6-v${K6_VERSION}-linux-amd64.tar.gz"
           echo "${K6_SHA256}  $RUNNER_TEMP/k6.tar.gz" | sha256sum --check -
           tar -xzf "$RUNNER_TEMP/k6.tar.gz" -C "$RUNNER_TEMP" --strip-components=1 "k6-v${K6_VERSION}-linux-amd64/k6"
           sudo install -m 0755 "$RUNNER_TEMP/k6" /usr/local/bin/k6
@@ -1428,7 +1428,7 @@ jobs:
       - name: k6
         run: |
           set -euo pipefail
-          curl -sSfL -o "$RUNNER_TEMP/k6.tar.gz" "https://github.com/grafana/k6/releases/download/v${K6_VERSION}/k6-v${K6_VERSION}-linux-amd64.tar.gz"
+          curl -sSfL --retry 5 --retry-delay 10 --retry-all-errors -o "$RUNNER_TEMP/k6.tar.gz" "https://github.com/grafana/k6/releases/download/v${K6_VERSION}/k6-v${K6_VERSION}-linux-amd64.tar.gz"
           echo "${K6_SHA256}  $RUNNER_TEMP/k6.tar.gz" | sha256sum --check -
           tar -xzf "$RUNNER_TEMP/k6.tar.gz" -C "$RUNNER_TEMP" --strip-components=1 "k6-v${K6_VERSION}-linux-amd64/k6"
           sudo install -m 0755 "$RUNNER_TEMP/k6" /usr/local/bin/k6
@@ -1481,8 +1481,8 @@ jobs:
           set -euo pipefail
           base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
           cd "$RUNNER_TEMP"
-          curl -sSfL -O "$base/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          curl -sSfL -O "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          curl -sSfL --retry 5 --retry-delay 10 --retry-all-errors -O "$base/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL --retry 5 --retry-delay 10 --retry-all-errors -O "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
           sha256sum --check --ignore-missing "gitleaks_${GITLEAKS_VERSION}_checksums.txt"
           tar -xzf "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks
           sudo install gitleaks /usr/local/bin/gitleaks
@@ -1504,8 +1504,8 @@ jobs:
           set -euo pipefail
           base="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
           cd "$RUNNER_TEMP"
-          curl -sSfL -O "$base/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
-          curl -sSfL -O "$base/trivy_${TRIVY_VERSION}_checksums.txt"
+          curl -sSfL --retry 5 --retry-delay 10 --retry-all-errors -O "$base/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl -sSfL --retry 5 --retry-delay 10 --retry-all-errors -O "$base/trivy_${TRIVY_VERSION}_checksums.txt"
           sha256sum --check --ignore-missing "trivy_${TRIVY_VERSION}_checksums.txt"
           tar -xzf "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" trivy
           sudo install trivy /usr/local/bin/trivy
