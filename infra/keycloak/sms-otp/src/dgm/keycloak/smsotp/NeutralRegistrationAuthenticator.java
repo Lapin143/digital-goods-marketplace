@@ -1,5 +1,6 @@
 package dgm.keycloak.smsotp;
 
+import dgm.keycloak.smsotp.core.EmailQuotaGate;
 import dgm.keycloak.smsotp.core.RegistrationInput;
 import dgm.keycloak.smsotp.core.TimePad;
 import jakarta.ws.rs.core.MultivaluedMap;
@@ -47,8 +48,12 @@ import org.keycloak.sessions.AuthenticationSessionModel;
  *
  * <p>Страница не различает ветки ни текстом, ни адресом форм. По времени ответ выравнивается до {@link #MINIMUM}; в ветке «занят» пароль
  * хешируется так же, как в ветке «свободен», чтобы объём работы совпадал. Форматы полей и политика паролей проверяются до проверки
- * адреса и одинаково для всех. Число писем на один адрес здесь не считается (находка F4-1: частоту по IP ограничивает шлюз, счётчик по
- * адресу вынесен в срез 3).
+ * адреса и одинаково для всех.
+ *
+ * <p>Число писем на один адрес ограничивает общий счётчик платформы (F4-1, {@link EmailQuotaGate}): место в нём занимается до работы с
+ * учётной записью, и при отказе (лимит исчерпан или платформа недоступна) не создаётся ни запись, ни письмо. Страница при этом та же
+ * «проверьте почту», время выровнено: отказ счётчика не должен выдавать, что на адрес недавно писали. Частоту по IP по-прежнему
+ * ограничивает шлюз.
  */
 final class NeutralRegistrationAuthenticator implements Authenticator {
 
@@ -83,14 +88,19 @@ final class NeutralRegistrationAuthenticator implements Authenticator {
         }
 
         try {
-            UserModel existing = context.getSession().users().getUserByEmail(context.getRealm(), input.email());
-            if (existing == null) {
-                existing = context.getSession().users().getUserByUsername(context.getRealm(), input.email());
-            }
-            if (existing == null) {
-                register(context, input.email(), password);
+            EmailQuotaGate.Verdict verdict = new EmailQuotaGate(PlatformConnection.get()).check("register", input.email());
+            if (verdict != EmailQuotaGate.Verdict.SEND) {
+                LOG.infof("register-neutral: письмо не отправлено, счётчик писем на адрес: %s", verdict);
             } else {
-                notifyOwner(context, existing, password);
+                UserModel existing = context.getSession().users().getUserByEmail(context.getRealm(), input.email());
+                if (existing == null) {
+                    existing = context.getSession().users().getUserByUsername(context.getRealm(), input.email());
+                }
+                if (existing == null) {
+                    register(context, input.email(), password);
+                } else {
+                    notifyOwner(context, existing, password);
+                }
             }
         } catch (RuntimeException | EmailException e) {
             // Покупателю ответ тот же: о сбое он не должен узнавать больше, чем о занятом адресе. Подробности только в журнале сервера

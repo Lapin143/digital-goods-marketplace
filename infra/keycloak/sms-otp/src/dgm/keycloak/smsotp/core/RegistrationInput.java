@@ -3,6 +3,7 @@ package dgm.keycloak.smsotp.core;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
@@ -24,7 +25,8 @@ public final class RegistrationInput {
     }
 
     private static final Pattern EMAIL = Pattern.compile("^[^@\\s]{1,64}@[^@\\s]{1,189}\\.[^@\\s.]{2,}$");
-    private static final int MAX_EMAIL = 255;
+    /** Предел адреса: 254 символа (RFC 5321) и схема Email платформы; длиннее форма не принимает, иначе платформа отказала бы в счётчике и коде. */
+    private static final int MAX_EMAIL = 254;
     private static final int MAX_PASSWORD = 128;
 
     private RegistrationInput() {
@@ -33,6 +35,12 @@ public final class RegistrationInput {
     /** Приведение адреса: пробелы по краям убираются, регистр букв не различается (Keycloak хранит адрес в нижнем регистре). */
     public static String normalizeEmail(String raw) {
         return raw == null ? "" : raw.strip().toLowerCase(Locale.ROOT);
+    }
+
+    /** Адрес для вызова платформы: приведённый и прошедший проверку формы и предела платформы; пусто, если адрес не годится. */
+    public static Optional<String> platformEmail(String raw) {
+        String email = normalizeEmail(raw);
+        return email.length() <= MAX_EMAIL && EMAIL.matcher(email).matches() ? Optional.of(email) : Optional.empty();
     }
 
     public static Result check(String rawEmail, String password, String confirmation) {

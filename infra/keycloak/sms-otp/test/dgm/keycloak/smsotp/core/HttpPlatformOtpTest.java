@@ -20,6 +20,7 @@ import java.util.Collections;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /** Вызовы платформы против настоящего HTTP-сервера на loopback: путь, заголовки, тело и разбор ответов. */
@@ -195,6 +196,123 @@ class HttpPlatformOtpTest {
         assertThrows(IllegalArgumentException.class, () -> otp.verify(PHONE, "12345"));
         assertThrows(IllegalArgumentException.class, () -> otp.verify(PHONE, null));
         assertThrows(IllegalArgumentException.class, () -> otp.verify("+7900\",\"x", "123456"));
+        assertTrue(seen.isEmpty());
+    }
+
+    private static final String EMAIL = "guest@mail.example";
+
+    @Tag("TC-140")
+    @Test
+    void issueEmailSendsPurposeAndAddressWithoutPhoneOrIp() {
+        status = 202;
+        assertInstanceOf(PlatformOtp.Issued.Accepted.class, client().issueEmail(EMAIL));
+        Seen call = seen.get(0);
+        assertEquals("/internal/v1/otp-codes", call.path());
+        assertEquals("key-1", call.idempotencyKey());
+        assertEquals("{\"purpose\":\"vk_email\",\"email\":\"guest@mail.example\"}", call.body());
+    }
+
+    @Tag("TC-143")
+    @Test
+    void issueEmailMapsLimitAndFailures() {
+        status = 429;
+        retryAfter = "300";
+        PlatformOtp.Issued.Limited limited = assertInstanceOf(PlatformOtp.Issued.Limited.class, client().issueEmail(EMAIL));
+        assertEquals(300, limited.retryAfterSeconds());
+        status = 503;
+        assertInstanceOf(PlatformOtp.Issued.Unavailable.class, client().issueEmail(EMAIL));
+        status = 422;
+        assertInstanceOf(PlatformOtp.Issued.Unavailable.class, client().issueEmail(EMAIL));
+    }
+
+    @Tag("TC-140")
+    @Test
+    void verifyEmailConfirmsOnVerifiedTrue() {
+        status = 200;
+        responseBody = "{\"verified\":true}";
+        assertInstanceOf(PlatformOtp.EmailChecked.Confirmed.class, client().verifyEmail(EMAIL, "042917"));
+        Seen call = seen.get(0);
+        assertEquals("/internal/v1/otp-verifications", call.path());
+        assertEquals("{\"purpose\":\"vk_email\",\"email\":\"guest@mail.example\",\"code\":\"042917\"}", call.body());
+    }
+
+    @Tag("TC-140")
+    @Test
+    void verifyEmailWithoutVerifiedInA200IsUnavailableNotConfirmed() {
+        status = 200;
+        responseBody = "{\"userId\":\"" + USER + "\"}";
+        assertInstanceOf(PlatformOtp.EmailChecked.Unavailable.class, client().verifyEmail(EMAIL, "042917"));
+        responseBody = "{\"verified\":false}";
+        assertInstanceOf(PlatformOtp.EmailChecked.Unavailable.class, client().verifyEmail(EMAIL, "042917"));
+    }
+
+    @Tag("TC-141")
+    @Test
+    void verifyEmailMapsInvalidExpiredLockedAndFailure() {
+        status = 422;
+        responseBody = "{\"type\":\"https://dgm.example/problems/otp-invalid\",\"code\":\"otp-invalid\"}";
+        assertInstanceOf(PlatformOtp.EmailChecked.Invalid.class, client().verifyEmail(EMAIL, "000000"));
+        responseBody = "{\"code\":\"otp-expired\"}";
+        assertInstanceOf(PlatformOtp.EmailChecked.Expired.class, client().verifyEmail(EMAIL, "000000"));
+        status = 429;
+        retryAfter = "900";
+        responseBody = "{\"code\":\"otp-locked\"}";
+        PlatformOtp.EmailChecked.Locked locked = assertInstanceOf(PlatformOtp.EmailChecked.Locked.class, client().verifyEmail(EMAIL, "000000"));
+        assertEquals(900, locked.retryAfterSeconds());
+        status = 500;
+        assertInstanceOf(PlatformOtp.EmailChecked.Unavailable.class, client().verifyEmail(EMAIL, "000000"));
+    }
+
+    @Tag("TC-143")
+    @Test
+    void consumeQuotaSendsPurposeAndAddressAndMapsTheAnswer() {
+        status = 200;
+        responseBody = "{\"allowed\":true}";
+        assertInstanceOf(PlatformOtp.Quota.Granted.class, client().consumeQuota("register", EMAIL));
+        Seen call = seen.get(0);
+        assertEquals("/internal/v1/email-quota/consume", call.path());
+        assertEquals("{\"purpose\":\"register\",\"email\":\"guest@mail.example\"}", call.body());
+
+        status = 429;
+        retryAfter = "120";
+        PlatformOtp.Quota.Limited limited = assertInstanceOf(PlatformOtp.Quota.Limited.class, client().consumeQuota("reset", EMAIL));
+        assertEquals(120, limited.retryAfterSeconds());
+        status = 503;
+        assertInstanceOf(PlatformOtp.Quota.Unavailable.class, client().consumeQuota("reset", EMAIL));
+    }
+
+    @Tag("TC-143")
+    @Test
+    void consumeQuotaForVkEmailIsRefusedLocallyBecausePlatformCountsThatStepItself() {
+        assertThrows(IllegalArgumentException.class, () -> client().consumeQuota("vk_email", EMAIL));
+        assertThrows(IllegalArgumentException.class, () -> client().consumeQuota("other", EMAIL));
+        assertTrue(seen.isEmpty());
+    }
+
+    @Tag("TC-140")
+    @Test
+    void anAddressWithQuotesAndBackslashesIsEscapedAndCannotInjectFields() {
+        status = 202;
+        client().issueEmail("a\"},\"phone\":\"+70000000000\\x@mail.example");
+        String body = seen.get(0).body();
+        assertEquals("{\"purpose\":\"vk_email\",\"email\":\"a\\\"},\\\"phone\\\":\\\"+70000000000\\\\x@mail.example\"}", body);
+    }
+
+    @Tag("TC-140")
+    @Test
+    void jsonStringEscapesControlCharactersAndKeepsNonAscii() {
+        assertEquals("\"a\\u0001b\"", HttpPlatformOtp.jsonString("a\u0001b"));
+        assertEquals("\"почта@пример.рф\"", HttpPlatformOtp.jsonString("почта@пример.рф"));
+    }
+
+    @Tag("TC-140")
+    @Test
+    void emailCallsRejectAnAddressOrCodeOfWrongShapeBeforeAnyRequest() {
+        assertThrows(IllegalArgumentException.class, () -> client().issueEmail("no-at-sign"));
+        assertThrows(IllegalArgumentException.class, () -> client().issueEmail(null));
+        assertThrows(IllegalArgumentException.class, () -> client().verifyEmail(EMAIL, "12345"));
+        assertThrows(IllegalArgumentException.class, () -> client().verifyEmail("a b@mail.example", "123456"));
+        assertThrows(IllegalArgumentException.class, () -> client().consumeQuota("register", "x".repeat(250) + "@m.example"));
         assertTrue(seen.isEmpty());
     }
 }

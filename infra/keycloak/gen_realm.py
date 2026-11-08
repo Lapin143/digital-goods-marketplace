@@ -172,12 +172,20 @@ def build_flows():
     ], top=True, provider='client-flow'))
     flows.append(flow('docker auth', 'Docker (не используется)', [step('docker-http-basic-authenticator', prio=10)], top=True))
 
-    # 6. Первый вход через VK ID: новая учётная запись или привязка к существующей с подтверждением по e-mail
+    # 6. Первый вход через VK ID: новая учётная запись или привязка к существующей с подтверждением по e-mail. Первым идёт шаг dgm-vk-email
+    # (Р-194, F4-3): если VK ID подтвердил вход, но не передал адрес, он просит адрес и подтверждает его кодом из письма; если адрес есть,
+    # шаг ничего не делает. Адрес, введённый гостем и занятый существующей записью, не привязывается: шаг завершает вход отказом.
+    # Шаг обязательный, поэтому стандартные шаги создания и привязки вынесены в подпоток: рядом с обязательным шагом Keycloak
+    # не выполняет альтернативные.
     flows.append(flow('dgm-first-broker-login', 'Первый вход через внешнего провайдера', [
+        step('dgm-vk-email', prio=10),
+        sub('dgm-create-or-link', 'REQUIRED', 20),
+    ], top=True))
+    flows.append(flow('dgm-create-or-link', 'Создать учётную запись или привязать к существующей', [
         step('idp-create-user-if-unique', 'ALTERNATIVE', 10,
              config=cfg('create-unique-user', {'require.password.update.after.registration': 'false'})),
         sub('dgm-handle-existing-account', 'ALTERNATIVE', 20),
-    ], top=True))
+    ]))
     flows.append(flow('dgm-handle-existing-account', 'Учётная запись с таким e-mail уже есть', [
         step('idp-confirm-link', prio=10),
         step('idp-email-verification', prio=20),

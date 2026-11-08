@@ -3,3 +3,4 @@ dgm.keycloak.smsotp.DgmCookieAuthenticatorFactory
 dgm.keycloak.smsotp.AuthLevelAuthenticatorFactory
 dgm.keycloak.smsotp.NeutralRegistrationAuthenticatorFactory
 dgm.keycloak.smsotp.ResetEmailAuthenticatorFactory
+dgm.keycloak.smsotp.VkEmailAuthenticatorFactory

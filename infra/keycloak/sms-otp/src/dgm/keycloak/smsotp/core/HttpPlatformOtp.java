@@ -13,16 +13,20 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Вызовы {@code issueOtpCode} и {@code verifyOtpCode} платформы по HTTPS. На каждую попытку уходит новый {@code Idempotency-Key}
+ * Вызовы {@code issueOtpCode}, {@code verifyOtpCode} и {@code consumeEmailQuota} платформы по HTTPS. На каждую попытку уходит новый {@code Idempotency-Key}
  * (решение Р-27): повтор той же попытки при обрыве связи платформа не выполнит дважды, а новый ввод это новая попытка.
  *
- * <p>Номер, код и ключи в журнал не попадают: пишется только тип события и код ответа платформы.
+ * <p>Номер, адрес, код и ключи в журнал не попадают: пишется только тип события и код ответа платформы.
  */
 public final class HttpPlatformOtp implements PlatformOtp {
 
     private static final System.Logger LOG = System.getLogger(HttpPlatformOtp.class.getName());
     private static final Pattern PHONE = Pattern.compile("^\\+7[0-9]{10}$");
     private static final Pattern CODE = Pattern.compile("^[0-9]{6}$");
+    /** Та же форма, что у проверки формы регистрации и у схемы Email платформы; кавычки и косая черта в адресе допустимы, поэтому в JSON он экранируется. */
+    private static final Pattern EMAIL = Pattern.compile("^[^@\\s]{1,64}@[^@\\s]{1,189}\\.[^@\\s.]{2,}$");
+    private static final int EMAIL_MAX = 254;
+    private static final Pattern VERIFIED = Pattern.compile("\"verified\"\\s*:\\s*true");
     private static final Pattern IP = Pattern.compile("^[0-9A-Fa-f:.]{2,45}$");
     private static final Pattern USER_ID = Pattern.compile(
             "\"userId\"\\s*:\\s*\"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\"");
@@ -78,9 +82,7 @@ public final class HttpPlatformOtp implements PlatformOtp {
     @Override
     public Verified verify(String phone, String code) {
         requirePhone(phone);
-        if (code == null || !CODE.matcher(code).matches()) {
-            throw new IllegalArgumentException("Код должен состоять из шести цифр");
-        }
+        requireCode(code);
         String body = "{\"purpose\":\"sms_login\",\"phone\":\"" + phone + "\",\"code\":\"" + code + "\"}";
         HttpResponse<String> response = post("/internal/v1/otp-verifications", body, "verifyOtpCode");
         if (response == null) {
@@ -107,6 +109,76 @@ public final class HttpPlatformOtp implements PlatformOtp {
                 return new Verified.Unavailable();
             }
         }
+    }
+
+    @Override
+    public Issued issueEmail(String email) {
+        requireEmail(email);
+        String body = "{\"purpose\":\"vk_email\",\"email\":" + jsonString(email) + "}";
+        HttpResponse<String> response = post("/internal/v1/otp-codes", body, "issueOtpCode");
+        if (response == null) {
+            return new Issued.Unavailable();
+        }
+        return switch (response.statusCode()) {
+            case 202 -> new Issued.Accepted();
+            case 429 -> new Issued.Limited(retryAfter(response));
+            default -> {
+                LOG.log(System.Logger.Level.WARNING, "issueOtpCode (vk_email): платформа ответила {0}", response.statusCode());
+                yield new Issued.Unavailable();
+            }
+        };
+    }
+
+    @Override
+    public EmailChecked verifyEmail(String email, String code) {
+        requireEmail(email);
+        requireCode(code);
+        String body = "{\"purpose\":\"vk_email\",\"email\":" + jsonString(email) + ",\"code\":\"" + code + "\"}";
+        HttpResponse<String> response = post("/internal/v1/otp-verifications", body, "verifyOtpCode");
+        if (response == null) {
+            return new EmailChecked.Unavailable();
+        }
+        switch (response.statusCode()) {
+            case 200 -> {
+                if (VERIFIED.matcher(response.body()).find()) {
+                    return new EmailChecked.Confirmed();
+                }
+                LOG.log(System.Logger.Level.ERROR, "verifyOtpCode (vk_email): в ответе 200 нет признака verified");
+                return new EmailChecked.Unavailable();
+            }
+            case 422 -> {
+                Matcher problem = PROBLEM_CODE.matcher(response.body());
+                return problem.find() && "otp-expired".equals(problem.group(1)) ? new EmailChecked.Expired() : new EmailChecked.Invalid();
+            }
+            case 429 -> {
+                return new EmailChecked.Locked(retryAfter(response));
+            }
+            default -> {
+                LOG.log(System.Logger.Level.WARNING, "verifyOtpCode (vk_email): платформа ответила {0}", response.statusCode());
+                return new EmailChecked.Unavailable();
+            }
+        }
+    }
+
+    @Override
+    public Quota consumeQuota(String purpose, String email) {
+        if (!"register".equals(purpose) && !"reset".equals(purpose)) {
+            throw new IllegalArgumentException("Назначение счётчика: register или reset");
+        }
+        requireEmail(email);
+        String body = "{\"purpose\":\"" + purpose + "\",\"email\":" + jsonString(email) + "}";
+        HttpResponse<String> response = post("/internal/v1/email-quota/consume", body, "consumeEmailQuota");
+        if (response == null) {
+            return new Quota.Unavailable();
+        }
+        return switch (response.statusCode()) {
+            case 200 -> new Quota.Granted();
+            case 429 -> new Quota.Limited(retryAfter(response));
+            default -> {
+                LOG.log(System.Logger.Level.WARNING, "consumeEmailQuota: платформа ответила {0}", response.statusCode());
+                yield new Quota.Unavailable();
+            }
+        };
     }
 
     private HttpResponse<String> post(String path, String body, String operation) {
@@ -138,6 +210,38 @@ public final class HttpPlatformOtp implements PlatformOtp {
             return Long.parseLong(value.strip());
         } catch (NumberFormatException e) {
             return DEFAULT_WAIT_SECONDS;
+        }
+    }
+
+    /** Строка JSON: кавычка, косая черта и управляющие символы экранируются, остальное (в том числе не ASCII) идёт как есть в UTF-8. */
+    static String jsonString(String value) {
+        StringBuilder out = new StringBuilder(value.length() + 2).append('"');
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            switch (c) {
+                case '"' -> out.append("\\\"");
+                case '\\' -> out.append("\\\\");
+                default -> {
+                    if (c < 0x20) {
+                        out.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        out.append(c);
+                    }
+                }
+            }
+        }
+        return out.append('"').toString();
+    }
+
+    private static void requireEmail(String email) {
+        if (email == null || email.length() > EMAIL_MAX || !EMAIL.matcher(email).matches()) {
+            throw new IllegalArgumentException("Адрес e-mail не прошёл проверку формы");
+        }
+    }
+
+    private static void requireCode(String code) {
+        if (code == null || !CODE.matcher(code).matches()) {
+            throw new IllegalArgumentException("Код должен состоять из шести цифр");
         }
     }
 

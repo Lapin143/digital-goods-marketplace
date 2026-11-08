@@ -16,7 +16,7 @@ import org.jboss.logging.Logger;
  * Подключение Keycloak к платформе: один клиент HTTP на процесс, создаётся при первом входе по SMS. Настройки из окружения контейнера:
  * {@code DGM_PLATFORM_URL} (по умолчанию {@code https://platform-service:8443}) и {@code DGM_TLS_DIR} (по умолчанию
  * {@code /run/secrets}: там лежат {@code tls_keycloak.crt}, {@code tls_keycloak.key}, {@code tls_ca.crt}, Docker уже подключил их для
- * самого сервера Keycloak). Если файлов нет, вход по SMS честно отвечает «временно недоступен», остальные способы входа работают.
+ * самого сервера Keycloak). Если файлов нет, вход по SMS и запрос e-mail в потоке VK ID честно отвечают «временно недоступен», письма регистрации и сброса пароля не уходят (счётчик недоступен, режим отказа), остальные способы входа работают.
  */
 final class PlatformConnection {
 
@@ -30,6 +30,21 @@ final class PlatformConnection {
         @Override
         public Verified verify(String phone, String code) {
             return new Verified.Unavailable();
+        }
+
+        @Override
+        public Issued issueEmail(String email) {
+            return new Issued.Unavailable();
+        }
+
+        @Override
+        public EmailChecked verifyEmail(String email, String code) {
+            return new EmailChecked.Unavailable();
+        }
+
+        @Override
+        public Quota consumeQuota(String purpose, String email) {
+            return new Quota.Unavailable();
         }
     };
 

@@ -512,6 +512,32 @@
       "builtIn": false,
       "authenticationExecutions": [
         {
+          "authenticator": "dgm-vk-email",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorFlow": true,
+          "autheticatorFlow": true,
+          "flowAlias": "dgm-create-or-link",
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "id": "559a0f2b-55e0-5907-9a45-d194dab80482",
+      "alias": "dgm-create-or-link",
+      "description": "Создать учётную запись или привязать к существующей",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
           "authenticator": "idp-create-user-if-unique",
           "authenticatorFlow": false,
           "autheticatorFlow": false,

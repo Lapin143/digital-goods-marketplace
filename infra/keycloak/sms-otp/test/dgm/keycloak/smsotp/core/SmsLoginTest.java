@@ -27,6 +27,21 @@ class SmsLoginTest {
             calls.add("verify " + phone + " " + code);
             return verified;
         }
+
+        @Override
+        public Issued issueEmail(String email) {
+            throw new AssertionError("вход по SMS не запрашивает коды на адрес");
+        }
+
+        @Override
+        public EmailChecked verifyEmail(String email, String code) {
+            throw new AssertionError("вход по SMS не проверяет коды адреса");
+        }
+
+        @Override
+        public Quota consumeQuota(String purpose, String email) {
+            throw new AssertionError("вход по SMS не занимает места в счётчике писем");
+        }
     }
 
     private final FakePlatform platform = new FakePlatform();

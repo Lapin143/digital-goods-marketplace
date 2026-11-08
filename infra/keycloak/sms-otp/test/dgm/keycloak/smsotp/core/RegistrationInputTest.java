@@ -35,6 +35,18 @@ class RegistrationInputTest {
     }
 
     @Test
+    void anAddressOf254CharactersPassesAndOf255DoesNot() {
+        String domain = "@" + "d".repeat(60) + "." + "d".repeat(60) + "." + "d".repeat(60) + ".example";
+        String at254 = "a".repeat(254 - domain.length()) + domain;
+        String at255 = "a".repeat(255 - domain.length()) + domain;
+        assertEquals(254, at254.length());
+        assertEquals(List.of(), RegistrationInput.check(at254, "correct-horse-battery", "correct-horse-battery").problems());
+        assertEquals("invalidEmailMessage", RegistrationInput.check(at255, "correct-horse-battery", "correct-horse-battery").problems().get(0).messageKey());
+        assertTrue(RegistrationInput.platformEmail(at254).isPresent());
+        assertTrue(RegistrationInput.platformEmail(at255).isEmpty());
+    }
+
+    @Test
     void emailShapes() {
         for (String ok : new String[] {"a@b.co", "first.last+tag@mail.example.org", "ИМЯ@пример.рф"}) {
             assertTrue(RegistrationInput.check(ok, "pw", "pw").valid(), ok);
