@@ -7,9 +7,13 @@ import dgm.delivery.DeliveryServiceApplication;
 import dgm.delivery.delivery.client.EmailClient;
 import dgm.delivery.delivery.client.KeyClient;
 import dgm.delivery.delivery.dispatcher.DeliveryDispatcher;
+import dgm.delivery.delivery.dispatcher.SellerRequestJob;
+import dgm.delivery.delivery.dispatcher.SellerTimeoutJob;
 import dgm.delivery.delivery.letter.LetterBuilder;
 import dgm.delivery.delivery.poller.StatusPoller;
 import dgm.delivery.delivery.repository.DeliveryRepository;
+import dgm.delivery.delivery.service.SellerAnswerService;
+import dgm.delivery.delivery.service.SellerRequestOutcomes;
 import dgm.delivery.delivery.watch.DeliveryWatch;
 import dgm.kit.boot.testing.StandHttp;
 import dgm.kit.boot.testing.StubsAdmin;
@@ -44,6 +48,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -71,10 +76,14 @@ abstract class DeliveryStandIT {
     static final int MANAGEMENT = StandHttp.freePort();
     static final TestTokens TOKENS = TestTokens.create(Clock.systemUTC());
     static final InventoryStub INVENTORY = InventoryStub.start();
+    /** Система продавца и каталог подключений: на месте настоящих клиентов, сеть и подпись проверяют их модульные тесты и сценарий К15. */
+    static final SellerSystem SELLER = new SellerSystem();
     static final Duration LIMIT = Duration.ofSeconds(60);
     static final String DOMAIN = "delivery-domain";
 
     static StubsAdmin stubs;
+    /** Вызовы {@code respondSellerDelivery} от имени шлюза (сертификат {@code api-gateway}, личность по ключу в заголовках). */
+    static StandHttp gateway;
     static JdbcTemplate db;
     static KafkaProducer<String, String> orderEvents;
     static KafkaProducer<String, String> identityEvents;
@@ -93,6 +102,14 @@ abstract class DeliveryStandIT {
     StatusPoller poller;
     @Autowired
     DeliveryWatch watch;
+    @Autowired
+    SellerRequestJob requestJob;
+    @Autowired
+    SellerTimeoutJob timeoutJob;
+    @Autowired
+    SellerRequestOutcomes outcomes;
+    @Autowired
+    SellerAnswerService answers;
 
     /** Оплаченный заказ. */
     record Placed(UUID orderId, UUID buyerId, String email, String title, int quantity) {
@@ -103,6 +120,13 @@ abstract class DeliveryStandIT {
         @Bean
         JwtDecoder jwtDecoder() {
             return StandHttp.decoderFor(TOKENS);
+        }
+
+        /** Подменяет {@code SellerApiClient} и {@code SellerEndpointClient}: оба интерфейса берутся у этого бина. */
+        @Bean
+        @Primary
+        SellerSystem sellerSystem() {
+            return SELLER;
         }
     }
 
@@ -127,8 +151,14 @@ abstract class DeliveryStandIT {
         registry.add("dgm.delivery.poller.min-age", () -> "PT0S");
         registry.add("dgm.delivery.watch.interval", () -> "PT1H");
         registry.add("dgm.delivery.watch.initial-delay", () -> "PT1H");
+        // Отправку запросов продавцам и тайм-ауты тоже вызывает тест: фоновый проход взял бы запрос раньше сценария теста
+        registry.add("dgm.delivery.seller.interval", () -> "PT1H");
+        registry.add("dgm.delivery.seller.timeout-interval", () -> "PT1H");
+        registry.add("dgm.delivery.seller.initial-delay", () -> "PT1H");
         // Шесть попыток за долю секунды: настоящие паузы 10 с … 10 минут проверяет модульный тест расписания
         registry.add("delivery.retry-schedule", () -> "200ms,200ms,200ms,200ms,200ms");
+        // Окно ответа продавца настоящее (10 минут), а не сжатое профилем fast-time: тесты проверяют срок и паузы повторов по нему
+        registry.add("delivery.seller-response-seconds", () -> "600");
     }
 
     static String env(String name, String fallback) {
@@ -140,6 +170,7 @@ abstract class DeliveryStandIT {
     static void connect() {
         db = new JdbcTemplate(Stand.dataSource("migrator_delivery", "delivery_db"));
         stubs = StubsAdmin.onStand();
+        gateway = StandHttp.asService("api-gateway", PORT);
         orderEvents = KafkaClients.producer(Stand.kafkaBootstrap(), Stand.kafkaSecurity("order-service"), "order-service-delivery-it");
         identityEvents = KafkaClients.producer(Stand.kafkaBootstrap(), Stand.kafkaSecurity("platform-service"), "platform-service-delivery-it");
     }
@@ -153,8 +184,12 @@ abstract class DeliveryStandIT {
     @BeforeEach
     void fresh() {
         INVENTORY.reset();
+        SELLER.reset();
         stubs.reset();
         emailMode(Map.of());
+        // Запросы продавцам, оставшиеся от прошлых тестов, не отправляются и не закрываются в чужом проходе: тест считает свои проходы
+        db.update("update delivery.seller_request set next_attempt_at = null where status = 'requested' and next_attempt_at is not null");
+        timeoutJob.runOnce();
     }
 
     /** Режим почтовой заглушки: статусов вебхуком нет (шлюз платформы в наборе не поднят), остальное задаёт тест. */
@@ -323,7 +358,7 @@ abstract class DeliveryStandIT {
     static long occurrences(String value) {
         String like = "%" + value + "%";
         long total = 0;
-        for (String table : List.of("delivery.delivery", "delivery.delivery_attempt", "delivery.delivery_watch", "delivery.provider_status_event", "public.outbox",
+        for (String table : List.of("delivery.delivery", "delivery.delivery_attempt", "delivery.delivery_watch", "delivery.provider_status_event", "delivery.seller_request", "public.outbox",
                 "public.processed_event")) {
             Long n = db.queryForObject("select count(*) from " + table + " t where t::text like ?", Long.class, like);
             total += n == null ? 0 : n;
