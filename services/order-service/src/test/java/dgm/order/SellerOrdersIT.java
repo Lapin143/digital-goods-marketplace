@@ -202,6 +202,6 @@ class SellerOrdersIT extends OrderStandIT {
         assertEquals(403, read(noProfile, LIST).status(), "в токене нет профиля продавца");
 
         assertEquals(401, gateway.get(LIST).status());
-        assertEquals(401, gateway.get(LIST, StandHttp.bearer("не-токен")).status());
+        assertEquals(401, gateway.get(LIST, StandHttp.bearer("not-a-token")).status());
     }
 }

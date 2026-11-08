@@ -154,7 +154,7 @@ class SellerKeysIT extends ReservationStandIT {
 
         Response same = store(delivery, first, idempotencyKey);
         assertEquals(200, same.status(), same.body());
-        assertEquals(stored.body(), same.body(), "тот же вызов под тем же ключом идемпотентности: тот же ответ");
+        assertEquals(stored.json(), same.json(), "тот же вызов под тем же ключом идемпотентности: то же содержимое ответа (хранилище идемпотентности может переставить поля)");
         Response again = store(orderId, keys);
         assertEquals(200, again.status(), again.body());
         assertEquals(2, ((Number) again.json().get("stored")).intValue(), "те же ключи под новым ключом идемпотентности: тот же итог без вторых ключей");
