@@ -80,6 +80,17 @@ class BuildTest(unittest.TestCase):
         other = next(c for c in denied if c['role'] != 'guest')
         self.assertIn('equal(403)', ''.join(build.matrix_item(other, OPS[other['operation']])['event'][0]['script']['exec']))
 
+    def test_an_operation_only_for_the_seller_key_expects_401_for_every_role_with_a_token(self):
+        cases, _ = st02_matrix.cases(OPS, MATRIX, done_only=False)
+        answer = [c for c in cases if c['operation'] == 'respondSellerDelivery']
+        self.assertEqual(len(st02_matrix.ROLES), len(answer))
+        self.assertEqual({'key-only'}, set(c['expect'] for c in answer))
+        for case in answer:
+            script = ''.join(build.matrix_item(case, OPS['respondSellerDelivery'])['event'][0]['script']['exec'])
+            self.assertIn('equal(401)', script, case['role'])
+        # операции «токен или ключ» остаются по матрице ролей
+        self.assertNotIn('key-only', set(c['expect'] for c in cases if c['operation'] == 'listSellerOrders'))
+
     def test_good_scenario_builds_a_collection(self):
         collection, summary, problems = run([good()], with_matrix=False)
         self.assertEqual([], problems)

@@ -38,6 +38,9 @@ class Operation:
         # Вебхук с подписью: секрет источника (имя файла в secrets/). В матрицу прав он не входит (роль «система»), а в сценарии входит с подписью
         self.webhook_secret = spec.get('x-webhook-secret')
         self.scenario_reachable = path.startswith('/api/v1/') and 'x-internal' not in spec
+        # Только ключ продавца (security: sellerApiKey, без bearerJwt): токен пользователя шлюз не принимает ни у одной роли, ответ 401
+        security = spec.get('security') or []
+        self.key_only = bool(security) and all(set(entry) == {'sellerApiKey'} for entry in security)
 
     @property
     def json_body(self):

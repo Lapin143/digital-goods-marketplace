@@ -124,7 +124,10 @@ def matrix_item(case, op):
     ids = dict((p, SENTINEL_ID) for p in op.path_params)
     body = {} if op.json_body and op.method in ('POST', 'PUT', 'PATCH') else None
     role, expect, name = case['role'], case['expect'], '%s / %s: %s' % (case['operation'], case['role'], case['expect'])
-    if expect == 'deny':
+    if expect == 'key-only':
+        check = 'pm.expect(code).to.equal(401);'
+        meaning = 'токен не принимается, только ключ: 401'
+    elif expect == 'deny':
         wanted = 401 if role == 'guest' else 403
         check = 'pm.expect(code).to.equal(%d);' % wanted
         meaning = 'отказ %d' % wanted

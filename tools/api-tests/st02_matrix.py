@@ -10,6 +10,8 @@
   allow        в ячейке «Да»: роль допущена, шлюз и сервис не отвечают 401 и 403 (ответ 200, 404, 422 и подобные говорят, что права пройдены)
   conditional  в ячейке «Усл: U…»: роль допущена при условии (профиль, статус, телефон), поэтому 403 возможен, а 401 и 5xx нет
   deny         в ячейке «Нет»: ответ 403, а у гостя (запрос без токена) 401
+  key-only     операция только по ключу продавца (security: sellerApiKey): токен пользователя шлюз не принимает, ответ 401 у всех ролей, в том
+               числе у «Продавца»; допуск по ключу проверяют проверки стенда (tools/stand-checks/seller_api_checks.py), а не матрица ролей
 
 Если у операции несколько строк матрицы (x-matrix-also), берётся самое широкое разрешение. Случаи строятся для операций, у которых в реестре
 сервиса (services/<сервис>/src/test/resources/dgm/operations.txt) статус done: матрица растёт вместе с обработчиками, а не краснеет заранее.
@@ -80,7 +82,7 @@ def cases(ops, matrix, done_only=True):
             problems.append('%s: в матрице нет строки %s' % (op.id, ', '.join(i for i in op.matrix_ids if i not in matrix)))
             continue
         for role in ROLES:
-            expect = max((row[role] for row in rows), key=RANK.get)
+            expect = 'key-only' if op.key_only else max((row[role] for row in rows), key=RANK.get)
             result.append(dict(operation=op.id, service=op.service, method=op.method, path=op.path, role=role, user=ROLE_USERS[role],
                                expect=expect, matrix_ids=op.matrix_ids))
     return result, problems
