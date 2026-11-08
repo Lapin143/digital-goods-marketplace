@@ -311,7 +311,7 @@ describe('значение вне границ и INV-07 (TC-807)', () => {
       [`PUT ${SESSION_PATH}`]: () => {
         // резерв успели сократить до 600 секунд: 800 уже не короче резерва
         state.items = [parameter({ value: 600, version: 4, updatedBy: OTHER_ADMIN_ID }), SESSION];
-        return respond(422, { code: 'validation-failed', errors: [{ pointer: '/value', code: 'out_of_range', detail: 'INV-07' }] });
+        return respond(422, { code: 'pair-conflict', errors: [{ pointer: '/value', code: 'pair_conflict', detail: 'INV-07' }] });
       },
     });
     const field = await openEdit(user, 'payment-session.ttl-seconds');
@@ -326,12 +326,51 @@ describe('значение вне границ и INV-07 (TC-807)', () => {
   it('INV-07, срок резерва: сообщение называет текущий срок платёжной сессии', async () => {
     const user = userEvent.setup();
     renderPage({ items: [RESERVE, SESSION] }, {
-      [`PUT ${RESERVE_PATH}`]: () => respond(422, { code: 'validation-failed', errors: [{ pointer: '/value', code: 'out_of_range', detail: 'INV-07' }] }),
+      [`PUT ${RESERVE_PATH}`]: () => respond(422, { code: 'pair-conflict', errors: [{ pointer: '/value', code: 'pair_conflict', detail: 'INV-07' }] }),
     });
     const field = await openEdit(user, 'reservation.ttl-seconds');
     await enter(user, field, '700');
     await user.click(saveButton());
     expect(await screen.findByText(t('admin.params.error.reserve', { partner: '12 мин (720 с)', limit: 720 }))).toBeInTheDocument();
+  });
+
+  it('TC-144, F4-70: границы у параметра из пары (validation-failed, out_of_range) показаны как границы, сообщения про парный параметр нет', async () => {
+    const user = userEvent.setup();
+    const { calls } = renderPage({ items: [RESERVE, SESSION] }, {
+      [`PUT ${SESSION_PATH}`]: () => respond(422, { code: 'validation-failed', errors: [{ pointer: '/value', code: 'out_of_range', detail: 'вне границ' }] }),
+    });
+    const field = await openEdit(user, 'payment-session.ttl-seconds');
+    await enter(user, field, '800');
+    await user.click(saveButton());
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(t('field.out_of_range'));
+    expect(alert).not.toHaveTextContent(t('admin.params.error.session', { partner: '15 мин (900 с)', limit: 900 }));
+    expect(gets(calls)).toHaveLength(1);
+    expect(field).toHaveValue('800');
+  });
+
+  it('TC-144, F4-70: сообщение выбирается по типу, а не по тексту detail: тип pair-conflict с любым detail даёт сообщение про парный параметр', async () => {
+    const user = userEvent.setup();
+    renderPage({ items: [RESERVE, SESSION] }, {
+      [`PUT ${SESSION_PATH}`]: () => respond(422, { code: 'pair-conflict', errors: [{ pointer: '/value', code: 'pair_conflict', detail: 'текст без слов про резерв' }] }),
+    });
+    const field = await openEdit(user, 'payment-session.ttl-seconds');
+    await enter(user, field, '800');
+    await user.click(saveButton());
+    expect(await screen.findByText(t('admin.params.error.session', { partner: '15 мин (900 с)', limit: 900 }))).toBeInTheDocument();
+    expect(screen.queryByText('текст без слов про резерв')).not.toBeInTheDocument();
+  });
+
+  it('TC-144: pair-conflict у параметра без пары: общий текст, правка остаётся открытой', async () => {
+    const user = userEvent.setup();
+    renderPage(allParameters(), {
+      [`PUT ${COMMISSION_PATH}`]: () => respond(422, { code: 'pair-conflict', errors: [{ pointer: '/value', code: 'pair_conflict', detail: 'INV-07' }] }),
+    });
+    const field = await openEdit(user, 'commission.default-rate-bp', t('admin.params.edit.label', { unit: t('admin.unitName.basis_points') }));
+    await enter(user, field, '250');
+    await user.click(saveButton());
+    expect(await screen.findByText(t('problem.pair-conflict'))).toBeInTheDocument();
+    expect(field).toHaveValue('250');
   });
 
   it('после ошибки можно исправить значение и сохранить', async () => {
@@ -341,7 +380,7 @@ describe('значение вне границ и INV-07 (TC-807)', () => {
       [`PUT ${SESSION_PATH}`]: () => {
         attempt += 1;
         return attempt === 1
-          ? respond(422, { code: 'validation-failed', errors: [{ pointer: '/value', code: 'out_of_range', detail: 'INV-07' }] })
+          ? respond(422, { code: 'pair-conflict', errors: [{ pointer: '/value', code: 'pair_conflict', detail: 'INV-07' }] })
           : respond(200, { ...SESSION, value: 600, version: 4 });
       },
     });

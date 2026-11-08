@@ -142,22 +142,53 @@ class ParameterServiceTest {
 
     /** INV-07, первая сторона: поднять срок сессии до срока резерва или выше нельзя. */
     @Test
+    @Tag("TC-144")
     void sessionMustStayStrictlyShorterThanTheReserve() {
         for (long bad : new long[] {900, 901, 3599}) {
             ProblemException e = failure(() -> service.set(ADMIN, SESSION, 1, bad));
-            assertEquals(ProblemType.VALIDATION_FAILED, e.type(), String.valueOf(bad));
+            assertEquals(ProblemType.PAIR_CONFLICT, e.type(), String.valueOf(bad));
+            assertEquals("pair_conflict", errors(e).get(0).get("code"), "код поля у нарушения INV-07 свой, не out_of_range");
+            assertEquals("/value", errors(e).get(0).get("pointer"));
             String detail = (String) errors(e).get(0).get("detail");
             assertTrue(detail.contains(RESERVE) && detail.contains("900"), "названы парный параметр и его значение: " + detail);
         }
+        assertEquals(3.0, count("invalid"), "нарушение INV-07 считается как отклонённое значение, как и выход за границы");
         assertEquals(899, service.set(ADMIN, SESSION, 1, 899).value(), "на единицу меньше резерва можно");
+    }
+
+    /** F4-70, Р-195: у параметра из пары выход за границы остаётся {@code validation-failed} с {@code out_of_range}, тип {@code pair-conflict} только у INV-07. */
+    @Test
+    @Tag("TC-144")
+    void aBoundsViolationOfAParameterOfThePairIsNotAPairConflict() {
+        for (ProblemException e : List.of(failure(() -> service.set(ADMIN, SESSION, 1, 0)), failure(() -> service.set(ADMIN, RESERVE, 1, Long.MAX_VALUE)))) {
+            assertEquals(ProblemType.VALIDATION_FAILED, e.type());
+            assertEquals("out_of_range", errors(e).get(0).get("code"));
+        }
+        assertEquals(1, parameters.stored(SESSION).version());
+        assertEquals(1, parameters.stored(RESERVE).version());
+        assertTrue(transaction.published().isEmpty());
+    }
+
+    /** Один и тот же ответ несёт тип и код поля: клиент, который смотрит только на тип, и клиент, который смотрит на код поля, приходят к одному выводу. */
+    @Test
+    @Tag("TC-144")
+    void thePairConflictCarriesItsTypeAndTheFieldCodeThatMatchTheContract() {
+        ProblemException e = failure(() -> service.set(ADMIN, SESSION, 1, 900));
+
+        assertEquals(ProblemType.PAIR_CONFLICT, e.type());
+        assertEquals("pair-conflict", e.type().code());
+        assertEquals(422, e.type().status());
+        assertEquals(1, errors(e).size());
     }
 
     /** INV-07, вторая сторона: опустить срок резерва до срока сессии или ниже нельзя. */
     @Test
+    @Tag("TC-144")
     void reserveMustStayStrictlyLongerThanTheSession() {
         for (long bad : new long[] {720, 719, 300}) {
             ProblemException e = failure(() -> service.set(ADMIN, RESERVE, 1, bad));
-            assertEquals(ProblemType.VALIDATION_FAILED, e.type(), String.valueOf(bad));
+            assertEquals(ProblemType.PAIR_CONFLICT, e.type(), String.valueOf(bad));
+            assertEquals("pair_conflict", errors(e).get(0).get("code"));
             String detail = (String) errors(e).get(0).get("detail");
             assertTrue(detail.contains(SESSION) && detail.contains("720"), "названы парный параметр и его значение: " + detail);
         }
@@ -170,7 +201,7 @@ class ParameterServiceTest {
         assertEquals(1200, service.set(ADMIN, RESERVE, 1, 1200).value());
         assertEquals(1100, service.set(ADMIN, SESSION, 1, 1100).value(), "после подъёма резерва сессию можно поднять выше прежнего резерва");
         ProblemException e = failure(() -> service.set(ADMIN, RESERVE, 2, 1100));
-        assertEquals(ProblemType.VALIDATION_FAILED, e.type(), "резерв ниже новой сессии нельзя");
+        assertEquals(ProblemType.PAIR_CONFLICT, e.type(), "резерв ниже новой сессии нельзя");
     }
 
     @Test

@@ -8,7 +8,6 @@ import dgm.platform.auditadmin.domain.PlatformParameter;
 import dgm.platform.auditadmin.repository.ParameterRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +26,9 @@ import org.springframework.dao.DataIntegrityViolationException;
  * пары: поднять сессию и опустить резерв проверяются одинаково, одновременные правки двух параметров идут по очереди. Триггер таблицы остаётся
  * запасным контролем, его отказ тоже даёт 422.
  *
+ * <p>Два вида 422 различаются типом проблемы, а не текстом (Р-195, F4-70): выход значения за границы строки даёт {@code validation-failed} с
+ * кодом поля {@code out_of_range}, нарушение INV-07 даёт {@code pair-conflict} с кодом поля {@code pair_conflict}. Экран выбирает сообщение по типу.
+ *
  * <p>Метрика {@code platform_parameter_changes_total{result}}: {@code changed}, {@code unchanged} (то же значение, ничего не записано),
  * {@code conflict} (версия не совпала, 412), {@code invalid} (границы или INV-07, 422).
  */
@@ -38,6 +40,9 @@ public final class ParameterService {
     /** Связанная пара INV-07 в порядке блокировки. */
     static final List<String> PAIR = List.of(SESSION, RESERVE);
     static final String METRIC = "platform_parameter_changes_total";
+    /** Коды ошибки поля {@code /value} (conventions.md, раздел 9). */
+    static final String OUT_OF_RANGE = "out_of_range";
+    static final String PAIR_CONFLICT_CODE = "pair_conflict";
     /** Код действия в журнале аудита (ADR-014) и тип объекта; объект это ключ параметра. */
     static final String AUDIT_ACTION = "parameter.changed";
     static final String AUDIT_OBJECT = "parameter";
@@ -75,7 +80,7 @@ public final class ParameterService {
         try {
             outcome = transaction.execute(() -> change(admin, key, expectedVersion, value));
         } catch (ProblemException e) {
-            count(e.type() == ProblemType.VERSION_CONFLICT ? "conflict" : e.type() == ProblemType.VALIDATION_FAILED ? "invalid" : "error");
+            count(resultOf(e.type()));
             throw e;
         }
         count(outcome.changed() ? "changed" : "unchanged");
@@ -92,9 +97,9 @@ public final class ParameterService {
         if (current.version() != expectedVersion) {
             throw new ProblemException(ProblemType.VERSION_CONFLICT, "Параметр изменился, перечитайте его и повторите с новым ETag.");
         }
-        List<Map<String, Object>> errors = problems(current, partner(locked, key), value);
-        if (!errors.isEmpty()) {
-            throw invalid(errors);
+        Optional<ProblemException> violation = violation(current, partner(locked, key), value);
+        if (violation.isPresent()) {
+            throw violation.get();
         }
         if (value == current.value()) {
             return new Outcome(current, false);
@@ -105,7 +110,7 @@ public final class ParameterService {
         } catch (DataIntegrityViolationException e) {
             // Основная проверка выше, сюда доходит только отказ ограничения таблицы: оно строже кода или разошлось с ним
             LOG.warn("Ограничение таблицы параметров отклонило значение {}: {}", key, e.getClass().getSimpleName());
-            throw invalid(List.of(error("Значение не подходит под ограничение таблицы параметров.")));
+            throw invalid(List.of(error(OUT_OF_RANGE, "Значение не подходит под ограничение таблицы параметров.")));
         }
         transaction.publish(AuditRecords.TOPIC, AuditRecords.AGGREGATE, key, AuditRecords.EVENT, AuditRecords.SCHEMA_VERSION,
                 AuditRecords.staffAction(clock.instant(), admin.id(), Administrator.ROLE, admin.ip(), AUDIT_ACTION, AUDIT_OBJECT, key,
@@ -116,26 +121,26 @@ public final class ParameterService {
     }
 
     /**
-     * Границы строки и INV-07. Нарушение границ называет сами границы; нарушение INV-07 называет парный параметр и его текущее значение,
-     * чтобы администратор знал, что менять (US-8.3, сценарии 2 и 3).
+     * Границы строки и INV-07. Нарушение границ называет сами границы (422 {@code validation-failed}, код поля {@code out_of_range}); нарушение
+     * INV-07 называет парный параметр и его текущее значение, чтобы администратор знал, что менять (422 {@code pair-conflict}, код поля
+     * {@code pair_conflict}; US-8.3, сценарии 2 и 3, Р-195).
      */
-    private static List<Map<String, Object>> problems(PlatformParameter current, Optional<PlatformParameter> partner, long value) {
-        List<Map<String, Object>> errors = new ArrayList<>();
+    private static Optional<ProblemException> violation(PlatformParameter current, Optional<PlatformParameter> partner, long value) {
         if (value < current.minValue() || value > current.maxValue()) {
-            errors.add(error("Допустимо от " + current.minValue() + " до " + current.maxValue() + " (" + current.key() + ")."));
-            return errors;
+            return Optional.of(invalid(List.of(error(OUT_OF_RANGE, "Допустимо от " + current.minValue() + " до " + current.maxValue() + " (" + current.key() + ")."))));
         }
         if (partner.isPresent()) {
             long other = partner.get().value();
             if (current.key().equals(SESSION) && value >= other) {
-                errors.add(error("Срок платёжной сессии должен быть строго короче срока резерва: " + RESERVE + " сейчас " + other
+                return Optional.of(pairConflict("Срок платёжной сессии должен быть строго короче срока резерва: " + RESERVE + " сейчас " + other
                         + ", значение должно быть меньше " + other + " (INV-07)."));
-            } else if (current.key().equals(RESERVE) && value <= other) {
-                errors.add(error("Срок резерва должен быть строго длиннее срока платёжной сессии: " + SESSION + " сейчас " + other
+            }
+            if (current.key().equals(RESERVE) && value <= other) {
+                return Optional.of(pairConflict("Срок резерва должен быть строго длиннее срока платёжной сессии: " + SESSION + " сейчас " + other
                         + ", значение должно быть больше " + other + " (INV-07)."));
             }
         }
-        return errors;
+        return Optional.empty();
     }
 
     private static Optional<PlatformParameter> partner(List<PlatformParameter> locked, String key) {
@@ -171,10 +176,10 @@ public final class ParameterService {
         });
     }
 
-    private static Map<String, Object> error(String detail) {
+    private static Map<String, Object> error(String code, String detail) {
         Map<String, Object> error = new LinkedHashMap<>();
         error.put("pointer", "/value");
-        error.put("code", "out_of_range");
+        error.put("code", code);
         error.put("detail", detail);
         return error;
     }
@@ -182,6 +187,20 @@ public final class ParameterService {
     private static ProblemException invalid(List<Map<String, Object>> errors) {
         return new ProblemException(ProblemType.VALIDATION_FAILED, "Данные не прошли проверку, подробности в поле errors.",
                 Map.of("errors", List.copyOf(errors)), Map.of());
+    }
+
+    /** Нарушение INV-07: отдельный тип проблемы, чтобы клиент не разбирал текст (Р-195). */
+    private static ProblemException pairConflict(String detail) {
+        return new ProblemException(ProblemType.PAIR_CONFLICT, "Данные не прошли проверку, подробности в поле errors.",
+                Map.of("errors", List.of(error(PAIR_CONFLICT_CODE, detail))), Map.of());
+    }
+
+    private static String resultOf(ProblemType type) {
+        return switch (type) {
+            case VERSION_CONFLICT -> "conflict";
+            case VALIDATION_FAILED, PAIR_CONFLICT -> "invalid";
+            default -> "error";
+        };
     }
 
     private static ProblemException notFound() {

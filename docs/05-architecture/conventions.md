@@ -216,7 +216,7 @@
 | `instance` | По умолчанию | Путь запроса |
 | `code` | Обязательно | Расширение: стабильный код типа, совпадает с последним сегментом `type` |
 | `correlationId` | Обязательно | Расширение: значение `X-Correlation-Id`. По нему ищут журналы и трассу (NFT-6.0) |
-| `errors` | Для `validation-failed` | Расширение: массив `{pointer, code, detail}`. `pointer` это JSON Pointer на поле тела (`/quantity`) либо `parameter` для параметра запроса или заголовка. Код поля: `required`, `invalid_format`, `out_of_range`, `too_long`, `too_short`, `not_unique`, `unknown_value`, `immutable` |
+| `errors` | Для `validation-failed` и `pair-conflict` | Расширение: массив `{pointer, code, detail}`. `pointer` это JSON Pointer на поле тела (`/quantity`) либо `parameter` для параметра запроса или заголовка. Код поля: `required`, `invalid_format`, `out_of_range`, `too_long`, `too_short`, `not_unique`, `unknown_value`, `immutable`, `pair_conflict` (только у `pair-conflict`) |
 
 Пример:
 
@@ -278,6 +278,7 @@
 | `payload-too-large` | 413 | Слишком большой запрос | Тело больше предела маршрута | Нет |
 | `unsupported-media-type` | 415 | Неподдерживаемый тип | `Content-Type` не принят | Нет |
 | `validation-failed` | 422 | Данные не прошли проверку | Поля нарушают правила. Расширение `errors` | После исправления |
+| `pair-conflict` | 422 | Значение противоречит парному параметру | Значение параметра платформы нарушает связь с парным параметром: срок платёжной сессии строго короче срока резерва (INV-07, U13, Р-195). Границы самого значения нарушает `validation-failed` с кодом поля `out_of_range`, а эту ошибку клиент узнаёт по типу, не по тексту `detail`. Расширение `errors` с одной записью `/value` и кодом `pair_conflict` | После изменения парного параметра или значения |
 | `idempotency-key-reuse` | 422 | Ключ уже использован | Тот же ключ с другим телом запроса | Нет |
 | `endpoint-not-allowed` | 422 | Адрес не разрешён | Адрес системы продавца не прошёл проверку: нужен `https`, порт 443 или 8443, внутренние и служебные адреса не допускаются (U21, Р-187) | После исправления адреса |
 | `otp-invalid` | 422 | Код неверен | Код не совпал. Расширение `attemptsLeft` | Да, пока есть попытки |

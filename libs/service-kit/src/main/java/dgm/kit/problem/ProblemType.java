@@ -46,6 +46,7 @@ public enum ProblemType {
     PAYLOAD_TOO_LARGE("payload-too-large", 413, "Слишком большой запрос"),
     UNSUPPORTED_MEDIA_TYPE("unsupported-media-type", 415, "Неподдерживаемый тип"),
     VALIDATION_FAILED("validation-failed", 422, "Данные не прошли проверку"),
+    PAIR_CONFLICT("pair-conflict", 422, "Значение противоречит парному параметру"),
     IDEMPOTENCY_KEY_REUSE("idempotency-key-reuse", 422, "Ключ уже использован"),
     ENDPOINT_NOT_ALLOWED("endpoint-not-allowed", 422, "Адрес не разрешён"),
     OTP_INVALID("otp-invalid", 422, "Код неверен"),

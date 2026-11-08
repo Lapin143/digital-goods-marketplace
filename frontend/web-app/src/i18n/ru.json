@@ -42,6 +42,7 @@
   "problem.retryAfter": "Повторите через {seconds} с.",
   "problem.bad-request": "Запрос не принят. Проверьте введённые данные.",
   "problem.validation-failed": "Проверьте поля формы: некоторые значения не подходят.",
+  "problem.pair-conflict": "Значение противоречит связанному параметру. Список обновлён: проверьте текущее значение второго параметра.",
   "problem.unauthenticated": "Нужно войти в систему.",
   "problem.forbidden": "У вас нет прав на это действие.",
   "problem.second-factor-required": "Нужен вход с одноразовым кодом.",

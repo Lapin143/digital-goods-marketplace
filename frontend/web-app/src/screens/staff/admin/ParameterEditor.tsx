@@ -11,6 +11,9 @@ import type { PlatformParameter } from './types';
 import { boundsText, checkValue, describeValue, formatParameterValue, parseWholeNumber, unitName } from './units';
 import styles from './Admin.module.css';
 
+/** Тип проблемы 422 для нарушения INV-07 (conventions.md, раздел 9.1); границы значения приходят как `validation-failed` с кодом поля `out_of_range`. */
+export const PAIR_CONFLICT = 'pair-conflict';
+
 /** Пара параметров, связанных правилом INV-07: срок платёжной сессии строго короче срока резерва. */
 export const SESSION_KEY = 'payment-session.ttl-seconds';
 export const RESERVE_KEY = 'reservation.ttl-seconds';
@@ -46,7 +49,7 @@ export function pairMessage(parameter: PlatformParameter, parameters: PlatformPa
  * Значение параметра с правкой в строке (US-8.3). Значение вводится и сохраняется в единицах параметра (секунды, штуки, базисные пункты), а не в
  * минутах или процентах; читаемая форма видна рядом и в подсказке. Границы показаны у поля и проверяются до отправки. Сохранение идёт с `If-Match`
  * (версия параметра это его ETag): 412 значит, что параметр уже изменили, экран перечитывает список и просит повторить правку; 422 показывает границы
- * или, для пары «сессия и резерв», текущее значение парного параметра. «Вернуть умолчание» сохраняет значение по умолчанию тем же путём, с подтверждением.
+ * или, если сервер ответил типом `pair-conflict` (INV-07), текущее значение парного параметра. «Вернуть умолчание» сохраняет значение по умолчанию тем же путём, с подтверждением.
  */
 export function ParameterEditor({ parameter, parameters, onSaved, onStale, onRefresh }: ParameterEditorProps) {
   const api = useApi();
@@ -104,7 +107,8 @@ export function ParameterEditor({ parameter, parameters, onSaved, onStale, onRef
         setMode('view');
         onStale(t('admin.params.conflict', { name: parameter.key }));
       } else if (failure instanceof ApiError && failure.status === 422) {
-        if (pairMessage(parameter, parameters)) {
+        if (failure.code === PAIR_CONFLICT) {
+          // тип проблемы, а не параметр и не текст detail (Р-195): парный параметр мог измениться, список перечитывается
           setPairViolation(true);
           onRefresh();
         } else {
@@ -133,7 +137,7 @@ export function ParameterEditor({ parameter, parameters, onSaved, onStale, onRef
     void save(check.value);
   }
 
-  const pairText = pairViolation ? pairMessage(parameter, parameters) : undefined;
+  const pairText = pairViolation ? (pairMessage(parameter, parameters) ?? t('problem.pair-conflict')) : undefined;
   const shownError = fieldError ?? pairText;
 
   if (mode === 'edit') {

@@ -2330,9 +2330,13 @@ class PlatformServiceIT {
 
         Response sessionUp = putParameter(admin.id, SESSION_TTL, etag(session), "{\"value\":" + reserveValue + "}");
         assertEquals(422, sessionUp.status(), "сессия не короче резерва: " + sessionUp.body());
+        assertEquals("pair-conflict", sessionUp.json().get("code"), "INV-07 это отдельный тип проблемы, не validation-failed (Р-195)");
+        assertEquals("https://api.marketplace.example/problems/pair-conflict", sessionUp.json().get("type"));
+        assertEquals("pair_conflict", ((Map<?, ?>) ((List<?>) sessionUp.json().get("errors")).get(0)).get("code"));
         assertTrue(((String) ((Map<?, ?>) ((List<?>) sessionUp.json().get("errors")).get(0)).get("detail")).contains(RESERVE_TTL), "назван парный параметр");
         Response reserveDown = putParameter(admin.id, RESERVE_TTL, etag(reserve), "{\"value\":" + sessionValue + "}");
         assertEquals(422, reserveDown.status(), "резерв не длиннее сессии: " + reserveDown.body());
+        assertEquals("pair-conflict", reserveDown.json().get("code"));
         assertTrue(((String) ((Map<?, ?>) ((List<?>) reserveDown.json().get("errors")).get(0)).get("detail")).contains(SESSION_TTL));
 
         assertEquals(428, putParameter(admin.id, RESERVE_TTL, null, "{\"value\":1000}").status(), "без If-Match");
