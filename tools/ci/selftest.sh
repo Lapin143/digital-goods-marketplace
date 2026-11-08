@@ -67,11 +67,17 @@ PY
 " "" "нет DGM_SELLER_ENDPOINT_ALLOW"
     mutate "профиль fast-time записан в окружение сервиса напрямую" "      SPRING_PROFILES_ACTIVE: \${DGM_SPRING_PROFILES-testdata}\${DGM_FAST_TIME:+,fast-time}" "      SPRING_PROFILES_ACTIVE: \${DGM_SPRING_PROFILES-testdata},fast-time" "записан в SPRING_PROFILES_ACTIVE напрямую"
     mutate "сервис с файлом fast-time не включает профиль переменной" "      SPRING_PROFILES_ACTIVE: \${DGM_FAST_TIME:+fast-time}
+      # Запрос ключа системе продавца (ADR-028, правило 7): защита адреса от SSRF отвергает внутренние адреса, а заглушка системы продавца живёт во
+      # внутренней сети стенда. Имя и порт заглушки освобождены только от проверки диапазонов адресов; настоящий сервер задаёт пустое значение.
+      DGM_SELLER_ENDPOINT_ALLOW: \${DGM_SELLER_ENDPOINT_ALLOW-external-stubs:8443}
     tmpfs:
       - /tmp:uid=10001,gid=10001,mode=1777,size=48m
     secrets:
       - tls_ca.crt
-      - tls_delivery-service.key" "    tmpfs:
+      - tls_delivery-service.key" "      # Запрос ключа системе продавца (ADR-028, правило 7): защита адреса от SSRF отвергает внутренние адреса, а заглушка системы продавца живёт во
+      # внутренней сети стенда. Имя и порт заглушки освобождены только от проверки диапазонов адресов; настоящий сервер задаёт пустое значение.
+      DGM_SELLER_ENDPOINT_ALLOW: \${DGM_SELLER_ENDPOINT_ALLOW-external-stubs:8443}
+    tmpfs:
       - /tmp:uid=10001,gid=10001,mode=1777,size=48m
     secrets:
       - tls_ca.crt
