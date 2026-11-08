@@ -93,8 +93,16 @@ public final class JdbcKeyRepository implements KeyRepository {
 
     @Override
     public int reserveByIds(List<UUID> keyIds, UUID orderId, UUID reservationId) {
-        return jdbc.update("update inventory.key set status = 'reserved', order_id = ?, reservation_id = ? where id = any(?) and status = 'free'",
-                orderId, reservationId, keyIds.toArray(new UUID[0]));
+        if (keyIds.isEmpty()) {
+            return 0;
+        }
+        List<Object> arguments = new ArrayList<>();
+        arguments.add(orderId);
+        arguments.add(reservationId);
+        arguments.addAll(keyIds);
+        // Ключей в одном вызове не больше десяти (предел запроса продавца), поэтому список параметров, а не массив SQL.
+        return jdbc.update("update inventory.key set status = 'reserved', order_id = ?, reservation_id = ? where id in (" + "?, ".repeat(keyIds.size() - 1)
+                + "?) and status = 'free'", arguments.toArray());
     }
 
     @Override
