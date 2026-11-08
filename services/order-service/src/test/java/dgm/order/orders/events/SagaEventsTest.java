@@ -18,6 +18,7 @@ import dgm.order.orders.client.InventoryClient.Confirmed;
 import dgm.order.orders.client.InventoryClient.NoKeys;
 import dgm.order.orders.client.PaymentClient;
 import dgm.order.orders.domain.CancelReason;
+import dgm.order.orders.domain.IssuanceMethod;
 import dgm.order.orders.domain.OrderStatus;
 import dgm.order.orders.domain.StoredOrder;
 import dgm.order.orders.service.FakeOrderStore;
@@ -113,7 +114,7 @@ class SagaEventsTest {
         DlqSink sink = dlq::add;
         processor = new EventProcessor("order-service",
                 List.of(new PaymentConfirmedHandler(saga, clock), new PaymentResultHandler(saga), new ReservationExpiredHandler(saga),
-                        new DeliveryAcceptedHandler(saga), new UserAnonymizedHandler(transitions)),
+                        new DeliveryAcceptedHandler(saga), new DeliverySellerTimeoutHandler(saga), new UserAnonymizedHandler(transitions)),
                 store.processedEvents(), store.operations(), sink, EventProcessor.DEFAULT_RETRY_DELAYS, clock, duration -> {
                     sleeps.add(duration);
                     onSleep.run();
@@ -127,12 +128,16 @@ class SagaEventsTest {
     }
 
     private StoredOrder seed(int n, UUID buyer, String status, String cancelReason) {
+        return seed(n, buyer, status, cancelReason, IssuanceMethod.KEY_POOL);
+    }
+
+    private StoredOrder seed(int n, UUID buyer, String status, String cancelReason, String issuanceMethod) {
         boolean awaiting = OrderStatus.AWAITING_PAYMENT.equals(status);
         boolean paid = OrderStatus.PAID.equals(status) || OrderStatus.ISSUED.equals(status);
         StoredOrder order = new StoredOrder(id(n), 1000L + n, buyer, SELLER, PRODUCT, "Лунная тропа: ключ Steam", 2, 149_900, 299_800, 5_996, "RUB",
                 status, cancelReason, EMAIL, awaiting ? T0.plus(Duration.ofMinutes(15)) : null, awaiting ? T0.plus(Duration.ofMinutes(12)) : null,
                 awaiting ? "https://localhost:8443/payment/pay/pay_1" : null, T0.minus(Duration.ofMinutes(5)), paid ? T0.minus(Duration.ofMinutes(1)) : null,
-                OrderStatus.ISSUED.equals(status) ? T0.minus(Duration.ofSeconds(30)) : null);
+                OrderStatus.ISSUED.equals(status) ? T0.minus(Duration.ofSeconds(30)) : null, issuanceMethod, null);
         store.seed(order);
         return order;
     }
@@ -194,6 +199,19 @@ class SagaEventsTest {
         data.put("attemptNo", 1);
         data.put("acceptedAt", acceptedAt);
         return data;
+    }
+
+    private static Map<String, Object> sellerTimeoutData(UUID orderId) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("deliveryId", UUID.randomUUID().toString());
+        data.put("orderId", orderId.toString());
+        data.put("sellerId", SELLER.toString());
+        data.put("waitedSeconds", 600);
+        return data;
+    }
+
+    private void sellerTimeout(UUID orderId) throws Exception {
+        deliver(DELIVERY, "delivery.seller-timeout", UUID.randomUUID(), orderId, sellerTimeoutData(orderId));
     }
 
     private static Map<String, Object> anonymizedData(String userId) {
@@ -283,6 +301,7 @@ class SagaEventsTest {
         assertEquals(Map.of("amount", 5_996L, "currency", "RUB"), data.get("commission"));
         assertEquals("2026-10-18T12:00:00.123Z", data.get("paidAt"));
         assertEquals(false, data.get("latePayment"));
+        assertEquals("key_pool", data.get("issuanceMethod"));
         assertEquals(Map.of("channel", "email", "address", EMAIL), data.get("delivery"));
         assertEquals(1, processedCount("applied"));
         assertEquals(1, store.processedCount());
@@ -495,7 +514,7 @@ class SagaEventsTest {
             store.seed(new StoredOrder(created.id(), created.number(), created.buyerId(), created.sellerId(), created.productId(), created.productTitle(),
                     created.quantity(), created.unitPrice(), created.amount(), created.commission(), created.currency(), OrderStatus.AWAITING_PAYMENT, null,
                     created.deliveryAddress(), T0.plus(Duration.ofMinutes(15)), T0.plus(Duration.ofMinutes(12)), "https://localhost:8443/payment/pay/pay_1",
-                    created.createdAt(), null, null));
+                    created.createdAt(), null, null, created.issuanceMethod(), null));
         };
         confirm(order.id());
 
@@ -535,7 +554,7 @@ class SagaEventsTest {
             store.seed(new StoredOrder(created.id(), created.number(), created.buyerId(), created.sellerId(), created.productId(), created.productTitle(),
                     created.quantity(), created.unitPrice(), created.amount(), created.commission(), created.currency(), OrderStatus.AWAITING_PAYMENT, null,
                     created.deliveryAddress(), T0.plus(Duration.ofMinutes(15)), T0.plus(Duration.ofMinutes(12)), "https://localhost:8443/payment/pay/pay_1",
-                    created.createdAt(), null, null));
+                    created.createdAt(), null, null, created.issuanceMethod(), null));
         };
         deliver(PAYMENTS, "payment.rejected", UUID.randomUUID(), order.id(), rejectedData(order.id()));
 
@@ -689,5 +708,111 @@ class SagaEventsTest {
             assertEquals(2, store.processedCount(), where);
             assertTrue(dlq.isEmpty(), where);
         }
+    }
+
+    // ------------------------------------------------------------------------------------------------ TC-531, TC-532: заказ по API и молчание продавца
+
+    @Tag("TC-531")
+    @Test
+    void confirmedPaymentOfAnApiOrderPublishesOrderPaidWithTheMethodOfTheOrder() throws Exception {
+        StoredOrder order = seed(1, BUYER, OrderStatus.AWAITING_PAYMENT, null, IssuanceMethod.SELLER_API);
+        confirm(order.id());
+
+        assertEquals(OrderStatus.PAID, status(order.id()), "заказ товара по API остаётся «оплачен» до ответа продавца и принятого письма");
+        assertEquals("seller_api", store.events("order.paid").get(0).data().get("issuanceMethod"));
+        assertEquals(List.of(order.id()), inventory.confirmed, "резерв по количеству подтверждает сервис остатков");
+    }
+
+    @Tag("TC-532")
+    @Test
+    void sellerTimeoutCancelsAPaidApiOrderAndRequestsTheRefundOfTheWholeAmount() throws Exception {
+        StoredOrder order = seed(1, BUYER, OrderStatus.PAID, null, IssuanceMethod.SELLER_API);
+        sellerTimeout(order.id());
+
+        StoredOrder cancelled = store.get(order.id());
+        assertEquals(OrderStatus.CANCELLED, cancelled.status());
+        assertEquals(CancelReason.SELLER_API_TIMEOUT, cancelled.cancelReason());
+        assertEquals(List.of("order.cancelled", "order.refund-requested"), eventTypes());
+        Map<String, Object> refund = store.events("order.refund-requested").get(0).data();
+        assertEquals(Map.of("amount", 299_800L, "currency", "RUB"), refund.get("amount"));
+        assertEquals("seller_api_timeout", refund.get("refundReason"));
+        assertEquals("seller_api_timeout", store.events("order.cancelled").get(0).data().get("cancelReason"));
+        assertEquals(1, processedCount("applied"));
+        assertEquals(1, store.processedCount());
+        assertTrue(dlq.isEmpty());
+    }
+
+    @Tag("TC-532")
+    @Test
+    void theSameTimeoutEventDeliveredTwiceAndASecondTimeoutEventMakeOneRefund() throws Exception {
+        StoredOrder order = seed(1, BUYER, OrderStatus.PAID, null, IssuanceMethod.SELLER_API);
+        UUID eventId = UUID.randomUUID();
+        ConsumerRecord<String, String> record = record(DELIVERY, "delivery.seller-timeout", eventId, order.id(), sellerTimeoutData(order.id()));
+        processor.process(record);
+        processor.process(record);
+        sellerTimeout(order.id());
+
+        assertEquals(1, store.events("order.refund-requested").size(), "повтор отсеян по processed_event, второе событие по статусу заказа (INV-06, INV-15)");
+        assertEquals(1, store.events("order.cancelled").size());
+        assertEquals(1, processedCount("applied"));
+        assertEquals(1, processedCount("duplicate"));
+        assertEquals(1, count("events_ignored_total", "reason", "order-not-paid"));
+        assertTrue(dlq.isEmpty());
+    }
+
+    @Tag("TC-532")
+    @Test
+    void aTimeoutAfterTheIssueLeavesTheIssuedOrderAndPublishesNothing() throws Exception {
+        StoredOrder order = seed(1, BUYER, OrderStatus.ISSUED, null, IssuanceMethod.SELLER_API);
+        sellerTimeout(order.id());
+
+        assertEquals(OrderStatus.ISSUED, status(order.id()));
+        assertEquals(0, store.events().size());
+        assertEquals(1, count("events_ignored_total", "reason", "order-not-paid"));
+        assertTrue(dlq.isEmpty());
+    }
+
+    @Tag("TC-532")
+    @Test
+    void aTimeoutOfAKeyPoolOrderAndOfAnUnknownOrderIsIgnoredAndChangesNothing() throws Exception {
+        StoredOrder pool = seed(1, OrderStatus.PAID, null);
+        sellerTimeout(pool.id());
+        sellerTimeout(UUID.randomUUID());
+
+        assertEquals(OrderStatus.PAID, status(pool.id()));
+        assertEquals(0, store.events().size());
+        assertEquals(1, count("events_ignored_total", "reason", "not-seller-api-order"));
+        assertEquals(1, count("events_ignored_total", "reason", "unknown-order"));
+        assertTrue(dlq.isEmpty());
+    }
+
+    @Tag("TC-532")
+    @Test
+    void aTimeoutEventWithoutAnOrderIdGoesToTheDeadLetterTopic() throws Exception {
+        Map<String, Object> data = sellerTimeoutData(UUID.randomUUID());
+        data.remove("orderId");
+        deliver(DELIVERY, "delivery.seller-timeout", UUID.randomUUID(), UUID.randomUUID(), data);
+
+        assertEquals(1, dlq.size());
+        assertEquals("delivery.events.dlq", dlq.get(0).topic());
+        assertEquals(0, store.events().size());
+    }
+
+    @Tag("TC-532")
+    @Test
+    void theRefundOfATimedOutOrderIsConfirmedByPaymentRefundedAndTheSecondConfirmationOfPaymentIsAnAnomaly() throws Exception {
+        StoredOrder order = seed(1, BUYER, OrderStatus.PAID, null, IssuanceMethod.SELLER_API);
+        sellerTimeout(order.id());
+        confirm(order.id());
+        assertEquals(OrderStatus.CANCELLED, status(order.id()), "заказ, отменённый из-за молчания продавца, повторное подтверждение платежа не оживляет");
+        assertEquals(1, count("payment_anomalies_total", "kind", "seller-timeout-order"));
+        assertEquals(0, inventory.confirmed.size(), "ключи и остаток не резервируются второй раз");
+
+        deliver(PAYMENTS, "payment.refunded", UUID.randomUUID(), order.id(), refundedData(order.id(), "seller_api_timeout"));
+
+        assertEquals(OrderStatus.REFUNDED, status(order.id()));
+        assertEquals(List.of("order.cancelled", "order.refund-requested", "order.refunded"), eventTypes());
+        assertEquals("seller_api_timeout", store.events("order.refunded").get(0).data().get("refundReason"));
+        assertEquals(FakeOrderStore.REFUNDED_AT, store.get(order.id()).refundedAt());
     }
 }

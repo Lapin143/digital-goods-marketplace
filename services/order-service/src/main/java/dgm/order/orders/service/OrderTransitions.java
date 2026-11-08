@@ -8,6 +8,7 @@ import dgm.order.orders.domain.NewOrder;
 import dgm.order.orders.domain.OrderStateMachine;
 import dgm.order.orders.domain.OrderStateMachine.Transition;
 import dgm.order.orders.domain.OrderStatus;
+import dgm.order.orders.domain.RefundReason;
 import dgm.order.orders.domain.StoredOrder;
 import dgm.order.orders.repository.OrderStore;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -107,6 +108,10 @@ public final class OrderTransitions {
     private Optional<StoredOrder> cancelLocked(StoredOrder order, String reason) {
         UUID orderId = order.id();
         Optional<Transition> transition = OrderStateMachine.find(order.status(), OrderStatus.CANCELLED, reason);
+        if (transition.isPresent() && "T10".equals(transition.get().id()) && !order.isSellerApi()) {
+            // T10 существует только для заказов по API продавца, что бы ни попросил вызывающий
+            transition = Optional.empty();
+        }
         if (transition.isEmpty() || !store.cancel(orderId, order.status(), reason)) {
             LOG.info("Заказ {} не отменён: статус {}, причина {}", orderId, order.status(), reason);
             return Optional.<StoredOrder>empty();
@@ -116,6 +121,38 @@ public final class OrderTransitions {
                 OrderEvents.cancelled(updated, reason));
         meters.counter("orders_cancelled_total", "reason", reason, "transition", transition.get().id()).increment();
         return Optional.of(updated);
+    }
+
+    /**
+     * T10: система продавца не ответила на запрос ключа в срок. Заказ товара по API «оплачен» становится «отменён» с причиной
+     * {@code seller_api_timeout}; той же транзакцией в Outbox уходят {@code order.cancelled} (остатки возвращают товар в продажу) и команда
+     * {@code order.refund-requested} на всю сумму: возврат подтвердит {@code payment.refunded}, и заказ станет «возвращён» (T8). Заказ другого
+     * способа выдачи или не в статусе «оплачен» (ответ продавца успел прийти, заказ уже выдан) не трогается: повтор и запоздавшее событие безвредны
+     * (INV-06, INV-15).
+     *
+     * @return заказ после отмены или пусто, если переход не выполнен
+     */
+    public Optional<StoredOrder> cancelSellerTimeout(UUID orderId) {
+        return transaction.execute(() -> {
+            StoredOrder order = store.lock(orderId).orElse(null);
+            if (order == null) {
+                return Optional.<StoredOrder>empty();
+            }
+            if (!order.isSellerApi()) {
+                LOG.error("Заказ {} выдаётся не по API продавца ({}), а получил событие о молчании продавца: заказ не тронут", orderId, order.issuanceMethod());
+                meters.counter("seller_timeout_anomalies_total", "kind", "not-seller-api").increment();
+                return Optional.<StoredOrder>empty();
+            }
+            Optional<StoredOrder> cancelled = cancelLocked(order, CancelReason.SELLER_API_TIMEOUT);
+            if (cancelled.isEmpty()) {
+                ignored("T10", order.status());
+                return Optional.<StoredOrder>empty();
+            }
+            transaction.publish(OrderEvents.TOPIC, OrderEvents.AGGREGATE, orderId.toString(), OrderEvents.REFUND_REQUESTED, OrderEvents.SCHEMA_VERSION,
+                    OrderEvents.refundRequested(cancelled.get(), RefundReason.SELLER_API_TIMEOUT));
+            meters.counter("seller_timeouts_total", "result", "refund-requested").increment();
+            return cancelled;
+        });
     }
 
     /** Заказ как он лежит в базе, короткой транзакцией: по статусу оркестратор решает, нужен ли вызов соседа (c4-components-order-service, 3.1). */

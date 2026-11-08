@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dgm.kit.boot.testing.StandHttp.Response;
@@ -93,6 +94,16 @@ class OrderEventsIT extends OrderStandIT {
         return place(UUID.randomUUID());
     }
 
+    /** Заказ товара по API продавца {@code seller}: способ выдачи берётся из карточки товара. */
+    private static Placed placeApi(UUID seller) throws IOException {
+        UUID buyer = UUID.randomUUID();
+        UUID product = NEIGHBOURS.apiProduct(seller, "Доступ по API " + UUID.randomUUID().toString().substring(0, 8), PRICE, 20);
+        String email = "buyer-" + buyer.toString().substring(0, 8) + "@mail.example";
+        Response response = create(buyerToken(buyer, email), product, QUANTITY);
+        assertEquals(201, response.status(), response.body());
+        return new Placed(buyer, product, (String) response.json().get("orderId"), email);
+    }
+
     private static Map<String, Object> money(long amount) {
         Map<String, Object> money = new LinkedHashMap<>();
         money.put("amount", amount);
@@ -166,6 +177,16 @@ class OrderEventsIT extends OrderStandIT {
         return publish(delivery, "delivery-service", "delivery.events", "Delivery", "delivery.accepted", UUID.randomUUID(), deliveryId.toString(), data);
     }
 
+    /** {@code delivery.seller-timeout} от {@code delivery-service}: система продавца не ответила за 10 минут (Р-190). */
+    private static UUID sellerTimeout(String orderId, UUID sellerId, UUID eventId) throws Exception {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("deliveryId", UUID.randomUUID().toString());
+        data.put("orderId", orderId);
+        data.put("sellerId", sellerId.toString());
+        data.put("waitedSeconds", 600);
+        return publish(delivery, "delivery-service", "delivery.events", "Delivery", "delivery.seller-timeout", eventId, orderId, data);
+    }
+
     private static UUID anonymized(UUID user) throws Exception {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("userId", user.toString());
@@ -231,6 +252,7 @@ class OrderEventsIT extends OrderStandIT {
         assertEquals(TOTAL, amount(data.get("total")));
         assertEquals(5_996, amount(data.get("commission")));
         assertEquals(false, data.get("latePayment"));
+        assertEquals("key_pool", data.get("issuanceMethod"));
         assertEquals(Map.of("channel", "email", "address", p.email()), data.get("delivery"));
         assertTrue(((String) data.get("paidAt")).endsWith("Z"));
 
@@ -484,5 +506,140 @@ class OrderEventsIT extends OrderStandIT {
         awaitProcessed(DOMAIN, repeat);
         assertEquals(ANONYMIZED, address(first.orderId()));
         assertFalse(processed(SAGA, eventId), "событие user.anonymized обрабатывает только order-domain");
+    }
+
+    // ------------------------------------------------------------------------------------------------ TC-531, TC-532, TC-962: заказ по API и молчание продавца
+
+    @Tag("TC-531")
+    @Test
+    void anApiProductIsOrderedLikeAnyOtherAndTheOrderRemembersTheMethodAndPublishesItInOrderPaid() throws Exception {
+        UUID seller = UUID.randomUUID();
+        Placed p = placeApi(seller);
+
+        Map<String, Object> created = order(p.orderId());
+        assertEquals("seller_api", created.get("issuance_method"));
+        assertEquals("awaiting_payment", created.get("status"));
+        assertEquals(1, NEIGHBOURS.calls("inventory").stream().filter(c -> c.path().endsWith("/reservations")).count(), "резерв по количеству, как у любого товара");
+
+        confirmed(p.orderId());
+        awaitStatus(p.orderId(), "paid");
+
+        assertEquals("seller_api", data(events(p.orderId(), "order.paid").get(0)).get("issuanceMethod"));
+        assertEquals("paid", status(p.orderId()), "до ответа продавца и принятого письма заказ остаётся «оплачен»");
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class,
+                () -> db.update("update orders.orders set issuance_method = 'key_pool' where id = ?", UUID.fromString(p.orderId())), "способ выдачи в заказе не меняется");
+        assertEquals("seller_api", order(p.orderId()).get("issuance_method"));
+    }
+
+    @Tag("TC-532")
+    @Test
+    void sellerSilenceCancelsThePaidApiOrderAsksForTheRefundOnceAndALateOrRepeatedTimeoutChangesNothing() throws Exception {
+        UUID seller = UUID.randomUUID();
+        Placed p = placeApi(seller);
+        confirmed(p.orderId());
+        awaitStatus(p.orderId(), "paid");
+        UUID eventId = UUID.randomUUID();
+
+        sellerTimeout(p.orderId(), seller, eventId);
+
+        awaitStatus(p.orderId(), "cancelled");
+        awaitProcessed(SAGA, eventId);
+        assertEquals("seller_api_timeout", order(p.orderId()).get("cancel_reason"));
+        assertNotNull(order(p.orderId()).get("paid_at"), "время оплаты сохраняется");
+        List<Map<String, Object>> cancelled = events(p.orderId(), "order.cancelled");
+        assertEquals(1, cancelled.size());
+        assertEquals("seller_api_timeout", data(cancelled.get(0)).get("cancelReason"));
+        assertEquals(p.product().toString(), data(cancelled.get(0)).get("productId"));
+        List<Map<String, Object>> refunds = events(p.orderId(), "order.refund-requested");
+        assertEquals(1, refunds.size(), "команда на возврат уходит в Outbox той же транзакцией, что и отмена");
+        assertEquals("seller_api_timeout", data(refunds.get(0)).get("refundReason"));
+        assertEquals(TOTAL, amount(data(refunds.get(0)).get("amount")), "возврат всей суммы заказа");
+
+        long rows = eventCount(p.orderId());
+        sellerTimeout(p.orderId(), seller, eventId);
+        UUID other = sellerTimeout(p.orderId(), seller, UUID.randomUUID());
+        awaitProcessed(SAGA, other);
+
+        assertEquals("cancelled", status(p.orderId()));
+        assertEquals(1, events(p.orderId(), "order.refund-requested").size(), "повтор события и второе событие второго возврата не рождают (INV-06, INV-15)");
+        assertEquals(rows, eventCount(p.orderId()));
+    }
+
+    @Tag("TC-532")
+    @Test
+    void aTimeoutThatArrivesAfterTheIssueAndATimeoutOfAKeyPoolOrderLeaveTheOrdersAlone() throws Exception {
+        UUID seller = UUID.randomUUID();
+        Placed api = placeApi(seller);
+        confirmed(api.orderId());
+        awaitStatus(api.orderId(), "paid");
+        accepted(api.orderId(), UUID.randomUUID(), "2026-10-19T10:00:00.000Z");
+        awaitStatus(api.orderId(), "issued");
+        Placed pool = place();
+        confirmed(pool.orderId());
+        awaitStatus(pool.orderId(), "paid");
+        long apiRows = eventCount(api.orderId());
+        long poolRows = eventCount(pool.orderId());
+
+        UUID late = sellerTimeout(api.orderId(), seller, UUID.randomUUID());
+        UUID wrong = sellerTimeout(pool.orderId(), SELLER, UUID.randomUUID());
+        awaitProcessed(SAGA, late);
+        awaitProcessed(SAGA, wrong);
+
+        assertEquals("issued", status(api.orderId()), "из «выдан» отмены нет");
+        assertEquals("paid", status(pool.orderId()), "заказ по ключам не ждёт продавца");
+        assertEquals(apiRows, eventCount(api.orderId()));
+        assertEquals(poolRows, eventCount(pool.orderId()));
+    }
+
+    @Tag("TC-962")
+    @Test
+    void theChainOfTheTimeoutIsVisibleToTheSellerFromTheCancellationToTheRefund() throws Exception {
+        UUID seller = UUID.randomUUID();
+        String token = sellerToken(seller);
+        Placed p = placeApi(seller);
+        confirmed(p.orderId());
+        awaitStatus(p.orderId(), "paid");
+        assertEquals("paid", sellerOrder(token, p.orderId()).get("status"));
+        assertEquals("seller_api", sellerOrder(token, p.orderId()).get("issuanceMethod"));
+
+        sellerTimeout(p.orderId(), seller, UUID.randomUUID());
+        awaitStatus(p.orderId(), "cancelled");
+
+        Map<String, Object> cancelled = sellerOrder(token, p.orderId());
+        assertEquals("cancelled", cancelled.get("status"));
+        assertEquals("seller_api_timeout", cancelled.get("cancelReason"));
+        assertNotNull(cancelled.get("paidAt"));
+        assertNull(cancelled.get("refundedAt"), "деньги ещё не вернулись");
+
+        UUID refund = refunded(p.orderId(), "seller_api_timeout");
+        awaitStatus(p.orderId(), "refunded");
+        awaitProcessed(SAGA, refund);
+
+        Map<String, Object> refunded = sellerOrder(token, p.orderId());
+        assertEquals("refunded", refunded.get("status"));
+        assertEquals("seller_api_timeout", refunded.get("cancelReason"), "причина отмены остаётся в возвращённом заказе");
+        assertNotNull(refunded.get("refundedAt"));
+        assertNotNull(order(p.orderId()).get("refunded_at"));
+        List<Map<String, Object>> refundedEvents = events(p.orderId(), "order.refunded");
+        assertEquals(1, refundedEvents.size());
+        assertEquals("seller_api_timeout", data(refundedEvents.get(0)).get("refundReason"));
+        // Деньги и остаток возвращают платёж и остатки по этим двум событиям, здесь проверено, что они изданы по одному разу
+        assertEquals(1, events(p.orderId(), "order.cancelled").size());
+        assertEquals(1, events(p.orderId(), "order.refund-requested").size());
+    }
+
+    /** Заказ продавца из {@code GET /api/v1/seller/orders} по идентификатору. */
+    private static Map<String, Object> sellerOrder(String token, String orderId) throws IOException {
+        Response response = read(token, "/api/v1/seller/orders?limit=100");
+        assertEquals(200, response.status(), response.body());
+        for (Object item : (List<?>) response.json().get("items")) {
+            Map<?, ?> row = (Map<?, ?>) item;
+            if (orderId.equals(row.get("orderId"))) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> typed = (Map<String, Object>) row;
+                return typed;
+            }
+        }
+        throw new AssertionError("заказа " + orderId + " нет в списке продавца");
     }
 }

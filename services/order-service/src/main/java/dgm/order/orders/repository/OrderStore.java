@@ -38,7 +38,7 @@ public interface OrderStore {
      */
     boolean pay(UUID orderId, String from, Instant paidAt);
 
-    /** «Отменён» в «возвращён» (T8). {@code false}, если статус заказа уже другой. */
+    /** «Отменён» в «возвращён» (T8), время возврата ставит база. {@code false}, если статус заказа уже другой. */
     boolean refund(UUID orderId);
 
     /** «Оплачен» в «выдан» (T9), момент первой выдачи фиксируется один раз (INV-17). {@code false}, если статус заказа уже другой. */

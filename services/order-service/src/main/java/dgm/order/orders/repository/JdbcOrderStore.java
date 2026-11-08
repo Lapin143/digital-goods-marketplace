@@ -23,7 +23,8 @@ public final class JdbcOrderStore implements OrderStore {
     public static final String MODULE = "orders";
 
     private static final String COLUMNS = "id, number, buyer_id, seller_id, product_id, product_title, quantity, unit_price, amount, commission, "
-            + "currency, status, cancel_reason, delivery_address, reserve_until, session_until, payment_session_url, created_at, paid_at, issued_at";
+            + "currency, status, cancel_reason, delivery_address, reserve_until, session_until, payment_session_url, created_at, paid_at, issued_at, "
+            + "issuance_method, refunded_at";
 
     private static final RowMapper<StoredOrder> ORDER = (rs, row) -> new StoredOrder(rs.getObject("id", UUID.class), rs.getLong("number"),
             rs.getObject("buyer_id", UUID.class), rs.getObject("seller_id", UUID.class), rs.getObject("product_id", UUID.class),
@@ -31,7 +32,8 @@ public final class JdbcOrderStore implements OrderStore {
             rs.getString("currency").trim(), rs.getString("status"), rs.getString("cancel_reason"), rs.getString("delivery_address"),
             instant(rs.getObject("reserve_until", OffsetDateTime.class)), instant(rs.getObject("session_until", OffsetDateTime.class)),
             rs.getString("payment_session_url"), instant(rs.getObject("created_at", OffsetDateTime.class)),
-            instant(rs.getObject("paid_at", OffsetDateTime.class)), instant(rs.getObject("issued_at", OffsetDateTime.class)));
+            instant(rs.getObject("paid_at", OffsetDateTime.class)), instant(rs.getObject("issued_at", OffsetDateTime.class)),
+            rs.getString("issuance_method"), instant(rs.getObject("refunded_at", OffsetDateTime.class)));
 
     private final JdbcTemplate jdbc;
 
@@ -55,9 +57,9 @@ public final class JdbcOrderStore implements OrderStore {
     @Override
     public void insert(NewOrder o) {
         jdbc.update("insert into orders.orders (id, buyer_id, seller_id, product_id, product_title, quantity, unit_price, amount, commission_rate_bp, "
-                + "commission, currency, delivery_address, status, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'created', ?)",
+                + "commission, currency, delivery_address, issuance_method, status, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'created', ?)",
                 o.id(), o.buyerId(), o.sellerId(), o.productId(), o.productTitle(), o.quantity(), o.unitPrice(), o.amount(), o.commissionRateBp(),
-                o.commission(), o.currency(), o.deliveryAddress(), time(o.createdAt()));
+                o.commission(), o.currency(), o.deliveryAddress(), o.issuanceMethod(), time(o.createdAt()));
     }
 
     @Override
@@ -89,7 +91,7 @@ public final class JdbcOrderStore implements OrderStore {
 
     @Override
     public boolean refund(UUID orderId) {
-        return jdbc.update("update orders.orders set status = 'refunded' where id = ? and status = 'cancelled'", orderId) == 1;
+        return jdbc.update("update orders.orders set status = 'refunded', refunded_at = now() where id = ? and status = 'cancelled'", orderId) == 1;
     }
 
     @Override
