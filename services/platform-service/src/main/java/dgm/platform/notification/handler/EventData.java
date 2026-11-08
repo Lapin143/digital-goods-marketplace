@@ -42,6 +42,32 @@ final class EventData {
         return Long.toString(number.longValue());
     }
 
+    /** Целое число в заданных границах (количество единиц товара, номер заказа). */
+    static long integer(Map<String, Object> data, String field, long min, long max) {
+        Object value = data.get(field);
+        if (!(value instanceof Number number) || number.doubleValue() != number.longValue()) {
+            throw new FatalEventException("Поле " + field + " должно быть целым числом");
+        }
+        long result = number.longValue();
+        if (result < min || result > max) {
+            throw new FatalEventException("Поле " + field + " вне допустимых границ");
+        }
+        return result;
+    }
+
+    /** Поле {@code Money} как объект {@code {amount, currency}} для тела webhook: сумма в минимальных единицах и код валюты. */
+    static Map<String, Object> moneyObject(Map<String, Object> data, String field) {
+        if (!(data.get(field) instanceof Map<?, ?> money)) {
+            throw new FatalEventException("Нет обязательного поля " + field + " или оно не сумма");
+        }
+        Map<String, Object> inner = new java.util.LinkedHashMap<>();
+        money.forEach((k, v) -> inner.put(String.valueOf(k), v));
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("amount", integer(inner, "amount", 0, Long.MAX_VALUE));
+        result.put("currency", text(inner, "currency", 3));
+        return result;
+    }
+
     /** Поле {@code Money} схемы событий ({@code amount} в минимальных единицах и {@code currency}) как «149900 RUB». */
     static String money(Map<String, Object> data, String field) {
         if (!(data.get(field) instanceof Map<?, ?> money)) {

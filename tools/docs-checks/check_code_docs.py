@@ -193,7 +193,9 @@ def check_operations(rep):
 
 def parse_catalog(r2=False):
     """Из каталога событий: событие -> {'topic', 'owner', 'consumers': [(сервис, обработчик)]}, только события R1 (r2=False)
-    или только события раздела «События R2» (r2=True: их потребителей код получает по шагам Ф5, шаг 11 добавил `delivery.seller-timeout`)."""
+    или только события раздела «События R2» (r2=True: их потребителей код получает по шагам Ф5, шаг 11 добавил `delivery.seller-timeout`).
+    У события R1 потребители R2 (пометка «(R2)» у обработчика) лежат отдельно, в 'r2_consumers': в каталоге они названы, кода у них может быть ещё
+    нет, а если он есть, то это не ошибка (шаг 14: `seller-webhook-handler` читает четыре события заказа)."""
     text = L.read(EVENTS_README)
     owner_of = {}
     topics = L.find_table(text, 'Тема', 'Издатель')
@@ -215,13 +217,17 @@ def parse_catalog(r2=False):
             continue
         cells = [c.strip() for c in m.group(2).rstrip('|').split(' | ')]
         consumers = []
+        later = []
         cell = cells[-1]
         if not cell.startswith('нет'):
             for part in cell.split(';'):
-                names = re.findall(r'`([^`]+)`', part)
-                if names and (r2 or 'R2' not in part):
-                    consumers += [(names[0], h) for h in names[1:]]
-        events[m.group(1)] = {'topic': topic, 'owner': owner_of.get(topic, ''), 'consumers': consumers}
+                group = re.match(r'\s*`([^`]+)`:\s*(.*)$', part)
+                if not group:
+                    continue
+                # пометка «(R2)» стоит у каждого обработчика отдельно: в группе одного сервиса бывают обработчики R1 и R2
+                for handler, mark in re.findall(r'`([^`]+)`( \(R2\))?', group.group(2)):
+                    (later if mark and not r2 else consumers).append((group.group(1), handler))
+        events[m.group(1)] = {'topic': topic, 'owner': owner_of.get(topic, ''), 'consumers': consumers, 'r2_consumers': later}
     return events
 
 
@@ -390,6 +396,11 @@ def check_events(rep):
                         rep.err(entry['files'][0], 'обработчик %s читает %s из темы %s, в разделе R2 каталога тема %s' % (name, e, topic, r2['topic']))
                 elif not info:
                     rep.err(entry['files'][0], 'обработчик %s читает %s, а события нет в каталоге R1 и в разделе R2' % (name, e))
+                elif (service, name) in info['r2_consumers']:
+                    # обработчик R2 на событии R1: каталог называет его с пометкой «(R2)», тема должна совпасть
+                    stats['r2_consumers'] += 1
+                    if info['topic'] != topic:
+                        rep.err(entry['files'][0], 'обработчик %s читает %s из темы %s, в каталоге тема %s' % (name, e, topic, info['topic']))
                 elif (service, name) not in info['consumers']:
                     rep.err(entry['files'][0], 'обработчик %s читает %s, а в каталоге потребитель этого события не назван' % (name, e))
     # темы и права: издание только в темы, где сервис издатель, чтение только тем, на которые есть READ
@@ -415,7 +426,7 @@ def main():
     rep = L.Report('Документы = код')
     ops = check_operations(rep)
     ev = check_events(rep)
-    rep.fact('операций со статусом done: %d, методов контроллеров: %d; событий срезов 1 – 3: %d, из них издаётся в коде: %d; потребителей реализовано: %d, придут позже: %d, обработчиков событий R2: %d'
+    rep.fact('операций со статусом done: %d, методов контроллеров: %d; событий срезов 1 – 3: %d, из них издаётся в коде: %d; потребителей реализовано: %d, придут позже: %d, обработчиков R2: %d'
              % (ops['done'], ops['handlers'], ev['events'], ev['events'] - ev['unpublished'], ev['consumers'], ev['later'], ev['r2_consumers']))
     return rep.finish()
 

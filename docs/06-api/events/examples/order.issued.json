@@ -25,6 +25,7 @@
       "currency": "RUB"
     },
     "deliveryId": "0199c2a5-9d01-7e12-a3b4-c5d6e7f80910",
-    "issuedAt": "2026-10-03T12:03:49.000Z"
+    "issuedAt": "2026-10-03T12:03:49.000Z",
+    "quantity": 1
   }
 }

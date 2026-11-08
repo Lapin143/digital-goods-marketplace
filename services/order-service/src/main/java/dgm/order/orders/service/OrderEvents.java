@@ -43,7 +43,10 @@ final class OrderEvents {
         return data;
     }
 
-    /** {@code order.cancelled}: SM-01/T3, T5, T6, T10, T12. По нему {@code inventory-service} снимает активный резерв (при T10 возвращает остаток товара по API). */
+    /**
+     * {@code order.cancelled}: SM-01/T3, T5, T6, T10, T12. По нему {@code inventory-service} снимает активный резерв (при T10 возвращает остаток товара по API).
+     * {@code sellerId}, {@code orderNumber} и {@code total} необязательные (R2, Р-193): по ним {@code platform-service} собирает webhook продавцу.
+     */
     static Map<String, Object> cancelled(StoredOrder o, String reason) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("orderId", o.id().toString());
@@ -51,6 +54,9 @@ final class OrderEvents {
         data.put("productId", o.productId().toString());
         data.put("quantity", o.quantity());
         data.put("cancelReason", reason);
+        data.put("sellerId", o.sellerId().toString());
+        data.put("orderNumber", o.number());
+        data.put("total", money(o.amount(), o.currency()));
         return data;
     }
 
@@ -92,6 +98,7 @@ final class OrderEvents {
         data.put("commission", money(o.commission(), o.currency()));
         data.put("deliveryId", deliveryId.toString());
         data.put("issuedAt", Timestamps.format(o.issuedAt()));
+        data.put("quantity", o.quantity());
         return data;
     }
 
@@ -104,6 +111,8 @@ final class OrderEvents {
         data.put("sellerId", o.sellerId().toString());
         data.put("total", money(o.amount(), o.currency()));
         data.put("refundReason", refundReason);
+        data.put("productId", o.productId().toString());
+        data.put("quantity", o.quantity());
         return data;
     }
 

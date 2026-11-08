@@ -228,6 +228,11 @@ PY
       "config-listener описан в каталоге, а обработчика с таким именем в коде нет" tools/docs-checks/check_code_docs.py
     mutate_repo "check_code_docs находит событие среза 2, которого нет в каталоге" "tools/docs-checks/check_code_docs.py" "'order.created', 'order.paid', 'order.cancelled'" "'order.created', 'order.paidx', 'order.cancelled'" \
       "событие order.paidx среза 2 не найдено в каталоге" tools/docs-checks/check_code_docs.py
+    # Обработчик R2 на событии R1 (шаг 14 Ф5): без пометки «(R2)» в каталоге он ловится, с пометкой тема обязана совпасть.
+    mutate_repo "check_code_docs находит обработчик R2, не названный в каталоге потребителем события R1" "docs/06-api/events/README.md" '`notification-handler`, `support-event-handler`, `seller-webhook-handler` (R2) |' '`notification-handler`, `support-event-handler` |' \
+      "обработчик seller-webhook-handler читает order.paid, а в каталоге потребитель" tools/docs-checks/check_code_docs.py
+    mutate_repo "check_code_docs находит обработчик R2, читающий событие R1 из другой темы" "services/platform-service/src/main/java/dgm/platform/notification/handler/SellerWebhookHandler.java" 'return "order.events";' 'return "order.eventsx";' \
+      "из темы order.eventsx, в каталоге тема order.events" tools/docs-checks/check_code_docs.py
     # Реестры готовности: статус slice2 допустим, а --strict (закрытие среза) краснеет, пока в реестре есть операция среза 1 или 2.
     mutate_repo "check_ledger --strict находит незакрытую операцию среза" "services/inventory-service/src/test/resources/dgm/operations.txt" 'getProductStock     done' 'getProductStock     slice2' \
       "срез не закрыт, не готово" tools/docs-checks/check_ledger.py --strict

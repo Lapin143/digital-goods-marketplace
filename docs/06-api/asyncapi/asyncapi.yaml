@@ -1287,6 +1287,102 @@ operations:
         onPermanentFailure: В DLQ сразу, без повторов
       consumerGroup: finance-service
       offsetCommit: после фиксации транзакции базы
+  receiveOrderPaidByPlatformServiceSellerWebhookHandler:
+    action: receive
+    channel:
+      $ref: '#/channels/orderEvents'
+    messages:
+    - $ref: '#/channels/orderEvents/messages/orderPaid'
+    summary: 'Webhook продавцу «заказ оплачен»: подписанный POST на адрес системы продавца, повторы 0, 30 с, 2, 10, 30 минут и 2 часа, после шестой неудачи статус `failed`, без подключения `skipped` (Р-193)'
+    tags:
+    - name: R2
+    x-consumer:
+      service: platform-service
+      handler: seller-webhook-handler
+      effect: 'Webhook продавцу «заказ оплачен»: подписанный POST на адрес системы продавца, повторы 0, 30 с, 2, 10, 30 минут и 2 часа, после шестой неудачи статус `failed`, без подключения `skipped` (Р-193)'
+      release: R2
+      idempotency:
+        level2: processed_event
+        key: (consumer = 'seller-webhook-handler', event_id)
+        businessGuard: 'Уникальный `event_id` в таблице `notification.webhook_delivery`: одно событие даёт одно уведомление продавцу, повторная доставка новой строки не создаёт'
+      errorHandling:
+        retries: блокирующие, паузы 1, 5, 25 секунд
+        deadLetterTopic: order.events.dlq
+        onPermanentFailure: В DLQ сразу, без повторов, если в событии нет продавца или номера заказа
+      consumerGroup: platform-service
+      offsetCommit: после фиксации транзакции базы
+  receiveOrderIssuedByPlatformServiceSellerWebhookHandler:
+    action: receive
+    channel:
+      $ref: '#/channels/orderEvents'
+    messages:
+    - $ref: '#/channels/orderEvents/messages/orderIssued'
+    summary: 'Webhook продавцу «заказ выдан»: подписанный POST на адрес системы продавца, повторы 0, 30 с, 2, 10, 30 минут и 2 часа, после шестой неудачи статус `failed`, без подключения `skipped` (Р-193)'
+    tags:
+    - name: R2
+    x-consumer:
+      service: platform-service
+      handler: seller-webhook-handler
+      effect: 'Webhook продавцу «заказ выдан»: подписанный POST на адрес системы продавца, повторы 0, 30 с, 2, 10, 30 минут и 2 часа, после шестой неудачи статус `failed`, без подключения `skipped` (Р-193)'
+      release: R2
+      idempotency:
+        level2: processed_event
+        key: (consumer = 'seller-webhook-handler', event_id)
+        businessGuard: 'Уникальный `event_id` в таблице `notification.webhook_delivery`: одно событие даёт одно уведомление продавцу, повторная доставка новой строки не создаёт'
+      errorHandling:
+        retries: блокирующие, паузы 1, 5, 25 секунд
+        deadLetterTopic: order.events.dlq
+        onPermanentFailure: В DLQ сразу, без повторов, если в событии нет продавца или номера заказа
+      consumerGroup: platform-service
+      offsetCommit: после фиксации транзакции базы
+  receiveOrderCancelledByPlatformServiceSellerWebhookHandler:
+    action: receive
+    channel:
+      $ref: '#/channels/orderEvents'
+    messages:
+    - $ref: '#/channels/orderEvents/messages/orderCancelled'
+    summary: 'Webhook продавцу «заказ отменён»: подписанный POST на адрес системы продавца, повторы 0, 30 с, 2, 10, 30 минут и 2 часа, после шестой неудачи статус `failed`, без подключения `skipped` (Р-193)'
+    tags:
+    - name: R2
+    x-consumer:
+      service: platform-service
+      handler: seller-webhook-handler
+      effect: 'Webhook продавцу «заказ отменён»: подписанный POST на адрес системы продавца, повторы 0, 30 с, 2, 10, 30 минут и 2 часа, после шестой неудачи статус `failed`, без подключения `skipped` (Р-193)'
+      release: R2
+      idempotency:
+        level2: processed_event
+        key: (consumer = 'seller-webhook-handler', event_id)
+        businessGuard: 'Уникальный `event_id` в таблице `notification.webhook_delivery`: одно событие даёт одно уведомление продавцу, повторная доставка новой строки не создаёт'
+      errorHandling:
+        retries: блокирующие, паузы 1, 5, 25 секунд
+        deadLetterTopic: order.events.dlq
+        onPermanentFailure: В DLQ сразу, без повторов, если в событии нет продавца или номера заказа
+      consumerGroup: platform-service
+      offsetCommit: после фиксации транзакции базы
+  receiveOrderRefundedByPlatformServiceSellerWebhookHandler:
+    action: receive
+    channel:
+      $ref: '#/channels/orderEvents'
+    messages:
+    - $ref: '#/channels/orderEvents/messages/orderRefunded'
+    summary: 'Webhook продавцу «заказ возвращён»: подписанный POST на адрес системы продавца, повторы 0, 30 с, 2, 10, 30 минут и 2 часа, после шестой неудачи статус `failed`, без подключения `skipped` (Р-193)'
+    tags:
+    - name: R2
+    x-consumer:
+      service: platform-service
+      handler: seller-webhook-handler
+      effect: 'Webhook продавцу «заказ возвращён»: подписанный POST на адрес системы продавца, повторы 0, 30 с, 2, 10, 30 минут и 2 часа, после шестой неудачи статус `failed`, без подключения `skipped` (Р-193)'
+      release: R2
+      idempotency:
+        level2: processed_event
+        key: (consumer = 'seller-webhook-handler', event_id)
+        businessGuard: 'Уникальный `event_id` в таблице `notification.webhook_delivery`: одно событие даёт одно уведомление продавцу, повторная доставка новой строки не создаёт'
+      errorHandling:
+        retries: блокирующие, паузы 1, 5, 25 секунд
+        deadLetterTopic: order.events.dlq
+        onPermanentFailure: В DLQ сразу, без повторов, если в событии нет продавца или номера заказа
+      consumerGroup: platform-service
+      offsetCommit: после фиксации транзакции базы
   publishOrderAddressUpdated:
     action: send
     channel:
@@ -3789,6 +3885,11 @@ components:
             productId: 0199b8f1-2c33-7a20-9c4d-7e6f5a4b3c21
             quantity: 1
             cancelReason: payment_declined
+            sellerId: 0199b7e0-1a22-7f10-8b3c-6d5e4f3a2b10
+            orderNumber: 1042
+            total:
+              amount: 149900
+              currency: RUB
       tags:
       - name: R1
       x-release: R1
@@ -3860,6 +3961,7 @@ components:
               currency: RUB
             deliveryId: 0199c2a5-9d01-7e12-a3b4-c5d6e7f80910
             issuedAt: '2026-10-03T12:03:49.000Z'
+            quantity: 1
       tags:
       - name: R1
       x-release: R1
@@ -3925,6 +4027,8 @@ components:
               amount: 149900
               currency: RUB
             refundReason: late_payment
+            productId: 0199b8f1-2c33-7a20-9c4d-7e6f5a4b3c21
+            quantity: 1
       tags:
       - name: R1
       x-release: R1
@@ -7314,6 +7418,18 @@ components:
           - system_error
           - seller_api_timeout
           description: Причина отмены заказа
+        sellerId:
+          type: string
+          format: uuid
+          description: 'Идентификатор продавца (профиля продавца). Необязательное поле (R2, Р-193): по нему платформа шлёт webhook продавцу. Добавление необязательного поля совместимо, `schemaversion` остаётся 1.'
+        orderNumber:
+          type: integer
+          format: int64
+          minimum: 1001
+          description: 'Короткий номер заказа для людей, не идентификатор. Необязательное поле (R2, Р-193): по нему платформа шлёт webhook продавцу. Добавление необязательного поля совместимо, `schemaversion` остаётся 1.'
+        total:
+          $ref: '#/components/schemas/Money'
+          description: 'Сумма заказа: цена, умноженная на количество. Необязательное поле (R2, Р-193): по нему платформа шлёт webhook продавцу. Добавление необязательного поля совместимо, `schemaversion` остаётся 1.'
     OrderCancelledEnvelope:
       allOf:
       - $ref: '#/components/schemas/EventEnvelope'
@@ -7377,6 +7493,11 @@ components:
         issuedAt:
           $ref: '#/components/schemas/Timestamp'
           description: Момент первичной выдачи
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 10
+          description: 'Количество единиц товара в заказе, от 1 до 10 (FT-5.1). Необязательное поле (R2, Р-193): по нему платформа шлёт webhook продавцу. Добавление необязательного поля совместимо, `schemaversion` остаётся 1.'
     OrderIssuedEnvelope:
       allOf:
       - $ref: '#/components/schemas/EventEnvelope'
@@ -7430,6 +7551,15 @@ components:
           - seller_api_timeout
           - dispute_decision
           description: Причина возврата
+        productId:
+          type: string
+          format: uuid
+          description: 'Идентификатор товара. Необязательное поле (R2, Р-193): по нему платформа шлёт webhook продавцу. Добавление необязательного поля совместимо, `schemaversion` остаётся 1.'
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 10
+          description: 'Количество единиц товара в заказе, от 1 до 10 (FT-5.1). Необязательное поле (R2, Р-193): по нему платформа шлёт webhook продавцу. Добавление необязательного поля совместимо, `schemaversion` остаётся 1.'
     OrderRefundedEnvelope:
       allOf:
       - $ref: '#/components/schemas/EventEnvelope'

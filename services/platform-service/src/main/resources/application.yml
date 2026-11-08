@@ -57,6 +57,11 @@ dgm:
       attempt-timeout: 1s
       retry: 200ms
       total-deadline: 2s
+    # Подключение продавца (адрес, статус, версия секрета) для webhook берётся у catalog-service по mTLS (OP-97, Р-193): ответ за 1 секунду, один повтор чтения
+    catalog-service:
+      base-url: ${DGM_CATALOG_URL:https://catalog-service:8443}
+      attempt-timeout: 1s
+      retry: 300ms
   # SMS-провайдер: на стенде заглушка external-stubs (ключ API в секрете platform_sms_key), в проде адрес настоящего провайдера
   sms:
     base-url: ${DGM_SMS_BASE_URL:https://external-stubs:8443}

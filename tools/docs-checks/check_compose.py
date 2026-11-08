@@ -46,9 +46,9 @@ VER = os.path.join(L.OPS_DIR, 'versions.md')
 R1_PROFILES = ['infra', 'stubs', 'auth', 'gateway', 'purchase', 'sellers', 'platform', 'storage']
 FAST_TIME = r'\$\{DGM_FAST_TIME:\+,?fast-time\}'   # единственная допустимая запись профиля fast-time в окружении сервиса
 # Стендовый список имён, освобождённых от проверки внутренних адресов у адреса системы продавца (ADR-028, правило 7): одна допустимая запись,
-# и только у сервисов, которые принимают адрес (catalog-service) или вызывают его (delivery-service)
+# и только у сервисов, которые принимают адрес (catalog-service) или вызывают его (delivery-service: запрос ключа, platform-service: webhook)
 SELLER_ENDPOINT_ALLOW = '${DGM_SELLER_ENDPOINT_ALLOW-external-stubs:8443}'
-SELLER_ENDPOINT_SERVICES = {'catalog-service', 'delivery-service'}
+SELLER_ENDPOINT_SERVICES = {'catalog-service', 'delivery-service', 'platform-service'}
 FAST_TIME_SERVICES = {'inventory-service', 'order-service', 'payment-service', 'delivery-service'}   # профиль включается ими (Р-147)
 ONE_SHOT = {'kafka-init', 'storage-init'}     # завершаются сами, проверки готовности нет
 # Образы без оболочки и wget (distroless): проверку готовности Docker задать нечем, готовность проверяет make obs-check по /ready

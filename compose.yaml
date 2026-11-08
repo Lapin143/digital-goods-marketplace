@@ -555,6 +555,9 @@ services:
       DGM_REDIS_HOST: redis
       # Адрес сайта в ссылках писем (шаг 15 среза 2, Р-153)
       DGM_PUBLIC_ORIGIN: ${DGM_PUBLIC_ORIGIN:-https://localhost:8443}
+      # Webhook продавцам (Р-193, ADR-028, правило 7): защита адреса от SSRF отвергает внутренние адреса, а заглушка системы продавца стоит во
+      # внутренней сети стенда. Имя и порт заглушки освобождены только от проверки диапазонов адресов; настоящий сервер задаёт пустое значение.
+      DGM_SELLER_ENDPOINT_ALLOW: ${DGM_SELLER_ENDPOINT_ALLOW-external-stubs:8443}
       # Куча 192 МБ из лимита 352 МБ (memory-budget.md)
       JAVA_TOOL_OPTIONS: -Xmx192m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED
     tmpfs:

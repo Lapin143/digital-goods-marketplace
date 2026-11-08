@@ -244,11 +244,15 @@ class OrderTransitionsTest {
         assertEquals("order.cancelled", event.eventType());
         assertEquals("order.events", event.topic());
         assertEquals(id(1).toString(), event.aggregateId());
-        assertEquals(Set.of("orderId", "buyerId", "productId", "quantity", "cancelReason"), event.data().keySet());
+        assertEquals(Set.of("orderId", "buyerId", "productId", "quantity", "cancelReason", "sellerId", "orderNumber", "total"), event.data().keySet());
         assertEquals(BUYER.toString(), event.data().get("buyerId"));
         assertEquals(PRODUCT.toString(), event.data().get("productId"));
         assertEquals(2, event.data().get("quantity"));
         assertEquals("out_of_stock", event.data().get("cancelReason"));
+        // поля для webhook продавцу (R2, Р-193): продавец, номер заказа и сумма берутся из заказа
+        assertEquals(cancelled.get().sellerId().toString(), event.data().get("sellerId"));
+        assertEquals(cancelled.get().number(), event.data().get("orderNumber"));
+        assertEquals(Map.of("amount", cancelled.get().amount(), "currency", cancelled.get().currency()), event.data().get("total"));
         assertEquals(1.0, meters.find("orders_cancelled_total").tag("reason", "out_of_stock").tag("transition", "T3").counter().count());
     }
 
@@ -511,10 +515,13 @@ class OrderTransitionsTest {
         assertTrue(refunded.isPresent());
         assertEquals(OrderStatus.REFUNDED, refunded.get().status());
         FakeOrderStore.Published event = store.events("order.refunded").get(0);
-        assertEquals(Set.of("orderId", "orderNumber", "buyerId", "sellerId", "total", "refundReason"), event.data().keySet());
+        assertEquals(Set.of("orderId", "orderNumber", "buyerId", "sellerId", "total", "refundReason", "productId", "quantity"), event.data().keySet());
         assertEquals(refunded.get().number(), event.data().get("orderNumber"));
         assertEquals(Map.of("amount", 100_00L, "currency", "RUB"), event.data().get("total"));
         assertEquals("late_payment", event.data().get("refundReason"));
+        // поля для webhook продавцу (R2, Р-193)
+        assertEquals(refunded.get().productId().toString(), event.data().get("productId"));
+        assertEquals(refunded.get().quantity(), event.data().get("quantity"));
         assertFalse(event.data().toString().contains("buyer@mail.example"));
         assertEquals(1.0, counter("orders_refunded_total", "reason", "late_payment"));
     }
@@ -548,10 +555,11 @@ class OrderTransitionsTest {
         assertEquals(OrderStatus.ISSUED, issued.get().status());
         assertEquals(issuedAt, issued.get().issuedAt());
         FakeOrderStore.Published event = store.events("order.issued").get(0);
-        assertEquals(Set.of("orderId", "orderNumber", "buyerId", "sellerId", "productId", "total", "commission", "deliveryId", "issuedAt"),
+        assertEquals(Set.of("orderId", "orderNumber", "buyerId", "sellerId", "productId", "total", "commission", "deliveryId", "issuedAt", "quantity"),
                 event.data().keySet());
         assertEquals(delivery.toString(), event.data().get("deliveryId"));
         assertEquals("2026-10-18T12:07:00.123Z", event.data().get("issuedAt"));
+        assertEquals(issued.get().quantity(), event.data().get("quantity"), "количество нужно webhook продавцу (R2, Р-193)");
         assertEquals(1.0, meters.counter("orders_issued_total").count());
 
         assertTrue(transitions.issue(id(1), delivery, issuedAt.plusSeconds(60)).isEmpty(), "повторная выдача ничего не меняет (INV-17)");
@@ -821,7 +829,7 @@ class OrderTransitionsTest {
         assertEquals(PAID_AT, cancelled.get().paidAt(), "время оплаты сохраняется: оно нужно сверке и списку продавца");
         assertEquals(List.of("order.cancelled", "order.refund-requested"), store.events().stream().map(FakeOrderStore.Published::eventType).toList());
         Map<String, Object> cancelledEvent = store.events("order.cancelled").get(0).data();
-        assertEquals(Set.of("orderId", "buyerId", "productId", "quantity", "cancelReason"), cancelledEvent.keySet());
+        assertEquals(Set.of("orderId", "buyerId", "productId", "quantity", "cancelReason", "sellerId", "orderNumber", "total"), cancelledEvent.keySet());
         assertEquals("seller_api_timeout", cancelledEvent.get("cancelReason"));
         Map<String, Object> refund = store.events("order.refund-requested").get(0).data();
         assertEquals(Set.of("orderId", "amount", "refundReason"), refund.keySet());
