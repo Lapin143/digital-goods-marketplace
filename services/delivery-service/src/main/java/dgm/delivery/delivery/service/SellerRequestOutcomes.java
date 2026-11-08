@@ -2,6 +2,7 @@ package dgm.delivery.delivery.service;
 
 import dgm.delivery.delivery.domain.ExpiredRequest;
 import dgm.delivery.delivery.domain.PendingRequest;
+import dgm.delivery.delivery.domain.SellerRequestState;
 import dgm.delivery.delivery.repository.DeliveryRepository;
 import dgm.delivery.delivery.repository.SellerRequestRepository;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -31,6 +32,8 @@ public final class SellerRequestOutcomes {
     static final String REASON_SELLER_ERROR = "seller_error";
     /** Код ошибки выдачи при молчании продавца. */
     static final String CODE_TIMEOUT = "seller_timeout";
+    /** Коды отказа, которые присылает сам продавец в ответе (остальные коды ставит платформа). */
+    static final java.util.Set<String> CODE_FAILED_BY_SELLER = java.util.Set.of("out_of_stock", "cannot_issue", "other");
 
     private final SellerRequestRepository requests;
     private final DeliveryRepository deliveries;
@@ -106,6 +109,48 @@ public final class SellerRequestOutcomes {
             LOG.warn("Запрос {} продавцу {} закрыт отказом {}, заказ {} будет отменён", request.requestId(), request.sellerId(), code, request.orderId());
         } else {
             LOG.info("Отказ {} по запросу {} не записан: запрос уже изменён", code, request.requestId());
+        }
+        return applied;
+    }
+
+    /**
+     * Ключи продавца сохранены в хранилище ключей: запрос становится «ответ получен», аренда снимается, диспетчер вправе взять выдачу в отправку
+     * письма. Условный {@code UPDATE}: проигравший гонку ничего не меняет.
+     *
+     * @return {@code false}: запрос уже в другом состоянии (аренда не давала этого случиться, значит нарушение согласованности)
+     */
+    public boolean answered(UUID requestId) {
+        boolean applied = requests.answered(requestId, clock.instant());
+        meters.counter("delivery_seller_requests_total", "outcome", applied ? "answered" : "stale").increment();
+        if (!applied) {
+            LOG.warn("Ответ по запросу {} не записан: запрос уже в другом состоянии", requestId);
+        }
+        return applied;
+    }
+
+    /**
+     * Продавец сам сообщил, что выдать не может ({@code error} в ответе): запрос закрывается отказом с его кодом, заказ отменяется так же, как при
+     * молчании. Пояснение продавца уходит только в строку запроса для оператора поддержки, в журнал и события оно не попадает.
+     *
+     * @param code    код отказа продавца (out_of_stock, cannot_issue, other)
+     * @param message пояснение продавца или {@code null}
+     * @return {@code false}: запрос уже в другом состоянии
+     */
+    public boolean failedByAnswer(SellerRequestState request, String code, String message) {
+        Instant now = clock.instant();
+        boolean applied = transaction.execute(() -> {
+            if (!requests.fail(request.deliveryId(), null, code, message)) {
+                return false;
+            }
+            cancelDelivery(request.deliveryId(), request.orderId(), request.sellerId(), request.createdAt(), code, REASON_SELLER_ERROR, now);
+            return true;
+        });
+        meters.counter("delivery_seller_requests_total", "outcome", applied ? "failed" : "stale").increment();
+        if (applied) {
+            meters.counter("delivery_seller_timeouts_total", "reason", REASON_SELLER_ERROR).increment();
+            LOG.warn("Продавец {} отказал по запросу {} кодом {}, заказ {} будет отменён", request.sellerId(), request.requestId(), code, request.orderId());
+        } else {
+            LOG.info("Отказ продавца по запросу {} не записан: запрос уже изменён", request.requestId());
         }
         return applied;
     }

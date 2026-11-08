@@ -4,10 +4,12 @@ import dgm.delivery.delivery.client.EmailClient;
 import dgm.delivery.delivery.client.HttpEmailClient;
 import dgm.delivery.delivery.client.KeyClient;
 import dgm.delivery.delivery.client.PeerKeyClient;
+import dgm.delivery.delivery.client.PeerSellerKeyStore;
 import dgm.delivery.delivery.client.SellerApiClient;
 import dgm.delivery.delivery.client.SellerCalls;
 import dgm.delivery.delivery.client.SellerEndpointClient;
 import dgm.delivery.delivery.client.SellerEndpoints;
+import dgm.delivery.delivery.client.SellerKeyStore;
 import dgm.delivery.delivery.client.StatusClient;
 import dgm.delivery.delivery.dispatcher.DeliveryDispatcher;
 import dgm.delivery.delivery.dispatcher.SellerRequestJob;
@@ -23,6 +25,7 @@ import dgm.delivery.delivery.poller.StatusPoller;
 import dgm.delivery.delivery.service.DeliverySettings;
 import dgm.delivery.delivery.service.DeliveryStatuses;
 import dgm.delivery.delivery.service.DeliveryTransaction;
+import dgm.delivery.delivery.service.SellerAnswerService;
 import dgm.delivery.delivery.service.SellerRequestOutcomes;
 import dgm.delivery.delivery.service.SellerSettings;
 import dgm.delivery.delivery.service.StatusSettings;
@@ -205,5 +208,17 @@ public class DeliveryConfiguration {
     @Bean
     SellerTimeoutJob sellerTimeoutJob(SellerRequestOutcomes outcomes) {
         return new SellerTimeoutJob(outcomes);
+    }
+
+    /** Передача ключей продавца в хранилище ключей ({@code inventory-service} в {@code dgm.peers}, OP-99). */
+    @Bean
+    SellerKeyStore sellerKeyStore(PeerClients peers) {
+        return new PeerSellerKeyStore(() -> peers.get(PeerSellerKeyStore.PEER));
+    }
+
+    @Bean
+    SellerAnswerService sellerAnswerService(SellerRequestRepository requests, SellerKeyStore keyStore, SellerRequestOutcomes outcomes, SellerSettings settings,
+                                            Clock clock, MeterRegistry meters) {
+        return new SellerAnswerService(requests, keyStore, outcomes, settings, clock, meters);
     }
 }

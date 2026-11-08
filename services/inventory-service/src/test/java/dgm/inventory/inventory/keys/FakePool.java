@@ -101,6 +101,16 @@ public final class FakePool {
         }
 
         @Override
+        public int reserveByIds(List<UUID> keyIds, UUID orderId, UUID reservationId) {
+            throw new UnsupportedOperationException("ключи продавца проверяются в SellerKeysServiceTest");
+        }
+
+        @Override
+        public Set<String> hmacsByReservation(UUID reservationId) {
+            throw new UnsupportedOperationException("ключи продавца проверяются в SellerKeysServiceTest");
+        }
+
+        @Override
         public List<StoredKey> byOrder(UUID orderId) {
             throw new UnsupportedOperationException("значения ключей проверяются в KeyValuesServiceTest");
         }

@@ -90,4 +90,19 @@ public final class JdbcKeyRepository implements KeyRepository {
         }
         return inserted;
     }
+
+    @Override
+    public int reserveByIds(List<UUID> keyIds, UUID orderId, UUID reservationId) {
+        return jdbc.update("update inventory.key set status = 'reserved', order_id = ?, reservation_id = ? where id = any(?) and status = 'free'",
+                orderId, reservationId, keyIds.toArray(new UUID[0]));
+    }
+
+    @Override
+    public Set<String> hmacsByReservation(UUID reservationId) {
+        Set<String> hmacs = new HashSet<>();
+        jdbc.query("select hmac from inventory.key where reservation_id = ?", rs -> {
+            hmacs.add(KeyHasher.hex(rs.getBytes("hmac")));
+        }, reservationId);
+        return hmacs;
+    }
 }

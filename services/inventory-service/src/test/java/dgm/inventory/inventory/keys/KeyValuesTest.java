@@ -67,6 +67,16 @@ class KeyValuesTest {
         }
 
         @Override
+        public int reserveByIds(List<UUID> keyIds, UUID orderId, UUID reservationId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Set<String> hmacsByReservation(UUID reservationId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public Set<String> insertNew(UUID productId, List<NewKey> keys) {
             throw new UnsupportedOperationException();
         }
