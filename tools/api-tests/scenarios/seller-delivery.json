@@ -1,0 +1,209 @@
+{
+  "id": "SDEL-01",
+  "title": "Выдача по запросу, шлюз: ответ продавца принимается только по его API-ключу, токен любой роли и неизвестный ключ получают 401, заказы и остаток по API закрыты для чужих ролей (TC-017, TC-961, TC-967; ST-02)",
+  "steps": [
+    {
+      "name": "TC-967. Ответ продавца с неизвестным ключом: 401, значения ключа и присланных ключей в ответе нет",
+      "op": "respondSellerDelivery",
+      "as": "guest",
+      "expect": 401,
+      "path": {
+        "requestId": "00000000-0000-4000-8000-000000000000"
+      },
+      "body": {
+        "keys": [
+          "NEWMAN-SDEL-KEY-1"
+        ]
+      },
+      "headers": {
+        "X-Api-Key": "{{unknownKey}}"
+      },
+      "set": {
+        "unknownKey": "dgm_NewmanSellerDeliveryKeyDoesNotExist00000"
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        },
+        {
+          "bodyNotContains": "dgm_NewmanSellerDeliveryKeyDoesNotExist00000"
+        },
+        {
+          "bodyNotContains": "NEWMAN-SDEL-KEY-1"
+        }
+      ]
+    },
+    {
+      "name": "TC-967. Ответ продавца без ключа и без токена: 401",
+      "op": "respondSellerDelivery",
+      "as": "guest",
+      "expect": 401,
+      "path": {
+        "requestId": "00000000-0000-4000-8000-000000000000"
+      },
+      "body": {
+        "keys": [
+          "NEWMAN-SDEL-KEY-1"
+        ]
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        },
+        {
+          "bodyNotContains": "NEWMAN-SDEL-KEY-1"
+        }
+      ]
+    },
+    {
+      "name": "TC-967. Ответ продавца с токеном покупателя: 401, а не 403: у операции только схема sellerApiKey, токен шлюз не принимает (F5-29)",
+      "op": "respondSellerDelivery",
+      "as": "buyer",
+      "expect": 401,
+      "path": {
+        "requestId": "00000000-0000-4000-8000-000000000000"
+      },
+      "body": {
+        "keys": [
+          "NEWMAN-SDEL-KEY-1"
+        ]
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    },
+    {
+      "name": "TC-967. Ответ продавца с токеном продавца: 401, ответить за продавца можно только его ключом (F5-29)",
+      "op": "respondSellerDelivery",
+      "as": "seller",
+      "expect": 401,
+      "path": {
+        "requestId": "00000000-0000-4000-8000-000000000000"
+      },
+      "body": {
+        "keys": [
+          "NEWMAN-SDEL-KEY-1"
+        ]
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    },
+    {
+      "name": "TC-967. Ответ продавца с токеном оператора поддержки: 401, ответить за продавца нельзя ни из какой роли (F5-29)",
+      "op": "respondSellerDelivery",
+      "as": "support-operator",
+      "expect": 401,
+      "path": {
+        "requestId": "00000000-0000-4000-8000-000000000000"
+      },
+      "body": {
+        "keys": [
+          "NEWMAN-SDEL-KEY-1"
+        ]
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    },
+    {
+      "name": "TC-961. Заказы продавца с неизвестным ключом: 401, значения ключа в ответе нет",
+      "op": "listSellerOrders",
+      "as": "guest",
+      "expect": 401,
+      "headers": {
+        "X-Api-Key": "{{unknownKey}}"
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        },
+        {
+          "bodyNotContains": "dgm_NewmanSellerDeliveryKeyDoesNotExist00000"
+        }
+      ]
+    },
+    {
+      "name": "TC-961. Заказы продавца без ключа и без токена: 401",
+      "op": "listSellerOrders",
+      "as": "guest",
+      "expect": 401,
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    },
+    {
+      "name": "TC-961. Заказы продавца с токеном покупателя: 403",
+      "op": "listSellerOrders",
+      "as": "buyer",
+      "expect": 403,
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    },
+    {
+      "name": "TC-017. Остаток по API с неизвестным ключом: 401, значения ключа в ответе нет",
+      "op": "setApiStock",
+      "as": "guest",
+      "expect": 401,
+      "path": {
+        "productId": "00000000-0000-4000-8000-000000000000"
+      },
+      "body": {
+        "quantity": 5
+      },
+      "headers": {
+        "X-Api-Key": "{{unknownKey}}",
+        "If-Match": "\"1\""
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        },
+        {
+          "bodyNotContains": "dgm_NewmanSellerDeliveryKeyDoesNotExist00000"
+        }
+      ]
+    },
+    {
+      "name": "TC-017. Остаток по API с токеном покупателя: 403",
+      "op": "setApiStock",
+      "as": "buyer",
+      "expect": 403,
+      "path": {
+        "productId": "00000000-0000-4000-8000-000000000000"
+      },
+      "body": {
+        "quantity": 5
+      },
+      "headers": {
+        "If-Match": "\"1\""
+      },
+      "assert": [
+        {
+          "header": "Content-Type",
+          "contains": "application/problem+json"
+        }
+      ]
+    }
+  ]
+}

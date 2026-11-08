@@ -37,13 +37,13 @@
 | TC-958 | Шлюз, заголовки личности: `X-Seller-Id` и `X-Auth-Kind` из внешнего запроса удаляются на любом маршруте, по ключу их ставит только шлюз, вызов по токену их не получает | US-11.1 | L7 | JUnit |
 | TC-959 | Подключение системы продавца, секрет подписи: производный и нигде не хранится, смена увеличивает версию и обезличивает прежний секрет сразу, повтор по тому же `Idempotency-Key` и следующий `PUT` секрета не возвращают, внутренний адрес открыт только `delivery-service` и `platform-service` | US-11.3, US-11.4 | L3 | JUnit, JUnit на стенде |
 | TC-960 | Подключение системы продавца, аудит: версии, статусы и хеши хоста и пути вместо адреса, ни секрета, ни адреса в Outbox, секретов нет в журнале сервиса, сбой аудита отменяет действие | US-11.3, US-11.4 | L7 | JUnit, JUnit на стенде |
-| TC-961 | Список заказов продавца: только свои, новые выше, ни одного поля покупателя, курсор и фильтры по статусу и периоду, доступ по токену со вторым фактором и по ключу, чужого продавца назвать нельзя | US-11.2 | L3 | JUnit, JUnit на стенде |
-| TC-962 | Цепочка T10, как её видит продавец: «оплачен», «отменён» с причиной `seller_api_timeout`, «возвращён» с временем возврата, по одной команде на возврат | US-6.7, US-11.2 | L3 | JUnit на стенде |
-| TC-963 | Запрос продавцу: создаётся вместе с выдачей, диспетчер ждёт ответа, подписанный запрос без данных покупателя, повторы через 5 и 30 секунд, не больше трёх отправок, отказ 4xx без повторов | US-6.7, US-11.3 | L3 | JUnit, JUnit на стенде |
-| TC-964 | Ответ в срок: ключи шифруются и выдаются заказу одной транзакцией в `inventory-service`, письмо уходит с ними, значений ключей нет в базе выдачи | US-6.7, US-11.3 | L3 | JUnit, JUnit на стенде |
-| TC-965 | Молчание продавца: тайм-аут закрывает запрос, выдача «ошибка» без письма, одно `delivery.seller-timeout`, без `delivery.failed`, ответ после окна не принимается | US-6.7 | L3 | JUnit, JUnit на стенде |
-| TC-966 | Ошибка продавца и отключённое подключение: ответ с `error`, отказ 4xx, нет подключения, подключение отключено, адрес не прошёл защиту, каталог недоступен | US-6.7, US-11.3 | L3 | JUnit, JUnit на стенде |
-| TC-967 | Повторный, другой и поздний ответ, чужой ключ API: те же ключи дают тот же итог, другие 409, после тайм-аута 409, чужой запрос неотличим от несуществующего | US-11.3, US-6.7 | L3 | JUnit, JUnit на стенде |
+| TC-961 | Список заказов продавца: только свои, новые выше, ни одного поля покупателя, курсор и фильтры по статусу и периоду, доступ по токену со вторым фактором и по ключу, чужого продавца назвать нельзя | US-11.2 | L3 | JUnit, JUnit на стенде, Newman, `seller_delivery_checks.py` |
+| TC-962 | Цепочка T10, как её видит продавец: «оплачен», «отменён» с причиной `seller_api_timeout`, «возвращён» с временем возврата, по одной команде на возврат | US-6.7, US-11.2 | L3 | JUnit на стенде, `seller_delivery_checks.py` |
+| TC-963 | Запрос продавцу: создаётся вместе с выдачей, диспетчер ждёт ответа, подписанный запрос без данных покупателя, повторы через 5 и 30 секунд, не больше трёх отправок, отказ 4xx без повторов | US-6.7, US-11.3 | L3 | JUnit, JUnit на стенде, `seller_delivery_checks.py` |
+| TC-964 | Ответ в срок: ключи шифруются и выдаются заказу одной транзакцией в `inventory-service`, письмо уходит с ними, значений ключей нет в базе выдачи | US-6.7, US-11.3 | L3 | JUnit, JUnit на стенде, `seller_delivery_checks.py` |
+| TC-965 | Молчание продавца: тайм-аут закрывает запрос, выдача «ошибка» без письма, одно `delivery.seller-timeout`, без `delivery.failed`, ответ после окна не принимается | US-6.7 | L3 | JUnit, JUnit на стенде, `seller_delivery_checks.py` |
+| TC-966 | Ошибка продавца и отключённое подключение: ответ с `error`, отказ 4xx, нет подключения, подключение отключено, адрес не прошёл защиту, каталог недоступен | US-6.7, US-11.3 | L3 | JUnit, JUnit на стенде, `seller_delivery_checks.py` |
+| TC-967 | Повторный, другой и поздний ответ, чужой ключ API: те же ключи дают тот же итог, другие 409, после тайм-аута 409, чужой запрос неотличим от несуществующего | US-11.3, US-6.7 | L3 | JUnit, JUnit на стенде, Newman, `seller_delivery_checks.py` |
 | TC-968 | Гонка ответа и тайм-аута: у запроса один исход, ключ не теряется, тайм-аут не закрывает запрос с арендой | US-6.7 | L3 | JUnit, JUnit на стенде |
 | TC-969 | Проверка ответа: число ключей не равно заказанному, дубликат в пуле товара, лишнее поле, состояние резерва, допущенный вызывающий | US-11.3 | L3 | JUnit, JUnit на стенде |
 
@@ -381,9 +381,9 @@
 | Уровень | L3 |
 | Тип | API |
 | Приоритет | Высокий |
-| Автоматизация | JUnit; JUnit на стенде |
+| Автоматизация | JUnit; JUnit на стенде; Python на стенде; Newman |
 | Тег в коде | TC-961 |
-| Где в коде | `services/order-service/src/test/java/dgm/order/SellerOrdersIT.java`, `services/order-service/src/test/java/dgm/order/orders/controller/SellerOrderControllerTest.java`, `services/order-service/src/test/java/dgm/order/orders/service/SellerOrderServiceTest.java` |
+| Где в коде | `services/order-service/src/test/java/dgm/order/SellerOrdersIT.java`, `services/order-service/src/test/java/dgm/order/orders/controller/SellerOrderControllerTest.java`, `services/order-service/src/test/java/dgm/order/orders/service/SellerOrderServiceTest.java`, `tools/stand-checks/seller_delivery_checks.py`, `tools/api-tests/scenarios/seller-delivery.json` |
 
 **Предусловия.** Два продавца, у каждого по три заказа на товары с выдачей по ключам и по API (заказы оформлены через API, статусы «оплачен», «выдан», «возвращён» выставлены в базе, как в TC-528); в адресе доставки покупателя лежит уникальная канарейка (e-mail). На стенде запросы идут через `api-gateway` по mTLS, читатель работает под ролью `app_orders_read` (TC-530); модульно контроллер проверяется по схемам OpenAPI на подмене сервиса, сервис на подмене читателя.
 
@@ -398,6 +398,8 @@
 
 **Ожидаемый результат.** Шаг 1: 200, `Cache-Control: no-store`, заказы только этого продавца, новые выше (по `createdAt` и идентификатору), у каждого заказа ровно поля схемы `SellerOrder` (`orderId`, `orderNumber`, `productId`, `productTitle`, `quantity`, `unitPrice`, `total`, `commission`, `status`, `cancelReason`, `issuanceMethod`, `createdAt`, `paidAt`, `issuedAt`, `refundedAt`), суммы в копейках (цена 149 900, сумма и комиссия по ставке платформы), у «выдан» `issuedAt` заполнено, у «возвращён» после T10 `cancelReason = seller_api_timeout` и `refundedAt`, у «ожидает оплаты» времён оплаты нет, способ выдачи заказа виден; список второго продавца свой. Шаг 2: покупателя, его e-mail и адреса в ответе нет ни как поля (`buyerId`, `email`, `address`, `delivery`, сроки резерва и платёжной сессии), ни как значения: канарейка не найдена, идентификаторов чужих заказов нет (INV-44, правило 6, U3). Шаг 3: курсор проходит каждый заказ ровно один раз, на последней странице курсора нет, страница не длиннее `limit`; фильтр по нескольким статусам сохраняет порядок, статус без заказов даёт пустой список; начало периода включено, конец не включён; ни при каком фильтре чужие заказы не появляются. Шаг 4: 200 и заказы профиля ключа, у второго ключа свои. Шаг 5: параметр `sellerId` это 422 `unknown_value`: продавец определяется только по токену или по ключу, запрос выбрать его не может; у продавца без заказов список пуст и чужие не подмешиваются; токен покупателя 403; токен без второго фактора 403 `second-factor-required`; токен без профиля продавца 403; без токена и с испорченным токеном 401. Шаг 6: неизвестный статус 422 `unknown_value` (`parameter = status`), перевёрнутый период 422 `out_of_range`, не дата 422 `invalid_format`, мусорный курсор 422 с `parameter = cursor`; читатель просит строк на одну больше страницы, по этой строке ставится курсор, показана она не бывает. Предел частоты API (`seller.api`, 600 в минуту на ключ) проверяет TC-957.
 
+**Сквозная проверка на стенде (шаг 13, К15).** `seller_delivery_checks.py` читает список заказов по ключу продавца «а» после выдачи: заказ `issued`, товар, количество, `issuanceMethod = seller_api`, время оплаты и выдачи, ни одного поля покупателя, e-mail и идентификатора покупателя в ответе нет, значений ключей тоже; у продавца «б» этого заказа нет. Newman `seller-delivery.json`: гость и неизвестный ключ получают 401, покупатель 403.
+
 ### TC-962. Цепочка T10, как её видит продавец: «оплачен», «отменён» с причиной `seller_api_timeout`, «возвращён» с временем возврата, по одной команде на возврат
 
 | Поле | Содержание |
@@ -408,9 +410,9 @@
 | Уровень | L3 |
 | Тип | интеграционный |
 | Приоритет | Высокий |
-| Автоматизация | JUnit на стенде |
+| Автоматизация | JUnit на стенде; Python на стенде |
 | Тег в коде | TC-962 |
-| Где в коде | `services/order-service/src/test/java/dgm/order/OrderEventsIT.java` |
+| Где в коде | `services/order-service/src/test/java/dgm/order/OrderEventsIT.java`, `tools/stand-checks/seller_delivery_checks.py` |
 
 **Предусловия.** Стенд `dev-kit`: настоящие PostgreSQL и Kafka, `order-service` в процессе теста, `api-gateway` по mTLS. Оформленный и оплаченный (`payment.confirmed`) заказ на товар по API (TC-531) продавца, у продавца токен со вторым фактором. Деньги и остаток возвращают `payment-service` и `inventory-service`, они в этом тесте подменены: проверяется, что заказ передал им команды, и что продавец видит ход дела.
 
@@ -422,6 +424,8 @@
 
 **Ожидаемый результат.** Шаг 1: статус `paid`, `issuanceMethod = seller_api`. Шаг 2: статус `cancelled`, `cancelReason = seller_api_timeout`, `paidAt` на месте, `refundedAt` пуст (деньги ещё не вернулись); в Outbox по одному `order.cancelled` и `order.refund-requested`. Шаг 3: статус `refunded`, `cancelReason` остаётся `seller_api_timeout`, `refundedAt` заполнено (время ставит база при переходе, оно же в столбце `refunded_at` заказа), в Outbox один `order.refunded` с `refundReason = seller_api_timeout`, команд на возврат по-прежнему одна. Исполнение возврата платежом (TC-521, TC-522) и возврат остатка по `order.cancelled` проверяют тест-кейсы этих сервисов. Полная сквозная цепочка «подписанный запрос продавцу, молчание 10 минут, отмена, возврат денег» на стенде с настоящими соседями появляется со сценариями шага 12 (TC-963 – TC-969).
 
+**Сквозная проверка на стенде (шаг 13, К15).** `seller_delivery_checks.py` проходит настоящую цепочку: при отказе продавца заказ доходит до `refunded` быстрее окна (20 секунд в профиле `fast-time`), продавец видит причину `seller_api_timeout` и время возврата; при молчании тот же путь идёт после окна (TC-965).
+
 ### TC-963. Запрос продавцу: создаётся вместе с выдачей, диспетчер ждёт ответа, подписанный запрос без данных покупателя, повторы через 5 и 30 секунд, не больше трёх отправок, отказ 4xx без повторов
 
 | Поле | Содержание |
@@ -432,9 +436,9 @@
 | Уровень | L3 |
 | Тип | интеграционный |
 | Приоритет | Высокий |
-| Автоматизация | JUnit; JUnit на стенде |
+| Автоматизация | JUnit; JUnit на стенде; Python на стенде |
 | Тег в коде | TC-963 |
-| Где в коде | `services/delivery-service/src/test/java/dgm/delivery/delivery/SellerRequestIT.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/dispatcher/SellerRequestJobTest.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/service/SellerRequestOutcomesTest.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/client/SellerApiClientTest.java` |
+| Где в коде | `services/delivery-service/src/test/java/dgm/delivery/delivery/SellerRequestIT.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/dispatcher/SellerRequestJobTest.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/service/SellerRequestOutcomesTest.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/client/SellerApiClientTest.java`, `tools/stand-checks/seller_delivery_checks.py` |
 
 **Предусловия.** Стенд `dev-kit`: настоящие PostgreSQL и Kafka, `delivery-service` в процессе теста, окно ответа продавца 600 секунд (`delivery.seller-response-seconds`). Заказ оплачен, в `order.paid` стоит `issuanceMethod = seller_api`. У продавца есть действующее подключение. Система продавца и каталог подключений подменены ([ADR-028](../05-architecture/adr/ADR-028-seller-delivery-request.md)): тест задаёт исход каждой отправки (принято, временный сбой, отказ). Подпись и защиту от SSRF проверяют модульные тесты клиента, настоящий приёмник заглушки `external-stubs` проверит сквозной сценарий К15 (шаг 13 плана Ф5).
 
@@ -449,6 +453,8 @@
 
 **Ожидаемый результат.** Шаг 1: у заказа одна первичная выдача «в очереди» и один запрос `requested` со сроком ответа через 600 секунд от оплаты (в пределах секунд на задержку потребителя), `attempts = 0`; диспетчер выдач три раза ничего не берёт: письма нет, ключи у `inventory-service` не запрашивались, выдача остаётся в очереди (условие «нет открытого запроса» стоит в запросе выбора, не флагом в памяти). Шаг 2: взят один запрос; продавцу ушла одна отправка с `requestId` (он же в строке), `orderNumber`, `productId`, `quantity` и сроком ответа, без адреса и e-mail покупателя; запрос стал `accepted`, `attempts = 1`, следующей отправки нет, `accepted_at` заполнено; второй проход ничего не берёт. Шаг 3: после первого сбоя запрос остаётся `requested`, `attempts = 1`, следующая отправка через 5 секунд (до срока проход ничего не берёт); после второго `attempts = 2`, пауза 30 секунд; после третьего `attempts = 3`, следующей отправки нет, запрос ждёт тайм-аут (TC-965), отправок продавцу ровно три с номерами 0, 1, 2, выдача остаётся в очереди. Шаг 4: запрос `accepted`, две отправки, одна из них неудачная. Шаг 5: запрос `failed` с кодом `seller_rejected`, отправка одна (повторов нет), выдача `failed` с причиной `seller_unavailable`, в Outbox одно `delivery.seller-timeout` с причиной `seller_error`, нет `delivery.failed` и `delivery.accepted`, письма нет. Шаг 6: тело запроса состоит ровно из полей контракта, подпись совпадает с подписью каркаса, данных покупателя нет; 2xx принимается, 5xx, тайм-аут и обрыв повторяются, 4xx и 3xx это отказ продавца (перенаправления платформа не выполняет), адрес, не прошедший проверку, не вызывается ни разу.
 
+**Сквозная проверка на стенде (шаг 13, К15).** Заглушка «системы продавца» принимает подписанный запрос: он приходит один раз, с товаром и количеством заказа, без лишних полей; срок ответа в нём равен времени оплаты плюс 20 секунд; e-mail и идентификатора покупателя и адреса доставки в теле нет (`seller_delivery_checks.py`).
+
 ### TC-964. Ответ в срок: ключи шифруются и выдаются заказу одной транзакцией в `inventory-service`, письмо уходит с ними, значений ключей нет в базе выдачи
 
 | Поле | Содержание |
@@ -459,9 +465,9 @@
 | Уровень | L3 |
 | Тип | интеграционный |
 | Приоритет | Высокий |
-| Автоматизация | JUnit; JUnit на стенде |
+| Автоматизация | JUnit; JUnit на стенде; Python на стенде |
 | Тег в коде | TC-964 |
-| Где в коде | `services/delivery-service/src/test/java/dgm/delivery/delivery/SellerRequestIT.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/service/SellerAnswerServiceTest.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/client/PeerSellerKeyStoreTest.java`, `services/inventory-service/src/test/java/dgm/inventory/SellerKeysIT.java`, `services/inventory-service/src/test/java/dgm/inventory/inventory/keys/SellerKeysServiceTest.java` |
+| Где в коде | `services/delivery-service/src/test/java/dgm/delivery/delivery/SellerRequestIT.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/service/SellerAnswerServiceTest.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/client/PeerSellerKeyStoreTest.java`, `services/inventory-service/src/test/java/dgm/inventory/SellerKeysIT.java`, `services/inventory-service/src/test/java/dgm/inventory/inventory/keys/SellerKeysServiceTest.java`, `tools/stand-checks/seller_delivery_checks.py` |
 
 **Предусловия.** Как в TC-963; запрос продавцу принят (`accepted`). Вызовы `respondSellerDelivery` идут от имени шлюза (сертификат `api-gateway`, заголовки `X-Seller-Id` и `X-Auth-Kind: api-key`, [ADR-027](../05-architecture/adr/ADR-027-api-key-access.md)). В `inventory-service` на стенде: товар с выдачей по API, остаток задан, резерв по количеству подтверждён (статус `used`, ключей у заказа нет), вызовы `storeSellerKeys` идут от имени `delivery-service` по mTLS.
 
@@ -477,6 +483,8 @@
 
 **Ожидаемый результат.** Шаг 1: `200`, `Cache-Control: no-store`, тело `{requestId, status: answered, stored: n}`, значений ключей в ответе нет. Шаг 2: к хранилищу ключей ушёл один вызов с теми же ключами, `requestId` запроса и `Idempotency-Key` формата UUID v4; запрос `answered`, `answered_at` заполнено, аренда снята; диспетчер выдач отправил одно письмо с этими ключами, выдача «отправлено», в Outbox одно `delivery.accepted`, нет `delivery.seller-timeout` и `delivery.failed`. Шаг 3: значений нет нигде (INV-20, ключ лежит только зашифрованным в `inventory_db`). Шаг 4: `503 dependency-unavailable`, запрос остался `accepted`, аренда снята, выдача в очереди, ключ не потерян; повтор после восстановления даёт `200`, письмо уходит. Шаг 5: ответ принимается (`requested > answered` допустим), запрос уже не отправляется продавцу, письмо уходит. Шаг 6: `200`, `stored` равно числу ключей; ключи заказа `issued`, у каждого свой HMAC, значений в базе открытым текстом нет, `getKeyValues` возвращает прежние значения, резерв остаётся `used`, остаток по количеству не меняется. Шаг 7: ключи зашифрованы, привязаны к заказу и резерву и выданы, значение очищено от пробелов по краям как у загруженного ключа.
 
+**Сквозная проверка на стенде (шаг 13, К15).** Заглушка отвечает через 3 секунды вызовом по API-ключу: 200 `answered`, заказ `issued`, в почтовой заглушке одно письмо с теми же ключами, что прислал продавец, остаток меньше на заказанное, выдача `delivered`, запрос `answered`, в Outbox выдачи по одному `delivery.accepted` и `delivery.delivered`. Канарейка: значения ключей продавца и API-ключей не находятся в журналах контейнеров, темах `payment`, `order`, `delivery` и `inventory` и дампах баз, в `inventory_db` лежит шифртекст (`seller_delivery_checks.py`).
+
 ### TC-965. Молчание продавца: тайм-аут закрывает запрос, выдача «ошибка» без письма, одно `delivery.seller-timeout`, без `delivery.failed`, ответ после окна не принимается
 
 | Поле | Содержание |
@@ -487,9 +495,9 @@
 | Уровень | L3 |
 | Тип | интеграционный |
 | Приоритет | Высокий |
-| Автоматизация | JUnit; JUnit на стенде |
+| Автоматизация | JUnit; JUnit на стенде; Python на стенде |
 | Тег в коде | TC-965 |
-| Где в коде | `services/delivery-service/src/test/java/dgm/delivery/delivery/SellerRequestIT.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/service/SellerRequestOutcomesTest.java` |
+| Где в коде | `services/delivery-service/src/test/java/dgm/delivery/delivery/SellerRequestIT.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/service/SellerRequestOutcomesTest.java`, `tools/stand-checks/seller_delivery_checks.py` |
 
 **Предусловия.** Как в TC-963. Заказ оплачен давно (за пределами окна): запрос получает срок через секунду после создания, чтобы тест не ждал 10 минут настоящего окна (настоящие 600 секунд проверяет TC-963).
 
@@ -503,6 +511,8 @@
 
 **Ожидаемый результат.** Шаг 1: ничего не закрыто (срок не наступил). Шаг 2: закрыт один запрос: `timeout`, выдача `failed` с причиной `seller_unavailable`, следующей попытки нет, в Outbox ровно одно `delivery.seller-timeout` (`orderId`, `sellerId`, `deliveryId`, `reason = timeout`, `waitedSeconds` не меньше 1), нет `delivery.failed` и `delivery.accepted` (заказ отменяет T10 по `delivery.seller-timeout`, Р-190, TC-962); второй проход ничего не закрывает. Шаг 3: письма не было, ключи не запрашивались, событие одно. Шаг 4: `409 request-expired`, ключи в хранилище не передавались, запрос закрывает тайм-аут (событие одно). Шаг 5: закрытие идёт одной транзакцией с событием и выдачей, условный `UPDATE` не даёт закрыть запрос дважды.
 
+**Сквозная проверка на стенде (шаг 13, К15).** Заглушка принимает запрос и молчит: до конца окна заказ `paid`, после него `cancelled` с причиной `seller_api_timeout` (не раньше срока), затем `refunded`, платёж `refunded`, остаток вернулся, письма от выдачи нет, запрос `timeout`, одно `delivery.seller-timeout` и ни одного `delivery.failed`; поздний ответ получает 409 и ничего не меняет (`seller_delivery_checks.py`).
+
 ### TC-966. Ошибка продавца и отключённое подключение: ответ с `error`, отказ 4xx, нет подключения, подключение отключено, адрес не прошёл защиту, каталог недоступен
 
 | Поле | Содержание |
@@ -513,9 +523,9 @@
 | Уровень | L3 |
 | Тип | интеграционный |
 | Приоритет | Высокий |
-| Автоматизация | JUnit; JUnit на стенде |
+| Автоматизация | JUnit; JUnit на стенде; Python на стенде |
 | Тег в коде | TC-966 |
-| Где в коде | `services/delivery-service/src/test/java/dgm/delivery/delivery/SellerRequestIT.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/dispatcher/SellerRequestJobTest.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/service/SellerAnswerServiceTest.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/service/SellerRequestOutcomesTest.java` |
+| Где в коде | `services/delivery-service/src/test/java/dgm/delivery/delivery/SellerRequestIT.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/dispatcher/SellerRequestJobTest.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/service/SellerAnswerServiceTest.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/service/SellerRequestOutcomesTest.java`, `tools/stand-checks/seller_delivery_checks.py` |
 
 **Предусловия.** Как в TC-963; подключения продавцов заданы тестом: действующее, отключённое, отсутствующее.
 
@@ -529,6 +539,8 @@
 
 **Ожидаемый результат.** Шаг 1: `200`, `status = failed`, `stored` пусто; запрос `failed` с кодом `out_of_stock`, пояснение продавца в строке запроса (для оператора), выдача `failed` с причиной `seller_unavailable`, в Outbox одно `delivery.seller-timeout` с причиной `seller_error` и без пояснения продавца, нет `delivery.failed`, письма нет, ключи в хранилище не передавались. Шаг 2: `200`, незнакомый код записан как `other`, выдача и событие как в шаге 1. Шаг 3: пока каталог недоступен, запрос остаётся `requested` с `attempts = 0` (попытка не потрачена, подключение не закрыто «по ошибке»); после восстановления отключённое подключение закрывает запрос кодом `integration_disabled`, отсутствующее кодом `integration_missing`, продавцу ничего не отправлялось (`attempts = 0`), а запрос с действующим подключением уходит и становится `accepted`. Шаг 4: код `endpoint_rejected`, попытки не потрачены (соединение с адресом, не прошедшим защиту, не открывается: `SellerApiClientTest`). Во всех случаях заказ отменяется так же, как при молчании (TC-962), событие `delivery.seller-timeout` одно.
 
+**Сквозная проверка на стенде (шаг 13, К15).** Заглушка присылает отказ с кодом `cannot_issue`: ответ платформы 200 `failed`, запрос `failed`, заказ `cancelled` и `refunded` быстрее окна, остаток вернулся, письма нет (`seller_delivery_checks.py`).
+
 ### TC-967. Повторный, другой и поздний ответ, чужой ключ API: те же ключи дают тот же итог, другие 409, после тайм-аута 409, чужой запрос неотличим от несуществующего
 
 | Поле | Содержание |
@@ -539,9 +551,9 @@
 | Уровень | L3 |
 | Тип | безопасность |
 | Приоритет | Высокий |
-| Автоматизация | JUnit; JUnit на стенде |
+| Автоматизация | JUnit; JUnit на стенде; Python на стенде; Newman |
 | Тег в коде | TC-967 |
-| Где в коде | `services/delivery-service/src/test/java/dgm/delivery/delivery/SellerRequestIT.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/service/SellerAnswerServiceTest.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/client/PeerSellerKeyStoreTest.java`, `services/inventory-service/src/test/java/dgm/inventory/SellerKeysIT.java`, `services/inventory-service/src/test/java/dgm/inventory/inventory/keys/SellerKeysServiceTest.java` |
+| Где в коде | `services/delivery-service/src/test/java/dgm/delivery/delivery/SellerRequestIT.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/service/SellerAnswerServiceTest.java`, `services/delivery-service/src/test/java/dgm/delivery/delivery/client/PeerSellerKeyStoreTest.java`, `services/inventory-service/src/test/java/dgm/inventory/SellerKeysIT.java`, `services/inventory-service/src/test/java/dgm/inventory/inventory/keys/SellerKeysServiceTest.java`, `tools/stand-checks/seller_delivery_checks.py`, `tools/api-tests/scenarios/seller-delivery.json` |
 
 **Предусловия.** Как в TC-964. Запрос уже получил ответ с ключами; для позднего ответа запрос закрыт тайм-аутом; для чужого вызова есть второй продавец с собственным ключом API.
 
@@ -555,6 +567,8 @@
 6. Модульно: вызов, пока другой ответ держит аренду.
 
 **Ожидаемый результат.** Шаг 1: те же ключи дают `200` с тем же итогом (`status = answered`, `stored` как в первый раз), письмо одно, сколько бы раз продавец ни повторил ответ; другие ключи это `409 request-already-answered`, отказ после ключей это `409 request-already-answered`. Шаг 2: ключи после тайм-аута это `409 request-expired`, ключи в хранилище не передавались; ключи после отказа это `409 request-already-answered`, тот же отказ повторно это `200 failed` и событие по-прежнему одно. Шаг 3: все три ответа `404 not-found`, неотличимые по заголовку и тексту (U24), в хранилище ничего не передано, запрос продавца не изменён (`accepted`). Шаг 4: `401`, запрос не затронут. Шаг 5: тот же вызов под тем же ключом идемпотентности возвращает ответ с тем же содержимым (порядок полей хранилище идемпотентности может изменить); те же ключи под новым ключом и в другом порядке дают `200` (сравнивается набор HMAC), другие ключи дают `409 state-conflict`, ключей по-прежнему столько, сколько заказано, значения не изменились. Шаг 6: `409 request-in-progress` с `Retry-After: 5`, аренда первого ответа не нарушена.
+
+**Сквозная проверка на стенде (шаг 13, К15).** Заглушка присылает тот же ответ дважды: оба 200 `answered`, письмо одно, остаток уменьшился один раз. Ключ другого продавца на чужой запрос даёт 404, неотличимый от неизвестного запроса, без ключа 401, поздний ответ после тайм-аута 409 (`seller_delivery_checks.py`). Newman `seller-delivery.json`: токен любой роли и неизвестный ключ на `respondSellerDelivery` получают 401.
 
 ### TC-968. Гонка ответа и тайм-аута: у запроса один исход, ключ не теряется, тайм-аут не закрывает запрос с арендой
 
