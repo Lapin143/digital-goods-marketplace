@@ -207,7 +207,8 @@ class ParameterControllerTest {
     @Test
     void invariantSevenIsFourHundredAndTwentyTwoNamingThePairedParameter() {
         ProblemException e = problem(() -> set("payment-session.ttl-seconds", "\"1\"", "{\"value\":900}"));
-        assertEquals(ProblemType.VALIDATION_FAILED, e.type());
+        assertEquals(ProblemType.PAIR_CONFLICT, e.type(), "INV-07 это отдельный тип проблемы (Р-195)");
+        assertEquals("pair_conflict", errors(e).get(0).get("code"));
         assertTrue(((String) errors(e).get(0).get("detail")).contains(RESERVE));
     }
 

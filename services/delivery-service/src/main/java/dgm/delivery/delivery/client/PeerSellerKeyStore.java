@@ -28,6 +28,9 @@ public final class PeerSellerKeyStore implements SellerKeyStore {
 
     private static final Logger LOG = LoggerFactory.getLogger(PeerSellerKeyStore.class);
 
+    /** Текст нарушения, когда сосед не передал свой: поле {@code detail} в ответе продавцу обязательно. */
+    static final String MISSING_DETAIL = "Значение поля не принято.";
+
     private final Supplier<PeerClient> peer;
 
     public PeerSellerKeyStore(Supplier<PeerClient> peer) {
@@ -59,7 +62,7 @@ public final class PeerSellerKeyStore implements SellerKeyStore {
         }
     }
 
-    /** Нарушения из ответа 422: только строковые {@code pointer}, {@code code}, {@code detail}, ничего лишнего продавцу не передаётся. */
+    /** Нарушения из ответа 422: только строковые {@code pointer}, {@code code}, {@code detail} (общий текст, если соседа его не передал), ничего лишнего продавцу не передаётся. */
     static List<Map<String, Object>> errors(Map<String, Object> problem) {
         List<Map<String, Object>> result = new ArrayList<>();
         if (problem.get("errors") instanceof List<?> items) {
@@ -68,9 +71,8 @@ public final class PeerSellerKeyStore implements SellerKeyStore {
                     Map<String, Object> copy = new LinkedHashMap<>();
                     copy.put("pointer", pointer);
                     copy.put("code", code);
-                    if (error.get("detail") instanceof String detail) {
-                        copy.put("detail", detail);
-                    }
+                    // detail обязателен в схеме ошибки поля (components.yaml, FieldError): у соседа его может не быть, продавцу уходит общий текст
+                    copy.put("detail", error.get("detail") instanceof String detail ? detail : MISSING_DETAIL);
                     result.add(copy);
                 }
             }

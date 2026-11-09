@@ -105,7 +105,7 @@ class PeerSellerKeyStoreTest {
     }
 
     @Test
-    void aValidationRefusalCarriesOnlyThePositionsAndTheCodesOfTheViolations() {
+    void aValidationRefusalCarriesOnlyThePositionsTheCodesAndTheTextsOfTheViolations() {
         peer.then(422, "{\"type\":\"https://api.marketplace.example/problems/validation-failed\",\"code\":\"validation-failed\",\"errors\":["
                 + "{\"pointer\":\"/keys/1\",\"code\":\"not_unique\",\"detail\":\"Ключ уже есть.\",\"value\":\"BBBBB-22222\"},"
                 + "{\"pointer\":\"/keys\",\"code\":\"out_of_range\"},"
@@ -115,7 +115,7 @@ class PeerSellerKeyStoreTest {
         KeyStoreResult.Refused refused = assertInstanceOf(KeyStoreResult.Refused.class, store.store(ORDER, REQUEST, KEYS));
 
         assertEquals(422, refused.status());
-        assertEquals(List.of(Map.of("pointer", "/keys/1", "code", "not_unique", "detail", "Ключ уже есть."), Map.of("pointer", "/keys", "code", "out_of_range")),
+        assertEquals(List.of(Map.of("pointer", "/keys/1", "code", "not_unique", "detail", "Ключ уже есть."), Map.of("pointer", "/keys", "code", "out_of_range", "detail", PeerSellerKeyStore.MISSING_DETAIL)),
                 refused.errors());
         assertFalse(refused.toString().contains("BBBBB"), "значений ключей в итоге нет");
         assertFalse(refused.toString().contains("AAAAA"), "значений ключей в итоге нет");
