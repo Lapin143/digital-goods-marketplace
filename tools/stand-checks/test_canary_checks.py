@@ -5,6 +5,7 @@
 
 Сеть и стенд не нужны. Главное: шестизначный код подтверждения не находится внутри метки времени журнала. В запуске CI 42276547602 код
 «870893» нашёлся в `"@timestamp":"2026-11-06T19:17:05.987089387Z"` шлюза и покрасил проверку смены e-mail без всякой утечки (F5-14).
+То же с идентификатором трассы: в ночном запуске 42572696614 код «331211» нашёлся в `"traceId":"dc15b331211f0fd2109552b87a0c3314"` (F5-46).
 Обратная сторона так же важна: код, который в журнал действительно попал, обязан находиться.
 """
 import os
@@ -15,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import canary_checks as C  # noqa: E402
 
 LINE = '{"@timestamp":"2026-11-06T19:17:05.987089387Z","@version":"1","message":"POST /api/v1/phone-confirmations"}'
+TRACE = '{"level":"INFO","level_value":20000,"traceId":"dc15b331211f0fd2109552b87a0c3314","spanId":"d796a28673f8a08a"}'
 
 
 class DigitCodeTest(unittest.TestCase):
@@ -22,6 +24,19 @@ class DigitCodeTest(unittest.TestCase):
         self.assertIn('870893', LINE)
         self.assertEqual(C.find_at(LINE, '870893'), -1)
         self.assertEqual(C.leaks(LINE, ['870893']), [])
+
+    def test_a_code_inside_a_hex_trace_id_is_not_a_leak(self):
+        self.assertIn('331211', TRACE)
+        self.assertEqual(C.find_at(TRACE, '331211'), -1)
+        self.assertEqual(C.leaks(TRACE, ['331211']), [])
+        self.assertEqual(C.leaks(TRACE, ['109552']), [])   # цифры внутри идентификатора после цифры слева
+
+    def test_a_code_with_a_letter_on_either_side_is_not_found(self):
+        for text in ('b870893', '870893f', 'x870893y', '05.870893Z'):
+            self.assertEqual(C.find_at(text, '870893'), -1, text)
+
+    def test_a_code_next_to_a_trace_id_in_the_same_line_is_still_a_leak(self):
+        self.assertEqual(len(C.leaks('%s code=331211' % TRACE, ['331211'])), 1)
 
     def test_a_code_written_as_a_separate_number_is_a_leak(self):
         for text in ('code=870893', 'код 870893.', '"code":"870893"', '870893', 'a\n870893\nb', '(870893)', 'sms:870893,'):
