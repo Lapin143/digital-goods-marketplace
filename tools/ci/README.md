@@ -66,7 +66,7 @@ python3 tools/ci/ci_status.py --all-steps     # печатать все шаги
 | `web_lock.sh`, `../../.github/workflows/web-lock.yml` | Создание `package-lock.json` на раннере (в рабочей среде разработки реестр npm закрыт): пуш коммита в ветку `ci/web-lock` запускает рабочий процесс, он собирает lock-файл и возвращает его в ту же ветку. Забрать: `git fetch origin ci/web-lock && git checkout FETCH_HEAD -- frontend/web-app/package-lock.json`. Основной CI на эту ветку не идёт |
 | `../../.github/workflows/web-check.yml` | Быстрая проверка интерфейса при разработке экранов: пуш в ветку `ci/web` запускает только задание `web` (около трёх минут) и не отменяет полный CI. Задание повторяет `web` из `ci.yml` шаг в шаг, это проверяет `check_workflows.py` |
 | `web_lint_probe.sh` | Контроль правила ESLint «в коде и разметке нет русских текстов» (NFT-7.0): намеренно плохие файлы отвергаются именно этим правилом, чистый проходит |
-| `concurrency_series.sh` | Серия повторов тестов гонок (задание `concurrency`, К3) |
+| `concurrency_series.sh` | Серия повторов тестов гонок (задание `concurrency`, К3); при сбое печатает упавшие тесты из отчётов JUnit (F5-47) |
 | `../../.gitleaks.toml` | Настройки Gitleaks: стандартные правила и исключения проекта |
 | `../docs-checks/requirements.txt` | Зависимости Python проверок документов |
 
