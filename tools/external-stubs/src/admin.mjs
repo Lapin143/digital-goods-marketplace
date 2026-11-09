@@ -163,7 +163,7 @@ export function registerAdmin(router, app) {
   });
   router.add('GET', '/admin/sellers/:slug/requests', async ({ res, params, query }) => {
     const seller = findSeller(state, params.slug);
-    const items = [...seller.requests.values()].filter((r) => (!query.requestId || r.requestId === query.requestId) && (!query.orderNumber || r.orderNumber === query.orderNumber));
+    const items = [...seller.requests.values()].filter((r) => (!query.requestId || r.requestId === query.requestId) && (!query.orderNumber || String(r.orderNumber) === String(query.orderNumber)));
     sendJson(res, 200, { items: items.map(publicRequest) });
   });
   router.add('GET', '/admin/sellers/:slug/webhooks', async ({ res, params, query }) => {

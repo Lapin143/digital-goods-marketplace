@@ -204,6 +204,10 @@ sms-login-check: ## Проверить вход по SMS на настоящей
 accounts-check: ## Проверить учётные записи сквозь стенд: вход, VK ID, жизненный цикл записи сотрудника, второй фактор, внутренние операции (набор full, DEBUG=1, make keycloak-users)
 	$(KC_ENV) python3 tools/stand-checks/accounts_checks.py
 
+.PHONY: keycloak-mail-check
+keycloak-mail-check: ## Проверить письма регистрации и сброса пароля на настоящей платформе: ссылки из писем, счётчик писем по адресу, четвёртое письмо не уходит (набор full, DEBUG=1, make keycloak-users)
+	$(KC_ENV) python3 tools/stand-checks/keycloak_checks.py --mail-flows
+
 .PHONY: sellers-check
 sellers-check: ## Проверить заявку продавца сквозь стенд: черновик, ETag, документы, ссылка через /files шлюза, заголовки «только скачать», подача (набор full, DEBUG=1, make keycloak-users)
 	$(KC_ENV) python3 tools/stand-checks/sellers_checks.py

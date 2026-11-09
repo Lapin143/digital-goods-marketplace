@@ -26,8 +26,8 @@ afterEach(async () => {
   await h.reset();
 });
 
-const requestBody = (extra = {}) => ({ requestId: REQUEST_ID, orderNumber: 'DGM-1042', productId: PRODUCT_ID, quantity: 2, respondBy: new Date(Date.now() + 600_000).toISOString(), ...extra });
-const webhookBody = (extra = {}) => ({ eventId: 'evt-1', type: 'order.paid', occurredAt: new Date().toISOString(), orderNumber: 'DGM-1042', productId: PRODUCT_ID, quantity: 2, amount: { amount: 299800, currency: 'RUB' }, ...extra });
+const requestBody = (extra = {}) => ({ requestId: REQUEST_ID, orderNumber: 1042, productId: PRODUCT_ID, quantity: 2, respondBy: new Date(Date.now() + 600_000).toISOString(), ...extra });
+const webhookBody = (extra = {}) => ({ eventId: 'evt-1', type: 'order.paid', occurredAt: new Date().toISOString(), orderNumber: 1042, productId: PRODUCT_ID, quantity: 2, amount: { amount: 299800, currency: 'RUB' }, ...extra });
 
 const connect = (fields = { secret: SECRET, apiKey: API_KEY }) => h.admin('PUT', `/admin/sellers/${SLUG}`, { body: fields });
 const signed = (obj, { secret = SECRET, timestamp = new Date().toISOString(), body } = {}) => {
@@ -48,6 +48,8 @@ test('подпись и контракт: проверка тела запрос
   assert.deepEqual(requestProblems(requestBody()), []);
   assert.equal(requestProblems(requestBody({ requestId: 'не-uuid' })).length, 1);
   assert.equal(requestProblems(requestBody({ quantity: 0 })).length, 1);
+  assert.equal(requestProblems(requestBody({ orderNumber: '1042' })).length, 1, 'номер заказа в запросе это число, строка нарушает контракт');
+  assert.equal(requestProblems(requestBody({ orderNumber: 0 })).length, 1);
   assert.equal(requestProblems(requestBody({ quantity: 11 })).length, 1);
   assert.equal(requestProblems(requestBody({ respondBy: 'завтра' })).length, 1);
   assert.equal(requestProblems(null).length, 1);

@@ -151,9 +151,18 @@ def request_for(fx, order):
     try:
         found = fx['stubs'].wait_seller_request(fx['slug'], count=1, wait=30.0, order_number=str(order['orderNumber']))
     except SB.StubsError as e:
-        G.bad('Заглушка продавца не получила запрос по заказу №%s' % order['orderNumber'], str(e)[:200])
+        G.bad('Заглушка продавца не получила запрос по заказу №%s' % order['orderNumber'], '%s; отклонено заглушкой: %s' % (str(e)[:160], rejected_note(fx)))
         return None
     return found[0]
+
+
+def rejected_note(fx):
+    """Почему заглушка не приняла запросы платформы (подпись, тело): до пяти последних причин, чтобы журнал CI показал разницу между «не дошёл» и «не принят»."""
+    try:
+        items = fx['stubs'].seller_rejected(fx['slug'])
+    except Exception as e:   # noqa: BLE001 - диагностика не должна скрывать исходную ошибку
+        return 'не удалось прочитать (%s)' % type(e).__name__
+    return str([{k: i.get(k) for k in ('kind', 'reason', 'problems')} for i in items[-5:]]) if items else 'ничего (запрос не дошёл до заглушки)'
 
 
 # --------------------------------------------------------------------------------------------------- подготовка

@@ -27,7 +27,8 @@ export function requestProblems(body) {
   if (!isObject(body)) return ['тело: ожидается JSON-объект'];
   const errors = [];
   if (typeof body.requestId !== 'string' || !UUID.test(body.requestId)) errors.push('requestId: ожидается UUID');
-  if (typeof body.orderNumber !== 'string' || !body.orderNumber || body.orderNumber.length > 64) errors.push('orderNumber: строка от 1 до 64 символов');
+  // Короткий номер заказа это целое число (OpenAPI, схема заказа: orderNumber 1042), так его и шлёт delivery-service
+  if (!Number.isInteger(body.orderNumber) || body.orderNumber < 1) errors.push('orderNumber: целое число от 1');
   if (typeof body.productId !== 'string' || !UUID.test(body.productId)) errors.push('productId: ожидается UUID');
   if (!Number.isInteger(body.quantity) || body.quantity < 1 || body.quantity > 10) errors.push('quantity: целое от 1 до 10');
   if (!isTimestamp(body.respondBy)) errors.push('respondBy: ожидается время RFC 3339');

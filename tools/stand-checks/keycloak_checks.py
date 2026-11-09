@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 """Проверки Keycloak на поднятом стенде: realm dgm ведёт себя так, как записано в roles-permissions.md (NFT-3.0, NFT-3.1, ST-13 в части Ф3).
 
-    python3 tools/stand-checks/keycloak_checks.py
+    python3 tools/stand-checks/keycloak_checks.py               стенд без платформы (профили infra, stubs, auth)
+    python3 tools/stand-checks/keycloak_checks.py --mail-flows  письма регистрации и сброса пароля на стенде с платформой (набор full)
 
 Перед запуском: стенд с профилем auth поднят, пользователи созданы (python3 infra/keycloak/provision_test_users.py).
 Адреса и администратор: переменные окружения, см. kc_client.from_env. Проверки идут настоящим входом по коду авторизации с PKCE:
@@ -15,8 +16,9 @@
   расширение подключено (провайдеры sms-otp, dgm-cookie, dgm-auth-level, dgm-register, dgm-reset-email), страницы входа по SMS работают,
     без платформы вход по SMS честно отвечает «временно недоступен» (ответы с платформой проверяет sms_login_checks.py);
   второй фактор целиком: вход без TOTP → настройка TOTP на странице → токен с amr из pwd и otp;
-  регистрация и сброс пароля нейтральны (US-01, ST-06): страница ответа для свободного и занятого e-mail одна, письма уходят, время ответа
-    близко; занятому адресу пароль не меняется, учётная запись не создаётся; ссылка из письма подтверждает адрес и продолжает вход;
+  регистрация и сброс пароля нейтральны (US-01, ST-06): страница ответа для свободного и занятого e-mail одна, время ответа близко; занятому адресу
+    пароль не меняется, учётная запись не создаётся. Здесь платформы нет, счётчик писем по адресу (F4-1) недоступен, и по ADR-010 (режим отказа) письма
+    не уходят и новых записей нет; письма и ссылки из них проверяет режим --mail-flows на стенде с платформой (make keycloak-mail-check, задание e2e);
   утверждение seller_id попадает в токен продавца и не появляется у покупателя;
   настройки realm в работающем Keycloak: Argon2, защита от перебора, TLS обязателен;
   служебный клиент platform-service: токен по секрету, Admin API только в пределах выданных прав;
@@ -150,9 +152,11 @@ def sms_checks_without_platform(kc):
 
 
 # --------------------------------------------------------------------------------------------------- регистрация и сброс пароля нейтральны
-def registration_checks(kc, admin, users):
+def registration_checks(kc, admin, users, platform=False):
+    """platform=False: стенд без платформы (задание keycloak), счётчик писем недоступен и по ADR-010 (режим отказа) письма и записи не создаются,
+    страница ответа та же. platform=True: платформа есть (задание e2e), письма и ссылки проверяются целиком, плюс счётчик писем (F4-1, TC-143)."""
     net = kc.net
-    print('== Регистрация: ответ одинаков для свободного и занятого e-mail (US-1.1, ST-06; TC-101, TC-102)')
+    print('== Регистрация: ответ одинаков для свободного и занятого e-mail (US-1.1, ST-06; TC-101, TC-102)%s' % ('' if platform else ', платформы нет (режим отказа счётчика)'))
 
     def register(email, password, confirm=None):
         d = kc.start('dgm-web').follow('login-actions/registration')
@@ -180,18 +184,24 @@ def registration_checks(kc, admin, users):
     d_upper, _ = register(taken.upper(), strong_password('upper'))
     expect('регистрация: занятый адрес, записанный заглавными буквами, получает ту же страницу', K.normalize_page(d_upper.page) == K.normalize_page(d_new.page), d_upper.message)
 
-    new_mail = mails_to(net, free, at_least=1, wait=10)
-    expect('регистрация: свободный адрес получил одно письмо «Подтверждение E-mail» со ссылкой',
-           len(new_mail) == 1 and new_mail[0].get('subject') == 'Подтверждение E-mail' and action_link(new_mail[0]), str([m.get('subject') for m in new_mail]))
-    owner_mail = mails_to(net, taken, at_least=before_taken + 2, wait=10)
-    fresh = owner_mail[before_taken:]
-    expect('регистрация: владелец занятого адреса получил письма о двух попытках (обычной и заглавными), без ссылок подтверждения',
-           len(fresh) == 2 and all(m.get('subject') == 'Попытка регистрации на ваш e-mail' and not action_link(m) for m in fresh), str([m.get('subject') for m in fresh]))
-    expect('регистрация: в письме владельцу есть путь «войти» и нет нового пароля', fresh and 'войдите' in fresh[0].get('text', '').lower()
-           and strong_password('other') not in fresh[0].get('text', ''), fresh[0].get('text', '')[:200] if fresh else '')
+    if platform:
+        new_mail = mails_to(net, free, at_least=1, wait=10)
+        expect('регистрация: свободный адрес получил одно письмо «Подтверждение E-mail» со ссылкой',
+               len(new_mail) == 1 and new_mail[0].get('subject') == 'Подтверждение E-mail' and action_link(new_mail[0]), str([m.get('subject') for m in new_mail]))
+        owner_mail = mails_to(net, taken, at_least=before_taken + 2, wait=10)
+        fresh = owner_mail[before_taken:]
+        expect('регистрация: владелец занятого адреса получил письма о двух попытках (обычной и заглавными), без ссылок подтверждения',
+               len(fresh) == 2 and all(m.get('subject') == 'Попытка регистрации на ваш e-mail' and not action_link(m) for m in fresh), str([m.get('subject') for m in fresh]))
+        expect('регистрация: в письме владельцу есть путь «войти» и нет нового пароля', fresh and 'войдите' in fresh[0].get('text', '').lower()
+               and strong_password('other') not in fresh[0].get('text', ''), fresh[0].get('text', '')[:200] if fresh else '')
+    else:
+        expect('регистрация без платформы: письмо свободному адресу не ушло (счётчик писем недоступен, режим отказа ADR-010)', mails_to(net, free, wait=1.5) == [])
+        expect('регистрация без платформы: владельцу занятого адреса письма о попытках не ушли', len(mails_to(net, taken)) == before_taken)
 
     created = admin.realm('/users?email=%s&exact=true' % free).json()
-    if expect('регистрация: учётная запись для свободного адреса создана', len(created) == 1, str(created)[:200]):
+    if not platform:
+        expect('регистрация без платформы: учётная запись не создана (режим отказа)', created == [], str(created)[:200])
+    elif expect('регистрация: учётная запись для свободного адреса создана', len(created) == 1, str(created)[:200]):
         u = created[0]
         roles = {r['name'] for r in admin.realm('/users/%s/role-mappings/realm/composite' % u['id']).json()}
         expect('регистрация: новая запись включена, адрес не подтверждён, роль buyer, имя пользователя равно адресу',
@@ -227,6 +237,10 @@ def registration_checks(kc, admin, users):
            '%r, %r' % (mismatch.message, bad_email.message))
     expect('регистрация: после ошибки поле e-mail заполнено, пароли пустые', 'value="not-an-email"' in bad_email.page and 'value="%s"' % pw not in bad_email.page)
 
+    if not platform:
+        print('        (ссылка из письма и счётчик писем проверяются на стенде с платформой, задание e2e: keycloak_checks.py --mail-flows)')
+        return stamp
+
     # ссылка из письма: подтверждает адрес и продолжает вход в том же браузере (PKCE сохраняется)
     d_link, _ = register('link-%d@example.test' % stamp, strong_password('link'))
     mail = mails_to(net, 'link-%d@example.test' % stamp, at_least=1, wait=10)
@@ -241,12 +255,22 @@ def registration_checks(kc, admin, users):
         a = r.access() if r.ok else {}
         expect('регистрация: вход по e-mail и паролю после регистрации: роль buyer, области покупателя, amr = pwd',
                r.ok and (a.get('realm_access') or {}).get('roles') == ['buyer'] and scopes_of(a) == BUYER and a.get('amr') == ['pwd'], describe(r))
+
+    # счётчик писем по адресу (F4-1, TC-143): три письма за 10 минут, четвёртое не уходит, ответ для гостя прежний (место занимает любая попытка)
+    quota = 'quota-%d@example.test' % stamp
+    pages = [K.normalize_page(register(quota, strong_password('q%d' % n))[0].page) for n in range(4)]
+    expect('счётчик писем: четыре попытки на один адрес получают одну и ту же страницу «проверьте почту»', len(set(pages)) == 1 and 'Проверьте почту' in pages[0], 'разных страниц %d' % len(set(pages)))
+    sent = mails_to(net, quota, at_least=3, wait=10)
+    expect('счётчик писем: за 10 минут на адрес ушло три письма (подтверждение и две попытки), четвёртое удержано', len(sent) == 3, str([m.get('subject') for m in sent]))
+    expect('счётчик писем: четвёртое письмо не приходит и позже', len(mails_to(net, quota, wait=1.5)) == 3)
     return stamp
 
 
-def reset_checks(kc, admin, users, stamp):
+def reset_checks(kc, admin, users, stamp, platform=False):
+    """platform=False: без платформы счётчик писем недоступен, письма нет (режим отказа ADR-010), страница ответа та же. platform=True: письма и ссылка целиком;
+    пароль меняется у записи, созданной регистрацией этого прогона (link-<stamp>), а не у тестового покупателя: другие проверки задания e2e его пароль знают."""
     net = kc.net
-    print('== Сброс пароля: ответ одинаков для известного и неизвестного адреса (US-1.4, ST-06; TC-106, TC-107)')
+    print('== Сброс пароля: ответ одинаков для известного и неизвестного адреса (US-1.4, ST-06; TC-106, TC-107)%s' % ('' if platform else ', платформы нет (режим отказа счётчика)'))
 
     def request(username):
         d = kc.start('dgm-web').follow('login-actions/reset-credentials')
@@ -261,8 +285,11 @@ def reset_checks(kc, admin, users, stamp):
     d_unknown, t_unknown = request(unknown)
     expect('сброс пароля: известный и неизвестный адрес получают одну и ту же страницу', d_known.message and K.normalize_page(d_known.page) == K.normalize_page(d_unknown.page),
            '%r и %r' % (d_known.message, d_unknown.message))
-    got = mails_to(net, known, at_least=before + 1, wait=10)
-    expect('сброс пароля: известный адрес получил письмо со ссылкой', len(got) == before + 1 and action_link(got[-1]), str([m.get('subject') for m in got]))
+    if platform:
+        got = mails_to(net, known, at_least=before + 1, wait=10)
+        expect('сброс пароля: известный адрес получил письмо со ссылкой', len(got) == before + 1 and action_link(got[-1]), str([m.get('subject') for m in got]))
+    else:
+        expect('сброс пароля без платформы: известному адресу письмо не ушло (счётчик писем недоступен, режим отказа ADR-010)', len(mails_to(net, known, wait=1.5)) == before)
     expect('сброс пароля: неизвестному адресу письмо не ушло', mails_to(net, unknown, wait=1.5) == [])
     t_k, t_u = [t_known], [t_unknown]
     for _ in range(2):
@@ -273,11 +300,16 @@ def reset_checks(kc, admin, users, stamp):
            'известный %s, неизвестный %s' % (['%.2f' % t for t in t_k], ['%.2f' % t for t in t_u]))
     admin.clear_attacks(users['buyer-3']['id'])
 
+    if not platform:
+        print('        (ссылка из письма проверяется на стенде с платформой, задание e2e: keycloak_checks.py --mail-flows)')
+        return
+
     # ссылка из письма: новый пароль, вход со старым невозможен
+    email, old_password = 'link-%d@example.test' % stamp, strong_password('link')
     d = kc.start('dgm-web').follow('login-actions/reset-credentials')
-    count = len(mails_to(net, users['buyer-1']['email']))
-    d.post(username=users['buyer-1']['email'])
-    mail = mails_to(net, users['buyer-1']['email'], at_least=count + 1, wait=10)
+    count = len(mails_to(net, email))
+    d.post(username=email)
+    mail = mails_to(net, email, at_least=count + 1, wait=10)
     link = action_link(mail[-1]) if len(mail) > count else None
     if expect('сброс пароля: письмо покупателю со ссылкой', link, str([m.get('subject') for m in mail])):
         page = follow_redirects(kc, net.request('GET', link))
@@ -287,10 +319,9 @@ def reset_checks(kc, admin, users, stamp):
             data = dict(forms[0]['inputs'], **{'password-new': fresh, 'password-confirm': fresh})
             resp, loc = finish_at_callback(kc, net.request('POST', urllib.parse.urljoin(kc.public + '/', forms[0]['action']), form=data))
             expect('сброс пароля: после нового пароля покупатель возвращается в приложение', loc is not None and 'code=' in loc, '%s %s' % (resp.status, K.page_message(resp.text)))
-            expect('сброс пароля: со старым паролем вход закрыт', not kc.login('dgm-web', users['buyer-1']['email'], users['buyer-1']['password']).ok)
-            r = kc.login('dgm-web', users['buyer-1']['email'], fresh)
+            expect('сброс пароля: со старым паролем вход закрыт', not kc.login('dgm-web', email, old_password).ok)
+            r = kc.login('dgm-web', email, fresh)
             expect('сброс пароля: с новым паролем вход открыт', r.ok, describe(r))
-            users['buyer-1']['password'] = fresh
 
 
 # --------------------------------------------------------------------------------------------------- второй фактор целиком и seller_id
@@ -353,11 +384,32 @@ def seller_id_checks(kc, admin, users):
     expect('seller_id: сам пользователь атрибут выставить не может (нужен запрос к account API, клиент dgm-staff его не получает)', attempt is None or attempt.status in (401, 403, 404), str(attempt.status if attempt else ''))
 
 
+def finish(title):
+    print()
+    print('Проверок успешно: %d, с ошибками: %d' % (PASSED, len(FAILED)))
+    if os.environ.get('GITHUB_ACTIONS'):
+        print('::notice title=%s::Проверок успешно: %d, с ошибками: %d' % (title, PASSED, len(FAILED)))
+    if FAILED:
+        for f in FAILED:
+            print('  - %s' % f)
+        return 1
+    return 0
+
+
+def mail_flows(kc, admin, users):
+    """Письма регистрации и сброса пароля на стенде с платформой (задание e2e): счётчик писем платформы отвечает, Keycloak шлёт письма и держит четвёртое (F4-1)."""
+    stamp = registration_checks(kc, admin, users, platform=True)
+    reset_checks(kc, admin, users, stamp, platform=True)
+    return finish('keycloak_mail_flows')
+
+
 def main():
     kc, admin = K.from_env()
     path = os.path.join(os.environ.get('DGM_SECRETS_DIR', 'secrets'), 'test_users.json')
     users = {u['name']: u for u in json.load(open(path, encoding='utf-8'))['users']}
     net = kc.net
+    if '--mail-flows' in sys.argv[1:]:
+        return mail_flows(kc, admin, users)
 
     # --- обнаружение и ключи
     r = net.request('GET', kc.issuer + '/.well-known/openid-configuration')
@@ -565,15 +617,7 @@ def main():
         time.sleep(1)
     expect('письмо о смене пароля дошло до SMTP заглушки', len(found) >= 1, 'заглушка вернула %s' % str(found)[:200])
 
-    print()
-    print('Проверок успешно: %d, с ошибками: %d' % (PASSED, len(FAILED)))
-    if os.environ.get('GITHUB_ACTIONS'):
-        print('::notice title=keycloak_checks::Проверок успешно: %d, с ошибками: %d' % (PASSED, len(FAILED)))
-    if FAILED:
-        for f in FAILED:
-            print('  - %s' % f)
-        return 1
-    return 0
+    return finish('keycloak_checks')
 
 
 if __name__ == '__main__':

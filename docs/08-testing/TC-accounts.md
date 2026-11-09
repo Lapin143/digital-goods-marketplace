@@ -56,7 +56,7 @@
 | TC-140 | Вход через VK ID без e-mail: форма адреса, код из письма, продолжение входа | US-1.2 | L1 | JUnit |
 | TC-141 | Код из письма: неверный, истёк срок, пять попыток, чужой адрес или назначение | US-1.2 | L3 | JUnit |
 | TC-142 | Занятый адрес неотличим от свободного до ввода кода и не привязывается | US-1.2 | L7 | JUnit |
-| TC-143 | Счётчик писем на адрес: три за 10 минут, десять за сутки, общий для трёх шагов | US-1.1, US-1.2, US-1.4 | L3 | JUnit |
+| TC-143 | Счётчик писем на адрес: три за 10 минут, десять за сутки, общий для трёх шагов | US-1.1, US-1.2, US-1.4 | L3 | JUnit, Python на стенде |
 | TC-144 | Нарушение INV-07 даёт `pair-conflict`, выход за границы даёт `out_of_range` | US-8.3 | L1 | JUnit, Vitest |
 
 Внутренние операции платформы (`issueOtpCode`, `verifyOtpCode`, `receiveSmsStatus`) через шлюз не публикуются; ST-02 для них проверяет `accounts_checks.py` (раздел 5).
@@ -860,9 +860,9 @@
 | Уровень | L3 |
 | Тип | безопасность |
 | Приоритет | Высокий |
-| Автоматизация | JUnit |
+| Автоматизация | JUnit; Python на стенде |
 | Тег в коде | TC-143 |
-| Где в коде | `infra/keycloak/sms-otp/test/dgm/keycloak/smsotp/core/EmailQuotaGateTest.java`, `infra/keycloak/sms-otp/test/dgm/keycloak/smsotp/core/HttpPlatformOtpTest.java`, `infra/keycloak/sms-otp/test/dgm/keycloak/smsotp/core/VkEmailLoginTest.java`, `services/platform-service/src/test/java/dgm/platform/identity/otp/controller/EmailQuotaControllerTest.java`, `services/platform-service/src/test/java/dgm/platform/identity/otp/service/EmailLoginCodeTest.java` |
+| Где в коде | `infra/keycloak/sms-otp/test/dgm/keycloak/smsotp/core/EmailQuotaGateTest.java`, `infra/keycloak/sms-otp/test/dgm/keycloak/smsotp/core/HttpPlatformOtpTest.java`, `infra/keycloak/sms-otp/test/dgm/keycloak/smsotp/core/VkEmailLoginTest.java`, `services/platform-service/src/test/java/dgm/platform/identity/otp/controller/EmailQuotaControllerTest.java`, `services/platform-service/src/test/java/dgm/platform/identity/otp/service/EmailLoginCodeTest.java`, `tools/stand-checks/keycloak_checks.py` |
 
 **Предусловия.** Управляемые часы, Redis в памяти, лимиты по умолчанию (3 за 10 минут, 10 за сутки на адрес).
 
@@ -877,6 +877,7 @@
 7. Отключить Redis.
 8. Проверить решение шагов Keycloak регистрации и сброса пароля при отказе счётчика и при недоступности платформы.
 9. Просмотреть ключи Redis, метрики и тексты ошибок.
+10. На стенде с платформой (`keycloak_checks.py --mail-flows`, задание `e2e`): четыре регистрации на один адрес подряд дают одну и ту же страницу и три письма, четвёртое не уходит. На стенде без платформы (задание `keycloak`): регистрация и сброс пароля отвечают той же страницей, писем и новых записей нет (режим отказа, ADR-010).
 
 **Ожидаемый результат.** Шаг 1: четвёртое обращение получает 429 `otp-request-limited` с `Retry-After`, счётчик общий для трёх шагов. Шаг 2: окно освободилось. Шаг 3: регистр и пробелы не создают нового адреса, другой адрес считается отдельно. Шаг 4: одиннадцатое письмо отказано, через сутки счётчик свободен. Шаг 5: отказанный запрос ничего не расходует и свой запрет не продлевает; окно то же, что у письма смены e-mail. Шаг 6: лимит берётся из параметров платформы. Шаг 7: 503, письмо без счётчика не отправляется (режим отказа, ADR-010). Шаг 8: при отказе и при недоступности письмо не отправляется (`WITHHOLD_LIMITED`, `WITHHOLD_UNAVAILABLE`), адрес неверной формы счётчик не расходует; страница регистрации и сброса остаётся прежней, нейтральной («проверьте почту»). Запрос кода в потоке VK ID при исчерпании показывает «слишком много запросов для этого адреса», при недоступности «временно недоступно». Шаг 9: адрес нигде не встречается открытым: ключ Redis строится от HMAC с перцем, в метриках только шаг и результат. Ответ страницы и время ответа при отказе проверяются на стенде в шаге 16 Ф5 (К16).
 
