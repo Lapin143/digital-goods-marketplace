@@ -4,7 +4,7 @@ export type QuantityParse = { kind: 'empty' } | { kind: 'invalid' } | { kind: 'v
 
 /** Остаток из поля ввода: целое от 0 до 1 000 000 (контракт `ApiStockRequest`). Пробелы внутри числа допустимы («1 000»). */
 export function parseQuantity(text: string): QuantityParse {
-  const clean = text.replace(/[\s ]/g, '');
+  const clean = text.replace(/\s/g, '');
   if (clean === '') {
     return { kind: 'empty' };
   }
