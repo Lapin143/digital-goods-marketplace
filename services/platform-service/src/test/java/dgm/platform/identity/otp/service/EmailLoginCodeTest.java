@@ -285,6 +285,38 @@ class EmailLoginCodeTest {
 
     @Tag("TC-143")
     @Test
+    void theFourthCodeRequestForOneAddressIsRefusedBeforeAnyMailAndKeepsTheThirdCode() {
+        codes.then("111111", "222222", "333333");
+        for (int i = 0; i < 3; i++) {
+            vk.requestCode(EMAIL);
+        }
+
+        ProblemException limited = problem(() -> vk.requestCode(EMAIL));
+
+        assertEquals(ProblemType.OTP_REQUEST_LIMITED, limited.type());
+        assertTrue(Long.parseLong(limited.headers().get("Retry-After")) > 0);
+        assertEquals(3, mail.loginCodes().size(), "четвёртого письма нет");
+        assertEquals(3.0, quota("vk_email", "allowed"));
+        assertEquals(1.0, quota("vk_email", "limited"));
+        vk.verifyCode(EMAIL, "333333");
+    }
+
+    @Tag("TC-143")
+    @Test
+    void theCodeRequestSpendsTheSameCounterAsRegistrationAndResetMail() {
+        codes.then("111111");
+        otp.consumeEmailQuota("register", EMAIL);
+        otp.consumeEmailQuota("reset", EMAIL);
+        vk.requestCode(EMAIL);
+
+        ProblemException limited = problem(() -> vk.requestCode(EMAIL));
+
+        assertEquals(ProblemType.OTP_REQUEST_LIMITED, limited.type());
+        assertEquals(1, mail.loginCodes().size());
+    }
+
+    @Tag("TC-143")
+    @Test
     void theCounterIsTheSameWindowAsTheMailOfAnEmailChangeToTheSameAddress() {
         for (int i = 0; i < 3; i++) {
             otp.consumeEmailQuota("register", EMAIL);
