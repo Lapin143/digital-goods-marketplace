@@ -489,10 +489,12 @@ def canary_scan(fx):
 
 # --------------------------------------------------------------------------------------------------- память
 class MemoryWatch(threading.Thread):
-    """Пик памяти трёх сервисов за время сценариев: docker stats раз в 3 секунды, как в замерах задания (memory.py)."""
+    """Пик памяти сервисов за время сценариев: docker stats раз в 3 секунды, как в замерах задания (memory.py). По умолчанию три сервиса выдачи по запросу;
+    webhook_checks.py (шаг 16) берёт тот же наблюдатель для platform-service."""
 
-    def __init__(self):
+    def __init__(self, watched=WATCHED, title='под сценариями выдачи по запросу'):
         super().__init__(daemon=True)
+        self.watched, self.title = tuple(watched), title
         self.peaks, self.errors, self.stopped = {}, 0, threading.Event()
 
     def run(self):
@@ -500,7 +502,7 @@ class MemoryWatch(threading.Thread):
             try:
                 for name, (used, limit) in M.snapshot().items():
                     service = M.service_of(name)
-                    if service in WATCHED and used >= self.peaks.get(service, (0, 0))[0]:
+                    if service in self.watched and used >= self.peaks.get(service, (0, 0))[0]:
                         self.peaks[service] = (used, limit)
             except Exception:   # noqa: BLE001 - сбой замера не должен ронять сценарии
                 self.errors += 1
@@ -510,13 +512,13 @@ class MemoryWatch(threading.Thread):
         self.stopped.set()
         if self.is_alive():
             self.join(timeout=20)
-        line = '; '.join('%s пик %.0f из %.0f МБ (%.0f%%)' % (s, self.peaks[s][0], self.peaks[s][1], 100.0 * self.peaks[s][0] / self.peaks[s][1]) for s in WATCHED if s in self.peaks)
-        print('Пик памяти под сценариями выдачи по запросу: %s' % (line or 'замеров нет'))
+        line = '; '.join('%s пик %.0f из %.0f МБ (%.0f%%)' % (s, self.peaks[s][0], self.peaks[s][1], 100.0 * self.peaks[s][0] / self.peaks[s][1]) for s in self.watched if s in self.peaks)
+        print('Пик памяти %s: %s' % (self.title, line or 'замеров нет'))
         if os.environ.get('GITHUB_ACTIONS') and line:
-            print('::notice title=память под сценариями выдачи по запросу::%s' % line.replace(';', '%0A'))
-        missing = [s for s in WATCHED if s not in self.peaks]
+            print('::notice title=память %s::%s' % (self.title, line.replace(';', '%0A')))
+        missing = [s for s in self.watched if s not in self.peaks]
         over = ['%s %.0f%%' % (s, 100.0 * v[0] / v[1]) for s, v in self.peaks.items() if 100.0 * v[0] / v[1] > MEMORY_FAIL]
-        expect('Пик памяти delivery-service, inventory-service и order-service под сценариями измерен и не выше %d%% лимита' % MEMORY_FAIL, not missing and not over,
+        expect('Пик памяти %s %s измерен и не выше %d%% лимита' % (', '.join(self.watched[:-1]) + ' и ' + self.watched[-1] if len(self.watched) > 1 else self.watched[0], self.title.replace('под сценариями выдачи по запросу', 'под сценариями'), MEMORY_FAIL), not missing and not over,
                'нет замеров: %s; выше порога: %s; сбоев замера %d' % (missing, over, self.errors))
 
 

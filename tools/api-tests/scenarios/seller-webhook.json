@@ -1,0 +1,36 @@
+{
+  "id": "SWH-01",
+  "title": "Список доставок webhook, шлюз: без токена, по ключу API и с токеном покупателя список закрыт, значения ключа в ответе нет (TC-018, TC-972; ST-02)",
+  "steps": [
+    {
+      "name": "TC-972, TC-018. Список доставок webhook без токена и без ключа: 401",
+      "op": "listWebhookDeliveries",
+      "as": "guest",
+      "expect": 401,
+      "assert": [
+        {"header": "Content-Type", "contains": "application/problem+json"}
+      ]
+    },
+    {
+      "name": "TC-972, TC-018. Список доставок webhook с неизвестным ключом API: 401 (операция кабинета, ключ ей не открывает), значения ключа в ответе нет",
+      "op": "listWebhookDeliveries",
+      "as": "guest",
+      "expect": 401,
+      "headers": {"X-Api-Key": "{{unknownKey}}"},
+      "set": {"unknownKey": "dgm_NewmanSellerWebhookKeyDoesNotExist000000"},
+      "assert": [
+        {"header": "Content-Type", "contains": "application/problem+json"},
+        {"bodyNotContains": "dgm_NewmanSellerWebhookKeyDoesNotExist000000"}
+      ]
+    },
+    {
+      "name": "TC-972, TC-018. Список доставок webhook с токеном покупателя: 403",
+      "op": "listWebhookDeliveries",
+      "as": "buyer",
+      "expect": 403,
+      "assert": [
+        {"header": "Content-Type", "contains": "application/problem+json"}
+      ]
+    }
+  ]
+}

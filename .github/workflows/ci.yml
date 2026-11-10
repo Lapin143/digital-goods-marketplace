@@ -733,6 +733,29 @@ jobs:
             echo "::endgroup::"
           done
 
+      # Webhook продавцу (шаг 16 среза 1, К16; US-11.4, FT-10.3, TC-970 – TC-974): order.paid и order.issued на адрес подключения заглушки с верной подписью и заголовками
+      # X-Event-Id, X-Event-Type; два отказа и успех с паузами 1 и 2 секунды; постоянный сбой это шесть попыток, failed и запись в listWebhookDeliveries. Паузы повторов сжаты
+      # профилем fast-time платформы (1 – 5 секунд). Канарейка: секрет и адрес подключения не в журнале platform-service, e-mail покупателей не в телах. Заглушка возвращается к
+      # умолчанию даже при ошибке; пик памяти platform-service печатается отдельной строкой, порог 90 % (Р-196).
+      - name: Webhook продавцу (подпись, повторы, failed, список доставок, канарейка, память platform-service)
+        id: webhook
+        if: ${{ !cancelled() }}
+        env:
+          DIAG_FILTER: 'ОШИБКА|Traceback|Error|^ +[|] '
+          DIAG_MAX: "40"
+          DIAG_TAIL: "30"
+        run: tools/ci/diag.sh "Webhook продавцу" make webhook-check
+
+      # Предупреждения и ошибки сервисов, если сценарий выше упал: что платформа писала об уведомлениях и каталоге при отправке webhook.
+      - name: Журналы сервисов после упавшего сценария webhook
+        if: ${{ !cancelled() && steps.webhook.outcome == 'failure' }}
+        run: |
+          for s in platform-service catalog-service; do
+            echo "::group::$s"
+            docker compose --profile '*' logs --no-color --since 30m "$s" 2>&1 | grep -E 'WARN|ERROR|уведомлени|webhook' | cut -c1-420 | tail -n 40 || true
+            echo "::endgroup::"
+          done
+
       # Гонка за последний ключ и потерянный ответ шлюза (шаг 18 среза 2, К7; ST-10, TC-040): два покупателя одновременно, один выигрывает ключ, другой получает 409;
       # шлюз создал платёж, а ответ не дошёл: платёж один, заказ доведён до выдачи
       - name: Гонка за последний ключ и потерянный ответ шлюза

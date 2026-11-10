@@ -240,6 +240,10 @@ delivery-check: ## Проверить недоставку ключа сквоз
 seller-delivery-check: ## Проверить выдачу по запросу к системе продавца сквозь стенд (К15, TC-017, TC-961 – TC-967): ответ в срок, дубликат, ошибка и молчание продавца (окно 20 секунд), остаток, возврат, канарейка (make fast-up DEBUG=1, make keycloak-users)
 	$(KC_ENV) python3 tools/stand-checks/seller_delivery_checks.py
 
+.PHONY: webhook-check
+webhook-check: ## Проверить webhook продавцу сквозь стенд (К16, TC-018, TC-970 – TC-974): подпись и заголовки, повторы 1 и 2 секунды, шесть попыток и failed, список доставок, канарейка, пик памяти platform-service (набор full с make fast-up DEBUG=1, make keycloak-users)
+	$(KC_ENV) python3 tools/stand-checks/webhook_checks.py
+
 .PHONY: concurrency-check
 concurrency-check: ## Проверить гонку за последний ключ и потерянный ответ шлюза сквозь стенд (К7, ST-10, TC-040): два покупателя одновременно, один получает 201 и ключ в письме, другой 409; шлюз создал платёж, а ответ потерян: платёж один, заказ доведён до выдачи (набор full с ускоренными сроками, DEBUG=1, make keycloak-users; ключ товара тратится, второй запуск заводит продавца заново)
 	$(KC_ENV) python3 tools/stand-checks/concurrency_checks.py
