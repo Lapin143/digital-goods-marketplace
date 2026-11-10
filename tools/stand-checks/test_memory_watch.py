@@ -16,7 +16,8 @@ class WatchTest(unittest.TestCase):
         watch = MW.MemoryWatch(watched, 'под сценариями webhook')
         watch.peaks, watch.errors = peaks, errors
         before, out = (G.PASSED, len(G.FAILED)), []
-        env = {'GITHUB_ACTIONS': 'true'} if annotation else {}
+        # Пустое значение, а не отсутствие: на раннере CI переменная уже задана, и patch.dict с пустым словарём её не убирает
+        env = {'GITHUB_ACTIONS': 'true' if annotation else ''}
         with mock.patch.dict(os.environ, env), mock.patch('builtins.print', side_effect=lambda *a, **k: out.append(' '.join(str(x) for x in a))):
             watch.finish()
         return G.PASSED - before[0], len(G.FAILED) - before[1], out
