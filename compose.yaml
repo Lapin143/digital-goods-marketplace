@@ -558,6 +558,8 @@ services:
       # Webhook продавцам (Р-193, ADR-028, правило 7): защита адреса от SSRF отвергает внутренние адреса, а заглушка системы продавца стоит во
       # внутренней сети стенда. Имя и порт заглушки освобождены только от проверки диапазонов адресов; настоящий сервер задаёт пустое значение.
       DGM_SELLER_ENDPOINT_ALLOW: ${DGM_SELLER_ENDPOINT_ALLOW-external-stubs:8443}
+      # Ускоренные сроки (профиль fast-time, time-budgets.md, раздел 5): паузы повторов webhook продавцу 1 – 5 секунд. Включает только DGM_FAST_TIME=1: make fast-up и задание e2e, на сервер не попадает
+      SPRING_PROFILES_ACTIVE: ${DGM_FAST_TIME:+fast-time}
       # Куча 192 МБ из лимита 352 МБ (memory-budget.md)
       JAVA_TOOL_OPTIONS: -Xmx192m -XX:+ExitOnOutOfMemoryError -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED
     tmpfs:

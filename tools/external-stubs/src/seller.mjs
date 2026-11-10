@@ -178,10 +178,74 @@ async function respondByPlan(app, seller, entry) {
   }
 }
 
+/**
+ * Принятый webhook о заказе. Платформа шлёт запрос выдачи и webhook на один адрес подключения (endpointUrl, Р-187): запрос несёт заголовок X-Request-Id, webhook X-Event-Id и
+ * X-Event-Type (Р-193). Поэтому обработчик вызывается и по /seller/:slug/webhook, и по /seller/:slug/request, если в запросе есть X-Event-Id (шаг 16 руководства Ф5).
+ */
+async function receiveWebhook(app, { req, res, params, body, raw }) {
+  const { state } = app;
+  const seller = findSeller(state, params.slug);
+  checkSignature(app, seller, 'webhook', req, raw);
+  const problems = webhookProblems(body);
+  if (problems.length) {
+    reject(app, seller, 'webhook', 'invalid_body', { problems });
+    throw new HttpError(400, 'invalid_request', 'Уведомление не принято', problems);
+  }
+
+  // Заголовки X-Event-Id и X-Event-Type платформа ставит из строки очереди; если они пришли, обязаны совпасть с телом (Р-193). Без заголовков (прямой вызов /webhook) проверки нет.
+  const idHeader = req.headers['x-event-id'] ?? null;
+  const typeHeader = req.headers['x-event-type'] ?? null;
+  const headerProblems = [];
+  if (idHeader !== null && idHeader !== body.eventId) headerProblems.push({ pointer: '#/headers/X-Event-Id', code: 'mismatch', detail: 'Заголовок не равен eventId в теле.' });
+  if (typeHeader !== null && typeHeader !== body.type) headerProblems.push({ pointer: '#/headers/X-Event-Type', code: 'mismatch', detail: 'Заголовок не равен type в теле.' });
+  if (headerProblems.length) {
+    reject(app, seller, 'webhook', 'invalid_header', { problems: headerProblems });
+    throw new HttpError(400, 'invalid_request', 'Уведомление не принято', headerProblems);
+  }
+
+  const mode = state.modes.seller.webhook;
+  if (mode.delayMs) await sleep(mode.delayMs);
+  const at = app.clock.now().toISOString();
+  const attempt = { at, eventId: body.eventId, type: body.type, eventIdHeader: idHeader, eventTypeHeader: typeHeader, timestamp: req.headers[TIMESTAMP_HEADER] };
+  const number = seller.attempts.filter((a) => a.eventId === body.eventId).length + 1;
+  const record = (outcome) => seller.attempts.push({ ...attempt, attempt: number, outcome });
+
+  if (state.takeFailure('sellerWebhookFail')) {
+    if (mode.failure === 'drop') {
+      record('dropped');
+      req.socket.destroy();
+      return;
+    }
+    record(`failed:${mode.failStatus}`);
+    throw new HttpError(mode.failStatus, 'seller_unavailable', 'Система продавца не приняла уведомление (режим заглушки)');
+  }
+
+  const known = seller.webhooks.get(body.eventId);
+  if (known) {
+    known.duplicates += 1;
+    record('duplicate');
+    return sendJson(res, 200, { eventId: body.eventId, status: 'duplicate' });
+  }
+  seller.webhooks.set(body.eventId, {
+    eventId: body.eventId,
+    type: body.type,
+    receivedAt: at,
+    eventIdHeader: idHeader,
+    eventTypeHeader: typeHeader,
+    attempts: number,
+    duplicates: 0,
+    extraFields: extraFields(body, WEBHOOK_FIELDS),
+    body,
+  });
+  record('accepted');
+  sendJson(res, 200, { eventId: body.eventId, status: 'ok' });
+}
+
 export function registerSeller(router, app) {
   const { state } = app;
 
   router.add('POST', '/seller/:slug/request', async ({ req, res, params, body, raw }) => {
+    if (req.headers['x-event-id']) return receiveWebhook(app, { req, res, params, body, raw }); // webhook на адрес подключения
     const seller = findSeller(state, params.slug);
     checkSignature(app, seller, 'request', req, raw);
     const problems = requestProblems(body);
@@ -243,48 +307,5 @@ export function registerSeller(router, app) {
     sendJson(res, 202, { requestId: entry.requestId, status: 'accepted' });
   });
 
-  router.add('POST', '/seller/:slug/webhook', async ({ req, res, params, body, raw }) => {
-    const seller = findSeller(state, params.slug);
-    checkSignature(app, seller, 'webhook', req, raw);
-    const problems = webhookProblems(body);
-    if (problems.length) {
-      reject(app, seller, 'webhook', 'invalid_body', { problems });
-      throw new HttpError(400, 'invalid_request', 'Уведомление не принято', problems);
-    }
-
-    const mode = state.modes.seller.webhook;
-    if (mode.delayMs) await sleep(mode.delayMs);
-    const at = app.clock.now().toISOString();
-    const attempt = { at, eventId: body.eventId, type: body.type, timestamp: req.headers[TIMESTAMP_HEADER] };
-    const number = seller.attempts.filter((a) => a.eventId === body.eventId).length + 1;
-    const record = (outcome) => seller.attempts.push({ ...attempt, attempt: number, outcome });
-
-    if (state.takeFailure('sellerWebhookFail')) {
-      if (mode.failure === 'drop') {
-        record('dropped');
-        req.socket.destroy();
-        return;
-      }
-      record(`failed:${mode.failStatus}`);
-      throw new HttpError(mode.failStatus, 'seller_unavailable', 'Система продавца не приняла уведомление (режим заглушки)');
-    }
-
-    const known = seller.webhooks.get(body.eventId);
-    if (known) {
-      known.duplicates += 1;
-      record('duplicate');
-      return sendJson(res, 200, { eventId: body.eventId, status: 'duplicate' });
-    }
-    seller.webhooks.set(body.eventId, {
-      eventId: body.eventId,
-      type: body.type,
-      receivedAt: at,
-      attempts: number,
-      duplicates: 0,
-      extraFields: extraFields(body, WEBHOOK_FIELDS),
-      body,
-    });
-    record('accepted');
-    sendJson(res, 200, { eventId: body.eventId, status: 'ok' });
-  });
+  router.add('POST', '/seller/:slug/webhook', (ctx) => receiveWebhook(app, ctx));
 }

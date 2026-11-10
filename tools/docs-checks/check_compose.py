@@ -49,7 +49,7 @@ FAST_TIME = r'\$\{DGM_FAST_TIME:\+,?fast-time\}'   # единственная д
 # и только у сервисов, которые принимают адрес (catalog-service) или вызывают его (delivery-service: запрос ключа, platform-service: webhook)
 SELLER_ENDPOINT_ALLOW = '${DGM_SELLER_ENDPOINT_ALLOW-external-stubs:8443}'
 SELLER_ENDPOINT_SERVICES = {'catalog-service', 'delivery-service', 'platform-service'}
-FAST_TIME_SERVICES = {'inventory-service', 'order-service', 'payment-service', 'delivery-service'}   # профиль включается ими (Р-147)
+FAST_TIME_SERVICES = {'inventory-service', 'order-service', 'payment-service', 'delivery-service', 'platform-service'}   # профиль включается ими (Р-147)
 ONE_SHOT = {'kafka-init', 'storage-init'}     # завершаются сами, проверки готовности нет
 # Образы без оболочки и wget (distroless): проверку готовности Docker задать нечем, готовность проверяет make obs-check по /ready
 NO_HEALTHCHECK = {'loki': 'образ distroless', 'tempo': 'образ distroless'}

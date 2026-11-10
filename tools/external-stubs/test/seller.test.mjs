@@ -30,9 +30,9 @@ const requestBody = (extra = {}) => ({ requestId: REQUEST_ID, orderNumber: 1042,
 const webhookBody = (extra = {}) => ({ eventId: 'evt-1', type: 'order.paid', occurredAt: new Date().toISOString(), orderNumber: 1042, productId: PRODUCT_ID, quantity: 2, amount: { amount: 299800, currency: 'RUB' }, ...extra });
 
 const connect = (fields = { secret: SECRET, apiKey: API_KEY }) => h.admin('PUT', `/admin/sellers/${SLUG}`, { body: fields });
-const signed = (obj, { secret = SECRET, timestamp = new Date().toISOString(), body } = {}) => {
+const signed = (obj, { secret = SECRET, timestamp = new Date().toISOString(), body, headers = {} } = {}) => {
   const raw = body ?? JSON.stringify(obj);
-  return { raw, headers: { 'Content-Type': 'application/json', 'X-Webhook-Timestamp': timestamp, 'X-Webhook-Signature': sign(secret, timestamp, raw) } };
+  return { raw, headers: { 'Content-Type': 'application/json', 'X-Webhook-Timestamp': timestamp, 'X-Webhook-Signature': sign(secret, timestamp, raw), ...headers } };
 };
 const post = (path, obj, opts) => {
   const { raw, headers } = signed(obj, opts);
@@ -326,6 +326,32 @@ test('webhook: первые N попыток отказывают (повтор�
   assert.deepEqual(r.attempts.map((x) => [x.attempt, x.outcome]), [[1, 'failed:503'], [2, 'failed:503'], [3, 'accepted']]);
   assert.equal(r.items[0].attempts, 3);
   assert.equal(new Set(r.attempts.map((x) => x.eventId)).size, 1, 'идентификатор события один во всех попытках');
+});
+
+test('webhook на адрес подключения: платформа шлёт его туда же, куда запрос выдачи, и различает по X-Event-Id (шаг 16)', async () => {
+  await connect();
+  const headers = { 'X-Event-Id': 'evt-1', 'X-Event-Type': 'order.paid' };
+  assert.equal((await post(`/seller/${SLUG}/request`, webhookBody(), { headers })).status, 200);
+  const r = (await h.admin('GET', `/admin/sellers/${SLUG}/webhooks`)).json;
+  assert.equal(r.items.length, 1);
+  assert.equal(r.items[0].eventIdHeader, 'evt-1');
+  assert.equal(r.items[0].eventTypeHeader, 'order.paid');
+  assert.deepEqual(r.attempts.map((x) => [x.eventIdHeader, x.eventTypeHeader, x.outcome]), [['evt-1', 'order.paid', 'accepted']]);
+  assert.equal((await requests()).length, 0, 'это не запрос выдачи: он не попал в список запросов');
+  assert.equal((await sendRequest()).status, 202, 'запрос без X-Event-Id на том же адресе остаётся запросом выдачи');
+  assert.equal((await requests()).length, 1);
+});
+
+test('webhook: заголовки события должны совпасть с телом, иначе 400 и запись об отказе', async () => {
+  await connect();
+  const wrongId = await post(`/seller/${SLUG}/request`, webhookBody(), { headers: { 'X-Event-Id': 'evt-2', 'X-Event-Type': 'order.paid' } });
+  const wrongType = await post(`/seller/${SLUG}/request`, webhookBody(), { headers: { 'X-Event-Id': 'evt-1', 'X-Event-Type': 'order.issued' } });
+  assert.equal(wrongId.status, 400);
+  assert.equal(wrongType.status, 400);
+  const r = (await h.admin('GET', `/admin/sellers/${SLUG}/webhooks`)).json;
+  assert.equal(r.items.length, 0, 'ничего не принято');
+  const rejected = (await h.admin('GET', `/admin/sellers/${SLUG}/rejected`)).json.items;
+  assert.deepEqual(rejected.map((x) => [x.kind, x.reason]), [['webhook', 'invalid_header'], ['webhook', 'invalid_header']]);
 });
 
 test('webhook: постоянный сбой, обрыв соединения, медленный ответ', async () => {
