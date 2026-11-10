@@ -267,3 +267,16 @@ describe('загрузка ключей файлом CSV (TC-413)', () => {
     expect(keys).toEqual(['key-1', 'key-1']);
   });
 });
+
+describe('товар с выдачей по API', () => {
+  it('ключи на платформу не загружаются: пояснение вместо полей загрузки, остаток виден', async () => {
+    renderScreen(SCREEN, {
+      route: ROUTE,
+      handler: server({ 'GET /api/v1/seller/products/p-1/stock': () => respond(200, { productId: 'p-1', available: 7, reserved: 1, issued: 0, issuanceMethod: 'seller_api', version: 3, updatedAt: '2026-10-17T09:00:00Z' }) }),
+    });
+    expect(await screen.findByText(t('keys.sellerApi'))).toBeInTheDocument();
+    expect(value(t('keys.stock.available'))).toBe('7');
+    expect(screen.queryByLabelText(t('keys.list.label'))).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(t('keys.file.label'))).not.toBeInTheDocument();
+  });
+});

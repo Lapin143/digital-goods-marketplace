@@ -10,6 +10,7 @@ const VALUES: ProductValues = {
   platform: 'Steam',
   regions: 'ru, kz',
   price: '1499,50',
+  issuanceMethod: 'key_pool',
 };
 
 function product(overrides: Partial<SellerProduct> = {}): SellerProduct {
@@ -103,9 +104,15 @@ describe('тело запроса товара (TC-327)', () => {
     });
   });
 
+  it('способ выдачи по API уходит в теле как выбран, у товара из ответа он прежний', () => {
+    expect(toProductInput({ ...VALUES, issuanceMethod: 'seller_api' }).issuanceMethod).toBe('seller_api');
+    expect(valuesFromProduct(product({ issuanceMethod: 'seller_api' })).issuanceMethod).toBe('seller_api');
+    expect(EMPTY_PRODUCT.issuanceMethod).toBe('key_pool');
+  });
+
   it('значения формы из товара возвращаются без потерь', () => {
     const back = valuesFromProduct(product());
-    expect(back).toEqual({ title: 'Игра', description: 'Ключ активации', productType: 'game_key', platform: 'Steam', regions: 'RU, KZ', price: '1499,50' });
+    expect(back).toEqual({ title: 'Игра', description: 'Ключ активации', productType: 'game_key', platform: 'Steam', regions: 'RU, KZ', price: '1499,50', issuanceMethod: 'key_pool' });
     expect(toProductInput(back).price.amount).toBe(149950);
   });
 });

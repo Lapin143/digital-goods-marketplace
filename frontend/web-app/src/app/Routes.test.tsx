@@ -126,6 +126,30 @@ describe('маршруты кабинета продавца', () => {
     expect(screen.getByRole('link', { name: t('seller.home.newProduct') })).toHaveAttribute('href', '/seller/products/new');
   });
 
+  it('главная кабинета ведёт к заказам, API-ключам и подключению системы', async () => {
+    const staff = fakeManager(fakeUser(claimsFor(['seller'], ['pwd', 'otp'])));
+    renderScreen(<App />, { route: '/seller', managers: { staff } });
+    expect(await screen.findByRole('link', { name: t('seller.home.orders') })).toHaveAttribute('href', '/seller/orders');
+    expect(screen.getByRole('link', { name: t('seller.home.apiKeys') })).toHaveAttribute('href', '/seller/api-keys');
+    expect(screen.getByRole('link', { name: t('seller.home.integration') })).toHaveAttribute('href', '/seller/integration');
+  });
+
+  it.each([
+    ['/seller/orders', 'sellerOrders.title'],
+    ['/seller/api-keys', 'apiKeys.title'],
+    ['/seller/integration', 'integration.title'],
+  ] as const)('страница %s открывается по своему адресу', async (route, titleKey) => {
+    const handler = (url: URL) => {
+      if (url.pathname === '/api/v1/seller/integration') {
+        return respond(200, { endpointUrl: null, status: 'disabled', secretVersion: 0, version: 0, updatedAt: null });
+      }
+      return respond(200, { items: [], page: { limit: 20, nextCursor: null } });
+    };
+    const staff = fakeManager(fakeUser(claimsFor(['seller'], ['pwd', 'otp'])));
+    renderScreen(<App />, { route, managers: { staff }, handler });
+    expect(await screen.findByRole('heading', { level: 1, name: t(titleKey) })).toBeInTheDocument();
+  });
+
   it('страница ключей товара открывается по адресу товара', async () => {
     const staff = fakeManager(fakeUser(claimsFor(['seller'], ['pwd', 'otp'])));
     renderScreen(<App />, {

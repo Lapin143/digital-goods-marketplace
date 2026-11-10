@@ -308,3 +308,72 @@ describe('товар продавца: переходы статуса (TC-327)'
     expect(await screen.findByRole('link', { name: t('seller.product.keysLink') })).toHaveAttribute('href', '/seller/products/p-1/keys');
   });
 });
+
+describe('товар продавца: способ выдачи', () => {
+  const STOCK = 'GET /api/v1/seller/products/p-1/stock';
+  const apiStock = { productId: 'p-1', available: 10, reserved: 2, issued: 0, issuanceMethod: 'seller_api', version: 4, updatedAt: '2026-11-02T12:00:00Z' };
+
+  it('новый товар: по умолчанию «Пул ключей», выбор «По API продавца» уходит в теле запроса', async () => {
+    const user = userEvent.setup();
+    const created = product({ issuanceMethod: 'seller_api' });
+    const handler = server(
+      { current: created },
+      { 'POST /api/v1/seller/products': () => respond(201, created, { ETag: '"1"' }), [STOCK]: () => respond(200, apiStock) },
+    );
+    const { calls } = renderScreen(SCREEN, { route: '/seller/products/new', handler });
+    const select = await screen.findByLabelText(t('seller.product.issuance'));
+    expect(select).toHaveValue('key_pool');
+    expect(select).toBeEnabled();
+    expect(screen.getByText(t('seller.product.issuance.hint'))).toBeInTheDocument();
+
+    await fillNew(user);
+    await user.selectOptions(select, 'seller_api');
+    await user.click(screen.getByRole('button', { name: t('seller.product.save') }));
+    await waitFor(() => expect(calls.some((call) => call.init.method === 'POST')).toBe(true));
+    expect(JSON.parse(String(calls.find((call) => call.init.method === 'POST')?.init.body)).issuanceMethod).toBe('seller_api');
+    // После создания открывается карточка с блоком остатка по API
+    expect(await screen.findByText(t('apiStock.title'))).toBeInTheDocument();
+  });
+
+  it('существующий товар с пулом ключей: способ выдачи нельзя менять, ссылка на ключи есть, остатка по API нет', async () => {
+    const { calls } = renderScreen(SCREEN, { route: '/seller/products/p-1', handler: server({ current: product() }) });
+    const select = await screen.findByLabelText(t('seller.product.issuance'));
+    expect(select).toBeDisabled();
+    expect(select).toHaveValue('key_pool');
+    expect(screen.getByText(t('seller.product.issuance.fixed'))).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: t('seller.product.keysLink') })).toBeInTheDocument();
+    expect(screen.queryByText(t('apiStock.title'))).not.toBeInTheDocument();
+    expect(calls.some((call) => call.url.pathname.endsWith('/stock'))).toBe(false);
+  });
+
+  it('товар с выдачей по API: способ зафиксирован, есть блок остатка, ссылки на загрузку ключей нет, правка не меняет способ', async () => {
+    const user = userEvent.setup();
+    const handler = server(
+      { current: product({ issuanceMethod: 'seller_api' }), etag: '"1"' },
+      {
+        [STOCK]: () => respond(200, apiStock),
+        'PUT /api/v1/seller/products/p-1': () => respond(200, product({ issuanceMethod: 'seller_api', title: 'Новое название', version: 2 }), { ETag: '"2"' }),
+      },
+    );
+    const { calls } = renderScreen(SCREEN, { route: '/seller/products/p-1', handler });
+    const select = await screen.findByLabelText(t('seller.product.issuance'));
+    expect(select).toBeDisabled();
+    expect(select).toHaveValue('seller_api');
+    expect(await screen.findByText(t('apiStock.title'))).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: t('seller.product.keysLink') })).not.toBeInTheDocument();
+
+    const title = screen.getByLabelText(t('seller.product.title'));
+    await user.clear(title);
+    await user.type(title, 'Новое название');
+    await user.click(screen.getByRole('button', { name: t('seller.product.save') }));
+    expect(await screen.findByText(t('seller.product.saved'))).toBeInTheDocument();
+    expect(JSON.parse(String(calls.find((call) => call.url.pathname === '/api/v1/seller/products/p-1' && call.init.method === 'PUT')?.init.body)).issuanceMethod).toBe('seller_api');
+  });
+
+  it('товар в архиве с выдачей по API: остаток не правится', async () => {
+    const handler = server({ current: product({ issuanceMethod: 'seller_api', status: 'archived' }) }, { [STOCK]: () => respond(200, apiStock) });
+    renderScreen(SCREEN, { route: '/seller/products/p-1', handler });
+    await screen.findByText(t('apiStock.title'));
+    expect(screen.getByLabelText(t('apiStock.quantity'))).toBeDisabled();
+  });
+});
