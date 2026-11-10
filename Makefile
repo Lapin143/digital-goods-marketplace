@@ -201,7 +201,7 @@ sms-login-check: ## Проверить вход по SMS на настоящей
 	$(KC_ENV) python3 tools/stand-checks/sms_login_checks.py
 
 .PHONY: accounts-check
-accounts-check: ## Проверить учётные записи сквозь стенд: вход, VK ID, жизненный цикл записи сотрудника, второй фактор, внутренние операции (набор full, DEBUG=1, make keycloak-users)
+accounts-check: ## Проверить учётные записи сквозь стенд: вход, VK ID (в том числе без e-mail: код из письма, занятый адрес, счётчик писем), жизненный цикл записи сотрудника, второй фактор, внутренние операции (набор full, DEBUG=1, make keycloak-users)
 	$(KC_ENV) python3 tools/stand-checks/accounts_checks.py
 
 .PHONY: keycloak-mail-check
