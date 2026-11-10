@@ -4,6 +4,9 @@ import type { ProductInput, SellerProduct } from './types';
 
 export const PRODUCT_TYPE_VALUES = ['game_key', 'software_license', 'gift_card', 'subscription'] as const;
 
+/** Способ выдачи (Р-184): пул ключей на платформе или API системы продавца. Задаётся при создании товара и не меняется. */
+export const ISSUANCE_VALUES = ['key_pool', 'seller_api'] as const;
+
 /** Товар в полях ввода: всё текстом, цена в рублях, регионы через запятую. */
 export interface ProductValues {
   title: string;
@@ -12,9 +15,10 @@ export interface ProductValues {
   platform: string;
   regions: string;
   price: string;
+  issuanceMethod: string;
 }
 
-export const EMPTY_PRODUCT: ProductValues = { title: '', description: '', productType: '', platform: '', regions: '', price: '' };
+export const EMPTY_PRODUCT: ProductValues = { title: '', description: '', productType: '', platform: '', regions: '', price: '', issuanceMethod: 'key_pool' };
 
 export type ProductErrors = Partial<Record<keyof ProductValues, TextKey>>;
 
@@ -42,6 +46,7 @@ export function valuesFromProduct(product: SellerProduct | undefined): ProductVa
     platform: product.platform,
     regions: product.activationRegions.join(', '),
     price: rublesText(product.price.amount),
+    issuanceMethod: product.issuanceMethod,
   };
 }
 
@@ -76,7 +81,7 @@ export function validateProduct(values: ProductValues): ProductErrors {
   return errors;
 }
 
-/** Тело запроса. Вызывать после `validateProduct` без ошибок. В R1 способ выдачи только пул ключей. */
+/** Тело запроса. Вызывать после `validateProduct` без ошибок. Способ выдачи уходит как выбран при создании; у существующего товара он прежний. */
 export function toProductInput(values: ProductValues): ProductInput {
   const price = parseRubles(values.price);
   return {
@@ -86,7 +91,7 @@ export function toProductInput(values: ProductValues): ProductInput {
     platform: values.platform.trim(),
     activationRegions: parseRegions(values.regions) ?? [],
     price: { amount: price.kind === 'value' ? price.kopecks : 0, currency: 'RUB' },
-    issuanceMethod: 'key_pool',
+    issuanceMethod: values.issuanceMethod as ProductInput['issuanceMethod'],
   };
 }
 

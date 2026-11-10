@@ -52,3 +52,9 @@ export function rejectReasonLabel(reason: string): string {
   const key = `keys.reason.${reason}`;
   return hasText(key) ? t(key) : reason;
 }
+
+/** Способ выдачи товара (Р-184); незнакомое значение (перечисление открытое) показывается без перевода. */
+export function issuanceMethodLabel(method: string): string {
+  const key = `issuance.${method}`;
+  return hasText(key) ? t(key) : method;
+}

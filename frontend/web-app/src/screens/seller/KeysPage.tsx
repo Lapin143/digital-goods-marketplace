@@ -1,4 +1,5 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
+import type { UseQueryResult } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
@@ -15,6 +16,7 @@ import { formatMoment } from '../../ui/format';
 import { CSV_MAX_BYTES, KEYS_MAX, checkCsv, splitKeys } from './keys';
 import { rejectReasonLabel } from './labels';
 import type { KeyUploadReport, StockInfo } from './types';
+import { stockKey, useStock } from './useStock';
 import styles from './SellerProducts.module.css';
 
 /** Отправка, которую можно повторить с тем же телом и тем же ключом идемпотентности, пока исход неизвестен. */
@@ -22,15 +24,7 @@ interface Pending {
   send: () => Promise<KeyUploadReport>;
 }
 
-function StockPanel({ productId }: { productId: string }) {
-  const api = useApi();
-  const query = useQuery({
-    queryKey: ['seller-stock', productId],
-    queryFn: async ({ signal }) => {
-      const response = await api.get<StockInfo>(`/api/v1/seller/products/${encodeURIComponent(productId)}/stock`, { auth: 'staff', signal });
-      return response.data;
-    },
-  });
+function StockPanel({ query }: { query: UseQueryResult<StockInfo> }) {
   if (query.isPending) {
     return <StatePanel kind="loading" />;
   }
@@ -115,7 +109,7 @@ function KeyUpload({ productId }: { productId: string }) {
       const result = await job.send();
       pending.current = undefined;
       setReport(result);
-      void queryClient.invalidateQueries({ queryKey: ['seller-stock', productId] });
+      void queryClient.invalidateQueries({ queryKey: stockKey(productId) });
     } catch (error) {
       const retry = isOutcomeUnknown(error);
       if (!retry) {
@@ -209,12 +203,10 @@ function KeyUpload({ productId }: { productId: string }) {
   );
 }
 
-/** Остаток и загрузка ключей товара (`/seller/products/:productId/keys`). */
-export function KeysPage() {
-  const { productId } = useParams();
-  if (!productId) {
-    return <StatePanel kind="error" message={t('product.notFound.text')} />;
-  }
+/** Остаток и загрузка ключей товара (`/seller/products/:productId/keys`). У товара с выдачей по API ключей на платформе нет: вместо загрузки пояснение. */
+function KeysContent({ productId }: { productId: string }) {
+  const stock = useStock(productId);
+  const sellerApi = stock.data?.issuanceMethod === 'seller_api';
   return (
     <section>
       <p>
@@ -222,8 +214,16 @@ export function KeysPage() {
       </p>
       <h1>{t('keys.title')}</h1>
       <h2>{t('keys.stock.title')}</h2>
-      <StockPanel productId={productId} />
-      <KeyUpload productId={productId} />
+      <StockPanel query={stock} />
+      {sellerApi ? <Notice kind="info">{t('keys.sellerApi')}</Notice> : <KeyUpload productId={productId} />}
     </section>
   );
+}
+
+export function KeysPage() {
+  const { productId } = useParams();
+  if (!productId) {
+    return <StatePanel kind="error" message={t('product.notFound.text')} />;
+  }
+  return <KeysContent productId={productId} />;
 }

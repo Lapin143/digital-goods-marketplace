@@ -7,8 +7,11 @@ import { SessionScope } from './SessionScope';
 import { EmailHelpPage } from '../screens/account/EmailHelpPage';
 import { PhonePage } from '../screens/account/PhonePage';
 import { SmsHome } from '../screens/account/SmsHome';
+import { ApiKeysPage } from '../screens/seller/ApiKeysPage';
 import { ApplicationPage } from '../screens/seller/ApplicationPage';
+import { IntegrationPage } from '../screens/seller/IntegrationPage';
 import { KeysPage } from '../screens/seller/KeysPage';
+import { SellerOrdersPage } from '../screens/seller/SellerOrdersPage';
 import { SellerProductPage } from '../screens/seller/SellerProductPage';
 import { SellerProductsPage } from '../screens/seller/SellerProductsPage';
 import { ApplicationCardPage } from '../screens/staff/moderation/ApplicationCardPage';
@@ -128,6 +131,9 @@ export function App() {
           <Route path="products/new" element={<SellerProductPage />} />
           <Route path="products/:productId" element={<SellerProductPage />} />
           <Route path="products/:productId/keys" element={<KeysPage />} />
+          <Route path="api-keys" element={<ApiKeysPage />} />
+          <Route path="integration" element={<IntegrationPage />} />
+          <Route path="orders" element={<SellerOrdersPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
         <Route

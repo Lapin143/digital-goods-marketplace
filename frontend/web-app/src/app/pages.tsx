@@ -102,6 +102,15 @@ export function SellerHome() {
         <li>
           <Link to="/seller/products/new">{t('seller.home.newProduct')}</Link>
         </li>
+        <li>
+          <Link to="/seller/orders">{t('seller.home.orders')}</Link>
+        </li>
+        <li>
+          <Link to="/seller/api-keys">{t('seller.home.apiKeys')}</Link>
+        </li>
+        <li>
+          <Link to="/seller/integration">{t('seller.home.integration')}</Link>
+        </li>
       </ul>
     </section>
   );

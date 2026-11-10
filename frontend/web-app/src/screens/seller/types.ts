@@ -1,5 +1,7 @@
 import type { components as CatalogComponents } from '../../api/generated/catalog';
 import type { components as InventoryComponents } from '../../api/generated/inventory';
+import type { components as OrderComponents } from '../../api/generated/order';
+import type { components as PlatformComponents } from '../../api/generated/platform';
 
 export type SellerApplication = CatalogComponents['schemas']['SellerApplication'];
 export type SellerApplicationForm = CatalogComponents['schemas']['SellerApplicationForm'];
@@ -10,3 +12,14 @@ export type SellerProduct = CatalogComponents['schemas']['SellerProduct'];
 export type SellerProductPage = CatalogComponents['schemas']['SellerProductPage'];
 export type StockInfo = InventoryComponents['schemas']['StockInfo'];
 export type KeyUploadReport = InventoryComponents['schemas']['KeyUploadReport'];
+export type ApiStock = InventoryComponents['schemas']['ApiStock'];
+export type ApiKey = CatalogComponents['schemas']['ApiKey'];
+export type ApiKeyPage = CatalogComponents['schemas']['ApiKeyPage'];
+export type ApiKeyIssued = CatalogComponents['schemas']['ApiKeyIssued'];
+export type SellerIntegration = CatalogComponents['schemas']['SellerIntegration'];
+export type SellerIntegrationSaved = CatalogComponents['schemas']['SellerIntegrationSaved'];
+export type SecretRotation = CatalogComponents['schemas']['SecretRotation'];
+export type SellerOrder = OrderComponents['schemas']['SellerOrder'];
+export type SellerOrderPage = OrderComponents['schemas']['SellerOrderPage'];
+export type WebhookDelivery = PlatformComponents['schemas']['WebhookDelivery'];
+export type WebhookDeliveryPage = PlatformComponents['schemas']['WebhookDeliveryPage'];

@@ -16,9 +16,10 @@ import { TextAreaField } from '../../ui/TextAreaField';
 import { TextField } from '../../ui/TextField';
 import { formatMoment } from '../../ui/format';
 import { productTypeLabel } from '../storefront/labels';
-import { PRODUCT_TYPE_VALUES, isLocked, needsRemoderation, toProductInput, validateProduct, valuesFromProduct } from './product';
+import { ISSUANCE_VALUES, PRODUCT_TYPE_VALUES, isLocked, needsRemoderation, toProductInput, validateProduct, valuesFromProduct } from './product';
 import type { ProductErrors, ProductValues } from './product';
-import { productStatusLabel, productStatusTone } from './labels';
+import { ApiStockSection } from './ApiStockSection';
+import { issuanceMethodLabel, productStatusLabel, productStatusTone } from './labels';
 import type { SellerProduct } from './types';
 import styles from './SellerProducts.module.css';
 
@@ -39,6 +40,7 @@ const FIELD_OF_POINTER: Record<string, keyof ProductValues | undefined> = {
   platform: 'platform',
   activationRegions: 'regions',
   price: 'price',
+  issuanceMethod: 'issuanceMethod',
 };
 
 const ARCHIVABLE = new Set(['draft', 'on_moderation', 'published', 'rejected']);
@@ -159,7 +161,7 @@ function ProductForm({ loaded, onChange }: { loaded: Loaded | undefined; onChang
         <div className={styles.meta}>
           <Badge tone={productStatusTone(product.status)}>{productStatusLabel(product.status)}</Badge>
           {product.submittedAt && product.status === 'on_moderation' ? <span>{t('seller.product.reviewUntil', { time: formatMoment(product.reviewDeadlineAt) })}</span> : null}
-          <Link to={`/seller/products/${encodeURIComponent(product.productId)}/keys`}>{t('seller.product.keysLink')}</Link>
+          {product.issuanceMethod === 'key_pool' ? <Link to={`/seller/products/${encodeURIComponent(product.productId)}/keys`}>{t('seller.product.keysLink')}</Link> : null}
         </div>
       ) : null}
       {product?.status === 'rejected' && product.rejectionReason ? (
@@ -193,6 +195,15 @@ function ProductForm({ loaded, onChange }: { loaded: Loaded | undefined; onChang
             value={values.productType}
             error={fieldTexts.productType}
             onChange={(event) => set('productType', event.target.value)}
+          />
+          <SelectField
+            label={t('seller.product.issuance')}
+            hint={product ? t('seller.product.issuance.fixed') : t('seller.product.issuance.hint')}
+            options={ISSUANCE_VALUES.map((method) => ({ value: method, label: issuanceMethodLabel(method) }))}
+            value={values.issuanceMethod}
+            error={fieldTexts.issuanceMethod}
+            disabled={product !== undefined}
+            onChange={(event) => set('issuanceMethod', event.target.value)}
           />
           <TextField
             label={t('seller.product.platform')}
@@ -243,6 +254,7 @@ function ProductForm({ loaded, onChange }: { loaded: Loaded | undefined; onChang
           ) : null}
         </div>
       </form>
+      {product?.issuanceMethod === 'seller_api' ? <ApiStockSection productId={product.productId} readOnly={product.status === 'archived'} /> : null}
     </section>
   );
 }

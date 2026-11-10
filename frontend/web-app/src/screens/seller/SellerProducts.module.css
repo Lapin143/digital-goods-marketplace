@@ -68,3 +68,15 @@
   padding: 0;
   border: 0;
 }
+
+.cellNote {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--color-muted);
+}
+
+.dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
