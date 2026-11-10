@@ -26,6 +26,7 @@ make keycloak-users. Проверки идут настоящим входом (
   ST-02   три внутренние операции платформы (issueOtpCode, verifyOtpCode, receiveSmsStatus) не достижимы ни одной ролью через шлюз.
 
 Лимит кодов с одного адреса (10 в час) общий с sms_login_checks.py: эта проверка тратит на него два запроса.
+Пик памяти platform-service за время проверки печатается отдельной строкой (memory_watch.py, Р-196, красный выше 90 % лимита).
 Только стандартная библиотека Python.
 """
 import json
@@ -41,6 +42,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import gateway_checks as G  # noqa: E402
 import kc_client as K  # noqa: E402
+import memory_watch as MW  # noqa: E402
 import sms_login_checks as S  # noqa: E402
 
 expect = G.expect
@@ -572,11 +574,17 @@ def main():
             print('Нет тестового пользователя %s (make keycloak-users)' % name, file=sys.stderr)
             return 2
     stamp = int(time.time())
-    buyer = login_checks(kc, admin, stamp)
-    vk_checks(kc, admin, stamp)
-    if buyer:
-        lifecycle(kc, admin, people, buyer)
-    internal_operations(kc, admin, people)
+    # шаг 16 Ф5 (К16, Р-196): пик памяти platform-service под входом, письмами и кодами отдельной строкой, красный выше 90 % лимита
+    watch = MW.MemoryWatch(('platform-service',), 'под сценариями учётных записей')
+    watch.start()
+    try:
+        buyer = login_checks(kc, admin, stamp)
+        vk_checks(kc, admin, stamp)
+        if buyer:
+            lifecycle(kc, admin, people, buyer)
+        internal_operations(kc, admin, people)
+    finally:
+        watch.finish()
     print('\nПроверок успешно: %d, с ошибками: %d' % (G.PASSED, len(G.FAILED)))
     for name in G.FAILED:
         print('  - %s' % name)

@@ -38,7 +38,6 @@ import json
 import os
 import re
 import sys
-import threading
 import time
 import uuid
 
@@ -49,6 +48,7 @@ import canary_checks as C  # noqa: E402
 import gateway_checks as G  # noqa: E402
 import kc_client as K  # noqa: E402
 import memory as M  # noqa: E402
+import memory_watch as MW  # noqa: E402
 import orders_checks as O  # noqa: E402
 import purchase_checks as P  # noqa: E402
 import seller_api_checks as SAPI  # noqa: E402
@@ -65,7 +65,7 @@ KEY_LINE = re.compile(r'^\d+\. (SELLR_\S+)[ \t]*$', re.M)
 DATABASES = P.DATABASES + ['catalog_db']
 EVENT_TOPICS = ['payment.events', 'order.events', 'delivery.events', 'inventory.events']
 WATCHED = ('delivery-service', 'inventory-service', 'order-service')
-MEMORY_FAIL = 90                   # процент лимита, как --fail в замерах памяти задания e2e
+MEMORY_FAIL = MW.MEMORY_FAIL
 BUYER_FIELDS = ('buyer', 'email', 'address', 'user', 'phone')
 ERROR_CODE = re.compile(r'^[a-z0-9_.-]{1,64}$')
 
@@ -488,38 +488,11 @@ def canary_scan(fx):
 
 
 # --------------------------------------------------------------------------------------------------- память
-class MemoryWatch(threading.Thread):
-    """Пик памяти сервисов за время сценариев: docker stats раз в 3 секунды, как в замерах задания (memory.py). По умолчанию три сервиса выдачи по запросу;
-    webhook_checks.py (шаг 16) берёт тот же наблюдатель для platform-service."""
+class MemoryWatch(MW.MemoryWatch):
+    """Пик памяти сервисов выдачи по запросу (по умолчанию три сервиса); общий наблюдатель живёт в memory_watch.py."""
 
     def __init__(self, watched=WATCHED, title='под сценариями выдачи по запросу'):
-        super().__init__(daemon=True)
-        self.watched, self.title = tuple(watched), title
-        self.peaks, self.errors, self.stopped = {}, 0, threading.Event()
-
-    def run(self):
-        while not self.stopped.is_set():
-            try:
-                for name, (used, limit) in M.snapshot().items():
-                    service = M.service_of(name)
-                    if service in self.watched and used >= self.peaks.get(service, (0, 0))[0]:
-                        self.peaks[service] = (used, limit)
-            except Exception:   # noqa: BLE001 - сбой замера не должен ронять сценарии
-                self.errors += 1
-            self.stopped.wait(M.INTERVAL)
-
-    def finish(self):
-        self.stopped.set()
-        if self.is_alive():
-            self.join(timeout=20)
-        line = '; '.join('%s пик %.0f из %.0f МБ (%.0f%%)' % (s, self.peaks[s][0], self.peaks[s][1], 100.0 * self.peaks[s][0] / self.peaks[s][1]) for s in self.watched if s in self.peaks)
-        print('Пик памяти %s: %s' % (self.title, line or 'замеров нет'))
-        if os.environ.get('GITHUB_ACTIONS') and line:
-            print('::notice title=память %s::%s' % (self.title, line.replace(';', '%0A')))
-        missing = [s for s in self.watched if s not in self.peaks]
-        over = ['%s %.0f%%' % (s, 100.0 * v[0] / v[1]) for s, v in self.peaks.items() if 100.0 * v[0] / v[1] > MEMORY_FAIL]
-        expect('Пик памяти %s %s измерен и не выше %d%% лимита' % (', '.join(self.watched[:-1]) + ' и ' + self.watched[-1] if len(self.watched) > 1 else self.watched[0], self.title.replace('под сценариями выдачи по запросу', 'под сценариями'), MEMORY_FAIL), not missing and not over,
-               'нет замеров: %s; выше порога: %s; сбоев замера %d' % (missing, over, self.errors))
+        super().__init__(watched, title)
 
 
 # --------------------------------------------------------------------------------------------------- запуск

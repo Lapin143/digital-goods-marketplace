@@ -38,6 +38,7 @@ import accounts_checks as A  # noqa: E402
 import canary_checks as C  # noqa: E402
 import gateway_checks as G  # noqa: E402
 import kc_client as K  # noqa: E402
+import memory_watch as MW  # noqa: E402
 import orders_checks as O  # noqa: E402
 import seller_api_checks as SAPI  # noqa: E402
 import seller_delivery_checks as SD  # noqa: E402
@@ -326,7 +327,7 @@ def canary(fx):
 
 # --------------------------------------------------------------------------------------------------- запуск
 def run_scenarios(fx):
-    watch = SD.MemoryWatch(watched=WATCHED, title='под сценариями webhook')
+    watch = MW.MemoryWatch(WATCHED, 'под сценариями webhook')
     watch.start()
     try:
         for fn in (delivered_and_signed, retried, failed_for_good):
