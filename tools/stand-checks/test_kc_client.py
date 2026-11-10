@@ -147,6 +147,9 @@ REGISTER = '<form action="/d"><input name="email"><input name="password"><input 
 UPDATE_PASSWORD = '<form action="/e"><input name="password-new"><input name="password-confirm"></form>'
 SMS_PHONE = '<form id="kc-sms-phone-form" action="/p"><input id="phone" name="phone"><button name="send" type="submit"></button></form>'
 SMS_CODE = '<form id="kc-sms-code-form" action="/q"><input name="code"><button name="verify"></button><button name="resend"></button></form>'
+VK_EMAIL = '<form id="kc-vk-email-form" action="/v"><input name="email"><button id="kc-vk-email-send" name="send"></button></form>'
+VK_CODE = ('<form id="kc-vk-email-code-form" action="/w"><input name="code"><button name="verify"></button>'
+           '<button name="resend"></button><button name="change"></button></form>')
 ALERT = '<div class="pf-v5-c-alert pf-m-danger"><span class="pf-v5-c-alert__title kc-feedback-text">Код неверный.   Проверьте цифры.</span></div>'
 EMPTY_FIELD_ERROR = '<div id="input-error-container-code"></div>'
 
@@ -161,6 +164,13 @@ class PagesTest(unittest.TestCase):
 
     def test_page_kind_of_sms_and_registration_pages(self):
         self.assertEqual(K.page_kind(SMS_PHONE), 'sms_phone')
+        self.assertEqual(K.page_kind(SMS_CODE), 'sms_code')
+        self.assertEqual(K.page_kind(REGISTER), 'register')
+
+    def test_page_kind_of_vk_email_pages_is_not_mixed_up_with_sms_or_registration(self):
+        self.assertEqual(K.page_kind(VK_EMAIL), 'vk_email')
+        self.assertEqual(K.page_kind(VK_CODE), 'vk_code')
+        self.assertNotEqual(K.page_kind(VK_CODE), K.page_kind(SMS_CODE))
         self.assertEqual(K.page_kind(SMS_CODE), 'sms_code')
         self.assertEqual(K.page_kind(REGISTER), 'register')
         self.assertNotEqual(K.page_kind(UPDATE_PASSWORD), 'register')

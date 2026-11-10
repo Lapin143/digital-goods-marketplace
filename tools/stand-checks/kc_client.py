@@ -254,8 +254,13 @@ def forms_of(page):
 
 
 def page_kind(page):
-    """Что за страница: форма пароля, второй фактор, настройка TOTP, номер или код входа по SMS, ошибка, другое."""
+    """Что за страница: форма пароля, второй фактор, настройка TOTP, номер или код входа по SMS, адрес и код из письма при входе через VK ID
+    без e-mail (vk_email, vk_code), ошибка, другое."""
     names = {n for f in forms_of(page) for n in f['inputs']}
+    if 'id="kc-vk-email-code-form"' in page:
+        return 'vk_code'
+    if 'id="kc-vk-email-form"' in page:
+        return 'vk_email'
     if 'otp' in names and 'totpSecret' not in names:
         return 'otp'
     if 'totpSecret' in names or 'kc-totp-settings-form' in page:
@@ -312,7 +317,7 @@ class LoginResult:
 class Dialog:
     """Открытая страница входа, которую проверка ведёт по шагам: вход по SMS, регистрация, сброс пароля, настройка TOTP.
 
-    kind: что на экране сейчас (login, otp, totp_setup, sms_phone, sms_code, error, other) или redirect, если Keycloak уже вернул код
+    kind: что на экране сейчас (login, otp, totp_setup, sms_phone, sms_code, vk_email, vk_code, error, other) или redirect, если Keycloak уже вернул код
     на redirect_uri. post() отправляет первую форму страницы вместе со скрытыми полями; button добавляет имя нажатой кнопки
     (вход по SMS различает «отправить ещё раз» и «другой номер» по имени кнопки).
     """
