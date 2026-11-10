@@ -21,8 +21,12 @@ import org.keycloak.sessions.AuthenticationSessionModel;
  * Запрос e-mail при первом входе через VK ID, когда провайдер подтвердил вход, но адрес не передал (Р-194, F4-3, US-1.2, сценарий 4).
  * Стоит первым в потоке {@code dgm-first-broker-login}. Если адрес в данных входа есть, шаг сразу завершается и ничего не меняет. Если
  * адреса нет: форма адреса, затем форма кода из письма ({@link VkEmailLogin}); платформа выпускает и проверяет код, расширение кодов не
- * знает. После верного кода адрес записывается в данные входа, и стандартные шаги потока создают учётную запись покупателя: адрес
- * подтверждён, потому что провайдер помечен как доверенный по адресу, а здесь адрес подтверждён кодом.
+ * знает. После верного кода адрес записывается в данные входа, и стандартные шаги потока создают учётную запись покупателя.
+ *
+ * <p>Шаг стоит в потоке дважды. Первый раз до создания учётной записи: диалог с гостем. Второй раз после создания: пометить адрес
+ * подтверждённым. Полагаться на доверие к провайдеру ({@code trustEmail}) нельзя: на настоящем стенде Keycloak не считает подтверждённым
+ * адрес, которого провайдер не передавал, и после верного кода просил подтвердить e-mail ещё раз (F5-52). Адрес подтверждён кодом из
+ * письма, поэтому шаг помечает его сам, и только когда пометка о подтверждении в сессии совпадает с адресом созданной записи.
  *
  * <p>Адрес, занятый существующей учётной записью, не привязывается (гость доказал владение ящиком, но не доказал владение записью): вход
  * заканчивается нейтральным сообщением, событие остаётся в журнале Keycloak без адреса.
@@ -32,16 +36,31 @@ import org.keycloak.sessions.AuthenticationSessionModel;
 final class VkEmailAuthenticator extends AbstractIdpAuthenticator {
 
     private static final String ADDRESS_NOTE = "dgm.vkemail.address";
+    /** Адрес, подтверждённый кодом: ставится после верного кода, читается вторым проходом шага, когда запись уже создана. */
+    private static final String CONFIRMED_NOTE = "dgm.vkemail.confirmed";
     private static final Logger LOG = Logger.getLogger(VkEmailAuthenticator.class);
 
     @Override
     protected void authenticateImpl(AuthenticationFlowContext context, SerializedBrokeredIdentityContext serialized, BrokeredIdentityContext brokered) {
+        AuthenticationSessionModel auth = context.getAuthenticationSession();
+        UserModel created = context.getUser();
+        String confirmed = auth.getAuthNote(CONFIRMED_NOTE);
+        if (created != null && confirmed != null) {
+            // Второй проход: запись создана, адрес в ней тот, что подтверждён кодом
+            auth.removeAuthNote(CONFIRMED_NOTE);
+            if (confirmed.equalsIgnoreCase(created.getEmail())) {
+                created.setEmailVerified(true);
+            }
+            context.success();
+            return;
+        }
         String email = brokered.getEmail();
         if (email != null && !email.isBlank()) {
             context.success();
             return;
         }
-        context.getAuthenticationSession().removeAuthNote(ADDRESS_NOTE);
+        auth.removeAuthNote(ADDRESS_NOTE);
+        auth.removeAuthNote(CONFIRMED_NOTE);
         context.challenge(render(context, new VkEmailLogin.Step.AskEmail(null)));
     }
 
@@ -68,6 +87,7 @@ final class VkEmailAuthenticator extends AbstractIdpAuthenticator {
         switch (step) {
             case VkEmailLogin.Step.Done done -> {
                 auth.removeAuthNote(ADDRESS_NOTE);
+                auth.setAuthNote(CONFIRMED_NOTE, done.email());
                 serialized.setEmail(done.email());
                 serialized.saveToAuthenticationSession(auth, BROKERED_CONTEXT_NOTE);
                 context.getEvent().detail(Details.IDENTITY_PROVIDER, "vkid");

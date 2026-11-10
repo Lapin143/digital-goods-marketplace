@@ -526,6 +526,14 @@
           "requirement": "REQUIRED",
           "priority": 20,
           "userSetupAllowed": false
+        },
+        {
+          "authenticator": "dgm-vk-email",
+          "authenticatorFlow": false,
+          "autheticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 30,
+          "userSetupAllowed": false
         }
       ]
     },

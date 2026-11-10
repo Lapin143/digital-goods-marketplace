@@ -449,6 +449,8 @@ def main():
             rep.err(w, 'поток первого входа через внешнего провайдера должен начинаться с обязательного шага dgm-vk-email (Р-194, F4-3)')
         elif any(e.get('requirement') == 'ALTERNATIVE' for e in first):
             rep.err(w, 'в потоке первого входа рядом с обязательным шагом стоят альтернативные: Keycloak их не выполнит, вынесите их в подпоток')
+        elif first[-1].get('authenticator') != 'dgm-vk-email' or first[-1].get('requirement') != 'REQUIRED' or len(first) < 3:
+            rep.err(w, 'поток первого входа через внешнего провайдера должен заканчиваться вторым обязательным шагом dgm-vk-email: он помечает адрес, подтверждённый кодом, подтверждённым (F5-52)')
         reg_flow = flows.get(realm.get('registrationFlow'), {})
         if [e.get('authenticator') for e in reg_flow.get('authenticationExecutions', [])] != ['dgm-register']:
             rep.err(w, 'поток регистрации должен состоять из одного шага dgm-register: форма Keycloak отвечает «адрес уже существует» (US-01, ST-06)')
